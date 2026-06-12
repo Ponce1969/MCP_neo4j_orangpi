@@ -1,0 +1,17 @@
+# Workspace Registry — MCP OranPi
+#
+# This file maps logical workspace identifiers to their paths on the OrangePi.
+# Paths are on the REMOTE host, not the machine running the MCP.
+# All paths MUST be under ORANPI_ROOT_WORKSPACE_DIR.
+# The agent NEVER sees or provides raw filesystem paths — only logical identifiers.
+#
+# Example:
+#   workspaces:
+#     guardian:
+#       path: /home/cerra/codigo/guardian
+#     crm:
+#       path: /home/cerra/codigo/crm
+#     lab:
+#       path: /home/cerra/codigo/lab
+
+workspaces: {}
