@@ -576,7 +576,12 @@ class MCPHandler:
             }
             if result.error.detail is not None:
                 error_data["error"]["detail"] = result.error.detail  # type: ignore[index]
+            if result.truncated:
+                error_data["truncated"] = True
             return [types.TextContent(type="text", text=json.dumps(error_data))]
 
-        # Success — dataclasses.asdict handles our domain models
-        return [types.TextContent(type="text", text=json.dumps(result.data, default=str))]
+        # Success — wrap data in "data" key per MCP spec
+        output: dict[str, object] = {"data": result.data}
+        if result.truncated:
+            output["truncated"] = True
+        return [types.TextContent(type="text", text=json.dumps(output, default=str))]
