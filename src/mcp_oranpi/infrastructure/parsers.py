@@ -639,9 +639,13 @@ def parse_top_bn1(stdout: str) -> CPUUsage:
                     # For now, just store the total as per_core[0]
                     per_core = [cpu_percent]
 
-        # Load average line
+        # Load average line — extract only the three values after "load average:"
         if "load average:" in line.lower():
-            load_matches = re.findall(r"(\d+\.?\d+)", line)
+            # Split at "load average:" to avoid matching numbers from
+            # the time/uptime portion of the header line.
+            # Example: "top - 21:04:57 up 15 days, ... load average: 0.27, 0.20, 0.18"
+            load_part = line.lower().split("load average:")[-1]
+            load_matches = re.findall(r"(\d+\.?\d+)", load_part)
             if len(load_matches) >= 3:
                 try:
                     load_avg_1m = float(load_matches[0])
@@ -650,9 +654,24 @@ def parse_top_bn1(stdout: str) -> CPUUsage:
                 except ValueError:
                     pass
 
-        # Uptime line
-        if line.startswith("up "):
-            uptime_seconds = _parse_uptime(line)
+        # Uptime — appears in header line after "up ".
+        # "top - 21:04:57 up 15 days, 20:31, 2 users, load average: ..."
+        # "up 1 day, 5 min, load average: ..." (standalone-like)
+        # "up 3:45, load average: ..."
+        # Match lines containing " up " or starting with "up ".
+        has_uptime = " up " in line or line.strip().startswith("up ")
+        if has_uptime:
+            # Extract the uptime portion after "up ":
+            # Find "up " and take everything until a comma followed by
+            # a number and "user" or until "load average".
+            up_match = re.search(r"\bup\s+(.+?)(?:,\s*\d+\s*user|\s+load|\s*$)", line)
+            if up_match:
+                uptime_str = up_match.group(1).strip()
+                # Remove trailing comma if present
+                uptime_str = uptime_str.rstrip(",")
+                uptime_seconds = _parse_uptime(uptime_str)
+            elif line.strip().startswith("up "):
+                uptime_seconds = _parse_uptime(line.strip())
 
     return CPUUsage(
         cpu_percent=cpu_percent,
@@ -664,34 +683,37 @@ def parse_top_bn1(stdout: str) -> CPUUsage:
     )
 
 
-def _parse_uptime(line: str) -> int:
+def _parse_uptime(uptime_str: str) -> int:
     """Parse uptime string to seconds.
 
     Examples:
-    "up 42 days, 3:15"
-    "up 1 hour, 5 min"
-    "up 3:45"
+    "15 days, 20:31" (from top -bn1, after "up" extraction)
+    "1 day, 5:30"
+    "42 days, 3:15"
+    "3:45" (hours:minutes only, less than 1 day)
+    "1:05" (1 hour 5 minutes)
     """
     total_seconds = 0
 
-    # Extract numbers and units
-    days_match = re.search(r"(\d+)\s*day", line)
+    # Extract days
+    days_match = re.search(r"(\d+)\s*day", uptime_str)
     if days_match:
         total_seconds += int(days_match.group(1)) * 86400
 
-    hours_min_match = re.search(r"(\d+):(\d+)", line)
+    # Extract hours:minutes (e.g., "20:31" or "3:45")
+    hours_min_match = re.search(r"(\d+):(\d+)", uptime_str)
     if hours_min_match:
         hours = int(hours_min_match.group(1))
         minutes = int(hours_min_match.group(2))
         total_seconds += hours * 3600 + minutes * 60
 
-    # Handle "X min" format
-    min_match = re.search(r"(\d+)\s*min", line)
-    if min_match:
+    # Handle "X min" format (no hours)
+    min_match = re.search(r"(\d+)\s*min", uptime_str)
+    if min_match and not hours_min_match:
         total_seconds += int(min_match.group(1)) * 60
 
     # Handle "X hour" (without minutes)
-    hour_only_match = re.search(r"(\d+)\s*hour", line)
+    hour_only_match = re.search(r"(\d+)\s*hour", uptime_str)
     if hour_only_match and not hours_min_match:
         total_seconds += int(hour_only_match.group(1)) * 3600
 

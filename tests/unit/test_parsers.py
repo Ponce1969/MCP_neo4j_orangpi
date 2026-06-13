@@ -391,24 +391,19 @@ class TestParseTopBn1:
     """Tests for parse_top_bn1."""
 
     def test_full_top_output(self) -> None:
-        # Note: parse_top_bn1 has two bugs:
-        # 1. re.findall finds ALL numbers in line, not just load average values
-        # 2. It only parses uptime if line.startswith("up "), but the uptime
-        #    is in the MIDDLE of the line (after time), not at the start
-        # So uptime will be 0 with this test data.
-        stdout = """top - 14:23:01 up 1 day, 5 min, 0 users, load average: 7, 8, 9
-%Cpu(s): 3.2 us, 1.1 sy, 0.0 ni, 95.2 id, 0.3 wa, 0.0 hi, 0.2 si, 0.0 st
-MiB Mem: 8192.0 total, 2048.0 used, 6144.0 free, 256.0 shared, 512.0 buffers
-MiB Swap: 2048.0 total, 0.0 used, 2048.0 free"""
+        """Full top -bn1 output with uptime and load average in header line."""
+        stdout = """top - 14:23:01 up 1 day,  5:30,  2 users,  load average: 0.27, 0.20, 0.18
+%Cpu(s):  3.2 us,  1.1 sy,  0.0 ni, 95.2 id,  0.3 wa,  0.0 hi,  0.2 si,  0.0 st
+MiB Mem :  8192.0 total,  2048.0 used,  6144.0 free,   256.0 shared,   512.0 buff/cache
+MiB Swap:  2048.0 total,      0.0 used,   2048.0 free"""
         usage = parse_top_bn1(stdout)
 
         assert usage.cpu_percent == pytest.approx(4.8)  # 100 - 95.2
-        # First three numbers found: 14, 23, 1 (from 14:23:01)
-        assert usage.load_avg_1m == 14.0
-        assert usage.load_avg_5m == 23.0
-        assert usage.load_avg_15m == 1.0
-        # uptime parsing bug: line doesn't start with "up ", so uptime is 0
-        assert usage.uptime_seconds == 0
+        assert usage.load_avg_1m == pytest.approx(0.27)
+        assert usage.load_avg_5m == pytest.approx(0.20)
+        assert usage.load_avg_15m == pytest.approx(0.18)
+        # 1 day + 5 hours 30 minutes = 86400 + 19800 = 106200
+        assert usage.uptime_seconds == 106200
 
     def test_different_idle_format(self) -> None:
         stdout = "%Cpu(s): 50.0 us, 10.0 sy, 0.0 ni, 40.0 id"
@@ -420,17 +415,30 @@ MiB Swap: 2048.0 total, 0.0 used, 2048.0 free"""
         usage = parse_top_bn1("")
         assert usage.cpu_percent == 0.0
 
-    def test_uptime_minutes_format(self) -> None:
-        stdout = "up 30 min, load average: 0.5, 0.5, 0.5"
+    def test_uptime_days_and_hours(self) -> None:
+        """Uptime with days and hours:minutes (from top -bn1 header)."""
+        stdout = "top - 21:04:57 up 15 days, 20:31,  2 users,  load average: 0.27, 0.20, 0.18"
         usage = parse_top_bn1(stdout)
 
-        assert usage.uptime_seconds == 30 * 60
+        # 15 days + 20 hours 31 minutes = 1296000 + 73860 = 1369860
+        assert usage.uptime_seconds == 1369860
+        assert usage.load_avg_1m == pytest.approx(0.27)
 
-    def test_uptime_hours_format(self) -> None:
-        stdout = "up 2 hours, load average: 0.1, 0.1, 0.1"
+    def test_uptime_days_only_minutes(self) -> None:
+        """Uptime with days and minutes (no hours)."""
+        stdout = "up 1 day, 5 min, load average: 0.5, 0.5, 0.5"
         usage = parse_top_bn1(stdout)
 
-        assert usage.uptime_seconds == 2 * 3600
+        # 1 day + 5 minutes = 86400 + 300 = 86700
+        assert usage.uptime_seconds == 86700
+
+    def test_uptime_hours_minutes_only(self) -> None:
+        """Uptime with only hours:minutes (less than 1 day)."""
+        stdout = "up 3:45, load average: 0.1, 0.1, 0.1"
+        usage = parse_top_bn1(stdout)
+
+        # 3 hours 45 minutes = 13500
+        assert usage.uptime_seconds == 13500
 
 
 class TestParseFreeM:

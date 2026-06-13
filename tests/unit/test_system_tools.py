@@ -33,13 +33,10 @@ class TestSystemCpuUsage:
     """Tests for system_cpu_usage."""
 
     async def test_success(self, system_tools: SystemTools) -> None:
-        # Note: parse_top_bn1 has a bug where re.findall finds ALL numbers in line
-        # and takes first 3 as load averages. With "load average: 7, 8, 9"
-        # and time "14:23:01", the first 3 numbers are 14, 23, 1
-        stdout = """top - 14:23:01 up 1 day, 5 min, 0 users, load average: 7, 8, 9
-%Cpu(s): 3.2 us, 1.1 sy, 0.0 ni, 95.2 id, 0.3 wa, 0.0 hi, 0.2 si, 0.0 st
-MiB Mem: 8192.0 total, 2048.0 used, 6144.0 free, 256.0 shared, 512.0 buffers
-MiB Swap: 2048.0 total, 0.0 used, 2048.0 free"""
+        stdout = """top - 14:23:01 up 1 day,  5:30,  2 users,  load average: 0.27, 0.20, 0.18
+%Cpu(s):  3.2 us,  1.1 sy,  0.0 ni, 95.2 id,  0.3 wa,  0.0 hi,  0.2 si,  0.0 st
+MiB Mem :  8192.0 total,  2048.0 used,  6144.0 free,   256.0 shared,   512.0 buff/cache
+MiB Swap:  2048.0 total,      0.0 used,   2048.0 free"""
         system_tools._runner.set_response(
             "top_bn1",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
@@ -50,9 +47,11 @@ MiB Swap: 2048.0 total, 0.0 used, 2048.0 free"""
         assert result.error is None
         assert result.data is not None
         assert result.data["cpu_percent"] == pytest.approx(4.8)
-        assert result.data["load_avg_1m"] == 14.0
-        assert result.data["load_avg_5m"] == 23.0
-        assert result.data["load_avg_15m"] == 1.0
+        assert result.data["load_avg_1m"] == pytest.approx(0.27)
+        assert result.data["load_avg_5m"] == pytest.approx(0.20)
+        assert result.data["load_avg_15m"] == pytest.approx(0.18)
+        # 1 day + 5h30m = 86400 + 19800 = 106200
+        assert result.data["uptime_seconds"] == 106200
 
     async def test_parse_top_output(self, system_tools: SystemTools) -> None:
         stdout = """%Cpu(s): 50.0 us, 10.0 sy, 0.0 ni, 40.0 id, 0.0 wa, 0.0 hi, 0.0 si, 0.0 st

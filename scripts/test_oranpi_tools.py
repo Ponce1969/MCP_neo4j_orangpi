@@ -62,7 +62,7 @@ async def main() -> None:
         print(f"Correctly raised ValueError: {e}")
 
     await container.ssh_client.disconnect()
-    print("\n✅ All integration tests PASSED!")
+    print("\nAll integration tests PASSED!")
 
 
 if __name__ == "__main__":

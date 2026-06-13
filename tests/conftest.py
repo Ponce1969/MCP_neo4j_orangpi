@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,20 @@ def project_root() -> Path:
 
 @pytest.fixture
 def mock_env_vars(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-    """Provide a minimal set of required environment variables for testing."""
+    """Provide a minimal set of required environment variables for testing.
+
+    Clears ALL existing ORANPI_ vars and disables .env file reading
+    so tests get clean defaults instead of local development values.
+    """
+    # Clear ALL existing ORANPI_ vars first to avoid .env file interference
+    for key in list(os.environ):
+        if key.startswith("ORANPI_"):
+            monkeypatch.delenv(key, raising=False)
+
+    # Tell pydantic-settings NOT to read .env file in tests
+    monkeypatch.setenv("ORANPI_ENV_FILE", "")
+
+    # Set only the required vars with test values
     env = {
         "ORANPI_SSH_HOST": "test-oranpi.local",
         "ORANPI_SSH_USER": "testuser",
