@@ -1,0 +1,53 @@
+# docker-compose.yml — Neo4j local para book-graph-rag.
+#
+# Uso:
+#   docker compose up -d      # levanta Neo4j en background
+#   docker compose logs -f    # seguís los logs
+#   docker compose down       # lo bajás (los datos sobreviven al volumen)
+#   docker compose down -v    # ⚠️ lo bajás Y borras los datos del volumen
+#
+# Filosofía: TODO viene de .env. Ningún valor de runtime hardcodeado aquí.
+# docker compose interpola ${VAR} automáticamente desde .env al hacer `up`.
+# Si falta una variable en .env, docker compose grita antes de levantar (Fail-Fast).
+#
+# Ports expuestos:
+#   NEO4J_BROWSER_PORT (default 7474)  →  browser web http://localhost:7474
+#   NEO4J_BOLT_PORT    (default 7687)  →  bolt (driver del proyecto)
+
+services:
+  neo4j:
+    image: neo4j:5.23
+    container_name: bookgraph-neo4j
+    ports:
+      # Formato "${HOST_PORT}:${CONTAINER_PORT}". En compose v2 tenés que
+      # explicitar el formato numerico: docker no acepta ${VAR}:${VAR} sin
+      # las comillas; las pongo para preservar el parsing.
+      - "${NEO4J_BROWSER_PORT}:${NEO4J_BROWSER_PORT}"
+      - "${NEO4J_BOLT_PORT}:${NEO4J_BOLT_PORT}"
+    environment:
+      # Auth: usuario fijo "neo4j" + password interpolada desde .env.
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+      # Advertised addresses: determina qué host reporta Neo4j a los clientes.
+      # En dev (Windows) son localhost; en prod Orange Pi sacks son la IP
+      # Tailscale del PI para que agentes remotos puedan conectar vía red.
+      - NEO4J_server_bolt_advertised__address=${NEO4J_BOLT_ADVERTISED_ADDRESS}
+      - NEO4J_server_http_advertised__address=${NEO4J_HTTP_ADVERTISED_ADDRESS}
+      # Plugins: Neo4j parsea esto como JSON array. En .env debe ir como
+      # NEO4J_PLUGINS=["apoc"]   (con comillas dobles y corchetes) — sin escapar.
+      - NEO4J_PLUGINS=${NEO4J_PLUGINS}
+    volumes:
+      # Persistencia: los datos sobreviven a `docker compose down`.
+      # Se borran solo con `docker compose down -v` (destruye el volumen).
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:${NEO4J_BROWSER_PORT} || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
