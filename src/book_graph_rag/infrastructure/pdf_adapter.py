@@ -88,6 +88,7 @@ class PDFAdapter(PDFReaderPort):
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        self._toc: list[tuple[int, str, int]] = []
 
     def extract_chunks(self, file_path: str) -> Iterator[KnowledgeGraphChunk]:
         doc: Any = fitz.open(file_path)
@@ -108,6 +109,7 @@ class PDFAdapter(PDFReaderPort):
 
         raw_toc = cast(list[tuple[int, str, int]], doc.get_toc())
         toc = self._preprocess_toc(raw_toc)
+        self._toc = toc
 
         chunk_index = 0
 
@@ -142,7 +144,13 @@ class PDFAdapter(PDFReaderPort):
 
             chapter_node = self._find_chapter_ancestor(leaf)
             if chapter_node is None:
-                # No numbered chapter owns this leaf (e.g. an orphan Part node).
+                # Fall back: infer chapter by page proximity.
+                # Section titles at L1 break the tree-based approach because
+                # they are siblings of numbered chapters, not children.
+                chapter_node = self._find_chapter_by_page(leaf.page_number)
+
+            if chapter_node is None:
+                # No numbered chapter anywhere before this page.
                 continue
 
             chapter_number, chapter_title = self._parse_chapter(chapter_node.title)
@@ -294,6 +302,26 @@ class PDFAdapter(PDFReaderPort):
                 return current
             current = current.parent
         return None
+
+    def _find_chapter_by_page(self, page: int) -> _TocNode | None:
+        """Return the nearest preceding numbered L1 chapter at or before ``page``.
+
+        The flat TOC list is used as a fallback when the hierarchical tree walk
+        cannot find a numbered chapter ancestor (e.g. section titles wrongly
+        placed at L1, sibling to chapters).
+        """
+        chapter: _TocNode | None = None
+        for level, title, page_number in self._toc:
+            if level != 1:
+                continue
+            number, _ = self._parse_chapter(title)
+            if number is None:
+                continue
+            if page_number <= page:
+                chapter = _TocNode(level=level, title=title, page_number=page_number)
+            else:
+                break
+        return chapter
 
     @classmethod
     def _build_section(cls, leaf: _TocNode, chapter_number: int | None) -> Section | None:

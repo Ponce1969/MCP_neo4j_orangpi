@@ -58,7 +58,7 @@ class LLMAdapter(LLMProviderPort):
             base_url=settings.llm_base_url,
             api_key=api_key,
         )
-        self._client = instructor.from_openai(raw_client, mode=instructor.Mode.JSON)
+        self._client = instructor.from_openai(raw_client, mode=instructor.Mode.MD_JSON)
 
         # Retry policy captured at construction time.
         self._retrying = AsyncRetrying(
