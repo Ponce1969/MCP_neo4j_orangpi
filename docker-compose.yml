@@ -25,8 +25,8 @@ services:
       - "${NEO4J_BROWSER_PORT}:${NEO4J_BROWSER_PORT}"
       - "${NEO4J_BOLT_PORT}:${NEO4J_BOLT_PORT}"
     environment:
-      # Auth: usuario fijo "neo4j" + password interpolada desde .env.
-      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+      # Auth: usuario y password interpolados desde .env (cero hardcodeo).
+      - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASSWORD}
       # Advertised addresses: determina qué host reporta Neo4j a los clientes.
       # En dev (Windows) son localhost; en prod Orange Pi sacks son la IP
       # Tailscale del PI para que agentes remotos puedan conectar vía red.
