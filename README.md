@@ -173,7 +173,7 @@ process refuses to start. `SecretStr` fields are never logged in plain text.
 | `NEO4J_PLUGINS` | yes | — | JSON array, e.g. `["apoc"]` |
 | `LLM_API_KEY` | no | `None` | Groq/OpenAI key (`SecretStr`); empty for Ollama |
 | `LLM_BASE_URL` | no | `https://api.groq.com/openai/v1` | OpenAI-compatible endpoint |
-| `LLM_MODEL_NAME` | no | `llama-3.1-70b-versatile` | Model name |
+| `LLM_MODEL_NAME` | no | `llama-3.3-70b-versatile` | Model name (Groq; was llama-3.1-70b-versatile, decommissioned Jan 2025) |
 | `PDF_MAX_CHUNK_SIZE` | no | `1500` | Safety ceiling for chunk size (chars) |
 | `PDF_CHUNK_OVERLAP` | no | `150` | Overlap when sub-dividing oversized chunks |
 | `LLM_MAX_CONCURRENCY` | no | `3` | Max simultaneous LLM calls (`Semaphore`) |
