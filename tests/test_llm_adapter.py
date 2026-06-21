@@ -20,12 +20,27 @@ _EXTRACTION_JSON = json.dumps(
     {
         "entities": [
             {
-                "id": "e1",
                 "name": "Agent Pattern",
                 "type": "pattern",
+                "description": "A reusable solution for agent construction.",
+                "source_page": 1,
+            },
+            {
+                "name": "Multi-Agent System",
+                "type": "concept",
+                "description": "A system composed of multiple interacting agents.",
+                "source_page": 1,
+            },
+        ],
+        "relationships": [
+            {
+                "source_entity_name": "Agent Pattern",
+                "target_entity_name": "Multi-Agent System",
+                "type": "composes",
+                "description": "Agent patterns build multi-agent systems.",
+                "source_page": 1,
             }
         ],
-        "relationships": [],
     }
 )
 
@@ -199,8 +214,12 @@ async def test_llm_adapter_retries_with_exponential_backoff(
     result = await adapter.extract_graph(chunk)
 
     assert result is chunk
-    assert len(result.entities) == 1
-    assert result.entities[0].id == "e1"
+    assert len(result.entities) == 2
+    assert result.entities[0].id == "agent-pattern"
+    assert result.entities[1].id == "multi-agent-system"
+    assert len(result.relationships) == 1
+    assert result.relationships[0].source_entity_id == "agent-pattern"
+    assert result.relationships[0].target_entity_id == "multi-agent-system"
     assert factory.completions is not None
     assert len(factory.completions.calls) == 3
     assert sleep_delays == [1.0, 2.0]
@@ -236,3 +255,42 @@ async def test_llm_adapter_fails_after_max_retries(
 
     assert factory.completions is not None
     assert len(factory.completions.calls) == 3
+
+
+async def test_llm_adapter_computes_entity_id_from_name_slug(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The adapter derives entity.id from slug(name), not from the LLM response."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    factory = _FakeAsyncOpenAIFactory()
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.llm_adapter.AsyncOpenAI",
+        factory,
+    )
+
+    adapter = LLMAdapter(settings)
+    result = await adapter.extract_graph(_make_chunk())
+
+    assert result.entities[0].id == "agent-pattern"
+    assert result.entities[0].name == "Agent Pattern"
+
+
+async def test_llm_adapter_computes_relationship_ids_from_entity_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The adapter derives relationship ids from slug(entity names)."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    factory = _FakeAsyncOpenAIFactory()
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.llm_adapter.AsyncOpenAI",
+        factory,
+    )
+
+    adapter = LLMAdapter(settings)
+    result = await adapter.extract_graph(_make_chunk())
+
+    relationship = result.relationships[0]
+    assert relationship.source_entity_id == "agent-pattern"
+    assert relationship.target_entity_id == "multi-agent-system"

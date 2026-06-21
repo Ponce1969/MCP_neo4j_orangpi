@@ -7,13 +7,21 @@ OpenAI-compatible LLM and populates the chunk's ``entities`` and
 
 from __future__ import annotations
 
+import re
+
 import instructor
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.models import Entity, KnowledgeGraphChunk, Relationship
+from book_graph_rag.domain.models import (
+    Entity,
+    EntityType,
+    KnowledgeGraphChunk,
+    Relationship,
+    RelationshipType,
+)
 from book_graph_rag.ports.llm_port import LLMProviderPort
 
 _SYSTEM_PROMPT = (
@@ -24,6 +32,11 @@ _SYSTEM_PROMPT = (
     "mcp, llmops, risk.\n"
     "Allowed relationship types: requires, alternative_to, composes, extends, "
     "enables, depends_on, contrasts_with, evolves_to.\n\n"
+    "Output format:\n"
+    "- Return entities with fields: name, type, description, source_page.\n"
+    "- Return relationships with fields: source_entity_name, target_entity_name, "
+    "type, description, source_page.\n"
+    "- source_entity_name and target_entity_name must match entity names exactly.\n\n"
     "Rules:\n"
     "- Use ONLY the allowed types; do not invent new ones.\n"
     "- Set source_page to the chunk's starting page when the entity/relationship "
@@ -33,11 +46,30 @@ _SYSTEM_PROMPT = (
 )
 
 
+class _LLMEntityDTO(BaseModel):
+    """LLM-facing entity schema — no id field; the adapter computes it."""
+
+    name: str
+    type: EntityType
+    description: str = ""
+    source_page: int | None = None
+
+
+class _LLMRelationshipDTO(BaseModel):
+    """LLM-facing relationship schema — references by entity name, not id."""
+
+    source_entity_name: str
+    target_entity_name: str
+    type: RelationshipType
+    description: str = ""
+    source_page: int | None = None
+
+
 class _LLMExtraction(BaseModel):
     """Structured LLM output schema for graph extraction."""
 
-    entities: list[Entity] = Field(default_factory=list)
-    relationships: list[Relationship] = Field(default_factory=list)
+    entities: list[_LLMEntityDTO] = Field(default_factory=list)
+    relationships: list[_LLMRelationshipDTO] = Field(default_factory=list)
 
 
 class LLMAdapter(LLMProviderPort):
@@ -91,8 +123,26 @@ class LLMAdapter(LLMProviderPort):
         if extraction is None:  # pragma: no cover
             raise RuntimeError("LLM extraction failed without raising")
 
-        chunk.entities = extraction.entities
-        chunk.relationships = extraction.relationships
+        chunk.entities = [
+            Entity(
+                id=self._slugify(dto.name),
+                name=dto.name,
+                type=dto.type,
+                description=dto.description,
+                source_page=dto.source_page,
+            )
+            for dto in extraction.entities
+        ]
+        chunk.relationships = [
+            Relationship(
+                source_entity_id=self._slugify(dto.source_entity_name),
+                target_entity_id=self._slugify(dto.target_entity_name),
+                type=dto.type,
+                description=dto.description,
+                source_page=dto.source_page,
+            )
+            for dto in extraction.relationships
+        ]
         return chunk
 
     def _build_prompt(self, chunk: KnowledgeGraphChunk) -> str:
@@ -107,3 +157,9 @@ class LLMAdapter(LLMProviderPort):
         context_parts.append(f"Page range: {chunk.page_ref.start}-{chunk.page_ref.end}")
 
         return "\n".join(context_parts) + f"\n\nText:\n{chunk.text}"
+
+    @staticmethod
+    def _slugify(text: str) -> str:
+        """Normalize a name into a stable URL-friendly identifier."""
+        normalized = re.sub(r"[^a-z0-9]+", "-", text.lower().strip())
+        return normalized.strip("-")
