@@ -135,7 +135,7 @@ class GraphQuery(BaseModel):
     """Base for all read-side graph queries; discriminated by ``type``."""
 
     model_config = ConfigDict()
-    type: Literal["entity", "relation", "path", "similarity"]
+    type: Literal["entity", "relation", "path", "similarity", "batch_entity"]
 
 
 class EntityQuery(GraphQuery):
@@ -173,8 +173,15 @@ class SimilarityQuery(GraphQuery):
     top_k: int = 10
 
 
+class BatchEntityQuery(GraphQuery):
+    """Batch lookup of entities by their stable ids."""
+
+    type: Literal["batch_entity"] = "batch_entity"
+    ids: list[str]
+
+
 GraphQueryUnion = Annotated[
-    EntityQuery | RelationQuery | PathQuery | SimilarityQuery,
+    EntityQuery | RelationQuery | PathQuery | SimilarityQuery | BatchEntityQuery,
     Field(discriminator="type"),
 ]
 
