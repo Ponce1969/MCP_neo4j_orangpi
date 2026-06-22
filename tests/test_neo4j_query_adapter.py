@@ -452,3 +452,148 @@ async def test_traverse_raises_query_timeout(adapter: Neo4jQueryAdapter) -> None
 
     with pytest.raises(QueryTimeoutError):
         await adapter.traverse_relationships("s", None, 1)
+
+
+# ── T-06.8: find_path + search_chunks + count_entities + list_entities ───────
+
+
+class _FakePath:
+    """Mimics a Neo4j Path object."""
+
+    def __init__(
+        self,
+        nodes: list[_FakeRecord],
+        relationships: list[_FakeRelationship],
+    ) -> None:
+        self.nodes = nodes
+        self.relationships = relationships
+
+
+async def test_find_path_returns_graph_paths(adapter: Neo4jQueryAdapter) -> None:
+    """find_path maps a Neo4j shortestPath to a GraphPath list."""
+    a = _node({"id": "a", "name": "A", "type": "concept"})
+    b = _node({"id": "b", "name": "B", "type": "concept"})
+    rel = _FakeRelationship(a, b, "requires")
+    path = _FakePath(nodes=[a, b], relationships=[rel])
+    session = _make_session([_FakeRecord({"p": path})])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_path("a", "b", 3)
+
+    assert len(result) == 1
+    graph_path = result[0]
+    assert [n.id for n in graph_path.nodes] == ["a", "b"]
+    assert len(graph_path.relationships) == 1
+    assert graph_path.relationships[0].source_entity_id == "a"
+    assert graph_path.relationships[0].target_entity_id == "b"
+    query, params = session.queries[0]
+    assert "shortestPath" in query
+    assert params["start_id"] == "a"
+    assert params["end_id"] == "b"
+
+
+async def test_find_path_no_path_returns_empty_list(adapter: Neo4jQueryAdapter) -> None:
+    """find_path returns an empty list when Neo4j finds no path."""
+    session = _make_session([])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_path("a", "z", 3)
+
+    assert result == []
+
+
+async def test_search_chunks_uses_fulltext_index(adapter: Neo4jQueryAdapter) -> None:
+    """AC-06.6: chunk search uses db.fulltext.queryNodes, not CONTAINS."""
+    session = _make_session([])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.search_chunks("dependency injection", 10)
+
+    query, params = session.queries[0]
+    assert "CALL db.fulltext.queryNodes" in query
+    assert "CONTAINS" not in query
+    assert params["query"] == "dependency injection"
+    assert params["limit"] == 10
+
+
+async def test_search_chunks_returns_scored_results(adapter: Neo4jQueryAdapter) -> None:
+    """search_chunks returns dicts with text, page range, and Lucene score."""
+    node = _node(
+        {
+            "text": "dependency injection example",
+            "page_start": 10,
+            "page_end": 11,
+        }
+    )
+    session = _make_session([_FakeRecord({"node": node, "score": 0.95})])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.search_chunks("dependency injection", 5)
+
+    assert result == [
+        {
+            "text": "dependency injection example",
+            "page_start": 10,
+            "page_end": 11,
+            "score": 0.95,
+        }
+    ]
+
+
+async def test_count_entities_without_type_filter(adapter: Neo4jQueryAdapter) -> None:
+    """count_entities returns the total when no type is supplied."""
+    session = _make_session([_FakeRecord({"count": 42})])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.count_entities(None)
+
+    assert result == 42
+    query, params = session.queries[0]
+    assert "RETURN count(n) AS count" in query
+    assert params["type"] is None
+
+
+async def test_count_entities_with_type_filter(adapter: Neo4jQueryAdapter) -> None:
+    """count_entities forwards the type filter to Cypher."""
+    session = _make_session([_FakeRecord({"count": 7})])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.count_entities("agent")
+
+    assert result == 7
+    query, params = session.queries[0]
+    assert "WHERE $type IS NULL OR n.type = $type" in query
+    assert params["type"] == "agent"
+
+
+async def test_list_entities_first_page(adapter: Neo4jQueryAdapter) -> None:
+    """AC-06.7: list_entities uses cursor pagination from cursor=0."""
+    node = _node({"id": "e1", "name": "Entity 1", "type": "concept"})
+    session = _make_session([_FakeRecord({"n": node, "internal_id": 101})])
+    adapter._driver = _FakeDriver(session)
+
+    entities, next_cursor = await adapter.list_entities(0, 50)
+
+    assert len(entities) == 1
+    assert entities[0].entity.id == "e1"
+    assert next_cursor == 101
+    query, params = session.queries[0]
+    assert "WHERE id(n) > $cursor" in query
+    assert "ORDER BY id(n)" in query
+    assert "SKIP" not in query
+    assert params["cursor"] == 0
+    assert params["page_size"] == 50
+
+
+async def test_list_entities_second_page(adapter: Neo4jQueryAdapter) -> None:
+    """Cursor pagination advances using the last internal Neo4j id."""
+    node = _node({"id": "e2", "name": "Entity 2", "type": "concept"})
+    session = _make_session([_FakeRecord({"n": node, "internal_id": 202})])
+    adapter._driver = _FakeDriver(session)
+
+    entities, next_cursor = await adapter.list_entities(101, 50)
+
+    assert next_cursor == 202
+    query, params = session.queries[0]
+    assert params["cursor"] == 101
+    assert "SKIP" not in query
