@@ -163,21 +163,95 @@ class Neo4jQueryAdapter(GraphQueryPort):
         self, start_id: str, end_id: str, max_depth: int
     ) -> list[GraphPath]:
         """Return shortest paths between two entities within ``max_depth``."""
-        raise NotImplementedError
+        clamped_depth = max(1, min(max_depth, 3))
+        query = f"""
+            MATCH p = shortestPath(
+                (a:Entity {{id: $start_id}})-[:RELATED*..{clamped_depth}]->(b:Entity {{id: $end_id}})
+            )
+            RETURN p
+        """
+        async with self._driver.session() as session:
+            result = await self._run_with_timeout(
+                session.run(
+                    query,
+                    {"start_id": start_id, "end_id": end_id},
+                )
+            )
+            record: Any | None = None
+            async for row in result:
+                record = row
+                break
+            if record is None:
+                return []
+            path = record["p"]
+            nodes = [self._node_to_entity(node).entity for node in path.nodes]
+            relationships = [
+                self._relationship_to_domain(rel) for rel in path.relationships
+            ]
+            return [GraphPath(nodes=nodes, relationships=relationships)]
 
     async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
         """Full-text search over chunk nodes."""
-        raise NotImplementedError
+        async with self._driver.session() as session:
+            result = await self._run_with_timeout(
+                session.run(
+                    """
+                    CALL db.fulltext.queryNodes("chunk_text_index", $query)
+                    YIELD node, score
+                    RETURN node, score
+                    ORDER BY score DESC
+                    LIMIT $limit
+                    """,
+                    {"query": query, "limit": limit},
+                )
+            )
+            return [
+                {
+                    "text": record["node"].get("text", ""),
+                    "page_start": record["node"].get("page_start"),
+                    "page_end": record["node"].get("page_end"),
+                    "score": record["score"],
+                }
+                async for record in result
+            ]
 
     async def count_entities(self, entity_type: str | None) -> int:
         """Return the number of entities, optionally filtered by type."""
-        raise NotImplementedError
+        async with self._driver.session() as session:
+            result = await self._run_with_timeout(
+                session.run(
+                    """
+                    MATCH (n:Entity)
+                    WHERE $type IS NULL OR n.type = $type
+                    RETURN count(n) AS count
+                    """,
+                    {"type": entity_type},
+                )
+            )
+            records = [record async for record in result]
+            return records[0]["count"] if records else 0
 
     async def list_entities(
         self, cursor: int, page_size: int
     ) -> tuple[list[EntityWithContext], int]:
         """Cursor-based pagination over entities."""
-        raise NotImplementedError
+        async with self._driver.session() as session:
+            result = await self._run_with_timeout(
+                session.run(
+                    """
+                    MATCH (n:Entity)
+                    WHERE id(n) > $cursor
+                    ORDER BY id(n)
+                    LIMIT $page_size
+                    RETURN n, id(n) AS internal_id
+                    """,
+                    {"cursor": cursor, "page_size": page_size},
+                )
+            )
+            records = [record async for record in result]
+            entities = [self._node_to_entity(record["n"]) for record in records]
+            next_cursor = records[-1]["internal_id"] if records else cursor
+            return entities, next_cursor
 
     async def ensure_indexes(self) -> None:
         """Create read-side indexes idempotently."""
