@@ -8,6 +8,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from book_graph_rag.domain.models import (
+    BatchEntityQuery,
     BatchSizeExceededError,
     Entity,
     EntityQuery,
@@ -33,6 +34,7 @@ from book_graph_rag.domain.models import (
         ({"type": "relation", "source_id": "e1"}, RelationQuery),
         ({"type": "path", "start_id": "a", "end_id": "b"}, PathQuery),
         ({"type": "similarity", "text": "prompt engineering"}, SimilarityQuery),
+        ({"type": "batch_entity", "ids": ["e1", "e2"]}, BatchEntityQuery),
     ],
 )
 def test_graph_query_discriminated_union_parses_subtypes(
@@ -44,6 +46,14 @@ def test_graph_query_discriminated_union_parses_subtypes(
 
     assert isinstance(parsed, expected_type)
     assert parsed.type == raw["type"]
+
+
+def test_batch_entity_query_defaults() -> None:
+    """BatchEntityQuery requires ids and defaults type to batch_entity."""
+    query = BatchEntityQuery(ids=["e1", "e2"])
+
+    assert query.type == "batch_entity"
+    assert query.ids == ["e1", "e2"]
 
 
 def test_entity_query_defaults() -> None:
