@@ -75,7 +75,7 @@ def test_cli_index_composition_correct_order(
         def __init__(self, settings: object) -> None:
             calls.append(("llm_adapter", settings))
 
-    class FakeNeo4jAdapter:
+    class FakeNeo4jCommandAdapter:
         def __init__(self, settings: object) -> None:
             calls.append(("neo4j_adapter", settings))
 
@@ -91,7 +91,7 @@ def test_cli_index_composition_correct_order(
     monkeypatch.setattr("book_graph_rag.main.Settings", FakeSettings)
     monkeypatch.setattr("book_graph_rag.main.PDFAdapter", FakePDFAdapter)
     monkeypatch.setattr("book_graph_rag.main.LLMAdapter", FakeLLMAdapter)
-    monkeypatch.setattr("book_graph_rag.main.Neo4jAdapter", FakeNeo4jAdapter)
+    monkeypatch.setattr("book_graph_rag.main.Neo4jCommandAdapter", FakeNeo4jCommandAdapter)
     monkeypatch.setattr("book_graph_rag.main.IndexBookUseCase", FakeUseCase)
 
     pdf = tmp_path / "book.pdf"
@@ -116,7 +116,7 @@ def test_cli_index_composition_correct_order(
     kwargs = use_case_call[1]
     assert isinstance(kwargs["pdf_port"], FakePDFAdapter)
     assert isinstance(kwargs["llm_port"], FakeLLMAdapter)
-    assert isinstance(kwargs["graph_db_port"], FakeNeo4jAdapter)
+    assert isinstance(kwargs["graph_db_port"], FakeNeo4jCommandAdapter)
     assert kwargs["max_concurrency"] == 7
     assert kwargs["batch_size"] == 11
     assert kwargs["dead_letter_path"] == Path("data/dead_letter.log")

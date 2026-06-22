@@ -21,7 +21,7 @@ implemented yet.
 |---|---|
 | 01 — Foundation (`Settings`, Fail-Fast config) | done |
 | 02 — Domain & Ports (Pydantic entities + ABCs) | done |
-| 03 — Infrastructure (`PDFAdapter`, `LLMAdapter`, `Neo4jAdapter`) | done |
+| 03 — Infrastructure (`PDFAdapter`, `LLMAdapter`, `Neo4jCommandAdapter`) | done |
 | 04 — Application (`IndexBookUseCase`, streaming + dead-letter) | done |
 | 05 — CLI (`book-graph-rag index <pdf>`) | done |
 | 06 — Query layer for the loaded graph | not started |
@@ -49,10 +49,10 @@ phase 07 lands, this README will say so plainly.
         PDFReaderPort    LLMProviderPort    GraphDatabasePort   (ports: ABCs)
                 ▲                 ▲                 ▲
                 │                 │                 │
-        PDFAdapter         LLMAdapter        Neo4jAdapter       (infrastructure)
+        PDFAdapter         LLMAdapter      Neo4jCommandAdapter  (infrastructure)
         (pymupdf +      (instructor +     (AsyncGraphDatabase
          TOC algo)       AsyncOpenAI +      driver, MERGE,
-                         tenacity)          idempotent)
+                          tenacity)          idempotent)
 ```
 
 ### Layer rules (enforced by `scripts/validate_architecture.py`)
@@ -220,7 +220,8 @@ src/book_graph_rag/
 ├── infrastructure/
 │   ├── pdf_adapter.py     # pymupdf + TOC chunking
 │   ├── llm_adapter.py     # instructor + AsyncOpenAI + tenacity
-│   └── neo4j_adapter.py   # async driver + MERGE upserts
+│       ├── neo4j_command_adapter.py   # async driver + MERGE upserts (write side)
+    └── neo4j_query_adapter.py     # async driver + MATCH queries (read side)
 └── main.py                # click CLI + CompositionRoot
 
 scripts/

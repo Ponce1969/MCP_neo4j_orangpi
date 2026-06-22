@@ -11,7 +11,7 @@ import click
 from book_graph_rag.application.index_book_use_case import IndexBookUseCase
 from book_graph_rag.config import Settings
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
-from book_graph_rag.infrastructure.neo4j_adapter import Neo4jAdapter
+from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdapter
 from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter
 
 
@@ -36,12 +36,12 @@ def index(pdf_path: Path) -> None:
 
     pdf_adapter = PDFAdapter(settings)
     llm_adapter = LLMAdapter(settings)
-    neo4j_adapter = Neo4jAdapter(settings)
+    neo4j_command_adapter = Neo4jCommandAdapter(settings)
 
     use_case = IndexBookUseCase(
         pdf_port=pdf_adapter,
         llm_port=llm_adapter,
-        graph_db_port=neo4j_adapter,
+        graph_db_port=neo4j_command_adapter,
         max_concurrency=settings.llm_max_concurrency,
         batch_size=settings.processing_batch_size,
         dead_letter_path=settings.dead_letter_path,

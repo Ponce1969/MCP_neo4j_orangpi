@@ -22,8 +22,8 @@ from book_graph_rag.domain.models import (
 from book_graph_rag.ports.graph_db_port import GraphDatabasePort
 
 
-class Neo4jAdapter(GraphDatabasePort):
-    """Async Neo4j implementation of ``GraphDatabasePort``."""
+class Neo4jCommandAdapter(GraphDatabasePort):
+    """Async Neo4j implementation of ``GraphDatabasePort`` for write commands."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
