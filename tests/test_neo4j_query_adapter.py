@@ -12,7 +12,6 @@ from book_graph_rag.domain.models import (
     Entity,
     EntityWithContext,
     QueryTimeoutError,
-    Relationship,
 )
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 
@@ -257,7 +256,13 @@ async def test_find_entities_batch_with_200_ids(adapter: Neo4jQueryAdapter) -> N
     """Batch lookup issues a single UNWIND query."""
     ids = [f"id_{i}" for i in range(200)]
     node = _FakeRecord(
-        {"id": "id_0", "name": "Entity 0", "type": "concept", "description": "", "source_page": None}
+        {
+            "id": "id_0",
+            "name": "Entity 0",
+            "type": "concept",
+            "description": "",
+            "source_page": None,
+        }
     )
     session = _make_session([_FakeRecord({"n": node})])
     adapter._driver = _FakeDriver(session)
@@ -447,7 +452,7 @@ async def test_traverse_respects_limit_100(adapter: Neo4jQueryAdapter) -> None:
 
 async def test_traverse_raises_query_timeout(adapter: Neo4jQueryAdapter) -> None:
     """A TimeoutError from the session is surfaced as QueryTimeoutError."""
-    session = _FakeSession(raise_exc=asyncio.TimeoutError("neo4j timeout"))
+    session = _FakeSession(raise_exc=TimeoutError("neo4j timeout"))
     adapter._driver = _FakeDriver(session)
 
     with pytest.raises(QueryTimeoutError):

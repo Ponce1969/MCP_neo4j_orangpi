@@ -14,8 +14,8 @@ from neo4j import AsyncGraphDatabase
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import (
     Entity,
-    EntityWithContext,
     EntityType,
+    EntityWithContext,
     GraphPath,
     QueryTimeoutError,
     Relationship,
@@ -44,7 +44,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
         """Wrap a coroutine with a hard timeout and map to a domain error."""
         try:
             return await asyncio.wait_for(coro, timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise QueryTimeoutError(f"Query exceeded {timeout}s timeout") from None
 
     def _node_to_entity(self, node: Any) -> EntityWithContext:
@@ -166,7 +166,9 @@ class Neo4jQueryAdapter(GraphQueryPort):
         clamped_depth = max(1, min(max_depth, 3))
         query = f"""
             MATCH p = shortestPath(
-                (a:Entity {{id: $start_id}})-[:RELATED*..{clamped_depth}]->(b:Entity {{id: $end_id}})
+                (a:Entity {{id: $start_id}})
+                -[:RELATED*..{clamped_depth}]->
+                (b:Entity {{id: $end_id}})
             )
             RETURN p
         """
