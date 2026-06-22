@@ -44,6 +44,26 @@ class _FakeResult:
             yield record
 
 
+class _FakeRelationship:
+    """Mimics a Neo4j Relationship object with ``start_node``/``end_node``."""
+
+    def __init__(
+        self,
+        start_node: _FakeRecord,
+        end_node: _FakeRecord,
+        rel_type: str,
+        description: str = "",
+        source_page: int | None = None,
+    ) -> None:
+        self.start_node = start_node
+        self.end_node = end_node
+        self.type = rel_type
+        self._data = {"description": description, "source_page": source_page}
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
+
+
 class _FakeSession:
     """Records Cypher queries and yields configurable records."""
 
@@ -284,3 +304,151 @@ async def test_node_to_entity_mapping(adapter: Neo4jQueryAdapter) -> None:
     assert entity_with_context.status is None
     assert entity_with_context.confidence is None
     assert entity_with_context.source is None
+
+
+# ── T-06.7: traverse_relationships ───────────────────────────────────────────
+
+
+def _node(data: dict[str, Any]) -> _FakeRecord:
+    """Shorthand for a fake node record."""
+    return _FakeRecord(data)
+
+
+async def test_traverse_depth_one_returns_connected_entities(adapter: Neo4jQueryAdapter) -> None:
+    """Depth 1 traversal returns start and target entities plus the relationship."""
+    start = _node({"id": "s", "name": "Source", "type": "concept"})
+    end = _node({"id": "t", "name": "Target", "type": "concept"})
+    rel = _FakeRelationship(start, end, "requires")
+    session = _make_session([_FakeRecord({"start": start, "end": end, "rels": [rel]})])
+    adapter._driver = _FakeDriver(session)
+
+    entities, relationships = await adapter.traverse_relationships("s", None, 1)
+
+    assert len(entities) == 2
+    assert {e.entity.id for e in entities} == {"s", "t"}
+    assert len(relationships) == 1
+    assert relationships[0].source_entity_id == "s"
+    assert relationships[0].target_entity_id == "t"
+    assert relationships[0].type == "requires"
+
+
+async def test_traverse_depth_two(adapter: Neo4jQueryAdapter) -> None:
+    """Depth 2 traversal can span two hops in a single record."""
+    a = _node({"id": "a", "name": "A", "type": "concept"})
+    b = _node({"id": "b", "name": "B", "type": "concept"})
+    c = _node({"id": "c", "name": "C", "type": "concept"})
+    rel_ab = _FakeRelationship(a, b, "requires")
+    rel_bc = _FakeRelationship(b, c, "enables")
+    session = _make_session([_FakeRecord({"start": a, "end": c, "rels": [rel_ab, rel_bc]})])
+    adapter._driver = _FakeDriver(session)
+
+    entities, relationships = await adapter.traverse_relationships("a", None, 2)
+
+    query, params = session.queries[0]
+    assert "[:RELATED*1..2]" in query
+    assert {e.entity.id for e in entities} == {"a", "b", "c"}
+    assert len(relationships) == 2
+
+
+async def test_traverse_depth_three(adapter: Neo4jQueryAdapter) -> None:
+    """Depth 3 traversal uses the maximum allowed range."""
+    a = _node({"id": "a", "name": "A", "type": "concept"})
+    d = _node({"id": "d", "name": "D", "type": "concept"})
+    session = _make_session([_FakeRecord({"start": a, "end": d, "rels": []})])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.traverse_relationships("a", None, 3)
+
+    query, _ = session.queries[0]
+    assert "[:RELATED*1..3]" in query
+
+
+async def test_traverse_depth_zero_returns_only_start_entity(adapter: Neo4jQueryAdapter) -> None:
+    """AC-06.17: depth=0 uses a dedicated query with no relationship expansion."""
+    start = _node({"id": "s", "name": "Source", "type": "concept"})
+    session = _make_session([_FakeRecord({"start": start})])
+    adapter._driver = _FakeDriver(session)
+
+    entities, relationships = await adapter.traverse_relationships("s", None, 0)
+
+    query, params = session.queries[0]
+    assert "MATCH (start:Entity {id: $source_id}) RETURN start" in query
+    assert "-[:RELATED" not in query
+    assert len(entities) == 1
+    assert entities[0].entity.id == "s"
+    assert relationships == []
+
+
+async def test_traverse_depth_five_is_clamped_to_three(adapter: Neo4jQueryAdapter) -> None:
+    """AC-06.9: depths greater than 3 are clamped to the maximum of 3."""
+    start = _node({"id": "s", "name": "Source", "type": "concept"})
+    end = _node({"id": "t", "name": "Target", "type": "concept"})
+    session = _make_session([_FakeRecord({"start": start, "end": end, "rels": []})])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.traverse_relationships("s", None, 5)
+
+    query, _ = session.queries[0]
+    assert "[:RELATED*1..3]" in query
+
+
+async def test_traverse_depth_negative_is_clamped_to_zero(adapter: Neo4jQueryAdapter) -> None:
+    """Negative depth is clamped to 0 and uses the start-only query."""
+    start = _node({"id": "s", "name": "Source", "type": "concept"})
+    session = _make_session([_FakeRecord({"start": start})])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.traverse_relationships("s", None, -1)
+
+    query, _ = session.queries[0]
+    assert "MATCH (start:Entity {id: $source_id}) RETURN start" in query
+
+
+async def test_traverse_with_rel_type_filter(adapter: Neo4jQueryAdapter) -> None:
+    """Traversal forwards the relationship type filter."""
+    start = _node({"id": "s", "name": "Source", "type": "concept"})
+    end = _node({"id": "t", "name": "Target", "type": "concept"})
+    session = _make_session([_FakeRecord({"start": start, "end": end, "rels": []})])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.traverse_relationships("s", "requires", 1)
+
+    query, params = session.queries[0]
+    assert "ALL(r IN relationships(p) WHERE r.type = $rel_type)" in query
+    assert params["rel_type"] == "requires"
+
+
+async def test_traverse_without_rel_type_allows_all_types(adapter: Neo4jQueryAdapter) -> None:
+    """Traversal with rel_type=None omits the relationship filter."""
+    start = _node({"id": "s", "name": "Source", "type": "concept"})
+    end = _node({"id": "t", "name": "Target", "type": "concept"})
+    session = _make_session([_FakeRecord({"start": start, "end": end, "rels": []})])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.traverse_relationships("s", None, 1)
+
+    query, params = session.queries[0]
+    assert "WHERE $rel_type IS NULL OR" in query
+    assert params["rel_type"] is None
+
+
+async def test_traverse_respects_limit_100(adapter: Neo4jQueryAdapter) -> None:
+    """Traversal Cypher includes a hard LIMIT 100."""
+    start = _node({"id": "s", "name": "Source", "type": "concept"})
+    end = _node({"id": "t", "name": "Target", "type": "concept"})
+    session = _make_session([_FakeRecord({"start": start, "end": end, "rels": []})])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.traverse_relationships("s", None, 1)
+
+    query, _ = session.queries[0]
+    assert "LIMIT 100" in query
+
+
+async def test_traverse_raises_query_timeout(adapter: Neo4jQueryAdapter) -> None:
+    """A TimeoutError from the session is surfaced as QueryTimeoutError."""
+    session = _FakeSession(raise_exc=asyncio.TimeoutError("neo4j timeout"))
+    adapter._driver = _FakeDriver(session)
+
+    with pytest.raises(QueryTimeoutError):
+        await adapter.traverse_relationships("s", None, 1)
