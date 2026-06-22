@@ -158,3 +158,129 @@ async def test_run_with_timeout_raises_query_timeout(adapter: Neo4jQueryAdapter)
 
     with pytest.raises(QueryTimeoutError, match="Query exceeded 0.01s timeout"):
         await adapter._run_with_timeout(slow(), timeout=0.01)
+
+
+# ── T-06.6: find_entity + find_entities_batch ────────────────────────────────
+
+
+def _make_session(records: list[_FakeRecord]) -> _FakeSession:
+    """Build a fake session that returns the supplied records."""
+    return _FakeSession(records=records)
+
+
+async def test_find_entity_by_name(adapter: Neo4jQueryAdapter) -> None:
+    """find_entity returns matching entities."""
+    node = _FakeRecord(
+        {
+            "id": "e1",
+            "name": "MCP",
+            "type": "mcp",
+            "description": "Model Context Protocol",
+            "source_page": 10,
+        }
+    )
+    session = _make_session([_FakeRecord({"n": node})])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_entity("MCP", None)
+
+    assert len(result) == 1
+    assert result[0].entity.name == "MCP"
+    assert result[0].entity.type == "mcp"
+    query, params = session.queries[0]
+    assert "MATCH (n:Entity {name: $name})" in query
+    assert params["name"] == "MCP"
+    assert params["type"] is None
+
+
+async def test_find_entity_with_type_filter(adapter: Neo4jQueryAdapter) -> None:
+    """find_entity forwards the entity_type filter to Cypher."""
+    node = _FakeRecord(
+        {"id": "e2", "name": "Agent", "type": "agent", "description": "", "source_page": None}
+    )
+    session = _make_session([_FakeRecord({"n": node})])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.find_entity("Agent", "agent")
+
+    query, params = session.queries[0]
+    assert "WHERE $type IS NULL OR n.type = $type" in query
+    assert params["type"] == "agent"
+
+
+async def test_find_entity_without_type_does_not_filter(adapter: Neo4jQueryAdapter) -> None:
+    """find_entity with entity_type=None still includes the IS NULL guard."""
+    node = _FakeRecord(
+        {"id": "e3", "name": "Homonym", "type": "concept", "description": "", "source_page": None}
+    )
+    session = _make_session([_FakeRecord({"n": node})])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.find_entity("Homonym", None)
+
+    query, params = session.queries[0]
+    assert "WHERE $type IS NULL OR n.type = $type" in query
+    assert params["type"] is None
+
+
+async def test_find_entity_no_results_returns_empty_list(adapter: Neo4jQueryAdapter) -> None:
+    """find_entity returns an empty list when nothing matches."""
+    session = _make_session([])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_entity("missing", None)
+
+    assert result == []
+
+
+async def test_find_entities_batch_with_200_ids(adapter: Neo4jQueryAdapter) -> None:
+    """Batch lookup issues a single UNWIND query."""
+    ids = [f"id_{i}" for i in range(200)]
+    node = _FakeRecord(
+        {"id": "id_0", "name": "Entity 0", "type": "concept", "description": "", "source_page": None}
+    )
+    session = _make_session([_FakeRecord({"n": node})])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_entities_batch(ids)
+
+    assert len(result) == 1
+    query, params = session.queries[0]
+    assert "UNWIND $ids AS id" in query
+    assert "MATCH (n:Entity {id: id})" in query
+    assert params["ids"] == ids
+
+
+async def test_find_entities_batch_returns_entity_with_context(adapter: Neo4jQueryAdapter) -> None:
+    """Batch lookup maps Neo4j nodes to EntityWithContext."""
+    node = _FakeRecord(
+        {"id": "e1", "name": "MCP", "type": "mcp", "description": "desc", "source_page": 5}
+    )
+    session = _make_session([_FakeRecord({"n": node})])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_entities_batch(["e1"])
+
+    assert len(result) == 1
+    assert result[0] == EntityWithContext(
+        entity=Entity(id="e1", name="MCP", type="mcp", description="desc", source_page=5)
+    )
+    assert result[0].status is None
+    assert result[0].confidence is None
+    assert result[0].source is None
+
+
+async def test_node_to_entity_mapping(adapter: Neo4jQueryAdapter) -> None:
+    """_node_to_entity builds EntityWithContext with defaults for Fase 08 fields."""
+    node = _FakeRecord(
+        {"id": "e1", "name": "MCP", "type": "mcp", "description": "desc", "source_page": 5}
+    )
+
+    entity_with_context = adapter._node_to_entity(node)
+
+    assert entity_with_context.entity == Entity(
+        id="e1", name="MCP", type="mcp", description="desc", source_page=5
+    )
+    assert entity_with_context.status is None
+    assert entity_with_context.confidence is None
+    assert entity_with_context.source is None

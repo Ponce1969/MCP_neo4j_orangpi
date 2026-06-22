@@ -62,11 +62,34 @@ class Neo4jQueryAdapter(GraphQueryPort):
         self, name: str, entity_type: EntityType | None
     ) -> list[EntityWithContext]:
         """Return entities matching ``name`` and optional ``entity_type``."""
-        raise NotImplementedError
+        async with self._driver.session() as session:
+            result = await self._run_with_timeout(
+                session.run(
+                    """
+                    MATCH (n:Entity {name: $name})
+                    WHERE $type IS NULL OR n.type = $type
+                    RETURN n
+                    LIMIT $limit
+                    """,
+                    {"name": name, "type": entity_type, "limit": 100},
+                )
+            )
+            return [self._node_to_entity(record["n"]) async for record in result]
 
     async def find_entities_batch(self, ids: list[str]) -> list[EntityWithContext]:
         """Return entities for the given list of ids (max 200)."""
-        raise NotImplementedError
+        async with self._driver.session() as session:
+            result = await self._run_with_timeout(
+                session.run(
+                    """
+                    UNWIND $ids AS id
+                    MATCH (n:Entity {id: id})
+                    RETURN n
+                    """,
+                    {"ids": ids},
+                )
+            )
+            return [self._node_to_entity(record["n"]) async for record in result]
 
     async def traverse_relationships(
         self, source_id: str, rel_type: RelationshipType | None, depth: int
