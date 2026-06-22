@@ -12,7 +12,7 @@ The module contains two groups of models:
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -126,3 +126,121 @@ class KnowledgeGraphChunk(BaseModel):
     # LLM-extracted content (filled by LLMAdapter) — starts empty
     entities: list[Entity] = Field(default_factory=list)
     relationships: list[Relationship] = Field(default_factory=list)
+
+
+# ── Query models (read-side graph queries, Fase 06) ──────────────────────────
+
+
+class GraphQuery(BaseModel):
+    """Base for all read-side graph queries; discriminated by ``type``."""
+
+    model_config = ConfigDict()
+    type: Literal["entity", "relation", "path", "similarity"]
+
+
+class EntityQuery(GraphQuery):
+    """Lookup entities by name with an optional type filter."""
+
+    type: Literal["entity"] = "entity"
+    name: str
+    entity_type: EntityType | None = None
+    limit: int = 100
+
+
+class RelationQuery(GraphQuery):
+    """Traverse relationships outward from a source entity."""
+
+    type: Literal["relation"] = "relation"
+    source_id: str
+    rel_type: RelationshipType | None = None
+    depth: int = 1
+
+
+class PathQuery(GraphQuery):
+    """Shortest path between two entities."""
+
+    type: Literal["path"] = "path"
+    start_id: str
+    end_id: str
+    max_depth: int = 3
+
+
+class SimilarityQuery(GraphQuery):
+    """Reserved semantic similarity query (not implemented in Fase 06)."""
+
+    type: Literal["similarity"] = "similarity"
+    text: str
+    top_k: int = 10
+
+
+GraphQueryUnion = Annotated[
+    EntityQuery | RelationQuery | PathQuery | SimilarityQuery,
+    Field(discriminator="type"),
+]
+
+
+class GraphPath(BaseModel):
+    """A path through the graph: ordered nodes plus the edges between them."""
+
+    model_config = ConfigDict()
+    nodes: list[Entity]
+    relationships: list[Relationship]
+
+
+class QueryMetadata(BaseModel):
+    """Metadata returned with every query execution."""
+
+    model_config = ConfigDict()
+    total_count: int
+    query_ms: float
+    depth: int | None = None
+    cursor: int | None = None
+    timed_out: bool = False
+
+
+class EntityWithContext(BaseModel):
+    """Entity enriched with optional provenance fields reserved for Fase 08."""
+
+    model_config = ConfigDict()
+    entity: Entity
+    status: str | None = None
+    confidence: float | None = None
+    source: str | None = None
+
+
+class GraphQueryResult(BaseModel):
+    """Unified result payload for any graph query."""
+
+    model_config = ConfigDict()
+    entities: list[EntityWithContext] = []
+    relationships: list[Relationship] = []
+    paths: list[GraphPath] = []
+    chunks: list[dict[str, Any]] = []
+    metadata: QueryMetadata
+
+
+# ── Domain errors (query layer) ──────────────────────────────────────────────
+
+
+class QueryTimeoutError(Exception):
+    """Raised when a query exceeds the configured timeout (3 seconds)."""
+
+    def __init__(self, message: str = "Query exceeded the 3-second timeout") -> None:
+        super().__init__(message)
+
+
+class BatchSizeExceededError(Exception):
+    """Raised when a batch request exceeds the configured limit."""
+
+    def __init__(self, limit: int, received: int) -> None:
+        self.limit = limit
+        self.received = received
+        super().__init__(f"Batch size {received} exceeds limit of {limit}")
+
+
+class UnsupportedQueryTypeError(Exception):
+    """Raised when the use case receives an unknown query type."""
+
+    def __init__(self, query_type: str) -> None:
+        self.query_type = query_type
+        super().__init__(f"Unsupported query type: {query_type}")
