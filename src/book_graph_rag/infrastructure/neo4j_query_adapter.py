@@ -91,11 +91,73 @@ class Neo4jQueryAdapter(GraphQueryPort):
             )
             return [self._node_to_entity(record["n"]) async for record in result]
 
+    def _relationship_to_domain(self, rel: Any) -> Relationship:
+        """Map a Neo4j Relationship to a domain ``Relationship``."""
+        return Relationship(
+            source_entity_id=rel.start_node["id"],
+            target_entity_id=rel.end_node["id"],
+            type=rel.type,
+            description=rel.get("description", ""),
+            source_page=rel.get("source_page"),
+        )
+
     async def traverse_relationships(
         self, source_id: str, rel_type: RelationshipType | None, depth: int
     ) -> tuple[list[EntityWithContext], list[Relationship]]:
         """Traverse outgoing relationships up to ``depth`` levels."""
-        raise NotImplementedError
+        clamped_depth = max(0, min(depth, 3))
+
+        if clamped_depth == 0:
+            async with self._driver.session() as session:
+                result = await self._run_with_timeout(
+                    session.run(
+                        "MATCH (start:Entity {id: $source_id}) RETURN start",
+                        {"source_id": source_id},
+                    )
+                )
+                records = [record async for record in result]
+                if not records:
+                    return [], []
+                return [self._node_to_entity(records[0]["start"])], []
+
+        query = f"""
+            MATCH p = (start:Entity {{id: $source_id}})-[:RELATED*1..{clamped_depth}]->(end:Entity)
+            WHERE $rel_type IS NULL OR ALL(r IN relationships(p) WHERE r.type = $rel_type)
+            RETURN start, end, relationships(p) AS rels
+            LIMIT 100
+        """
+        async with self._driver.session() as session:
+            result = await self._run_with_timeout(
+                session.run(
+                    query,
+                    {"source_id": source_id, "rel_type": rel_type},
+                )
+            )
+            entity_by_id: dict[str, EntityWithContext] = {}
+            relationships: list[Relationship] = []
+            seen_rel_keys: set[tuple[str, str, str]] = set()
+            async for record in result:
+                start_entity = self._node_to_entity(record["start"])
+                entity_by_id[start_entity.entity.id] = start_entity
+                end_entity = self._node_to_entity(record["end"])
+                entity_by_id[end_entity.entity.id] = end_entity
+
+                for rel in record["rels"]:
+                    for node in (rel.start_node, rel.end_node):
+                        entity = self._node_to_entity(node)
+                        entity_by_id[entity.entity.id] = entity
+
+                    domain_rel = self._relationship_to_domain(rel)
+                    rel_key = (
+                        domain_rel.source_entity_id,
+                        domain_rel.target_entity_id,
+                        domain_rel.type,
+                    )
+                    if rel_key not in seen_rel_keys:
+                        seen_rel_keys.add(rel_key)
+                        relationships.append(domain_rel)
+
+            return list(entity_by_id.values()), relationships
 
     async def find_path(
         self, start_id: str, end_id: str, max_depth: int
