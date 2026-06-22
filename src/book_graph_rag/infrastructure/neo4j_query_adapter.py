@@ -255,4 +255,13 @@ class Neo4jQueryAdapter(GraphQueryPort):
 
     async def ensure_indexes(self) -> None:
         """Create read-side indexes idempotently."""
-        raise NotImplementedError
+        index_statements = [
+            "CREATE INDEX entity_name IF NOT EXISTS FOR (n:Entity) ON (n.name)",
+            "CREATE INDEX entity_type IF NOT EXISTS FOR (n:Entity) ON (n.type)",
+            "CREATE INDEX entity_id IF NOT EXISTS FOR (n:Entity) ON (n.id)",
+            "CREATE INDEX rel_type IF NOT EXISTS FOR ()-[r:RELATED]-() ON (r.type)",
+            "CREATE FULLTEXT INDEX chunk_text_index IF NOT EXISTS FOR (n:Chunk) ON EACH [n.text]",
+        ]
+        async with self._driver.session() as session:
+            for statement in index_statements:
+                await self._run_with_timeout(session.run(statement))

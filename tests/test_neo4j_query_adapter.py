@@ -597,3 +597,55 @@ async def test_list_entities_second_page(adapter: Neo4jQueryAdapter) -> None:
     query, params = session.queries[0]
     assert params["cursor"] == 101
     assert "SKIP" not in query
+
+
+# ── T-06.9: ensure_indexes ───────────────────────────────────────────────────
+
+
+async def test_ensure_indexes_executes_five_create_statements(adapter: Neo4jQueryAdapter) -> None:
+    """ensure_indexes runs one CREATE statement per index."""
+    session = _make_session([])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.ensure_indexes()
+
+    assert len(session.queries) == 5
+
+
+async def test_ensure_indexes_is_idempotent(adapter: Neo4jQueryAdapter) -> None:
+    """Every index statement uses IF NOT EXISTS."""
+    session = _make_session([])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.ensure_indexes()
+
+    for query, _ in session.queries:
+        assert "IF NOT EXISTS" in query
+
+
+async def test_ensure_indexes_creates_expected_indexes(adapter: Neo4jQueryAdapter) -> None:
+    """The five expected indexes are created with correct names."""
+    session = _make_session([])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.ensure_indexes()
+
+    queries = [q for q, _ in session.queries]
+    assert any("entity_name" in q for q in queries)
+    assert any("entity_type" in q for q in queries)
+    assert any("entity_id" in q for q in queries)
+    assert any("rel_type" in q for q in queries)
+    assert any("chunk_text_index" in q for q in queries)
+
+
+async def test_ensure_indexes_fulltext_uses_on_each(adapter: Neo4jQueryAdapter) -> None:
+    """Full-text index creation uses ON EACH syntax."""
+    session = _make_session([])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.ensure_indexes()
+
+    fulltext_query = next(
+        q for q, _ in session.queries if "FULLTEXT INDEX chunk_text_index" in q
+    )
+    assert "ON EACH [n.text]" in fulltext_query
