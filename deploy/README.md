@@ -8,8 +8,8 @@ This folder contains the systemd unit file for running the Book Graph RAG MCP se
 
 ## Prerequisites
 
-- The repo is cloned at `/home/bookgraph/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi`.
-- `uv` is installed for the `bookgraph` user.
+- The repo is cloned at `/home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi`.
+- `uv` is installed for the `gonzalo` user at `/home/gonzalo/.local/bin/uv`.
 - A `.env` file exists in the repo root with all required Neo4j and MCP variables.
 
 ## Installation
@@ -26,7 +26,7 @@ This folder contains the systemd unit file for running the Book Graph RAG MCP se
    sudo nano /etc/systemd/system/mcp-server.service
    ```
 
-   Update `User`, `Group`, `WorkingDirectory`, `EnvironmentFile`, and `ExecStart` if needed.
+   The service file is preconfigured for user `gonzalo` on the Orange Pi. Update if your setup differs.
 
 3. Reload systemd and enable the service:
 

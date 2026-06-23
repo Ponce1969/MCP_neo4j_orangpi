@@ -5,12 +5,12 @@ Wants=docker.service
 
 [Service]
 Type=simple
-# Replace 'bookgraph' with the actual user on the Orange Pi.
-User=bookgraph
-Group=bookgraph
-WorkingDirectory=/home/bookgraph/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi
-EnvironmentFile=/home/bookgraph/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi/.env
-ExecStart=/home/bookgraph/.local/bin/uv run book-graph-rag-mcp serve
+User=gonzalo
+Group=gonzalo
+WorkingDirectory=/home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi
+EnvironmentFile=/home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi/.env
+ExecStart=/home/gonzalo/.local/bin/uv run book-graph-rag-mcp serve
+Environment=PATH=/home/gonzalo/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=5
 
