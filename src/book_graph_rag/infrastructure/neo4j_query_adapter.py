@@ -92,11 +92,16 @@ class Neo4jQueryAdapter(GraphQueryPort):
             return [self._node_to_entity(record["n"]) async for record in result]
 
     def _relationship_to_domain(self, rel: Any) -> Relationship:
-        """Map a Neo4j Relationship to a domain ``Relationship``."""
+        """Map a Neo4j Relationship to a domain ``Relationship``.
+
+        Neo4j stores all edges as native type ``:RELATED`` with the semantic
+        type (requires, enables, etc.) in a ``type`` property.  We must read
+        the property, not the native edge type.
+        """
         return Relationship(
             source_entity_id=rel.start_node["id"],
             target_entity_id=rel.end_node["id"],
-            type=rel.type,
+            type=rel["type"],
             description=rel.get("description", ""),
             source_page=rel.get("source_page"),
         )
