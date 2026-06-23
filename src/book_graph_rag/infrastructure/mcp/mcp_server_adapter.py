@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -233,8 +234,66 @@ class McpServerAdapter:
         )
         return {"count": count}
 
+    async def search_rag(
+        self, query: str, limit: int = 10, include_relations: bool = True
+    ) -> dict[str, Any]:
+        """Unified RAG search: chunks + entity + optional relationships."""
+        params = {"query": query, "limit": limit, "include_relations": include_relations}
+        start = self._now()
+
+        errors: list[str] = []
+        chunks: list[dict[str, Any]] = []
+        entities: list[dict[str, Any]] = []
+        entity_not_found = False
+        relationships: list[dict[str, Any]] = []
+
+        chunk_task = self._graph_query_port.search_chunks(query, limit)
+        entity_task = self._graph_query_port.find_entity(query, None)
+        chunk_result, entity_result = await asyncio.gather(
+            chunk_task, entity_task, return_exceptions=True
+        )
+
+        if isinstance(chunk_result, Exception):
+            errors.append(str(chunk_result))
+        else:
+            chunks = chunk_result
+
+        if isinstance(entity_result, Exception):
+            errors.append(str(entity_result))
+        else:
+            entities = [entity.model_dump(mode="json") for entity in entity_result]
+            entity_not_found = len(entity_result) == 0
+            if entity_result and include_relations:
+                try:
+                    _, rels = await self._graph_query_port.traverse_relationships(
+                        entity_result[0].entity.id, None, 1
+                    )
+                    relationships = [rel.model_dump(mode="json") for rel in rels]
+                except Exception as exc:  # pragma: no cover - defensive only
+                    errors.append(str(exc))
+
+        total_results = len(entities) + len(relationships) + len(chunks)
+        duration_ms = (self._now() - start).total_seconds() * 1000
+        await self._log(
+            tool_name="search_rag",
+            query_type="rag",
+            query_params=params,
+            result_count=total_results,
+            entity_not_found=entity_not_found,
+            duration_ms=duration_ms,
+        )
+        return {
+            "query": query,
+            "entities": entities,
+            "relationships": relationships,
+            "chunks": chunks,
+            "entity_not_found": entity_not_found,
+            "total_results": total_results,
+            "errors": errors,
+        }
+
     def create_server(self, host: str = "0.0.0.0", port: int = 8003) -> FastMCP:
-        """Return a configured FastMCP instance with the 5 tools registered."""
+        """Return a configured FastMCP instance with the 6 tools registered."""
         mcp = FastMCP("book-graph-rag", host=host, port=port)
 
         @mcp.tool()
@@ -260,6 +319,12 @@ class McpServerAdapter:
         @mcp.tool()
         async def count_entities(entity_type: str | None = None) -> dict[str, Any]:
             return await self.count_entities(entity_type)
+
+        @mcp.tool()
+        async def search_rag(
+            query: str, limit: int = 10, include_relations: bool = True
+        ) -> dict[str, Any]:
+            return await self.search_rag(query, limit, include_relations)
 
         return mcp
 

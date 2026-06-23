@@ -5,11 +5,12 @@ Wants=docker.service
 
 [Service]
 Type=simple
-User=gonzalo
-Group=gonzalo
-WorkingDirectory=/home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi
-ExecStart=/home/gonzalo/.local/bin/uv run book-graph-rag-mcp serve
-Environment=PATH=/home/gonzalo/.local/bin:/usr/local/bin:/usr/bin:/bin
+User=bookgraph
+Group=bookgraph
+WorkingDirectory=/home/bookgraph/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi
+ExecStart=/home/bookgraph/.local/bin/uv run book-graph-rag-mcp serve
+EnvironmentFile=/home/bookgraph/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi/.env
+Environment=PATH=/home/bookgraph/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=5
 

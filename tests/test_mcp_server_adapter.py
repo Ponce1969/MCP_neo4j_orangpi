@@ -46,7 +46,7 @@ class _FakeGraphQueryPort(GraphQueryPort):
         self, name: str, entity_type: EntityType | None
     ) -> list[EntityWithContext]:
         self.calls.append(("find_entity", {"name": name, "entity_type": entity_type}))
-        if self.raise_on == "find_entity":
+        if self._should_raise("find_entity"):
             raise TimeoutError("neo4j timeout")
         return self.find_entity_result
 
@@ -63,7 +63,7 @@ class _FakeGraphQueryPort(GraphQueryPort):
                 {"source_id": source_id, "rel_type": rel_type, "depth": depth},
             )
         )
-        if self.raise_on == "traverse_relationships":
+        if self._should_raise("traverse_relationships"):
             raise TimeoutError("neo4j timeout")
         return self.traverse_result
 
@@ -72,9 +72,16 @@ class _FakeGraphQueryPort(GraphQueryPort):
 
     async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
         self.calls.append(("search_chunks", {"query": query, "limit": limit}))
-        if self.raise_on == "search_chunks":
+        if self._should_raise("search_chunks"):
             raise TimeoutError("neo4j timeout")
         return self.search_chunks_result
+
+    def _should_raise(self, method: str) -> bool:
+        if self.raise_on is None:
+            return False
+        if isinstance(self.raise_on, set):
+            return method in self.raise_on
+        return self.raise_on == method
 
     async def count_entities(self, entity_type: str | None) -> int:
         self.calls.append(("count_entities", {"entity_type": entity_type}))
@@ -144,8 +151,8 @@ def _relationship(
 # ── create_server ────────────────────────────────────────────────────────────
 
 
-async def test_create_server_registers_five_tools(adapter: McpServerAdapter) -> None:
-    """create_server exposes exactly the 5 MCP tools defined by REQ-07.1."""
+async def test_create_server_registers_six_tools(adapter: McpServerAdapter) -> None:
+    """create_server exposes exactly the 6 MCP tools including search_rag."""
     server = adapter.create_server()
     tools = await server.list_tools()
     names = {tool.name for tool in tools}
@@ -155,6 +162,7 @@ async def test_create_server_registers_five_tools(adapter: McpServerAdapter) -> 
         "search_chunks",
         "list_entities",
         "count_entities",
+        "search_rag",
     }
 
 
@@ -448,3 +456,195 @@ async def test_create_server_uses_provided_host_and_port(adapter: McpServerAdapt
 
     assert server.settings.host == "127.0.0.1"
     assert server.settings.port == 9000
+
+
+# ── search_rag ───────────────────────────────────────────────────────────────
+
+
+async def test_search_rag_returns_entities_chunks_and_relationships(
+    adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+) -> None:
+    """Happy path: chunks, entity, and relationships are merged."""
+    entity = _entity("MCP", entity_id="e1", entity_type="mcp")
+    rel = _relationship("e1", "e2", "requires")
+    graph_query_port.find_entity_result = [entity]
+    graph_query_port.traverse_result = ([], [rel])
+    graph_query_port.search_chunks_result = [
+        {"text": "chunk one", "chunk_index": 1}
+    ]
+
+    result = await adapter.search_rag("MCP", limit=5, include_relations=True)
+
+    assert result["query"] == "MCP"
+    assert result["entity_not_found"] is False
+    assert len(result["entities"]) == 1
+    assert result["entities"][0]["entity"]["id"] == "e1"
+    assert len(result["relationships"]) == 1
+    assert result["relationships"][0]["source_entity_id"] == "e1"
+    assert len(result["chunks"]) == 1
+    assert result["total_results"] == 3
+    assert result["errors"] == []
+    assert graph_query_port.calls == [
+        ("search_chunks", {"query": "MCP", "limit": 5}),
+        ("find_entity", {"name": "MCP", "entity_type": None}),
+        ("traverse_relationships", {"source_id": "e1", "rel_type": None, "depth": 1}),
+    ]
+
+
+async def test_search_rag_entity_not_found_still_returns_chunks(
+    adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+) -> None:
+    """When find_entity returns empty, entity_not_found is True and chunks still return."""
+    graph_query_port.search_chunks_result = [
+        {"text": "chunk one", "chunk_index": 1}
+    ]
+
+    result = await adapter.search_rag("missing", include_relations=True)
+
+    assert result["entity_not_found"] is True
+    assert result["entities"] == []
+    assert result["relationships"] == []
+    assert len(result["chunks"]) == 1
+    assert result["total_results"] == 1
+    assert result["errors"] == []
+    assert not any(call[0] == "traverse_relationships" for call in graph_query_port.calls)
+
+
+async def test_search_rag_no_chunks_still_returns_entities(
+    adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+) -> None:
+    """When search_chunks returns empty, entities and relationships still return."""
+    entity = _entity("MCP", entity_id="e1", entity_type="mcp")
+    rel = _relationship("e1", "e2", "requires")
+    graph_query_port.find_entity_result = [entity]
+    graph_query_port.traverse_result = ([], [rel])
+
+    result = await adapter.search_rag("MCP", include_relations=True)
+
+    assert result["chunks"] == []
+    assert len(result["entities"]) == 1
+    assert len(result["relationships"]) == 1
+    assert result["total_results"] == 2
+
+
+async def test_search_rag_include_relations_false_skips_traverse(
+    adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+) -> None:
+    """With include_relations=False, traverse_relationships is never called."""
+    entity = _entity("MCP", entity_id="e1", entity_type="mcp")
+    graph_query_port.find_entity_result = [entity]
+
+    result = await adapter.search_rag("MCP", include_relations=False)
+
+    assert result["relationships"] == []
+    assert not any(call[0] == "traverse_relationships" for call in graph_query_port.calls)
+
+
+async def test_search_rag_partial_failure_chunks(
+    adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+) -> None:
+    """When search_chunks raises, entity results are still returned with an error entry."""
+    entity = _entity("MCP", entity_id="e1", entity_type="mcp")
+    graph_query_port.find_entity_result = [entity]
+    graph_query_port.raise_on = "search_chunks"
+
+    result = await adapter.search_rag("MCP", include_relations=True)
+
+    assert result["chunks"] == []
+    assert len(result["entities"]) == 1
+    assert result["entity_not_found"] is False
+    assert len(result["errors"]) == 1
+    assert "neo4j timeout" in result["errors"][0]
+
+
+async def test_search_rag_partial_failure_entity(
+    adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+) -> None:
+    """When find_entity raises, chunk results are still returned with an error entry."""
+    graph_query_port.search_chunks_result = [
+        {"text": "chunk one", "chunk_index": 1}
+    ]
+    graph_query_port.raise_on = "find_entity"
+
+    result = await adapter.search_rag("MCP", include_relations=True)
+
+    assert result["entities"] == []
+    assert result["entity_not_found"] is False
+    assert len(result["chunks"]) == 1
+    assert len(result["errors"]) == 1
+    assert "neo4j timeout" in result["errors"][0]
+
+
+async def test_search_rag_handles_both_subqueries_failing(
+    adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+) -> None:
+    """When both sub-queries raise, the response is empty and reports both errors."""
+    graph_query_port.raise_on = {"search_chunks", "find_entity"}
+
+    result = await adapter.search_rag("MCP", include_relations=True)
+
+    assert result["chunks"] == []
+    assert result["entities"] == []
+    assert result["relationships"] == []
+    assert result["entity_not_found"] is False
+    assert result["total_results"] == 0
+    assert len(result["errors"]) == 2
+    assert all("neo4j timeout" in error for error in result["errors"])
+
+
+async def test_search_rag_total_results_counts_all_items(
+    adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+) -> None:
+    """total_results equals the sum of entities, relationships, and chunks."""
+    entity = _entity("MCP", entity_id="e1", entity_type="mcp")
+    graph_query_port.find_entity_result = [entity]
+    graph_query_port.traverse_result = (
+        [],
+        [_relationship("e1", "e2"), _relationship("e1", "e3")],
+    )
+    graph_query_port.search_chunks_result = [
+        {"text": "one", "chunk_index": 1},
+        {"text": "two", "chunk_index": 2},
+    ]
+
+    result = await adapter.search_rag("MCP", include_relations=True)
+
+    assert result["total_results"] == 5
+
+
+async def test_search_rag_logs_query_entry_with_correct_fields(
+    adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+) -> None:
+    """Exactly one QueryLogEntry is logged with tool_name search_rag and query_type rag."""
+    entity = _entity("MCP", entity_id="e1", entity_type="mcp")
+    graph_query_port.find_entity_result = [entity]
+    graph_query_port.traverse_result = ([], [_relationship("e1", "e2")])
+    graph_query_port.search_chunks_result = [{"text": "chunk", "chunk_index": 0}]
+
+    await adapter.search_rag("MCP", limit=7, include_relations=True)
+
+    assert len(query_logger.entries) == 1
+    entry = query_logger.entries[0]
+    assert entry.tool_name == "search_rag"
+    assert entry.query_type == "rag"
+    assert entry.query_params == {
+        "query": "MCP",
+        "limit": 7,
+        "include_relations": True,
+    }
+    assert entry.result_count == 3
+    assert entry.zero_results is False
+    assert entry.entity_not_found is False
+    assert entry.error is None
+    assert entry.duration_ms >= 0.0
