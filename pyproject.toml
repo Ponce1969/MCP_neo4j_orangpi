@@ -13,6 +13,7 @@ dependencies = [
     "pymupdf>=1.24",
     "tenacity>=8.5",
     "click>=8.1",
+    "mcp>=1.27,<2",
 ]
 
 [dependency-groups]
@@ -26,6 +27,7 @@ dev = [
 
 [project.scripts]
 book-graph-rag = "book_graph_rag.main:main"
+book-graph-rag-mcp = "book_graph_rag.mcp_server_main:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -67,7 +69,7 @@ ignore_missing_imports = true
 # flag solo a ellas. NUESTRO código (book_graph_rag) queda sujeto al flag.
 # Si una de estas libs empieza a publicar stubs py.typed, SACARLA de acá.
 [[tool.mypy.overrides]]
-module = ["neo4j.*", "fitz.*", "instructor.*", "openai.*"]
+module = ["neo4j.*", "fitz.*", "instructor.*", "openai.*", "mcp.*"]
 disallow_any_unimported = false
 
 # ── Pytest ───────────────────────────────────────────────────────────────
