@@ -1,4 +1,4 @@
-"""Tests for Neo4jAdapter (AC-03.1, AC-03.5, AC-03.6)."""
+"""Tests for Neo4jCommandAdapter (AC-03.1, AC-03.5, AC-03.6)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from book_graph_rag.domain.models import (
     Relationship,
     Section,
 )
-from book_graph_rag.infrastructure.neo4j_adapter import Neo4jAdapter
+from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdapter
 
 
 def _make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> Settings:
@@ -74,9 +74,9 @@ class _FakeGraphDatabase:
 
 
 def test_neo4j_adapter_requires_settings() -> None:
-    """AC-03.1: Neo4jAdapter requires Settings to construct."""
+    """AC-03.1: Neo4jCommandAdapter requires Settings to construct."""
     with pytest.raises(TypeError):
-        Neo4jAdapter()  # type: ignore[call-arg]
+        Neo4jCommandAdapter()  # type: ignore[call-arg]
 
 
 def test_neo4j_adapter_uses_secret_value_for_auth(
@@ -91,11 +91,11 @@ def test_neo4j_adapter_uses_secret_value_for_auth(
     )
     fake_db = _FakeGraphDatabase()
     monkeypatch.setattr(
-        "book_graph_rag.infrastructure.neo4j_adapter.AsyncGraphDatabase",
+        "book_graph_rag.infrastructure.neo4j_command_adapter.AsyncGraphDatabase",
         fake_db,
     )
 
-    Neo4jAdapter(settings)
+    Neo4jCommandAdapter(settings)
 
     assert len(fake_db.driver_calls) == 1
     args, kwargs = fake_db.driver_calls[0]
@@ -111,10 +111,10 @@ async def test_neo4j_adapter_upsert_entities_idempotent_on_repeats(
     settings = _make_settings(tmp_path, monkeypatch)
     fake_db = _FakeGraphDatabase()
     monkeypatch.setattr(
-        "book_graph_rag.infrastructure.neo4j_adapter.AsyncGraphDatabase",
+        "book_graph_rag.infrastructure.neo4j_command_adapter.AsyncGraphDatabase",
         fake_db,
     )
-    adapter = Neo4jAdapter(settings)
+    adapter = Neo4jCommandAdapter(settings)
 
     entity = Entity(id="e1", name="Agent", type="agent")
     await adapter.upsert_entities([entity])
@@ -136,10 +136,10 @@ async def test_neo4j_adapter_upsert_book_merges_by_id(
     settings = _make_settings(tmp_path, monkeypatch)
     fake_db = _FakeGraphDatabase()
     monkeypatch.setattr(
-        "book_graph_rag.infrastructure.neo4j_adapter.AsyncGraphDatabase",
+        "book_graph_rag.infrastructure.neo4j_command_adapter.AsyncGraphDatabase",
         fake_db,
     )
-    adapter = Neo4jAdapter(settings)
+    adapter = Neo4jCommandAdapter(settings)
 
     book = Book(
         id="agentic-patterns",
@@ -164,10 +164,10 @@ async def test_neo4j_adapter_upsert_relationships_uses_merges_and_matches_entiti
     settings = _make_settings(tmp_path, monkeypatch)
     fake_db = _FakeGraphDatabase()
     monkeypatch.setattr(
-        "book_graph_rag.infrastructure.neo4j_adapter.AsyncGraphDatabase",
+        "book_graph_rag.infrastructure.neo4j_command_adapter.AsyncGraphDatabase",
         fake_db,
     )
-    adapter = Neo4jAdapter(settings)
+    adapter = Neo4jCommandAdapter(settings)
 
     relationship = Relationship(
         source_entity_id="e1",
@@ -193,10 +193,10 @@ async def test_neo4j_adapter_upsert_editorial_structure_links_chunk(
     settings = _make_settings(tmp_path, monkeypatch)
     fake_db = _FakeGraphDatabase()
     monkeypatch.setattr(
-        "book_graph_rag.infrastructure.neo4j_adapter.AsyncGraphDatabase",
+        "book_graph_rag.infrastructure.neo4j_command_adapter.AsyncGraphDatabase",
         fake_db,
     )
-    adapter = Neo4jAdapter(settings)
+    adapter = Neo4jCommandAdapter(settings)
 
     book = Book(
         id="agentic-patterns",
