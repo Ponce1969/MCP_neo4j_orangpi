@@ -115,14 +115,19 @@ def query(query_type: str, query_json: str) -> None:
     graph_query = _build_graph_query(query_type, params)
 
     query_adapter = Neo4jQueryAdapter(settings)
+    use_case = QueryKnowledgeGraphUseCase(port=query_adapter)
+
+    async def _run() -> Any:
+        try:
+            return await use_case.execute(graph_query)
+        finally:
+            await query_adapter.close()
+
     try:
-        use_case = QueryKnowledgeGraphUseCase(port=query_adapter)
-        result = asyncio.run(use_case.execute(graph_query))
+        result = asyncio.run(_run())
     except Exception as exc:  # noqa: BLE001
         click.echo(f"Query error: {exc}", err=True)
         sys.exit(3)
-    finally:
-        asyncio.run(query_adapter.close())
 
     click.echo(result.model_dump_json(indent=2))
 
