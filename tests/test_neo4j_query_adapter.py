@@ -44,7 +44,12 @@ class _FakeResult:
 
 
 class _FakeRelationship:
-    """Mimics a Neo4j Relationship object with ``start_node``/``end_node``."""
+    """Mimics a Neo4j Relationship object with ``start_node``/``end_node``.
+
+    Neo4j stores all edges as native type ``:RELATED`` with the semantic type
+    in a ``type`` property.  ``__getitem__`` and ``get`` access the property,
+    not the native type.
+    """
 
     def __init__(
         self,
@@ -56,8 +61,15 @@ class _FakeRelationship:
     ) -> None:
         self.start_node = start_node
         self.end_node = end_node
-        self.type = rel_type
-        self._data = {"description": description, "source_page": source_page}
+        self.type = "RELATED"  # native Neo4j edge type
+        self._data: dict[str, Any] = {
+            "type": rel_type,  # semantic type in property
+            "description": description,
+            "source_page": source_page,
+        }
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
 
     def get(self, key: str, default: Any = None) -> Any:
         return self._data.get(key, default)
