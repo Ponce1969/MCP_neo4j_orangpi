@@ -15,6 +15,7 @@ from book_graph_rag.application.query_knowledge_graph_use_case import (
     QueryKnowledgeGraphUseCase,
 )
 from book_graph_rag.domain.models import (
+    BatchEntityQuery,
     BatchSizeExceededError,
     Entity,
     EntityQuery,
@@ -221,6 +222,22 @@ async def test_empty_result_returns_zero_total_count(
     assert result.metadata.total_count == 0
 
 
+async def test_batch_entity_query_dispatches_to_find_entities_batch(
+    fake_port: _FakeGraphQueryPort, use_case: QueryKnowledgeGraphUseCase
+) -> None:
+    """AC-06.4 / AC-06.15: batch_entity query calls port.find_entities_batch."""
+    entity = Entity(id="e1", name="MCP", type="mcp")
+    fake_port.find_entities_batch_result = [EntityWithContext(entity=entity)]
+
+    result = await use_case.execute(BatchEntityQuery(ids=["e1", "e2"]))
+
+    assert result.entities == fake_port.find_entities_batch_result
+    assert result.metadata.total_count == 1
+    assert fake_port.calls == [
+        {"method": "find_entities_batch", "ids": ["e1", "e2"]}
+    ]
+
+
 async def test_batch_size_exceeded_raises_before_calling_port(
     fake_port: _FakeGraphQueryPort, use_case: QueryKnowledgeGraphUseCase
 ) -> None:
@@ -228,7 +245,7 @@ async def test_batch_size_exceeded_raises_before_calling_port(
     ids = [f"id_{i}" for i in range(201)]
 
     with pytest.raises(BatchSizeExceededError) as exc_info:
-        await use_case.execute_batch(ids)
+        await use_case.execute(BatchEntityQuery(ids=ids))
 
     assert exc_info.value.limit == 200
     assert exc_info.value.received == 201
