@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -18,6 +19,7 @@ from book_graph_rag.domain.models import (
     GraphQueryResult,
     GraphQueryUnion,
     PathQuery,
+    QueryLogEntry,
     QueryMetadata,
     QueryTimeoutError,
     RelationQuery,
@@ -222,3 +224,89 @@ def test_unsupported_query_type_error_stores_query_type() -> None:
     assert isinstance(error, Exception)
     assert error.query_type == "semantic"
     assert "semantic" in str(error)
+
+
+def test_query_log_entry_requires_all_fields() -> None:
+    """QueryLogEntry requires every mandatory field to be provided."""
+    now = datetime.now(tz=UTC)
+    entry = QueryLogEntry(
+        timestamp=now,
+        tool_name="find_entity",
+        query_type="entity",
+        query_params={"name": "FastMCP"},
+        result_count=1,
+        zero_results=False,
+        entity_not_found=False,
+        duration_ms=45.2,
+    )
+
+    assert entry.timestamp == now
+    assert entry.tool_name == "find_entity"
+    assert entry.query_type == "entity"
+    assert entry.query_params == {"name": "FastMCP"}
+    assert entry.result_count == 1
+    assert entry.zero_results is False
+    assert entry.entity_not_found is False
+    assert entry.duration_ms == 45.2
+    assert entry.error is None
+
+
+def test_query_log_entry_flags_are_boolean() -> None:
+    """zero_results and entity_not_found are bool fields, not ints."""
+    entry = QueryLogEntry(
+        timestamp=datetime.now(tz=UTC),
+        tool_name="find_entity",
+        query_type="entity",
+        query_params={"name": "Missing"},
+        result_count=0,
+        zero_results=True,
+        entity_not_found=True,
+        duration_ms=12.0,
+    )
+
+    assert isinstance(entry.zero_results, bool)
+    assert isinstance(entry.entity_not_found, bool)
+    assert entry.zero_results is True
+    assert entry.entity_not_found is True
+
+
+def test_query_log_entry_serializes_to_iso_timestamp() -> None:
+    """The datetime timestamp serializes as an ISO 8601 string."""
+    now = datetime(2026, 6, 22, 14, 30, 0, tzinfo=UTC)
+    entry = QueryLogEntry(
+        timestamp=now,
+        tool_name="search_chunks",
+        query_type="search",
+        query_params={"query": "MCP", "limit": 10},
+        result_count=3,
+        zero_results=False,
+        entity_not_found=False,
+        duration_ms=33.0,
+        error=None,
+    )
+
+    payload = entry.model_dump(mode="json")
+
+    assert payload["timestamp"] == "2026-06-22T14:30:00Z"
+    assert payload["tool_name"] == "search_chunks"
+    assert payload["query_params"] == {"query": "MCP", "limit": 10}
+    assert payload["result_count"] == 3
+    assert payload["error"] is None
+
+
+def test_query_log_entry_error_is_optional_string() -> None:
+    """error accepts a string message and serializes it."""
+    entry = QueryLogEntry(
+        timestamp=datetime.now(tz=UTC),
+        tool_name="search_chunks",
+        query_type="search",
+        query_params={"query": "MCP"},
+        result_count=0,
+        zero_results=True,
+        entity_not_found=False,
+        duration_ms=0.0,
+        error="Neo4j connection timeout",
+    )
+
+    assert entry.error == "Neo4j connection timeout"
+    assert entry.model_dump(mode="json")["error"] == "Neo4j connection timeout"

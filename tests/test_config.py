@@ -84,3 +84,68 @@ def test_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.llm_base_url == "http://localhost:11434/v1"
     assert settings.llm_model_name == "llama3:70b"
     assert settings.llm_api_key is None
+    assert settings.mcp_port == 8003
+    assert settings.mcp_log_path == Path("logs/mcp_queries.jsonl")
+    assert settings.mcp_log_retention_days == 7
+
+
+def test_settings_mcp_values_can_be_overridden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MCP settings can be customized via .env values."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "mcp_port": 9000,
+        "mcp_log_path": "/var/log/mcp.jsonl",
+        "mcp_log_retention_days": 14,
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.mcp_port == 9000
+    assert settings.mcp_log_path == Path("/var/log/mcp.jsonl")
+    assert settings.mcp_log_retention_days == 14
+
+
+def test_settings_mcp_port_must_be_in_valid_range(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """mcp_port must be a valid TCP port (1-65535)."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "mcp_port": 70000,
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "mcp_port" in str(exc_info.value)
+
+
+def test_settings_mcp_retention_must_be_positive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """mcp_log_retention_days must be at least 1."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "mcp_log_retention_days": 0,
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "mcp_log_retention_days" in str(exc_info.value)

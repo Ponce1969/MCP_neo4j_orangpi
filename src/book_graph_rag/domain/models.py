@@ -12,6 +12,7 @@ The module contains two groups of models:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -224,6 +225,30 @@ class GraphQueryResult(BaseModel):
     paths: list[GraphPath] = []
     chunks: list[dict[str, Any]] = []
     metadata: QueryMetadata
+
+
+# ── Query logging models (MCP server observability, Fase 07) ─────────────────
+
+
+class QueryLogEntry(BaseModel):
+    """Structured log entry for an MCP tool execution.
+
+    Captures the signals needed for 07.2 gap analysis: which tool was called,
+    what kind of query it represents, the input parameters, how many results
+    were returned, whether the query produced zero results or a missing entity,
+    how long it took, and any error that occurred.
+    """
+
+    model_config = ConfigDict()
+    timestamp: datetime
+    tool_name: str
+    query_type: str
+    query_params: dict[str, Any]
+    result_count: int
+    zero_results: bool
+    entity_not_found: bool
+    duration_ms: float
+    error: str | None = None
 
 
 # ── Domain errors (query layer) ──────────────────────────────────────────────

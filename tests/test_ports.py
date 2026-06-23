@@ -6,6 +6,7 @@ from collections.abc import Iterator
 
 import pytest
 
+import book_graph_rag.ports as ports
 from book_graph_rag.domain.models import (
     Book,
     Chapter,
@@ -17,6 +18,7 @@ from book_graph_rag.domain.models import (
 from book_graph_rag.ports.graph_db_port import GraphDatabasePort
 from book_graph_rag.ports.llm_port import LLMProviderPort
 from book_graph_rag.ports.pdf_port import PDFReaderPort
+from book_graph_rag.ports.query_logger_port import QueryLoggerPort
 
 
 def test_llm_port_abstract_cannot_instantiate() -> None:
@@ -127,3 +129,9 @@ def test_pdf_method_is_sync_and_returns_iterator() -> None:
     assert evaluated["return"] == Iterator[KnowledgeGraphChunk]
     assert signature.return_annotation == "Iterator[KnowledgeGraphChunk]"
     assert not inspect.iscoroutinefunction(PDFReaderPort.extract_chunks)
+
+
+def test_query_logger_port_is_exported_from_package() -> None:
+    """QueryLoggerPort is reachable from the ports package."""
+    assert hasattr(ports, "QueryLoggerPort")
+    assert ports.QueryLoggerPort is QueryLoggerPort

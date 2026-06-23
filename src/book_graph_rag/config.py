@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     llm_retry_wait_max: float = 30.0
     # wait = min(multiplier * 2^(intento-1), max)  → 1s, 2s, 4s ... hasta 30s
 
+    # ── MCP server (Fase 07) ────────────────────────────────────────────
+    mcp_port: int = 8003
+    mcp_log_path: Path = Path("logs/mcp_queries.jsonl")
+    mcp_log_retention_days: int = 7
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -38,7 +43,7 @@ class Settings(BaseSettings):
     )
 
     @model_validator(mode="after")
-    def _overlap_menor_que_max_chunk(self) -> "Settings":
+    def _validate_settings(self) -> "Settings":
         # Validación cross-field: requiere AMBOS valores ya validados.
         # En Pydantic v2 el orden de validación de @field_validator depende del
         # orden de definición, lo que vuelve frágil info.data.get(...).
@@ -49,5 +54,14 @@ class Settings(BaseSettings):
                 f"pdf_chunk_overlap ({self.pdf_chunk_overlap}) debe ser "
                 f"estrictamente menor que pdf_max_chunk_size "
                 f"({self.pdf_max_chunk_size})"
+            )
+        if not 1 <= self.mcp_port <= 65535:
+            raise ValueError(
+                f"mcp_port ({self.mcp_port}) debe estar entre 1 y 65535"
+            )
+        if self.mcp_log_retention_days < 1:
+            raise ValueError(
+                f"mcp_log_retention_days ({self.mcp_log_retention_days}) "
+                f"debe ser mayor o igual a 1"
             )
         return self
