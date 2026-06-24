@@ -520,14 +520,14 @@ async def test_find_path_no_path_returns_empty_list(adapter: Neo4jQueryAdapter) 
 
 
 async def test_search_chunks_uses_fulltext_index(adapter: Neo4jQueryAdapter) -> None:
-    """AC-06.6: chunk search uses db.fulltext.queryNodes, not CONTAINS."""
+    """AC-06.6: chunk search uses db.index.fulltext.queryNodes, not CONTAINS."""
     session = _make_session([])
     adapter._driver = _FakeDriver(session)
 
     await adapter.search_chunks("dependency injection", 10)
 
     query, params = session.queries[0]
-    assert "CALL db.fulltext.queryNodes" in query
+    assert "CALL db.index.fulltext.queryNodes" in query
     assert "CONTAINS" not in query
     assert params["query"] == "dependency injection"
     assert params["limit"] == 10

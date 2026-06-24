@@ -203,7 +203,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
             result = await self._run_with_timeout(
                 session.run(
                     """
-                    CALL db.fulltext.queryNodes("chunk_text_index", $query)
+                    CALL db.index.fulltext.queryNodes("chunk_text_index", $query)
                     YIELD node, score
                     RETURN node, score
                     ORDER BY score DESC
