@@ -457,3 +457,87 @@ class TestWorkspacePorts:
 
         assert result.error is not None
         assert result.error.code == WS_NO_COMPOSE
+
+
+class TestWorkspaceDeploy:
+    """Tests for workspace_deploy."""
+
+    async def test_success(
+        self,
+        workspace_tools: WorkspaceTools,
+        mock_resolver: MockWorkspaceResolver,
+        mock_runner: MockCommandRunner,
+        active_workspace: WorkspaceInfo,
+    ) -> None:
+        mock_resolver.set_workspaces({"guardian": active_workspace})
+        mock_runner.set_response(
+            "deploy_project",
+            CommandResult(
+                exit_code=0,
+                stdout="Despliegue de 'guardian' completado con éxito.",
+                stderr="",
+            ),
+        )
+
+        result = await workspace_tools.workspace_deploy("guardian")
+
+        assert result.error is None
+        assert result.data is not None
+        assert result.data["workspace"] == "guardian"
+        assert result.data["status"] == "success"
+        assert "completado con éxito" in result.data["output"]
+
+    async def test_workspace_not_found(
+        self,
+        workspace_tools: WorkspaceTools,
+        mock_resolver: MockWorkspaceResolver,
+    ) -> None:
+        mock_resolver.set_workspaces({})
+
+        result = await workspace_tools.workspace_deploy("nonexistent")
+
+        assert result.error is not None
+        assert result.error.code == WS_NOT_FOUND
+
+    async def test_disabled_workspace(
+        self,
+        workspace_tools: WorkspaceTools,
+        mock_resolver: MockWorkspaceResolver,
+    ) -> None:
+        mock_resolver.set_workspaces(
+            {
+                "disabled_ws": WorkspaceInfo(
+                    id="disabled_ws",
+                    path="/home/testuser/codigo/disabled",
+                    status=WorkspaceStatus.DISABLED,
+                )
+            }
+        )
+
+        result = await workspace_tools.workspace_deploy("disabled_ws")
+
+        assert result.error is not None
+        assert result.error.code == WS_DISABLED
+
+    async def test_deploy_failed(
+        self,
+        workspace_tools: WorkspaceTools,
+        mock_resolver: MockWorkspaceResolver,
+        mock_runner: MockCommandRunner,
+        active_workspace: WorkspaceInfo,
+    ) -> None:
+        mock_resolver.set_workspaces({"guardian": active_workspace})
+        mock_runner.set_response(
+            "deploy_project",
+            CommandResult(
+                exit_code=1,
+                stdout="Acceso denegado: Proyecto no autorizado.",
+                stderr="Acceso denegado: Proyecto no autorizado.",
+            ),
+        )
+
+        result = await workspace_tools.workspace_deploy("guardian")
+
+        assert result.error is not None
+        assert result.error.code == "AUTH_FORBIDDEN"
+        assert "Acceso denegado" in result.error.message

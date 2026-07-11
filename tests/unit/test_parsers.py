@@ -28,6 +28,7 @@ from mcp_oranpi.infrastructure.parsers import (
     parse_systemctl_list,
     parse_systemctl_status,
     parse_tailscale_status,
+    parse_thermal_zones,
     parse_top_bn1,
     parse_vcgencmd_temp,
 )
@@ -525,33 +526,65 @@ class TestParseSystemctlStatus:
     """Tests for parse_systemctl_status."""
 
     def test_nginx_status(self) -> None:
-        # Note: parser looks for parentheses on FIRST LINE only
-        # systemctl status has Active: on second line, so active will be ""
-        stdout = """nginx.service - A nginx web server
-   Loaded: loaded (/lib/systemd/system/nginx.service; enabled)
-   Active: active (running) since Mon 2024-01-15 10:30:00 UTC; 2 hours ago
+        stdout = """● nginx.service - A nginx web server
+     Loaded: loaded (/lib/systemd/system/nginx.service; enabled; preset: enabled)
+     Active: active (running) since Mon 2024-01-15 10:30:00 UTC; 2 hours ago
 """
         info = parse_systemctl_status(stdout)
 
         assert info is not None
         assert info.name == "nginx"
-        # Parser extracts active from parentheses on first line only
-        # First line is "nginx.service - A nginx web server" - no parentheses
-        assert info.active == ""
+        assert info.active == "active"
+        assert info.sub_state == "running"
+        assert info.enabled is True
         assert "nginx" in info.description.lower()
 
     def test_inactive_service(self) -> None:
-        # Parser extracts name from .service suffix on first line
-        stdout = """mysql.service - MySQL Community Server
-   Loaded: loaded
-   Active: inactive (dead) since Mon 2024-01-15 08:00:00 UTC; 4 hours ago
+        stdout = """● mysql.service - MySQL Community Server
+     Loaded: loaded (/lib/systemd/system/mysql.service; disabled; preset: enabled)
+     Active: inactive (dead) since Mon 2024-01-15 08:00:00 UTC; 4 hours ago
 """
         info = parse_systemctl_status(stdout)
 
         assert info is not None
         assert info.name == "mysql"
-        # First line has no parentheses, so active is ""
-        assert info.active == ""
+        assert info.active == "inactive"
+        assert info.sub_state == "dead"
+        assert info.enabled is False
+
+    def test_docker_status_real_output(self) -> None:
+        """Test with real OrangePi systemctl status docker output."""
+        stdout = """● docker.service - Docker Application Container Engine
+     Loaded: loaded (/usr/lib/systemd/system/docker.service; enabled; preset: enabled)
+     Active: active (running) since Thu 2026-05-28 00:35:51 -03; 2 weeks 1 day ago
+TriggeredBy: ● docker.socket
+       Docs: https://docs.docker.com
+   Main PID: 2145 (dockerd)
+      Tasks: 312
+     Memory: 3.9G
+        CPU: 5h 13min 50.079s
+     CGroup: /system.slice/docker.service
+"""
+        info = parse_systemctl_status(stdout)
+
+        assert info is not None
+        assert info.name == "docker"
+        assert info.active == "active"
+        assert info.sub_state == "running"
+        assert info.enabled is True
+        assert info.description == "Docker Application Container Engine"
+
+    def test_failed_service(self) -> None:
+        stdout = """● casper-md5check.service - casper-md5check Verify Live ISO checksums
+     Loaded: loaded (/lib/systemd/system/casper-md5check.service; enabled)
+     Active: failed (Result: exit-code) since Mon 2024-01-15 08:00:00 UTC; 4 hours ago
+"""
+        info = parse_systemctl_status(stdout)
+
+        assert info is not None
+        assert info.name == "casper-md5check"
+        assert info.active == "failed"
+        assert info.sub_state == "exit-code"
 
     def test_empty_output(self) -> None:
         assert parse_systemctl_status("") is None
@@ -577,6 +610,56 @@ class TestParseVcgencmdTemp:
 
     def test_invalid_format(self) -> None:
         assert parse_vcgencmd_temp("not a temperature") == []
+
+
+class TestParseThermalZones:
+    """Tests for parse_thermal_zones."""
+
+    def test_orangepi_thermal_zones(self) -> None:
+        """Parse real OrangePi 5 Plus thermal zone output."""
+        stdout = "soc-thermal|32384\nbigcore0-thermal|32384\nbigcore1-thermal|32384\nlittlecore-thermal|33307\ncenter-thermal|31461\ngpu-thermal|32384\nnpu-thermal|32384\n"
+        readings = parse_thermal_zones(stdout)
+
+        assert len(readings) == 7
+        assert readings[0].name == "soc"
+        assert readings[0].temp_c == 32.4
+        assert readings[3].name == "littlecore"
+        assert readings[3].temp_c == 33.3
+
+    def test_deduplication(self) -> None:
+        """Duplicate zone names are deduplicated."""
+        stdout = "soc-thermal|32000\nsoc-thermal|32000\n"
+        readings = parse_thermal_zones(stdout)
+
+        assert len(readings) == 1
+        assert readings[0].name == "soc"
+
+    def test_unknown_zone_skipped(self) -> None:
+        """Zones with 'unknown' type are skipped."""
+        stdout = "unknown|32000\nsoc-thermal|33000\n"
+        readings = parse_thermal_zones(stdout)
+
+        assert len(readings) == 1
+        assert readings[0].name == "soc"
+
+    def test_empty_output(self) -> None:
+        assert parse_thermal_zones("") == []
+
+    def test_malformed_line_skipped(self) -> None:
+        """Lines without pipe delimiter are skipped."""
+        stdout = "not-a-zone\ngpu-thermal|31000\n"
+        readings = parse_thermal_zones(stdout)
+
+        assert len(readings) == 1
+        assert readings[0].name == "gpu"
+
+    def test_friendly_names(self) -> None:
+        """Thermal zone suffix '-thermal' is stripped from names."""
+        stdout = "cpu-thermal|45000\n"
+        readings = parse_thermal_zones(stdout)
+
+        assert readings[0].name == "cpu"
+        assert readings[0].temp_c == 45.0
 
 
 class TestParseComposePs:

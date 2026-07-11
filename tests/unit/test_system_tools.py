@@ -163,11 +163,37 @@ class TestSystemDiskUsage:
 class TestSystemTemperatures:
     """Tests for system_temperatures."""
 
-    async def test_success(self, system_tools: SystemTools) -> None:
-        stdout = "temp=48.3'C"
+    async def test_thermal_zones_success(self, system_tools: SystemTools) -> None:
+        """Thermal zones are the primary method on ARM boards."""
+        stdout = "soc-thermal|32384\nbigcore0-thermal|32384\nlittlecore-thermal|33307\n"
+        system_tools._runner.set_response(
+            "thermal_zones",
+            CommandResult(exit_code=0, stdout=stdout, stderr=""),
+        )
+
+        result = await system_tools.system_temperatures()
+
+        assert result.error is None
+        assert result.data is not None
+        assert len(result.data["temperatures"]) == 3
+        assert result.data["temperatures"][0]["name"] == "soc"
+        assert result.data["temperatures"][0]["temp_c"] == 32.4
+        assert result.data["source"] == "thermal_zones"
+        assert result.data["throttled"] is False
+
+    async def test_thermal_zones_fallback_to_vcgencmd(
+        self, system_tools: SystemTools
+    ) -> None:
+        """When thermal zones return empty, fall back to vcgencmd."""
+        # thermal_zones returns empty output
+        system_tools._runner.set_response(
+            "thermal_zones",
+            CommandResult(exit_code=0, stdout="", stderr=""),
+        )
+        # vcgencmd works
         system_tools._runner.set_response(
             "vcgencmd_measure_temp",
-            CommandResult(exit_code=0, stdout=stdout, stderr=""),
+            CommandResult(exit_code=0, stdout="temp=48.3'C", stderr=""),
         )
 
         result = await system_tools.system_temperatures()
@@ -176,9 +202,31 @@ class TestSystemTemperatures:
         assert result.data is not None
         assert len(result.data["temperatures"]) == 1
         assert result.data["temperatures"][0]["temp_c"] == 48.3
-        assert result.data["throttled"] is False
+        assert result.data["source"] == "vcgencmd"
+
+    async def test_vcgencmd_success(self, system_tools: SystemTools) -> None:
+        """Vcgencmd still works for Raspberry Pi."""
+        system_tools._runner.set_response(
+            "thermal_zones",
+            CommandResult(exit_code=1, stdout="", stderr="no thermal zones"),
+        )
+        system_tools._runner.set_response(
+            "vcgencmd_measure_temp",
+            CommandResult(exit_code=0, stdout="temp=48.3'C", stderr=""),
+        )
+
+        result = await system_tools.system_temperatures()
+
+        assert result.error is None
+        assert result.data is not None
+        assert result.data["source"] == "vcgencmd"
 
     async def test_not_available(self, system_tools: SystemTools) -> None:
+        """When both thermal zones and vcgencmd fail, return error."""
+        system_tools._runner.set_response(
+            "thermal_zones",
+            CommandResult(exit_code=1, stdout="", stderr=""),
+        )
         system_tools._runner.set_response(
             "vcgencmd_measure_temp",
             CommandResult(
@@ -194,6 +242,11 @@ class TestSystemTemperatures:
         assert result.error.code == SYS_SENSORS_UNAVAILABLE
 
     async def test_command_failure(self, system_tools: SystemTools) -> None:
+        """When thermal zones fail and vcgencmd also fails."""
+        system_tools._runner.set_response(
+            "thermal_zones",
+            CommandResult(exit_code=1, stdout="", stderr="error"),
+        )
         system_tools._runner.set_response(
             "vcgencmd_measure_temp",
             CommandResult(exit_code=1, stdout="", stderr="error"),
@@ -209,11 +262,9 @@ class TestSystemServiceStatus:
     """Tests for system_service_status."""
 
     async def test_single_service(self, system_tools: SystemTools) -> None:
-        # Note: parse_systemctl_status extracts active from parentheses on FIRST LINE only
-        # systemctl status output has "Active:" on second line, not first
-        stdout = """nginx.service - A nginx web server
-   Loaded: loaded (/lib/systemd/system/nginx.service; enabled)
-   Active: active (running) since Mon 2024-01-15 10:30:00 UTC; 2 hours ago"""
+        stdout = """● nginx.service - A nginx web server
+     Loaded: loaded (/lib/systemd/system/nginx.service; enabled; preset: enabled)
+     Active: active (running) since Mon 2024-01-15 10:30:00 UTC; 2 hours ago"""
         system_tools._runner.set_response(
             "systemctl_status",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
@@ -225,8 +276,8 @@ class TestSystemServiceStatus:
         assert result.data is not None
         assert len(result.data["services"]) == 1
         assert result.data["services"][0]["name"] == "nginx"
-        # active is extracted from first line only, which has no parentheses
-        assert result.data["services"][0]["active"] == ""
+        assert result.data["services"][0]["active"] == "active"
+        assert result.data["services"][0]["sub_state"] == "running"
 
     async def test_list_all_services(self, system_tools: SystemTools) -> None:
         # Note: parse_systemctl_list has a bug where it breaks after first service

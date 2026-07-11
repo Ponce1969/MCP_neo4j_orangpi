@@ -893,7 +893,13 @@ def parse_systemctl_list(stdout: str) -> list[ServiceInfo]:
 
 
 def parse_systemctl_status(stdout: str) -> ServiceInfo | None:
-    """Parse systemctl status <service> output for a single service."""
+    """Parse systemctl status <service> output for a single service.
+
+    Handles real systemctl output format:
+        ● docker.service - Docker Application Container Engine
+             Loaded: loaded (/usr/lib/systemd/system/docker.service; enabled; preset: enabled)
+             Active: active (running) since Thu 2026-05-28 00:35:51 -03; 2 weeks ago
+    """
     if not stdout or stdout.strip() == "":
         return None
 
@@ -901,32 +907,53 @@ def parse_systemctl_status(stdout: str) -> ServiceInfo | None:
     if not lines:
         return None
 
-    # First line contains the service name and basic state
-    # e.g. "nginx.service - A nginx web server"
-    first_line = lines[0]
-
-    # Extract name from first line
+    # Extract service name from first line (handles ● prefix or plain)
+    # e.g. "● docker.service - ..." or "docker.service - ..."
+    first_line = lines[0].lstrip("● ").strip()
     name_match = re.match(r"^([\w.-]+)\.service", first_line)
     name = name_match.group(1) if name_match else ""
 
-    # Active state is typically in parentheses
-    active_match = re.search(r"\(([^)]+)\)", first_line)
-    active = active_match.group(1) if active_match else ""
-
-    # Sub state is often on the same line after active
-    # Format varies, so be defensive
-    sub_state = ""
-    if ";" in first_line:
-        sub_parts = first_line.split(";")
-        if len(sub_parts) > 1:
-            sub_state = sub_parts[1].strip().split()[0] if sub_parts[1].strip() else ""
-
-    # Try to extract description from first line after the dash
+    # Extract description from first line after " - "
     description = ""
     if " - " in first_line:
         desc_match = re.search(r"-\s*(.+)$", first_line)
         if desc_match:
             description = desc_match.group(1).strip()
+
+    # Parse Loaded line for enabled/disabled state
+    # e.g. "Loaded: loaded (/usr/lib/systemd/system/docker.service; enabled; preset: enabled)"
+    enabled = True  # default
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped.startswith("Loaded:"):
+            if "disabled" in stripped:
+                enabled = False
+            break
+
+    # Parse Active line for state
+    # e.g. "Active: active (running) since ..."
+    # e.g. "Active: inactive (dead)"
+    # e.g. "Active: failed (Result: exit-code)"
+    active = ""
+    sub_state = ""
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped.startswith("Active:"):
+            # Extract "active" or "inactive" or "failed"
+            active_match = re.match(r"Active:\s+(\w+)", stripped)
+            if active_match:
+                active = active_match.group(1)
+            # Extract sub-state in parentheses: (running), (dead), (exited), etc.
+            # For failed services: "(Result: exit-code)" → extract "exit-code"
+            sub_match = re.search(r"\(([^)]+)\)", stripped)
+            if sub_match:
+                raw_sub = sub_match.group(1)
+                # For "Result: exit-code" pattern, extract just the exit code part
+                if raw_sub.startswith("Result:"):
+                    sub_state = raw_sub.split(":", 1)[1].strip()
+                else:
+                    sub_state = raw_sub
+            break
 
     if not name:
         return None
@@ -935,7 +962,7 @@ def parse_systemctl_status(stdout: str) -> ServiceInfo | None:
         name=name,
         active=active,
         sub_state=sub_state,
-        enabled=True,  # Would need separate check
+        enabled=enabled,
         description=description,
     )
 
@@ -945,6 +972,9 @@ def parse_vcgencmd_temp(stdout: str) -> list[SensorReading]:
 
     Output like: temp=48.3'C
     Returns list with single SensorReading(name="cpu", temp_c=48.3)
+
+    This is the fallback parser for Raspberry Pi boards.
+    For generic Linux boards (OrangePi, etc.), use parse_thermal_zones instead.
     """
     if not stdout or stdout.strip() == "":
         return []
@@ -960,6 +990,59 @@ def parse_vcgencmd_temp(stdout: str) -> list[SensorReading]:
 
     log.warning("parse_error", parser="parse_vcgencmd_temp", output=stdout[:50])
     return []
+
+
+def parse_thermal_zones(stdout: str) -> list[SensorReading]:
+    """Parse Linux thermal zone sysfs output.
+
+    Expected format (one zone per line, pipe-delimited):
+        soc-thermal|32384
+        bigcore0-thermal|32384
+        littlecore-thermal|33307
+
+    Temperature is in millidegrees Celsius (divide by 1000).
+    Returns list of SensorReading with descriptive names and temps in °C.
+    """
+    if not stdout or stdout.strip() == "":
+        return []
+
+    readings: list[SensorReading] = list()
+    for line in stdout.strip().splitlines():
+        line = line.strip()
+        if not line or "|" not in line:
+            continue
+
+        parts = line.split("|")
+        if len(parts) != 2:
+            continue
+
+        zone_type = parts[0].strip()
+        temp_str = parts[1].strip()
+
+        if not zone_type or zone_type == "unknown":
+            continue
+
+        try:
+            temp_millideg = int(temp_str)
+            temp_c = round(temp_millideg / 1000.0, 1)
+        except (ValueError, ZeroDivisionError):
+            continue
+
+        # Convert kernel thermal zone names to friendly names
+        # e.g. "soc-thermal" → "soc", "bigcore0-thermal" → "bigcore0"
+        name = zone_type.removesuffix("-thermal")
+
+        readings.append(SensorReading(name=name, temp_c=temp_c))
+
+    # Deduplicate by name (some boards report same sensor under multiple zones)
+    seen: set[str] = set()
+    unique: list[SensorReading] = list()
+    for r in readings:
+        if r.name not in seen:
+            seen.add(r.name)
+            unique.append(r)
+
+    return unique
 
 
 # ── Log Parsers ────────────────────────────────────────────────────────────────

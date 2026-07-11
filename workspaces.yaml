@@ -1,17 +1,23 @@
 # Workspace Registry — MCP OranPi
 #
-# This file maps logical workspace identifiers to their paths on the OrangePi.
-# Paths are on the REMOTE host, not the machine running the MCP.
-# All paths MUST be under ORANPI_ROOT_WORKSPACE_DIR.
-# The agent NEVER sees or provides raw filesystem paths — only logical identifiers.
-#
-# Example:
-#   workspaces:
-#     guardian:
-#       path: /home/cerra/Gonzalo_codigo/guardian
-#     crm:
-#       path: /home/cerra/Gonzalo_codigo/crm
-#     lab:
-#       path: /home/cerra/Gonzalo_codigo/lab
+# Maps logical workspace identifiers to their paths on the OrangePi.
+# Paths are on the REMOTE host (gonpatri), not the local machine.
+# Each workspace path points to the project root (where .git or
+# docker-compose.yml lives) so docker compose commands work correctly.
+# The agent NEVER sees raw filesystem paths — only logical identifiers.
 
-workspaces: {}
+workspaces:
+  meli_bunker:
+    path: /home/gonzalo/Gonzalo_codigo/Meli_Bunker/Meli-Bunker
+  guardian_rust:
+    path: /home/gonzalo/Gonzalo_codigo/Guardian_Rust/Guardian_Orangpi5
+  pedidos_multi:
+    path: /home/gonzalo/Gonzalo_codigo/Pedidos_Multi/aplicacion_pedidos_multitenant
+  agente_oriental:
+    path: /home/gonzalo/Gonzalo_codigo/Agente_Oriental
+  api_statica:
+    path: /home/gonzalo/Gonzalo_codigo/api_statica
+  bot_discord:
+    path: /home/gonzalo/Gonzalo_codigo/bot_discord
+  agente_hibrido:
+    path: /home/gonzalo/Gonzalo_codigo/agente_hibrido

@@ -23,6 +23,7 @@ from mcp_oranpi.domain.errors import (
     ToolError,
     ToolResult,
 )
+from mcp_oranpi.domain.redaction import is_log_path_blocked
 from mcp_oranpi.domain.truncation import truncate_text
 from mcp_oranpi.domain.validation import (
     ValidationError,
@@ -270,8 +271,9 @@ class LogsTools:
     ) -> ToolResult:
         """Read a log file from the remote host.
 
-        Implements a 6-step security sequence:
+        Implements a 7-step security sequence:
         1. Validate path against allowed_log_dirs
+        1.5. Block paths to sensitive files (credentials, keys, tokens)
         2. Check file size (reject if > max_log_file_bytes)
         3. Resolve symlinks and validate resolved path
         4. Check file exists
@@ -297,6 +299,18 @@ class LogsTools:
                     code=LOG_PATH_FORBIDDEN,
                     message=f"Log path not allowed: {path}",
                     detail={"path": path, "allowed_dirs": self._allowed_log_dirs},
+                    retryable=False,
+                )
+            )
+
+        # Step 1.5: Block paths to sensitive files (credentials, keys, tokens)
+        blocked, reason = is_log_path_blocked(path)
+        if blocked:
+            return ToolResult(
+                error=ToolError(
+                    code=LOG_PATH_FORBIDDEN,
+                    message=f"Log path blocked for security: {reason}",
+                    detail={"path": path, "reason": reason},
                     retryable=False,
                 )
             )

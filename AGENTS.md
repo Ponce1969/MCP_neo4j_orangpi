@@ -19,6 +19,17 @@ The AI agent must operate under strict safety and operational boundaries.
 
 ---
 
+# Agent Usage & Context Noise Reduction
+
+To maintain workspace stability and prevent context window exhaustion, agents MUST strictly follow these usage rules:
+
+1. **Explicit Request Only**: Do not invoke MCP OranPi tools proactively or redundantly without a direct user request or a specific, clear debugging/observability objective.
+2. **No Polling Loops**: Avoid repeated, automatic tool invocations to poll logs, container stats, or system metrics. If a metric must be checked, run the check once and report back.
+3. **Protect the Context Window**: Do not dump large raw payloads into the conversation logs. Always filter, slice, or truncate logs and JSON outputs to the minimum required for the task.
+4. **Prefer Read-Only Observability**: Focus on read-only diagnostics (`_inspect`, `_list`, `_status`, `_usage`). Do not recommend or suggest infrastructure mutations unless explicitly prompted.
+
+---
+
 # Mandatory Reading Order
 
 Before performing any implementation, the agent MUST read ALL of these specs:
@@ -245,7 +256,7 @@ src/mcp_oranpi/
 
 Any mutative or potentially destructive operation MUST require explicit human approval.
 
-Phase 1 (current): All tools are read-only. No mutative operations.
+Phase 1 (current): All tools are read-only except for workspace deployment.
 
 Phase 2 (future): Admin tools require a confirmation token model:
 1. Agent calls an admin tool
@@ -254,6 +265,21 @@ Phase 2 (future): Admin tools require a confirmation token model:
 4. Only then does the MCP execute the operation
 
 Audit-only operations are allowed without approval.
+
+---
+
+# Secure SSH Gatekeeper & Controlled Deployments
+
+The system utilizes a server-side SSH Gatekeeper (`secure_gatekeeper.sh`) configured in the remote host's `~/.ssh/authorized_keys` for the agent's restricted SSH key.
+
+This ensures that even if an agent attempts to bypass client-side code restrictions, the server blocks any command that is not explicitly whitelisted.
+
+### Mutative Operations (Deployments)
+- The only allowed mutative tool is `workspace_deploy`.
+- It executes `deploy <project_name>` on the server.
+- The server-side script intercepts this, navigates to the project directory under `/home/gonzalo/Gonzalo_codigo/`, performs a `git pull origin main`, and runs `docker compose up --build -d` for the whitelisted workspace.
+- Any other mutative operation (like stopping containers, removing volumes, deleting networks) is hard-blocked by the server-side gatekeeper and returns `AUTH_FORBIDDEN` or command failure.
+
 
 ---
 

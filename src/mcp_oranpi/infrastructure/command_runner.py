@@ -53,6 +53,11 @@ ALLOWED_COMMANDS: dict[str, str] = {
     "df_h": "df -h",
     "df_t": "df -T",
     "vcgencmd_measure_temp": "vcgencmd measure_temp",
+    "thermal_zones": (
+        "for z in /sys/class/thermal/thermal_zone*; "
+        'do echo "$(cat $z/type 2>/dev/null||echo unknown)'
+        '|$(cat $z/temp 2>/dev/null||echo 0)"; done'
+    ),
     "systemctl_status": "systemctl status",
     "systemctl_list": "systemctl list-units --type=service",
     "hostname": "hostname",
@@ -68,6 +73,7 @@ ALLOWED_COMMANDS: dict[str, str] = {
     "compose_config": "docker compose config",
     "compose_logs": "docker compose logs",
     "compose_services": "docker compose config --services",
+    "deploy_project": "deploy",
 }
 
 
@@ -89,6 +95,7 @@ _COMMAND_PARAMS: dict[str, list[str]] = {
     "df_h": [],
     "df_t": [],
     "vcgencmd_measure_temp": [],
+    "thermal_zones": [],
     "systemctl_status": ["service"],
     "systemctl_list": [],
     "hostname": [],
@@ -101,6 +108,7 @@ _COMMAND_PARAMS: dict[str, list[str]] = {
     "compose_config": [],
     "compose_logs": ["service", "tail"],
     "compose_services": [],
+    "deploy_project": ["project"],
 }
 
 
@@ -281,6 +289,10 @@ class CommandRunner:
         if "priority" in params:
             validate_priority(str(params["priority"]))
 
+        # Project ID validation for deployments
+        if "project" in params:
+            validate_workspace_id(str(params["project"]))
+
     def _construct_command(
         self,
         template: str,
@@ -341,5 +353,8 @@ class CommandRunner:
                 parts.append(str(params["lines"]))
             if "path" in params:
                 parts.append(str(params["path"]))
+
+        elif command_key == "deploy_project" and "project" in params:
+            parts.append(str(params["project"]))
 
         return " ".join(parts)

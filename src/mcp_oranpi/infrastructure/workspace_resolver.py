@@ -325,6 +325,10 @@ class WorkspaceResolver:
     async def _check_indicator(self, ws_path: str, indicator: str) -> bool:
         """Check if an indicator file/directory exists in the workspace.
 
+        For compose files (docker-compose.yml etc.), searches up to 2 levels
+        deep to handle nested project directories. For other indicators
+        like .git, only checks the workspace root.
+
         Args:
             ws_path: Remote workspace path.
             indicator: File or directory name to check (space-separated for OR).
@@ -332,17 +336,22 @@ class WorkspaceResolver:
         Returns:
             True if any indicator exists, False otherwise.
         """
-        # Build a command that checks for any of the space-separated indicators
-        # e.g., "test -e /path/.git" or "test -e /path/docker-compose.yml || test -e /path/..."
         checks = indicator.split()
         if not checks:
             return False
 
-        parts = [f"test -e {ws_path}/{check}" for check in checks]
-        cmd = " || ".join(parts)
+        # Compose files may be nested one level deep (e.g. workspace/subdir/)
+        # Use find with -maxdepth 2 for compose, -maxdepth 1 for others
+        is_compose = any("compose" in c for c in checks)
+        maxdepth = 2 if is_compose else 1
+
+        # Build a find command: find /path -maxdepth N \( -name X -o -name Y \)
+        name_args = " -o ".join(f'-name "{c}"' for c in checks)
+        cmd = f'find "{ws_path}" -maxdepth {maxdepth} \\( {name_args} \\)'
 
         try:
             result = await self._ssh.execute(cmd, timeout=5)
-            return result.exit_code == 0
+            # find returns 0 even if nothing found; check if output is non-empty
+            return result.exit_code == 0 and bool(result.stdout.strip())
         except (ConnectionError, OSError):
             return False

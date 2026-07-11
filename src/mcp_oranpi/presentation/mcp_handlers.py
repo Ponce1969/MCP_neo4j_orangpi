@@ -29,6 +29,7 @@ from mcp_oranpi.application.network_tools import NetworkTools
 from mcp_oranpi.application.system_tools import SystemTools
 from mcp_oranpi.application.workspace_tools import WorkspaceTools
 from mcp_oranpi.domain.errors import ToolResult
+from mcp_oranpi.domain.redaction import redact_json_response
 
 # ── Tool Definitions ───────────────────────────────────────────────────────────
 
@@ -266,9 +267,12 @@ TOOL_DEFINITIONS: list[types.Tool] = [
     ),
     types.Tool(
         name="system_temperatures",
-        description="Get hardware temperature sensor readings from vcgencmd. "
-                    "Returns sensor name, temperature in Celsius, and critical threshold if available. "
-                    "Errors: CONN_FAILED, CONN_TIMEOUT, SYS_SENSORS_UNAVAILABLE (vcgencmd not found).",
+        description="Get hardware temperature sensor readings. "
+                    "Uses Linux thermal zones (/sys/class/thermal/) on all ARM boards, "
+                    "falls back to vcgencmd on Raspberry Pi. "
+                    "Returns sensor name, temperature in Celsius, and source. "
+                    "On OrangePi 5 Plus, reports SoC, bigcore, littlecore, GPU, and NPU temperatures. "
+                    "Errors: CONN_FAILED, CONN_TIMEOUT, SYS_SENSORS_UNAVAILABLE.",
         inputSchema={
             "type": "object",
             "properties": {},
@@ -466,6 +470,25 @@ TOOL_DEFINITIONS: list[types.Tool] = [
             "required": ["workspace"],
         },
     ),
+    types.Tool(
+        name="workspace_deploy",
+        description="Deploy a workspace on the remote OrangePi server safely. "
+                    "Performs a git pull and docker compose rebuild via the server's gatekeeper. "
+                    "Requires explicit user approval before execution. "
+                    "Errors: CONN_FAILED, CONN_TIMEOUT, WS_NOT_FOUND, WS_DISABLED, "
+                    "AUTH_FORBIDDEN (action rejected by gatekeeper), "
+                    "VALID_PARAM_INVALID (invalid workspace ID).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "workspace": {
+                    "type": "string",
+                    "description": "Logical workspace identifier (e.g., 'pedidos_multi')",
+                },
+            },
+            "required": ["workspace"],
+        },
+    ),
 ]
 
 
@@ -525,6 +548,7 @@ class MCPHandler:
             "workspace_docker_ps": self._workspace.workspace_docker_ps,
             "workspace_logs": self._workspace.workspace_logs,
             "workspace_ports": self._workspace.workspace_ports,
+            "workspace_deploy": self._workspace.workspace_deploy,
         }
 
     async def call_tool(
@@ -558,6 +582,7 @@ class MCPHandler:
     def _to_mcp_content(result: ToolResult) -> list[types.TextContent]:
         """Convert a ToolResult to MCP TextContent blocks.
 
+        Applies secret redaction to ALL output before sending to the agent.
         Success: returns data as JSON.
         Error: returns error code and message as JSON.
 
@@ -581,7 +606,9 @@ class MCPHandler:
             return [types.TextContent(type="text", text=json.dumps(error_data))]
 
         # Success — wrap data in "data" key per MCP spec
-        output: dict[str, object] = {"data": result.data}
+        # Apply secret redaction to prevent credential leaks
+        redacted_data = redact_json_response(result.data)
+        output: dict[str, object] = {"data": redacted_data}
         if result.truncated:
             output["truncated"] = True
         return [types.TextContent(type="text", text=json.dumps(output, default=str))]

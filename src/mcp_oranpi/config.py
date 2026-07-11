@@ -62,7 +62,7 @@ class AppConfig(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="ORANPI_",
-        env_file=".env",
+        env_file=str(Path(__file__).resolve().parents[2] / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -80,7 +80,7 @@ class AppConfig(BaseSettings):
 
     # Workspace
     root_workspace_dir: str
-    workspace_config: str = "workspaces.yaml"
+    workspace_config: Path = Path(__file__).resolve().parents[2] / "workspaces.yaml"
 
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -98,8 +98,8 @@ class AppConfig(BaseSettings):
             host=self.ssh_host,
             port=self.ssh_port,
             username=self.ssh_user,
-            key_path=self.ssh_key_path,
-            known_hosts=self.ssh_known_hosts,
+            key_path=self.ssh_key_path.expanduser(),
+            known_hosts=self.ssh_known_hosts.expanduser() if self.ssh_known_hosts else None,
             security_mode=self.ssh_security_mode,
             host_key_policy=self.ssh_host_key_policy,
             connect_timeout=self.ssh_connect_timeout,

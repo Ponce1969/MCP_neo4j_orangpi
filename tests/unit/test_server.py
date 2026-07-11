@@ -61,9 +61,9 @@ class TestAppContainer:
             # Verify MCPHandler exists
             assert hasattr(container, "mcp_handler")
 
-            # Verify handler has all 22 tools in dispatch table
+            # Verify handler has all 23 tools in dispatch table
             dispatch_table = container.mcp_handler._dispatch
-            assert len(dispatch_table) == 22
+            assert len(dispatch_table) == 23
 
     def test_container_ssh_client_created(
         self,

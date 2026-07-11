@@ -6,7 +6,7 @@ and other infrastructure that are used both as fixtures and as type hints.
 
 from __future__ import annotations
 
-from mcp_oranpi.domain.workspace import WorkspaceInfo, WorkspaceStatus
+from mcp_oranpi.domain.workspace import WorkspaceInfo
 from mcp_oranpi.infrastructure.ssh_client import CommandResult
 
 

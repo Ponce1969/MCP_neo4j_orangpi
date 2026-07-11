@@ -90,16 +90,18 @@ class WorkspaceTools:
 
     # ── Workspace Inspection ──────────────────────────────────────────────────
 
-    async def workspace_inspect(self, workspace_id: str) -> ToolResult:
+    async def workspace_inspect(self, workspace: str) -> ToolResult:
         """Inspect a workspace in detail.
 
         Args:
-            workspace_id: Logical workspace identifier (e.g., "guardian").
+            workspace: Logical workspace identifier (e.g., "guardian").
 
         Returns:
             ToolResult with full WorkspaceInfo including detected services.
         """
-        log.info("workspace_inspect", workspace_id=workspace_id)
+        log.info("workspace_inspect", workspace_id=workspace)
+
+        workspace_id = workspace
 
         try:
             validate_workspace_id(workspace_id)
@@ -182,16 +184,18 @@ class WorkspaceTools:
 
     # ── Workspace Docker PS ───────────────────────────────────────────────────
 
-    async def workspace_docker_ps(self, workspace_id: str) -> ToolResult:
+    async def workspace_docker_ps(self, workspace: str) -> ToolResult:
         """List Docker Compose containers in a workspace.
 
         Args:
-            workspace_id: Logical workspace identifier.
+            workspace: Logical workspace identifier.
 
         Returns:
             ToolResult with workspace containers from compose ps.
         """
-        log.info("workspace_docker_ps", workspace_id=workspace_id)
+        log.info("workspace_docker_ps", workspace_id=workspace)
+
+        workspace_id = workspace
 
         try:
             validate_workspace_id(workspace_id)
@@ -318,7 +322,7 @@ class WorkspaceTools:
 
     async def workspace_logs(
         self,
-        workspace_id: str,
+        workspace: str,
         service: str | None = None,
         tail: int = 100,
         since: str | None = None,
@@ -326,7 +330,7 @@ class WorkspaceTools:
         """Fetch logs from a Docker Compose service in a workspace.
 
         Args:
-            workspace_id: Logical workspace identifier.
+            workspace: Logical workspace identifier.
             service: Optional specific service name within the compose project.
             tail: Number of lines to fetch from the end.
             since: Optional ISO timestamp or relative time.
@@ -336,10 +340,12 @@ class WorkspaceTools:
         """
         log.info(
             "workspace_logs",
-            workspace_id=workspace_id,
+            workspace_id=workspace,
             service=service,
             tail=tail,
         )
+
+        workspace_id = workspace
 
         try:
             validate_workspace_id(workspace_id)
@@ -447,16 +453,18 @@ class WorkspaceTools:
 
     # ── Workspace Ports ───────────────────────────────────────────────────────
 
-    async def workspace_ports(self, workspace_id: str) -> ToolResult:
+    async def workspace_ports(self, workspace: str) -> ToolResult:
         """List exposed ports from Docker Compose services in a workspace.
 
         Args:
-            workspace_id: Logical workspace identifier.
+            workspace: Logical workspace identifier.
 
         Returns:
             ToolResult with port mappings from compose ps.
         """
-        log.info("workspace_ports", workspace_id=workspace_id)
+        log.info("workspace_ports", workspace_id=workspace)
+
+        workspace_id = workspace
 
         try:
             validate_workspace_id(workspace_id)
@@ -559,5 +567,105 @@ class WorkspaceTools:
                 "path": path,
                 "ports": all_ports,
                 "total_count": len(all_ports),
+            }
+        )
+
+    # ── Workspace Deploy ──────────────────────────────────────────────────────
+
+    async def workspace_deploy(self, workspace: str) -> ToolResult:
+        """Deploy a workspace on the remote OrangePi server.
+
+        Triggers git pull and docker compose rebuild via secure_gatekeeper.sh.
+        Requires explicit approval from user.
+
+        Args:
+            workspace: Logical workspace identifier.
+
+        Returns:
+            ToolResult with deployment output.
+        """
+        log.info("workspace_deploy", workspace_id=workspace)
+
+        workspace_id = workspace
+
+        try:
+            validate_workspace_id(workspace_id)
+        except Exception as e:
+            return ToolResult(
+                error=ToolError(
+                    code="VALID_PARAM_INVALID",
+                    message=str(e),
+                    retryable=False,
+                )
+            )
+
+        info = self._resolver.resolve(workspace_id)
+
+        if info is None:
+            return ToolResult(
+                error=ToolError(
+                    code=WS_NOT_FOUND,
+                    message=f"Workspace not found: {workspace_id}",
+                    detail={"workspace_id": workspace_id},
+                    retryable=False,
+                )
+            )
+
+        if info.status.value == "disabled":
+            return ToolResult(
+                error=ToolError(
+                    code=WS_DISABLED,
+                    message=f"Workspace is disabled: {workspace_id}",
+                    detail={"workspace_id": workspace_id},
+                    retryable=False,
+                )
+            )
+
+        try:
+            result = await self._runner.run(
+                "deploy_project",
+                project=workspace_id,
+            )
+        except TimeoutError:
+            return ToolResult(
+                error=ToolError(
+                    code=CONN_TIMEOUT,
+                    message="Deployment command timed out",
+                    retryable=True,
+                )
+            )
+        except ConnectionError:
+            return ToolResult(
+                error=ToolError(
+                    code=CONN_FAILED,
+                    message="SSH connection failed",
+                    retryable=True,
+                )
+            )
+
+        if result.exit_code != 0:
+            is_forbidden = (
+                "denegado" in result.stderr.lower()
+                or "unauthorized" in result.stderr.lower()
+            )
+            err_msg = (
+                result.stdout.strip()
+                or result.stderr.strip()
+                or "Deployment failed"
+            )
+            return ToolResult(
+                error=ToolError(
+                    code="AUTH_FORBIDDEN" if is_forbidden else "CONN_FAILED",
+                    message=err_msg,
+                    detail={"exit_code": result.exit_code, "stderr": result.stderr},
+                    retryable=False,
+                )
+            )
+
+        return ToolResult(
+            data={
+                "workspace": workspace_id,
+                "output": result.stdout.strip(),
+                "status": "success",
             }
         )

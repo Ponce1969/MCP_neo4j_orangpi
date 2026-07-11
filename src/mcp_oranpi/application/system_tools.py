@@ -28,6 +28,7 @@ from mcp_oranpi.infrastructure.parsers import (
     parse_free_m,
     parse_systemctl_list,
     parse_systemctl_status,
+    parse_thermal_zones,
     parse_top_bn1,
     parse_vcgencmd_temp,
 )
@@ -222,11 +223,53 @@ class SystemTools:
     async def system_temperatures(self) -> ToolResult:
         """Get hardware temperature sensor readings.
 
+        Tries Linux thermal zones first (works on all ARM boards including
+        OrangePi 5 Plus), falls back to vcgencmd (Raspberry Pi only).
+
         Returns:
             ToolResult with list of SensorReading.
         """
         log.info("system_temperatures")
 
+        # Strategy 1: Read Linux thermal zones (standard on all ARM boards)
+        try:
+            result = await self._runner.run("thermal_zones")
+        except TimeoutError:
+            return ToolResult(
+                error=ToolError(
+                    code=CONN_TIMEOUT,
+                    message="Command timed out while reading temperature sensors",
+                    retryable=True,
+                )
+            )
+        except ConnectionError:
+            return ToolResult(
+                error=ToolError(
+                    code=CONN_FAILED,
+                    message="SSH connection failed",
+                    retryable=True,
+                )
+            )
+
+        if result.exit_code == 0 and result.stdout.strip():
+            readings = parse_thermal_zones(result.stdout)
+            if readings:
+                return ToolResult(
+                    data={
+                        "temperatures": [
+                            {
+                                "name": r.name,
+                                "temp_c": r.temp_c,
+                                "critical_c": r.critical_c,
+                            }
+                            for r in readings
+                        ],
+                        "source": "thermal_zones",
+                        "throttled": False,
+                    }
+                )
+
+        # Strategy 2: Fallback to vcgencmd (Raspberry Pi only)
         try:
             result = await self._runner.run("vcgencmd_measure_temp")
         except TimeoutError:
@@ -246,19 +289,19 @@ class SystemTools:
                 )
             )
 
-        # Exit code 127: vcgencmd not available (not a Raspberry Pi/OrangePi)
+        # Exit code 127: vcgencmd not available (not a Raspberry Pi)
         if result.exit_code == 127:
             return ToolResult(
                 error=ToolError(
                     code=SYS_SENSORS_UNAVAILABLE,
                     message=(
-                        "Temperature sensor command not available "
-                        "(vcgencmd not found)"
+                        "Temperature sensors not available: "
+                        "no thermal zones found and vcgencmd not installed"
                     ),
                     detail={
                         "suggestion": (
-                            "Install vcgencmd or use a Raspberry Pi/OrangePi "
-                            "with sensor support"
+                            "Ensure /sys/class/thermal/ is accessible or "
+                            "install vcgencmd for Raspberry Pi boards"
                         )
                     },
                     retryable=False,
@@ -269,15 +312,20 @@ class SystemTools:
             return ToolResult(
                 error=ToolError(
                     code=SYS_SENSORS_UNAVAILABLE,
-                    message=f"vcgencmd failed: {result.stderr[:200]}",
+                    message=f"Temperature read failed: {result.stderr[:200]}",
                     retryable=False,
                 )
             )
 
         readings = parse_vcgencmd_temp(result.stdout)
-
-        # Check for throttling (separate command would be needed, placeholder)
-        throttled = False
+        if not readings:
+            return ToolResult(
+                error=ToolError(
+                    code=SYS_SENSORS_UNAVAILABLE,
+                    message="Could not parse temperature sensor output",
+                    retryable=False,
+                )
+            )
 
         return ToolResult(
             data={
@@ -289,7 +337,8 @@ class SystemTools:
                     }
                     for r in readings
                 ],
-                "throttled": throttled,
+                "source": "vcgencmd",
+                "throttled": False,
             }
         )
 

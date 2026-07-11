@@ -150,6 +150,15 @@ class TestBuildCommand:
         assert "-u docker" in cmd
         assert "-n 100" in cmd
 
+    def test_deploy_project_command(self, runner: CommandRunner) -> None:
+        cmd = runner.build_command("deploy_project", project="meli_bunker")
+        assert cmd == "deploy meli_bunker"
+
+    def test_deploy_project_invalid_name_raises(self, runner: CommandRunner) -> None:
+        with pytest.raises(ValidationError):
+            runner.build_command("deploy_project", project="invalid; name")
+
+
 
 # ── Run Tests ──────────────────────────────────────────────────────────────────
 
@@ -188,6 +197,16 @@ class TestRun:
         assert "docker logs" in mock_ssh.last_command
         assert "nginx" in mock_ssh.last_command
         assert "--tail 10" in mock_ssh.last_command
+
+    @pytest.mark.asyncio
+    async def test_run_deploy_project(self, runner: CommandRunner, mock_ssh: MockSSHClient) -> None:
+        mock_ssh.set_default_result(
+            CommandResult(exit_code=0, stdout="Despliegue completado", stderr="")
+        )
+        result = await runner.run("deploy_project", project="meli_bunker")
+        assert result.exit_code == 0
+        assert mock_ssh.last_command == "deploy meli_bunker"
+
 
     @pytest.mark.asyncio
     async def test_run_propagates_timeout_error(

@@ -50,6 +50,7 @@ WORKSPACE_TOOL_NAMES = [
     "workspace_docker_ps",
     "workspace_logs",
     "workspace_ports",
+    "workspace_deploy",
 ]
 
 ALL_TOOL_NAMES = (
@@ -119,11 +120,11 @@ class TestToolDefinitions:
     """Tests for the TOOL_DEFINITIONS list."""
 
     def test_tool_definitions_count(self) -> None:
-        """TOOL_DEFINITIONS should contain exactly 22 tools."""
-        assert len(TOOL_DEFINITIONS) == 22
+        """TOOL_DEFINITIONS should contain exactly 23 tools."""
+        assert len(TOOL_DEFINITIONS) == 23
 
     def test_all_tool_names_present(self) -> None:
-        """All 22 tool names should be present in TOOL_DEFINITIONS."""
+        """All 23 tool names should be present in TOOL_DEFINITIONS."""
         actual_names = {tool.name for tool in TOOL_DEFINITIONS}
         expected_names = set(ALL_TOOL_NAMES)
         assert actual_names == expected_names, (
@@ -295,9 +296,9 @@ class TestMCPHandlerCallTool:
         self,
         mcp_handler: MCPHandler,
     ) -> None:
-        """All 22 tool names should map to a callable in the dispatch table."""
+        """All 23 tool names should map to a callable in the dispatch table."""
         dispatch_table = mcp_handler._dispatch
-        assert len(dispatch_table) == 22
+        assert len(dispatch_table) == 23
         for tool_name in ALL_TOOL_NAMES:
             assert tool_name in dispatch_table, f"Missing tool: {tool_name}"
             assert callable(dispatch_table[tool_name]), (
