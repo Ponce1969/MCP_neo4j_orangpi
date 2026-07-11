@@ -460,32 +460,28 @@ class TestWorkspacePorts:
 
 
 class TestWorkspaceDeploy:
-    """Tests for workspace_deploy."""
+    """Tests for workspace_deploy (read-only deployment plan)."""
 
-    async def test_success(
+    async def test_returns_manual_plan(
         self,
         workspace_tools: WorkspaceTools,
         mock_resolver: MockWorkspaceResolver,
-        mock_runner: MockCommandRunner,
         active_workspace: WorkspaceInfo,
     ) -> None:
         mock_resolver.set_workspaces({"guardian": active_workspace})
-        mock_runner.set_response(
-            "deploy_project",
-            CommandResult(
-                exit_code=0,
-                stdout="Despliegue de 'guardian' completado con éxito.",
-                stderr="",
-            ),
-        )
 
         result = await workspace_tools.workspace_deploy("guardian")
 
         assert result.error is None
         assert result.data is not None
         assert result.data["workspace"] == "guardian"
-        assert result.data["status"] == "success"
-        assert "completado con éxito" in result.data["output"]
+        assert result.data["status"] == "manual_action_required"
+        assert result.data["executed"] is False
+        assert result.data["safe_for_agent"] is True
+        assert "git pull origin main" in "\n".join(result.data["steps"])
+        assert "docker compose" in "\n".join(result.data["steps"])
+        # No SSH command should have been executed
+        assert "deploy_project" not in result.data["steps"]
 
     async def test_workspace_not_found(
         self,
@@ -519,25 +515,23 @@ class TestWorkspaceDeploy:
         assert result.error is not None
         assert result.error.code == WS_DISABLED
 
-    async def test_deploy_failed(
+    async def test_no_destructive_command_executed(
         self,
         workspace_tools: WorkspaceTools,
         mock_resolver: MockWorkspaceResolver,
         mock_runner: MockCommandRunner,
         active_workspace: WorkspaceInfo,
     ) -> None:
+        """Ensure workspace_deploy never calls CommandRunner.run()."""
         mock_resolver.set_workspaces({"guardian": active_workspace})
         mock_runner.set_response(
             "deploy_project",
-            CommandResult(
-                exit_code=1,
-                stdout="Acceso denegado: Proyecto no autorizado.",
-                stderr="Acceso denegado: Proyecto no autorizado.",
-            ),
+            CommandResult(exit_code=0, stdout="SHOULD NOT BE CALLED", stderr=""),
         )
 
         result = await workspace_tools.workspace_deploy("guardian")
 
-        assert result.error is not None
-        assert result.error.code == "AUTH_FORBIDDEN"
-        assert "Acceso denegado" in result.error.message
+        assert result.error is None
+        assert result.data["status"] == "manual_action_required"
+        # The mock response should not be used
+        assert "SHOULD NOT BE CALLED" not in str(result.data)

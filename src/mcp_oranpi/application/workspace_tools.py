@@ -570,21 +570,26 @@ class WorkspaceTools:
             }
         )
 
-    # ── Workspace Deploy ──────────────────────────────────────────────────────
+    # ── Workspace Deploy Plan ─────────────────────────────────────────────────
 
     async def workspace_deploy(self, workspace: str) -> ToolResult:
-        """Deploy a workspace on the remote OrangePi server.
+        """Generate a safe deployment plan for a workspace.
 
-        Triggers git pull and docker compose rebuild via secure_gatekeeper.sh.
-        Requires explicit approval from user.
+        This tool is READ-ONLY. It does NOT execute any deployment. It returns
+        the exact manual steps a human operator should run on the OrangePi to
+        deploy the workspace safely.
+
+        This prevents accidental destructive operations (database drops,
+        volume deletion, service interruption) by keeping the agent strictly
+        in an advisory role.
 
         Args:
             workspace: Logical workspace identifier.
 
         Returns:
-            ToolResult with deployment output.
+            ToolResult with manual deployment instructions.
         """
-        log.info("workspace_deploy", workspace_id=workspace)
+        log.info("workspace_deploy_plan", workspace_id=workspace)
 
         workspace_id = workspace
 
@@ -621,51 +626,47 @@ class WorkspaceTools:
                 )
             )
 
-        try:
-            result = await self._runner.run(
-                "deploy_project",
-                project=workspace_id,
-            )
-        except TimeoutError:
+        path = self._resolver.resolve_path(workspace_id)
+        if path is None:
             return ToolResult(
                 error=ToolError(
-                    code=CONN_TIMEOUT,
-                    message="Deployment command timed out",
-                    retryable=True,
-                )
-            )
-        except ConnectionError:
-            return ToolResult(
-                error=ToolError(
-                    code=CONN_FAILED,
-                    message="SSH connection failed",
-                    retryable=True,
-                )
-            )
-
-        if result.exit_code != 0:
-            is_forbidden = (
-                "denegado" in result.stderr.lower()
-                or "unauthorized" in result.stderr.lower()
-            )
-            err_msg = (
-                result.stdout.strip()
-                or result.stderr.strip()
-                or "Deployment failed"
-            )
-            return ToolResult(
-                error=ToolError(
-                    code="AUTH_FORBIDDEN" if is_forbidden else "CONN_FAILED",
-                    message=err_msg,
-                    detail={"exit_code": result.exit_code, "stderr": result.stderr},
+                    code=WS_NOT_FOUND,
+                    message=f"Workspace path not resolved: {workspace_id}",
+                    detail={"workspace_id": workspace_id},
                     retryable=False,
                 )
             )
 
+        compose_file = "docker-compose.yml"
+
+        # Suggest prod file if it exists (common convention)
+        # We can't check existence here without extra SSH roundtrip,
+        # but some projects like pedidos_multi use docker-compose.prod.yml
+
+        manual_steps = [
+            f"# Manual deployment steps for workspace: {workspace_id}",
+            "# Run these commands directly on the OrangePi server.",
+            "",
+            f"cd {path}",
+            "git pull origin main",
+            f"docker compose -f {compose_file} up --build -d",
+            "docker compose ps",
+            "",
+            "# Optional: verify logs after deploy",
+            f"docker compose -f {compose_file} logs --tail 50",
+        ]
+
         return ToolResult(
             data={
                 "workspace": workspace_id,
-                "output": result.stdout.strip(),
-                "status": "success",
+                "path": path,
+                "status": "manual_action_required",
+                "warning": (
+                    "This tool does NOT execute deployments. "
+                    "A human must run the steps below on the OrangePi."
+                ),
+                "steps": manual_steps,
+                "safe_for_agent": True,
+                "executed": False,
             }
         )

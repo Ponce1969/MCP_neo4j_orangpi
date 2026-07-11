@@ -472,12 +472,12 @@ TOOL_DEFINITIONS: list[types.Tool] = [
     ),
     types.Tool(
         name="workspace_deploy",
-        description="Deploy a workspace on the remote OrangePi server safely. "
-                    "Performs a git pull and docker compose rebuild via the server's gatekeeper. "
-                    "Requires explicit user approval before execution. "
-                    "Errors: CONN_FAILED, CONN_TIMEOUT, WS_NOT_FOUND, WS_DISABLED, "
-                    "AUTH_FORBIDDEN (action rejected by gatekeeper), "
-                    "VALID_PARAM_INVALID (invalid workspace ID).",
+        description="Generate a safe, read-only deployment plan for a workspace. "
+                    "DOES NOT execute any deployment or modify the server. "
+                    "Returns the exact manual steps (git pull, docker compose up --build -d) "
+                    "that a human operator must run on the OrangePi. "
+                    "Use this when the agent diagnoses an issue that requires a redeploy. "
+                    "Errors: WS_NOT_FOUND, WS_DISABLED, VALID_PARAM_INVALID.",
         inputSchema={
             "type": "object",
             "properties": {

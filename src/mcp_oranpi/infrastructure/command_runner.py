@@ -73,7 +73,6 @@ ALLOWED_COMMANDS: dict[str, str] = {
     "compose_config": "docker compose config",
     "compose_logs": "docker compose logs",
     "compose_services": "docker compose config --services",
-    "deploy_project": "deploy",
 }
 
 
@@ -108,7 +107,6 @@ _COMMAND_PARAMS: dict[str, list[str]] = {
     "compose_config": [],
     "compose_logs": ["service", "tail"],
     "compose_services": [],
-    "deploy_project": ["project"],
 }
 
 
@@ -353,8 +351,5 @@ class CommandRunner:
                 parts.append(str(params["lines"]))
             if "path" in params:
                 parts.append(str(params["path"]))
-
-        elif command_key == "deploy_project" and "project" in params:
-            parts.append(str(params["project"]))
 
         return " ".join(parts)
