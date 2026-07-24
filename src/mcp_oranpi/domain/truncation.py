@@ -51,7 +51,7 @@ def truncate_text(
     if len(encoded) <= max_bytes:
         return text, TruncationMeta(truncated=False)
 
-# Split into lines and keep as many from the bottom as fit.
+    # Split into lines and keep as many from the bottom as fit.
     lines = text.splitlines(keepends=True)
     kept_lines: list[str] = list()  # built dynamically below
     current_bytes = 0

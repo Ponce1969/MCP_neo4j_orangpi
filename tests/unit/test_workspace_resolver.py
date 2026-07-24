@@ -24,9 +24,7 @@ def mock_ssh() -> MockSSHClient:
     """Provide a MockSSHClient for WorkspaceResolver tests."""
     client = MockSSHClient()
     # Default: directories exist on remote host
-    client.set_default_result(
-        CommandResult(exit_code=0, stdout="EXISTS", stderr="")
-    )
+    client.set_default_result(CommandResult(exit_code=0, stdout="EXISTS", stderr=""))
     return client
 
 
@@ -61,9 +59,7 @@ def workspace_yaml_invalid_id() -> str:
 
 
 @pytest.fixture
-def resolver(
-    app_config_with_workspaces: AppConfig, mock_ssh: MockSSHClient
-) -> WorkspaceResolver:
+def resolver(app_config_with_workspaces: AppConfig, mock_ssh: MockSSHClient) -> WorkspaceResolver:
     """Provide a WorkspaceResolver with test config."""
     return WorkspaceResolver(app_config_with_workspaces, mock_ssh)
 
@@ -81,9 +77,7 @@ class TestLoad:
         mock_ssh: MockSSHClient,
     ) -> None:
         # All directories exist on remote host
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="EXISTS", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="EXISTS", stderr=""))
 
         resolver = WorkspaceResolver(app_config_with_workspaces, mock_ssh)
         workspaces = await resolver.load()
@@ -100,9 +94,7 @@ class TestLoad:
         mock_ssh: MockSSHClient,
     ) -> None:
         # All directories are missing
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="MISSING", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="MISSING", stderr=""))
 
         resolver = WorkspaceResolver(app_config_with_workspaces, mock_ssh)
         workspaces = await resolver.load()
@@ -129,7 +121,7 @@ class TestLoad:
         self, app_config_with_workspaces: AppConfig, mock_ssh: MockSSHClient
     ) -> None:
         # Point to a nonexistent file
-        app_config_with_workspaces.workspace_config = "/nonexistent/workspaces.yaml"
+        app_config_with_workspaces.workspace_config = Path("/nonexistent/workspaces.yaml")
 
         resolver = WorkspaceResolver(app_config_with_workspaces, mock_ssh)
         workspaces = await resolver.load()
@@ -156,10 +148,8 @@ class TestLoad:
         monkeypatch.setenv("ORANPI_SSH_KEY_PATH", "/home/test/.ssh/id_test")
         monkeypatch.setenv("ORANPI_WORKSPACE_CONFIG", str(yaml_file))
 
-        config = AppConfig()
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="EXISTS", stderr="")
-        )
+        config = AppConfig()  # type: ignore
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="EXISTS", stderr=""))
 
         resolver = WorkspaceResolver(config, mock_ssh)
         workspaces = await resolver.load()
@@ -189,10 +179,8 @@ class TestLoad:
         monkeypatch.setenv("ORANPI_SSH_KEY_PATH", "/home/test/.ssh/id_test")
         monkeypatch.setenv("ORANPI_WORKSPACE_CONFIG", str(yaml_file))
 
-        config = AppConfig()
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="EXISTS", stderr="")
-        )
+        config = AppConfig()  # type: ignore
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="EXISTS", stderr=""))
 
         resolver = WorkspaceResolver(config, mock_ssh)
         workspaces = await resolver.load()
@@ -215,9 +203,7 @@ class TestResolve:
         app_config_with_workspaces: AppConfig,
         mock_ssh: MockSSHClient,
     ) -> None:
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="EXISTS", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="EXISTS", stderr=""))
 
         resolver = WorkspaceResolver(app_config_with_workspaces, mock_ssh)
         await resolver.load()
@@ -235,9 +221,7 @@ class TestResolve:
         app_config_with_workspaces: AppConfig,
         mock_ssh: MockSSHClient,
     ) -> None:
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="EXISTS", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="EXISTS", stderr=""))
 
         resolver = WorkspaceResolver(app_config_with_workspaces, mock_ssh)
         await resolver.load()
@@ -259,9 +243,7 @@ class TestResolvePath:
         app_config_with_workspaces: AppConfig,
         mock_ssh: MockSSHClient,
     ) -> None:
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="EXISTS", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="EXISTS", stderr=""))
 
         resolver = WorkspaceResolver(app_config_with_workspaces, mock_ssh)
         await resolver.load()
@@ -276,9 +258,7 @@ class TestResolvePath:
         app_config_with_workspaces: AppConfig,
         mock_ssh: MockSSHClient,
     ) -> None:
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="EXISTS", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="EXISTS", stderr=""))
 
         resolver = WorkspaceResolver(app_config_with_workspaces, mock_ssh)
         await resolver.load()
@@ -300,9 +280,7 @@ class TestGetActiveWorkspace:
         app_config_with_workspaces: AppConfig,
         mock_ssh: MockSSHClient,
     ) -> None:
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="EXISTS", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="EXISTS", stderr=""))
 
         resolver = WorkspaceResolver(app_config_with_workspaces, mock_ssh)
         await resolver.load()
@@ -318,9 +296,7 @@ class TestGetActiveWorkspace:
         app_config_with_workspaces: AppConfig,
         mock_ssh: MockSSHClient,
     ) -> None:
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="EXISTS", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="EXISTS", stderr=""))
 
         resolver = WorkspaceResolver(app_config_with_workspaces, mock_ssh)
         await resolver.load()
@@ -335,9 +311,7 @@ class TestGetActiveWorkspace:
         mock_ssh: MockSSHClient,
     ) -> None:
         # Make all directories missing (disabled)
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="MISSING", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="MISSING", stderr=""))
 
         resolver = WorkspaceResolver(app_config_with_workspaces, mock_ssh)
         await resolver.load()
@@ -384,12 +358,10 @@ class TestDetectIndicators:
         mock_ssh._default_result = CommandResult(exit_code=0, stdout="", stderr="")
         mock_ssh._results = {}
 
-        async def custom_execute(
-            command: str, *, timeout: int | None = None
-        ) -> CommandResult:
+        async def custom_execute(command: str, *, timeout: int | None = None) -> CommandResult:
             return mock_execute(command, timeout=timeout)
 
-        mock_ssh.execute = custom_execute
+        mock_ssh.execute = custom_execute  # type: ignore
 
         resolver = WorkspaceResolver(app_config_with_workspaces, mock_ssh)
         workspaces = await resolver.load()

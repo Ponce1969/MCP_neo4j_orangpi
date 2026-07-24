@@ -21,6 +21,7 @@ import structlog
 import yaml
 
 from mcp_oranpi.config import AppConfig
+from mcp_oranpi.domain.contracts import SSHClientProtocol
 from mcp_oranpi.domain.errors import (
     WS_DISABLED,
     WS_NOT_FOUND,
@@ -32,7 +33,6 @@ from mcp_oranpi.domain.validation import (
     validate_workspace_path,
 )
 from mcp_oranpi.domain.workspace import WorkspaceInfo, WorkspaceStatus
-from mcp_oranpi.infrastructure.ssh_client import SSHClient
 
 log = structlog.get_logger()
 
@@ -55,7 +55,7 @@ class WorkspaceResolver:
     def __init__(
         self,
         config: AppConfig,
-        ssh_client: SSHClient,
+        ssh_client: SSHClientProtocol,
     ) -> None:
         self._config = config
         self._ssh = ssh_client
@@ -165,10 +165,7 @@ class WorkspaceResolver:
             self._workspaces[validated_id] = info
             self._paths[validated_id] = ws_path
 
-        active = sum(
-            1 for ws in self._workspaces.values()
-            if ws.status == WorkspaceStatus.ACTIVE
-        )
+        active = sum(1 for ws in self._workspaces.values() if ws.status == WorkspaceStatus.ACTIVE)
         total = len(self._workspaces)
         log.info(
             "workspace_load_complete",
@@ -227,14 +224,10 @@ class WorkspaceResolver:
             raise ValueError(f"{WS_NOT_FOUND}: Workspace {workspace_id!r} has no path")
 
         if info.status == WorkspaceStatus.DISABLED:
-            raise ValueError(
-                f"{WS_DISABLED}: Workspace {workspace_id!r} is disabled"
-            )
+            raise ValueError(f"{WS_DISABLED}: Workspace {workspace_id!r} is disabled")
 
         if info.status == WorkspaceStatus.UNREACHABLE:
-            raise ValueError(
-                f"{WS_UNREACHABLE}: Workspace {workspace_id!r} is unreachable"
-            )
+            raise ValueError(f"{WS_UNREACHABLE}: Workspace {workspace_id!r} is unreachable")
 
         return path, info
 
@@ -305,7 +298,7 @@ class WorkspaceResolver:
                 status=WorkspaceStatus.UNREACHABLE,
             )
 
-        except (asyncio.CancelledError):
+        except asyncio.CancelledError:
             # CancelledError must always be re-raised (spec 006, rule 1).
             raise
         except Exception as exc:

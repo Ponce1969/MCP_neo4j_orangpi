@@ -1,4 +1,5 @@
 """Integration test — full tool pipeline via MCP handler."""
+
 import asyncio
 import json
 
@@ -7,7 +8,7 @@ from mcp_oranpi.server import AppContainer
 
 
 async def main() -> None:
-    config = AppConfig()
+    config = AppConfig()  # type: ignore
     container = AppContainer(config)
 
     await container.ssh_client.connect()
@@ -17,12 +18,16 @@ async def main() -> None:
     print("\n=== system_memory_usage ===")
     result = await container.system_tools.system_memory_usage()
     print(f"Error: {result.error}")
-    print(f"Data: {json.dumps(result.data, default=str, indent=2)[:500] if result.data else 'None'}")
+    print(
+        f"Data: {json.dumps(result.data, default=str, indent=2)[:500] if result.data else 'None'}"
+    )
 
     print("\n=== system_cpu_usage ===")
     result = await container.system_tools.system_cpu_usage()
     print(f"Error: {result.error}")
-    print(f"Data: {json.dumps(result.data, default=str, indent=2)[:300] if result.data else 'None'}")
+    print(
+        f"Data: {json.dumps(result.data, default=str, indent=2)[:300] if result.data else 'None'}"
+    )
 
     # Test docker tools
     print("\n=== docker_list_containers ===")

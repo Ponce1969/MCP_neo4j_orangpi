@@ -81,3 +81,24 @@ class WorkspaceResolverProtocol(Protocol):
     def resolve(self, workspace_id: str) -> WorkspaceInfo | None: ...
 
     def resolve_path(self, workspace_id: str) -> str | None: ...
+
+
+class SSHClientProtocol(Protocol):
+    """Protocol for SSH connection handling.
+
+    Abstracts the infrastructure SSHClient for type-safe mocking
+    and strict dependency inversion.
+    """
+
+    @property
+    def connected(self) -> bool: ...
+
+    async def connect(self) -> None: ...
+
+    async def disconnect(self) -> None: ...
+
+    async def execute(
+        self, command: str, *, timeout: int | None = None
+    ) -> CommandResultProtocol: ...
+
+    async def health_check(self) -> bool: ...

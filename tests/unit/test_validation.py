@@ -316,17 +316,23 @@ class TestLogPathValidation:
 
     def test_valid_log_path(self) -> None:
         """Log paths under an allowed directory pass validation."""
-        assert validate_log_path(
-            "/var/log/syslog",
-            ["/var/log", "/home", "/opt"],
-        ) == "/var/log/syslog"
+        assert (
+            validate_log_path(
+                "/var/log/syslog",
+                ["/var/log", "/home", "/opt"],
+            )
+            == "/var/log/syslog"
+        )
 
     def test_valid_home_log_path(self) -> None:
         """Log paths under /home pass when /home is allowed."""
-        assert validate_log_path(
-            "/home/user/app.log",
-            ["/var/log", "/home", "/opt"],
-        ) == "/home/user/app.log"
+        assert (
+            validate_log_path(
+                "/home/user/app.log",
+                ["/var/log", "/home", "/opt"],
+            )
+            == "/home/user/app.log"
+        )
 
     def test_reject_non_allowed_path(self) -> None:
         """Log paths outside allowed directories are rejected."""

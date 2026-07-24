@@ -36,7 +36,7 @@ def workspace_tools(
     mock_runner: MockCommandRunner, mock_resolver: MockWorkspaceResolver
 ) -> WorkspaceTools:
     """Provide a WorkspaceTools instance with mocks."""
-    return WorkspaceTools(mock_runner, mock_resolver)
+    return WorkspaceTools(mock_runner, mock_resolver)  # type: ignore
 
 
 @pytest.fixture
@@ -80,7 +80,7 @@ class TestWorkspaceList:
         assert result.error is None
         assert result.data is not None
         assert result.data["total_count"] == 2
-        assert len(result.data["workspaces"]) == 2
+        assert len(result.data["workspaces"]) == 2  # type: ignore
 
     async def test_empty(
         self,
@@ -202,7 +202,7 @@ class TestWorkspaceDockerPs:
         assert result.error is None
         assert result.data is not None
         assert result.data["workspace"] == "guardian"
-        assert len(result.data["containers"]) == 1
+        assert len(result.data["containers"]) == 1  # type: ignore
 
     async def test_workspace_not_found(
         self,
@@ -284,7 +284,7 @@ class TestWorkspaceLogs:
         assert result.error is None
         assert result.data is not None
         assert result.data["workspace"] == "guardian"
-        assert "Web server started" in result.data["logs"]
+        assert "Web server started" in result.data["logs"]  # type: ignore
 
     async def test_with_service(
         self,
@@ -337,9 +337,7 @@ class TestWorkspaceLogs:
             ),
         )
 
-        result = await workspace_tools.workspace_logs(
-            "guardian", service="nonexistent"
-        )
+        result = await workspace_tools.workspace_logs("guardian", service="nonexistent")
 
         assert result.error is not None
         assert result.error.code == DOCKER_NOT_FOUND
@@ -391,8 +389,8 @@ class TestWorkspacePorts:
         assert result.error is None
         assert result.data is not None
         assert result.data["workspace"] == "guardian"
-        assert len(result.data["ports"]) == 1
-        assert result.data["ports"][0]["host_port"] == 8080
+        assert len(result.data["ports"]) == 1  # type: ignore
+        assert result.data["ports"][0]["host_port"] == 8080  # type: ignore
 
     async def test_workspace_not_found(
         self,
@@ -460,28 +458,34 @@ class TestWorkspacePorts:
 
 
 class TestWorkspaceDeploy:
-    """Tests for workspace_deploy (read-only deployment plan)."""
+    """Tests for workspace_deploy (deployment execution)."""
 
-    async def test_returns_manual_plan(
+    async def test_success(
         self,
         workspace_tools: WorkspaceTools,
         mock_resolver: MockWorkspaceResolver,
+        mock_runner: MockCommandRunner,
         active_workspace: WorkspaceInfo,
     ) -> None:
         mock_resolver.set_workspaces({"guardian": active_workspace})
+        mock_runner.set_response(
+            "workspace_deploy",
+            CommandResult(exit_code=0, stdout="Deployment executed successfully", stderr=""),
+        )
 
         result = await workspace_tools.workspace_deploy("guardian")
 
         assert result.error is None
         assert result.data is not None
         assert result.data["workspace"] == "guardian"
-        assert result.data["status"] == "manual_action_required"
-        assert result.data["executed"] is False
-        assert result.data["safe_for_agent"] is True
-        assert "git pull origin main" in "\n".join(result.data["steps"])
-        assert "docker compose" in "\n".join(result.data["steps"])
-        # No SSH command should have been executed
-        assert "deploy_project" not in result.data["steps"]
+        assert result.data["status"] == "deployed"
+        assert result.data["executed"] is True
+        assert "Deployment executed successfully" in result.data["output"]  # type: ignore
+        
+        last_call = mock_runner.last_call()
+        assert last_call is not None
+        assert last_call[0] == "workspace_deploy"
+        assert last_call[1]["project"] == "guardian"
 
     async def test_workspace_not_found(
         self,
@@ -515,23 +519,22 @@ class TestWorkspaceDeploy:
         assert result.error is not None
         assert result.error.code == WS_DISABLED
 
-    async def test_no_destructive_command_executed(
+    async def test_deployment_failed(
         self,
         workspace_tools: WorkspaceTools,
         mock_resolver: MockWorkspaceResolver,
         mock_runner: MockCommandRunner,
         active_workspace: WorkspaceInfo,
     ) -> None:
-        """Ensure workspace_deploy never calls CommandRunner.run()."""
+        """Ensure failed deployments return an error."""
         mock_resolver.set_workspaces({"guardian": active_workspace})
         mock_runner.set_response(
-            "deploy_project",
-            CommandResult(exit_code=0, stdout="SHOULD NOT BE CALLED", stderr=""),
+            "workspace_deploy",
+            CommandResult(exit_code=1, stdout="", stderr="Error during git pull"),
         )
 
         result = await workspace_tools.workspace_deploy("guardian")
 
-        assert result.error is None
-        assert result.data["status"] == "manual_action_required"
-        # The mock response should not be used
-        assert "SHOULD NOT BE CALLED" not in str(result.data)
+        assert result.error is not None
+        assert result.error.code == "DEPLOY_FAILED"
+        assert "Error during git pull" in result.error.message

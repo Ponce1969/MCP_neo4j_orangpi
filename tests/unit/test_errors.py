@@ -168,7 +168,7 @@ class TestToolResult:
             truncated=False,
         )
         assert result.data is None
-        assert result.error.code == "CONN_FAILED"
+        assert result.error.code == "CONN_FAILED"  # type: ignore
         assert result.truncated is False
 
     def test_truncated_result(self) -> None:

@@ -16,14 +16,14 @@ class TestAppConfig:
 
     def test_config_from_env(self, mock_env_vars: dict[str, str]) -> None:
         """AppConfig loads successfully with all required env vars."""
-        config = AppConfig()
+        config = AppConfig()  # type: ignore
         assert config.ssh_host == "test-oranpi.local"
         assert config.ssh_user == "testuser"
         assert config.root_workspace_dir == "/home/testuser/codigo"
 
     def test_config_defaults(self, mock_env_vars: dict[str, str]) -> None:
         """AppConfig fills in default values for optional env vars."""
-        config = AppConfig()
+        config = AppConfig()  # type: ignore
         assert config.ssh_port == 22
         # security_mode and other defaults come from env vars (including .env)
         # so we only test that the fallbacks exist when not overridden
@@ -49,7 +49,7 @@ class TestAppConfig:
                 extra="ignore",
             )
         with pytest.raises(ValidationError):
-            TestConfig()
+            TestConfig()  # type: ignore
 
     def test_config_missing_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AppConfig raises ValidationError when SSH_HOST is missing."""
@@ -68,7 +68,7 @@ class TestAppConfig:
             )
 
         with pytest.raises(ValidationError):
-            TestConfig()
+            TestConfig()  # type: ignore
 
     def test_config_missing_workspace_root(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AppConfig raises ValidationError when ROOT_WORKSPACE_DIR is missing."""
@@ -88,7 +88,7 @@ class TestAppConfig:
             )
 
         with pytest.raises(ValidationError):
-            TestConfig()
+            TestConfig()  # type: ignore
 
     def test_config_invalid_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AppConfig raises ValidationError when SSH_PORT is not a number."""
@@ -98,11 +98,11 @@ class TestAppConfig:
         monkeypatch.setenv("ORANPI_ROOT_WORKSPACE_DIR", "/test/dir")
         monkeypatch.setenv("ORANPI_SSH_PORT", "not_a_number")
         with pytest.raises(ValidationError):
-            AppConfig()
+            AppConfig()  # type: ignore
 
     def test_ssh_config_property(self, mock_env_vars: dict[str, str]) -> None:
         """AppConfig.ssh_config derives SSHConfig correctly."""
-        config = AppConfig()
+        config = AppConfig()  # type: ignore
         ssh = config.ssh_config
         assert isinstance(ssh, SSHConfig)
         assert ssh.host == "test-oranpi.local"
@@ -113,7 +113,7 @@ class TestAppConfig:
 
     def test_output_limits_property(self, mock_env_vars: dict[str, str]) -> None:
         """AppConfig.output_limits derives OutputLimits correctly."""
-        config = AppConfig()
+        config = AppConfig()  # type: ignore
         limits = config.output_limits
         assert isinstance(limits, OutputLimits)
         assert limits.log_output_limit_kb == 50
@@ -122,7 +122,7 @@ class TestAppConfig:
 
     def test_allowed_log_dirs_list(self, mock_env_vars: dict[str, str]) -> None:
         """AppConfig.allowed_log_dirs_list parses comma-separated dirs."""
-        config = AppConfig()
+        config = AppConfig()  # type: ignore
         dirs = config.allowed_log_dirs_list
         assert isinstance(dirs, list)
         # Default value from env var in conftest defaults
@@ -135,7 +135,7 @@ class TestAppConfig:
         monkeypatch.setenv("ORANPI_SSH_KEY_PATH", "/test/key")
         monkeypatch.setenv("ORANPI_ROOT_WORKSPACE_DIR", "/test/dir")
         monkeypatch.setenv("ORANPI_ALLOWED_LOG_DIRS", "/var/log,/home,/opt,/tmp")
-        config = AppConfig()
+        config = AppConfig()  # type: ignore
         assert config.allowed_log_dirs_list == [
             "/var/log",
             "/home",

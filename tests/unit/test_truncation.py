@@ -105,7 +105,7 @@ class TestTruncateList:
 
     def test_empty_list(self) -> None:
         """Empty list is returned unchanged."""
-        result, meta = truncate_list([], max_length=10)
+        result, meta = truncate_list([], max_length=10)  # type: ignore
         assert result == []
         assert meta.truncated is False
         assert meta.total_count == 0
@@ -162,7 +162,7 @@ class TestCheckPayloadSize:
     def test_oversized_payload_returns_error(self) -> None:
         """Oversized payloads return a ToolResult with VALID_PAYLOAD_EXCEEDED."""
         data = {"items": ["x" * 10000]}
-        result = check_payload_size(data, max_bytes=100)
+        result = check_payload_size(data, max_bytes=100)  # type: ignore
         assert result is not None
         assert isinstance(result, ToolResult)
         assert result.error is not None
@@ -174,7 +174,7 @@ class TestCheckPayloadSize:
         """Payloads exactly at the limit pass (no error)."""
         data = {"key": "value"}
         payload_bytes = len(json.dumps(data).encode("utf-8"))
-        result = check_payload_size(data, max_bytes=payload_bytes)
+        result = check_payload_size(data, max_bytes=payload_bytes)  # type: ignore
         assert result is None
 
     def test_default_max_is_1mb(self) -> None:

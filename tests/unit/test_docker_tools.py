@@ -37,7 +37,7 @@ class TestDockerListContainers:
     async def test_success(self, docker_tools: DockerTools) -> None:
         stdout = """{"ID":"abc123","Names":"nginx","Image":"nginx:latest","Status":"Up 2 hours","CreatedAt":"","Ports":"80/tcp->0.0.0.0:8080"}
 {"ID":"def456","Names":"redis","Image":"redis:alpine","Status":"Up 5 days","CreatedAt":"","Ports":"6379/tcp->0.0.0.0:6379"}"""
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_ps",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
         )
@@ -48,10 +48,10 @@ class TestDockerListContainers:
         assert result.data is not None
         assert result.data["total_count"] == 2
         assert result.data["returned_count"] == 2
-        assert len(result.data["containers"]) == 2
+        assert len(result.data["containers"]) == 2  # type: ignore
 
     async def test_with_all_flag(self, docker_tools: DockerTools) -> None:
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_ps_all",
             CommandResult(exit_code=0, stdout="", stderr=""),
         )
@@ -59,14 +59,14 @@ class TestDockerListContainers:
         result = await docker_tools.docker_list_containers(all=True)
 
         assert result.error is None
-        last_call = docker_tools._runner.last_call()
+        last_call = docker_tools._runner.last_call()  # type: ignore
         assert last_call is not None
         assert last_call[0] == "docker_ps_all"
 
     async def test_with_filter(self, docker_tools: DockerTools) -> None:
         stdout = """{"ID":"abc123","Names":"nginx-proxy","Image":"nginx","Status":"Up","CreatedAt":"","Ports":""}
 {"ID":"def456","Names":"nginx-web","Image":"nginx","Status":"Up","CreatedAt":"","Ports":""}"""
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_ps",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
         )
@@ -75,11 +75,11 @@ class TestDockerListContainers:
 
         assert result.error is None
         assert result.data is not None
-        assert len(result.data["containers"]) == 1
-        assert result.data["containers"][0]["name"] == "nginx-web"
+        assert len(result.data["containers"]) == 1  # type: ignore
+        assert result.data["containers"][0]["name"] == "nginx-web"  # type: ignore
 
     async def test_docker_unavailable(self, docker_tools: DockerTools) -> None:
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_ps",
             CommandResult(
                 exit_code=1,
@@ -103,7 +103,7 @@ class TestDockerListContainers:
         async def timeout_run(*args: object, **kwargs: object) -> CommandResult:
             raise TimeoutError()
 
-        mock_runner.run = timeout_run  # type: ignore[method-assign]
+        mock_runner.run = timeout_run  # type: ignore
 
         result = await docker_tools.docker_list_containers()
 
@@ -116,7 +116,7 @@ class TestDockerListContainers:
         async def conn_error_run(*args: object, **kwargs: object) -> CommandResult:
             raise ConnectionError()
 
-        mock_runner.run = conn_error_run  # type: ignore[method-assign]
+        mock_runner.run = conn_error_run  # type: ignore
 
         result = await docker_tools.docker_list_containers()
 
@@ -138,7 +138,7 @@ class TestDockerInspectContainer:
   "Mounts": [],
   "HostConfig": {"RestartPolicy": {"Name": "always"}}
 }]"""
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_inspect",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
         )
@@ -152,7 +152,7 @@ class TestDockerInspectContainer:
         assert result.data["restart_policy"] == "always"
 
     async def test_not_found(self, docker_tools: DockerTools) -> None:
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_inspect",
             CommandResult(
                 exit_code=1,
@@ -173,7 +173,7 @@ class TestDockerInspectContainer:
         assert result.error.code == "VALID_PARAM_INVALID"
 
     async def test_parse_failure(self, docker_tools: DockerTools) -> None:
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_inspect",
             CommandResult(exit_code=0, stdout="not json", stderr=""),
         )
@@ -189,7 +189,7 @@ class TestDockerContainerLogs:
 
     async def test_success(self, docker_tools: DockerTools) -> None:
         stdout = "2024-01-15 10:30:00 App started\n2024-01-15 10:30:01 Request received"
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_logs",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
         )
@@ -202,7 +202,7 @@ class TestDockerContainerLogs:
         assert result.data["log_count"] == 2
 
     async def test_with_since_param(self, docker_tools: DockerTools) -> None:
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_logs",
             CommandResult(exit_code=0, stdout="recent logs", stderr=""),
         )
@@ -210,12 +210,12 @@ class TestDockerContainerLogs:
         result = await docker_tools.docker_container_logs("nginx", since="1h")
 
         assert result.error is None
-        last_call = docker_tools._runner.last_call()
+        last_call = docker_tools._runner.last_call()  # type: ignore
         assert last_call is not None
         assert "since" in last_call[1]
 
     async def test_not_found(self, docker_tools: DockerTools) -> None:
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_logs",
             CommandResult(
                 exit_code=1,
@@ -230,7 +230,7 @@ class TestDockerContainerLogs:
         assert result.error.code == DOCKER_NOT_FOUND
 
     async def test_not_running(self, docker_tools: DockerTools) -> None:
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_logs",
             CommandResult(exit_code=1, stdout="", stderr="container not running"),
         )
@@ -246,7 +246,7 @@ class TestDockerContainerStats:
 
     async def test_success(self, docker_tools: DockerTools) -> None:
         stdout = '{"Container":"nginx","CPUPerc":"15.5%","MemUsage":"256MiB / 512MiB","MemPerc":"50.0%","NetIO":"1.2kB / 3.4kB","BlockIO":"5.6MB / 7.8MB","Pids":4}'
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_stats",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
         )
@@ -259,7 +259,7 @@ class TestDockerContainerStats:
         assert result.data["memory_usage_mb"] == 256.0
 
     async def test_container_not_running(self, docker_tools: DockerTools) -> None:
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_stats",
             CommandResult(
                 exit_code=1,
@@ -274,7 +274,7 @@ class TestDockerContainerStats:
         assert result.error.code == DOCKER_NOT_FOUND
 
     async def test_parse_failure(self, docker_tools: DockerTools) -> None:
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_stats",
             CommandResult(exit_code=0, stdout="not json", stderr=""),
         )
@@ -292,7 +292,7 @@ class TestDockerInspectPorts:
         ss_output = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
 tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("nginx",pid=1234,fd=6))
 tcp LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=1235,fd=7))"""
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "ss_tulnp",
             CommandResult(exit_code=0, stdout=ss_output, stderr=""),
         )
@@ -301,7 +301,7 @@ tcp LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=1235,fd=7))"""
 
         assert result.error is None
         assert result.data is not None
-        assert len(result.data["occupied_ports"]) == 2
+        assert len(result.data["occupied_ports"]) == 2  # type: ignore
 
     async def test_with_container_filter(self, docker_tools: DockerTools) -> None:
         ss_output = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
@@ -319,11 +319,11 @@ tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("docker-proxy",pid=1000,fd=6))""
   "Mounts": [],
   "HostConfig": {"RestartPolicy": {}}
 }]"""
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "ss_tulnp",
             CommandResult(exit_code=0, stdout=ss_output, stderr=""),
         )
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "docker_inspect",
             CommandResult(exit_code=0, stdout=inspect_output, stderr=""),
         )
@@ -338,7 +338,7 @@ tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("docker-proxy",pid=1000,fd=6))""
         ss_output = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
 tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("nginx",pid=1234,fd=6))
 udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:* users:(("dnsmasq",pid=567,fd=5))"""
-        docker_tools._runner.set_response(
+        docker_tools._runner.set_response(  # type: ignore
             "ss_tulnp",
             CommandResult(exit_code=0, stdout=ss_output, stderr=""),
         )
@@ -348,4 +348,4 @@ udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:* users:(("dnsmasq",pid=567,fd=5))"""
         assert result.error is None
         assert result.data is not None
         # Only TCP should be returned
-        assert all(p["protocol"] == "tcp" for p in result.data["occupied_ports"])
+        assert all(p["protocol"] == "tcp" for p in result.data["occupied_ports"])  # type: ignore

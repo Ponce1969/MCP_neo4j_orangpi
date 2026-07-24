@@ -47,7 +47,7 @@ def mock_env_vars(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
 @pytest.fixture
 def app_config(mock_env_vars: dict[str, str]) -> AppConfig:
     """Provide an AppConfig loaded from mock environment variables."""
-    return AppConfig()
+    return AppConfig()  # type: ignore
 
 
 @pytest.fixture
@@ -92,4 +92,4 @@ def app_config_with_workspaces(
 ) -> AppConfig:
     """Provide an AppConfig with workspace config pointing to test YAML."""
     monkeypatch.setenv("ORANPI_WORKSPACE_CONFIG", str(workspace_yaml))
-    return AppConfig()
+    return AppConfig()  # type: ignore

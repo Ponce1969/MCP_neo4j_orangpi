@@ -21,9 +21,7 @@ class MockSSHClient:
         self.connected: bool = True
         self._commands: list[str] = []
         self._results: dict[str, CommandResult] = {}
-        self._default_result: CommandResult = CommandResult(
-            exit_code=0, stdout="", stderr=""
-        )
+        self._default_result: CommandResult = CommandResult(exit_code=0, stdout="", stderr="")
         self._execute_side_effect: Exception | None = None
 
     async def connect(self) -> None:
@@ -32,9 +30,7 @@ class MockSSHClient:
     async def disconnect(self) -> None:
         self.connected = False
 
-    async def execute(
-        self, command: str, *, timeout: int | None = None
-    ) -> CommandResult:
+    async def execute(self, command: str, *, timeout: int | None = None) -> CommandResult:
         self._commands.append(command)
 
         if self._execute_side_effect is not None:

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import structlog
 
+from mcp_oranpi.application.parsers import parse_ss_tulnp, parse_tailscale_status
+from mcp_oranpi.domain.contracts import CommandRunnerProtocol
 from mcp_oranpi.domain.errors import (
     CONN_FAILED,
     CONN_TIMEOUT,
@@ -23,8 +25,6 @@ from mcp_oranpi.domain.errors import (
     ToolResult,
 )
 from mcp_oranpi.domain.validation import validate_port, validate_port_range
-from mcp_oranpi.infrastructure.command_runner import CommandRunner
-from mcp_oranpi.infrastructure.parsers import parse_ss_tulnp, parse_tailscale_status
 
 log = structlog.get_logger()
 
@@ -39,7 +39,7 @@ class NetworkTools:
         runner: CommandRunner instance for executing remote commands.
     """
 
-    def __init__(self, runner: CommandRunner) -> None:
+    def __init__(self, runner: CommandRunnerProtocol) -> None:
         self._runner = runner
 
     # ── Port Scanning ─────────────────────────────────────────────────────────
@@ -108,7 +108,7 @@ class NetworkTools:
         filtered = [
             p
             for p in occupied_ports
-            if range_start <= p.port <= range_end and p.protocol == protocol
+            if range_start <= p.port <= range_end and protocol in p.protocol
         ]
 
         end_time = time.monotonic()
@@ -279,9 +279,7 @@ class NetworkTools:
         for p in occupied_ports:
             bindings.append(
                 {
-                    "local_address": f"0.0.0.0:{p.port}"
-                    if not p.process
-                    else f"0.0.0.0:{p.port}",
+                    "local_address": f"0.0.0.0:{p.port}" if not p.process else f"0.0.0.0:{p.port}",
                     "port": p.port,
                     "protocol": p.protocol,
                     "process": p.process,
@@ -329,8 +327,7 @@ class NetworkTools:
                     message="Tailscale is not installed on this host",
                     detail={
                         "suggestion": (
-                            "Install with: "
-                            "curl -fsSL https://tailscale.com/install.sh | sh"
+                            "Install with: curl -fsSL https://tailscale.com/install.sh | sh"
                         )
                     },
                     retryable=False,

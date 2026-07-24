@@ -15,15 +15,15 @@ class TestWorkspaceStatus:
 
     def test_active_value(self) -> None:
         """WorkspaceStatus.ACTIVE has correct value."""
-        assert WorkspaceStatus.ACTIVE == "active"
+        assert WorkspaceStatus.ACTIVE == "active"  # type: ignore
 
     def test_disabled_value(self) -> None:
         """WorkspaceStatus.DISABLED has correct value."""
-        assert WorkspaceStatus.DISABLED == "disabled"
+        assert WorkspaceStatus.DISABLED == "disabled"  # type: ignore
 
     def test_unreachable_value(self) -> None:
         """WorkspaceStatus.UNREACHABLE has correct value."""
-        assert WorkspaceStatus.UNREACHABLE == "unreachable"
+        assert WorkspaceStatus.UNREACHABLE == "unreachable"  # type: ignore
 
     def test_all_statuses_are_strings(self) -> None:
         """All WorkspaceStatus values are strings."""

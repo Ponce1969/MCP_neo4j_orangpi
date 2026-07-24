@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import structlog
 
+from mcp_oranpi.application.parsers import (
+    parse_compose_ps,
+)
+from mcp_oranpi.domain.contracts import CommandRunnerProtocol, WorkspaceResolverProtocol
 from mcp_oranpi.domain.errors import (
     CONN_FAILED,
     CONN_TIMEOUT,
@@ -25,12 +29,11 @@ from mcp_oranpi.domain.errors import (
     ToolResult,
 )
 from mcp_oranpi.domain.truncation import truncate_text
-from mcp_oranpi.domain.validation import validate_line_limit, validate_workspace_id
-from mcp_oranpi.infrastructure.command_runner import CommandRunner
-from mcp_oranpi.infrastructure.parsers import (
-    parse_compose_ps,
+from mcp_oranpi.domain.validation import (
+    ValidationError,
+    validate_line_limit,
+    validate_workspace_id,
 )
-from mcp_oranpi.infrastructure.workspace_resolver import WorkspaceResolver
 
 log = structlog.get_logger()
 
@@ -49,8 +52,8 @@ class WorkspaceTools:
 
     def __init__(
         self,
-        runner: CommandRunner,
-        resolver: WorkspaceResolver,
+        runner: CommandRunnerProtocol,
+        resolver: WorkspaceResolverProtocol,
     ) -> None:
         self._runner = runner
         self._resolver = resolver
@@ -105,7 +108,7 @@ class WorkspaceTools:
 
         try:
             validate_workspace_id(workspace_id)
-        except Exception as e:
+        except ValidationError as e:
             return ToolResult(
                 error=ToolError(
                     code="VALID_PARAM_INVALID",
@@ -199,7 +202,7 @@ class WorkspaceTools:
 
         try:
             validate_workspace_id(workspace_id)
-        except Exception as e:
+        except ValidationError as e:
             return ToolResult(
                 error=ToolError(
                     code="VALID_PARAM_INVALID",
@@ -350,7 +353,7 @@ class WorkspaceTools:
         try:
             validate_workspace_id(workspace_id)
             validate_line_limit(tail)
-        except Exception as e:
+        except ValidationError as e:
             return ToolResult(
                 error=ToolError(
                     code="VALID_PARAM_INVALID",
@@ -468,7 +471,7 @@ class WorkspaceTools:
 
         try:
             validate_workspace_id(workspace_id)
-        except Exception as e:
+        except ValidationError as e:
             return ToolResult(
                 error=ToolError(
                     code="VALID_PARAM_INVALID",
@@ -573,15 +576,11 @@ class WorkspaceTools:
     # ── Workspace Deploy Plan ─────────────────────────────────────────────────
 
     async def workspace_deploy(self, workspace: str) -> ToolResult:
-        """Generate a safe deployment plan for a workspace.
+        """Execute a production deployment for a workspace via the gatekeeper.
 
-        This tool is READ-ONLY. It does NOT execute any deployment. It returns
-        the exact manual steps a human operator should run on the OrangePi to
-        deploy the workspace safely.
-
-        This prevents accidental destructive operations (database drops,
-        volume deletion, service interruption) by keeping the agent strictly
-        in an advisory role.
+        This tool is MUTATIVE. It executes the 'deploy' command on the server
+        which triggers the gatekeeper to git pull and docker compose up.
+        It should only be invoked when explicitly authorized by the user.
 
         Args:
             workspace: Logical workspace identifier.
@@ -595,7 +594,7 @@ class WorkspaceTools:
 
         try:
             validate_workspace_id(workspace_id)
-        except Exception as e:
+        except ValidationError as e:
             return ToolResult(
                 error=ToolError(
                     code="VALID_PARAM_INVALID",
@@ -637,36 +636,43 @@ class WorkspaceTools:
                 )
             )
 
-        compose_file = "docker-compose.yml"
+        try:
+            result = await self._runner.run("workspace_deploy", project=workspace_id)
+        except TimeoutError:
+            return ToolResult(
+                error=ToolError(
+                    code=CONN_TIMEOUT,
+                    message="Command timed out while executing deployment",
+                    retryable=True,
+                )
+            )
+        except ConnectionError:
+            return ToolResult(
+                error=ToolError(
+                    code=CONN_FAILED,
+                    message="SSH connection failed",
+                    retryable=True,
+                )
+            )
 
-        # Suggest prod file if it exists (common convention)
-        # We can't check existence here without extra SSH roundtrip,
-        # but some projects like pedidos_multi use docker-compose.prod.yml
-
-        manual_steps = [
-            f"# Manual deployment steps for workspace: {workspace_id}",
-            "# Run these commands directly on the OrangePi server.",
-            "",
-            f"cd {path}",
-            "git pull origin main",
-            f"docker compose -f {compose_file} up --build -d",
-            "docker compose ps",
-            "",
-            "# Optional: verify logs after deploy",
-            f"docker compose -f {compose_file} logs --tail 50",
-        ]
+        if result.exit_code != 0:
+            truncated_out, _ = truncate_text(result.stdout)
+            return ToolResult(
+                error=ToolError(
+                    code="DEPLOY_FAILED",
+                    message=f"Deployment failed: {result.stderr[:200]}",
+                    detail={"workspace_id": workspace_id, "stdout": truncated_out},
+                    retryable=False,
+                )
+            )
 
         return ToolResult(
             data={
                 "workspace": workspace_id,
                 "path": path,
-                "status": "manual_action_required",
-                "warning": (
-                    "This tool does NOT execute deployments. "
-                    "A human must run the steps below on the OrangePi."
-                ),
-                "steps": manual_steps,
-                "safe_for_agent": True,
-                "executed": False,
+                "status": "deployed",
+                "message": "Workspace deployment command executed successfully.",
+                "output": result.stdout,
+                "executed": True,
             }
         )

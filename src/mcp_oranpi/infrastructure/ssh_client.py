@@ -107,10 +107,7 @@ class SSHClient:
     @property
     def connected(self) -> bool:
         """Check if the SSH connection is established and usable."""
-        return (
-            self._state == _ConnectionState.CONNECTED
-            and self._conn is not None
-        )
+        return self._state == _ConnectionState.CONNECTED and self._conn is not None
 
     @property
     def state(self) -> _ConnectionState:
@@ -205,8 +202,7 @@ class SSHClient:
         if not self.connected:
             if self._state == _ConnectionState.RECONNECTING:
                 raise ConnectionError(
-                    "SSH connection is reconnecting. "
-                    "Retry after CONN_RECONNECTING error."
+                    "SSH connection is reconnecting. Retry after CONN_RECONNECTING error."
                 )
             raise ConnectionError("SSH client is not connected")
 

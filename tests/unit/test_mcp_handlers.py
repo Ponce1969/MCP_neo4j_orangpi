@@ -138,18 +138,14 @@ class TestToolDefinitions:
             assert tool.name, f"Tool at index {TOOL_DEFINITIONS.index(tool)} has no name"
             assert tool.description, f"Tool {tool.name} has no description"
             assert tool.inputSchema is not None, f"Tool {tool.name} has no inputSchema"
-            assert isinstance(tool.inputSchema, dict), (
-                f"Tool {tool.name} inputSchema is not a dict"
-            )
+            assert isinstance(tool.inputSchema, dict), f"Tool {tool.name} inputSchema is not a dict"
             assert tool.inputSchema.get("type") == "object", (
                 f"Tool {tool.name} inputSchema type is not 'object'"
             )
 
     def test_docker_tools_have_descriptions(self) -> None:
         """All 5 Docker tools should have non-empty descriptions."""
-        docker_tools = [
-            t for t in TOOL_DEFINITIONS if t.name in DOCKER_TOOL_NAMES
-        ]
+        docker_tools = [t for t in TOOL_DEFINITIONS if t.name in DOCKER_TOOL_NAMES]
         assert len(docker_tools) == 5
         for tool in docker_tools:
             assert tool.description, f"Docker tool {tool.name} has empty description"
@@ -239,9 +235,7 @@ class TestMCPHandlerCallTool:
             error=ToolError(code="DOCKER_NOT_FOUND", message="Container not found")
         )
 
-        result = await mcp_handler.call_tool(
-            "docker_inspect_container", {"container": "missing"}
-        )
+        result = await mcp_handler.call_tool("docker_inspect_container", {"container": "missing"})
 
         assert len(result) == 1
         parsed = json.loads(result[0].text)
@@ -263,9 +257,7 @@ class TestMCPHandlerCallTool:
             }
         )
 
-        result = await mcp_handler.call_tool(
-            "docker_inspect_container", {"container": "nginx"}
-        )
+        result = await mcp_handler.call_tool("docker_inspect_container", {"container": "nginx"})
 
         assert len(result) == 1
         parsed = json.loads(result[0].text)
@@ -288,9 +280,7 @@ class TestMCPHandlerCallTool:
             {"container": "nginx", "tail": 50},
         )
 
-        mock_docker_tools.docker_container_logs.assert_called_once_with(
-            container="nginx", tail=50
-        )
+        mock_docker_tools.docker_container_logs.assert_called_once_with(container="nginx", tail=50)
 
     async def test_call_tool_all_22_dispatched(
         self,
@@ -301,9 +291,7 @@ class TestMCPHandlerCallTool:
         assert len(dispatch_table) == 23
         for tool_name in ALL_TOOL_NAMES:
             assert tool_name in dispatch_table, f"Missing tool: {tool_name}"
-            assert callable(dispatch_table[tool_name]), (
-                f"Tool {tool_name} is not callable"
-            )
+            assert callable(dispatch_table[tool_name]), f"Tool {tool_name} is not callable"
 
 
 # ── _to_mcp_content Tests ───────────────────────────────────────────────────────
@@ -325,9 +313,7 @@ class TestToMcpContent:
 
     def test_error_result_serializes_error(self) -> None:
         """ToolResult(error=ToolError(...)) should serialize to JSON with error key."""
-        result = ToolResult(
-            error=ToolError(code="CONN_FAILED", message="Connection refused")
-        )
+        result = ToolResult(error=ToolError(code="CONN_FAILED", message="Connection refused"))
         content = MCPHandler._to_mcp_content(result)
 
         assert len(content) == 1

@@ -29,7 +29,7 @@ def ssh_config() -> SSHConfig:
         host="test-oranpi.local",
         port=22,
         username="testuser",
-        key_path="/home/testuser/.ssh/id_test",
+        key_path="/home/testuser/.ssh/id_test",  # type: ignore
         known_hosts=None,
         security_mode="development",
         host_key_policy="accept_new",
@@ -80,10 +80,10 @@ class TestConnectionState:
     """Tests for _ConnectionState enum."""
 
     def test_state_values(self) -> None:
-        assert _ConnectionState.DISCONNECTED == "disconnected"
-        assert _ConnectionState.CONNECTING == "connecting"
-        assert _ConnectionState.CONNECTED == "connected"
-        assert _ConnectionState.RECONNECTING == "reconnecting"
+        assert _ConnectionState.DISCONNECTED == "disconnected"  # type: ignore
+        assert _ConnectionState.CONNECTING == "connecting"  # type: ignore
+        assert _ConnectionState.CONNECTED == "connected"  # type: ignore
+        assert _ConnectionState.RECONNECTING == "reconnecting"  # type: ignore
 
     def test_initial_state_is_disconnected(self, ssh_client: SSHClient) -> None:
         assert ssh_client.state == _ConnectionState.DISCONNECTED
@@ -402,7 +402,7 @@ class TestReconnection:
         ):
             await ssh_client.start_reconnection()
 
-        assert ssh_client.state == _ConnectionState.RECONNECTING
+        assert ssh_client.state == _ConnectionState.RECONNECTING  # type: ignore
 
         # Clean up the background task
         await ssh_client.disconnect()
@@ -429,7 +429,7 @@ class TestSecurityMode:
         self, ssh_config: SSHConfig
     ) -> None:
         ssh_config.security_mode = "production"
-        ssh_config.known_hosts = "/home/user/.ssh/known_hosts"
+        ssh_config.known_hosts = "/home/user/.ssh/known_hosts"  # type: ignore
 
         client = SSHClient(ssh_config)
 

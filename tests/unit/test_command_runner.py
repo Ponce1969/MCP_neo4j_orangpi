@@ -177,17 +177,15 @@ class TestRun:
 
     @pytest.mark.asyncio
     async def test_run_with_params(self, runner: CommandRunner, mock_ssh: MockSSHClient) -> None:
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="logs output", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="logs output", stderr=""))
 
         result = await runner.run("docker_logs", container="nginx", tail=10)
 
         assert result.exit_code == 0
         # Verify the command was sent with correct parameters
-        assert "docker logs" in mock_ssh.last_command
-        assert "nginx" in mock_ssh.last_command
-        assert "--tail 10" in mock_ssh.last_command
+        assert "docker logs" in mock_ssh.last_command  # type: ignore
+        assert "nginx" in mock_ssh.last_command  # type: ignore
+        assert "--tail 10" in mock_ssh.last_command  # type: ignore
 
     @pytest.mark.asyncio
     async def test_run_propagates_timeout_error(
@@ -222,39 +220,29 @@ class TestRunInWorkspace:
     async def test_run_in_workspace_wraps_with_cd(
         self, runner: CommandRunner, mock_ssh: MockSSHClient
     ) -> None:
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="compose output", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="compose output", stderr=""))
 
-        result = await runner.run_in_workspace(
-            "compose_ps", "/home/testuser/codigo/guardian"
-        )
+        result = await runner.run_in_workspace("compose_ps", "/home/testuser/codigo/guardian")
 
         assert result.exit_code == 0
         # Verify cd wrapper
-        assert mock_ssh.last_command.startswith("cd /home/testuser/codigo/guardian && ")
+        assert mock_ssh.last_command.startswith("cd /home/testuser/codigo/guardian && ")  # type: ignore
 
     @pytest.mark.asyncio
     async def test_run_in_workspace_preserves_command(
         self, runner: CommandRunner, mock_ssh: MockSSHClient
     ) -> None:
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="", stderr=""))
 
-        await runner.run_in_workspace(
-            "compose_ps", "/home/testuser/codigo/guardian"
-        )
+        await runner.run_in_workspace("compose_ps", "/home/testuser/codigo/guardian")
 
-        assert "docker compose ps --format json" in mock_ssh.last_command
+        assert "docker compose ps --format json" in mock_ssh.last_command  # type: ignore
 
     @pytest.mark.asyncio
     async def test_run_in_workspace_with_params(
         self, runner: CommandRunner, mock_ssh: MockSSHClient
     ) -> None:
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=0, stdout="logs output", stderr="")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=0, stdout="logs output", stderr=""))
 
         await runner.run_in_workspace(
             "compose_logs",
@@ -264,10 +252,10 @@ class TestRunInWorkspace:
         )
 
         cmd = mock_ssh.last_command
-        assert "cd /home/testuser/codigo/guardian &&" in cmd
-        assert "docker compose logs" in cmd
-        assert "web" in cmd
-        assert "--tail 20" in cmd
+        assert "cd /home/testuser/codigo/guardian &&" in cmd  # type: ignore
+        assert "docker compose logs" in cmd  # type: ignore
+        assert "web" in cmd  # type: ignore
+        assert "--tail 20" in cmd  # type: ignore
 
     @pytest.mark.asyncio
     async def test_run_in_workspace_unknown_command_raises(
@@ -283,9 +271,7 @@ class TestRunInWorkspace:
         mock_ssh.set_execute_error(TimeoutError())
 
         with pytest.raises(asyncio.TimeoutError):
-            await runner.run_in_workspace(
-                "compose_ps", "/home/testuser/codigo/guardian"
-            )
+            await runner.run_in_workspace("compose_ps", "/home/testuser/codigo/guardian")
 
 
 # ── Exit Code Interpretation Tests ────────────────────────────────────────────
@@ -314,9 +300,7 @@ class TestExitCodeInterpretation:
         self, runner: CommandRunner, mock_ssh: MockSSHClient
     ) -> None:
         """Command not found (127) is raw data, not DOCKER_UNAVAILABLE."""
-        mock_ssh.set_default_result(
-            CommandResult(exit_code=127, stdout="", stderr="not found")
-        )
+        mock_ssh.set_default_result(CommandResult(exit_code=127, stdout="", stderr="not found"))
 
         result = await runner.run("docker_ps")
 

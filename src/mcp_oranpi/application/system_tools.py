@@ -13,6 +13,16 @@ from __future__ import annotations
 
 import structlog
 
+from mcp_oranpi.application.parsers import (
+    parse_df_t,
+    parse_free_m,
+    parse_systemctl_list,
+    parse_systemctl_status,
+    parse_thermal_zones,
+    parse_top_bn1,
+    parse_vcgencmd_temp,
+)
+from mcp_oranpi.domain.contracts import CommandRunnerProtocol
 from mcp_oranpi.domain.errors import (
     CONN_FAILED,
     CONN_TIMEOUT,
@@ -22,16 +32,6 @@ from mcp_oranpi.domain.errors import (
     ToolResult,
 )
 from mcp_oranpi.domain.validation import validate_service_name
-from mcp_oranpi.infrastructure.command_runner import CommandRunner
-from mcp_oranpi.infrastructure.parsers import (
-    parse_df_t,
-    parse_free_m,
-    parse_systemctl_list,
-    parse_systemctl_status,
-    parse_thermal_zones,
-    parse_top_bn1,
-    parse_vcgencmd_temp,
-)
 
 log = structlog.get_logger()
 
@@ -46,7 +46,7 @@ class SystemTools:
         runner: CommandRunner instance for executing remote commands.
     """
 
-    def __init__(self, runner: CommandRunner) -> None:
+    def __init__(self, runner: CommandRunnerProtocol) -> None:
         self._runner = runner
 
     # ── CPU Usage ─────────────────────────────────────────────────────────────

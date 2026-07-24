@@ -109,8 +109,7 @@ CREDENTIAL_EXTENSIONS: tuple[str, ...] = (
 
 # Compiled regex patterns (compiled once for performance).
 _COMPILED_PATTERNS: list[tuple[re.Pattern[str], int]] = [
-    (re.compile(p, re.IGNORECASE), group)
-    for p, group in _SECRET_TEXT_PATTERNS
+    (re.compile(p, re.IGNORECASE), group) for p, group in _SECRET_TEXT_PATTERNS
 ]
 
 
@@ -150,6 +149,7 @@ def redact_text(text: str) -> str:
                     prefix = m.group(0)[: start - m.start(0)]
                     suffix = m.group(0)[end - m.start(0) :]
                     return prefix + REDACTED + suffix
+
                 return _redact_group
 
             result = pattern.sub(_make_redactor(captured_group), result)

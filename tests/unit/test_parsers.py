@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from mcp_oranpi.infrastructure.parsers import (
+from mcp_oranpi.application.parsers import (
     _mem_to_mb,
     _parse_port_binding,
     _parse_uptime,
@@ -700,7 +700,9 @@ class TestParseJournalctl:
     """Tests for parse_journalctl."""
 
     def test_with_logs(self) -> None:
-        stdout = "Jan 15 10:30:00 nginx[1234]: Started\nJan 15 10:30:01 nginx[1234]: Request processed"
+        stdout = (
+            "Jan 15 10:30:00 nginx[1234]: Started\nJan 15 10:30:01 nginx[1234]: Request processed"
+        )
         result = parse_journalctl(stdout)
 
         assert result.unit is None

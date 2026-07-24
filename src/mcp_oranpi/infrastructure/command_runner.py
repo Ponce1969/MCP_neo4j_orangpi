@@ -16,8 +16,12 @@ Design decisions (Phase 2 corrections):
 
 from __future__ import annotations
 
+import re
+import shlex
+
 import structlog
 
+from mcp_oranpi.domain.contracts import CommandResultProtocol, SSHClientProtocol
 from mcp_oranpi.domain.validation import (
     validate_container_name,
     validate_duration,
@@ -27,7 +31,6 @@ from mcp_oranpi.domain.validation import (
     validate_service_name,
     validate_workspace_id,
 )
-from mcp_oranpi.infrastructure.ssh_client import CommandResult, SSHClient
 
 log = structlog.get_logger()
 
@@ -73,6 +76,7 @@ ALLOWED_COMMANDS: dict[str, str] = {
     "compose_config": "docker compose config",
     "compose_logs": "docker compose logs",
     "compose_services": "docker compose config --services",
+    "workspace_deploy": "deploy",
 }
 
 
@@ -107,6 +111,7 @@ _COMMAND_PARAMS: dict[str, list[str]] = {
     "compose_config": [],
     "compose_logs": ["service", "tail"],
     "compose_services": [],
+    "workspace_deploy": ["project"],
 }
 
 
@@ -124,7 +129,7 @@ class CommandRunner:
         result = await runner.run_in_workspace("compose_ps", "/home/cerra/guardian")
     """
 
-    def __init__(self, ssh_client: SSHClient) -> None:
+    def __init__(self, ssh_client: SSHClientProtocol) -> None:
         self._ssh = ssh_client
 
     def build_command(
@@ -169,7 +174,7 @@ class CommandRunner:
         *,
         timeout: int | None = None,
         **params: str | int,
-    ) -> CommandResult:
+    ) -> CommandResultProtocol:
         """Execute an allowed command on the remote host.
 
         Args:
@@ -202,7 +207,7 @@ class CommandRunner:
         *,
         timeout: int | None = None,
         **params: str | int,
-    ) -> CommandResult:
+    ) -> CommandResultProtocol:
         """Execute an allowed command from a workspace directory.
 
         Wraps the command with 'cd {workspace_path} && {command}'.
@@ -227,7 +232,7 @@ class CommandRunner:
             ConnectionError: If SSH is not connected.
         """
         command = self.build_command(command_key, **params)
-        wrapped_command = f"cd {workspace_path} && {command}"
+        wrapped_command = f"cd {shlex.quote(workspace_path)} && {command}"
 
         log.info(
             "command_run_in_workspace",
@@ -253,10 +258,7 @@ class CommandRunner:
         """
         for param_name in params:
             if param_name not in expected_params:
-                raise ValueError(
-                    f"Unexpected parameter {param_name!r} for "
-                    f"command {command_key!r}"
-                )
+                raise ValueError(f"Unexpected parameter {param_name!r} for command {command_key!r}")
 
         # Apply domain validation based on parameter name
         if "container" in params:
@@ -272,8 +274,17 @@ class CommandRunner:
         if "tail" in params:
             validate_line_limit(int(params["tail"]))
 
+        if "lines" in params:
+            validate_line_limit(int(params["lines"]))
+
         if "port" in params:
             validate_port(int(params["port"]))
+
+        if "path" in params:
+            from pathlib import PurePosixPath
+            path_str = str(params["path"])
+            if ".." in PurePosixPath(path_str).parts:
+                raise ValueError("Path parameters cannot contain parent traversal (..)")
 
         # Duration parameter for time-based queries
         if "duration" in params:
@@ -290,6 +301,14 @@ class CommandRunner:
         # Project ID validation for deployments
         if "project" in params:
             validate_workspace_id(str(params["project"]))
+
+        # Basic format validation for since/until strings (allows relative time like "1 hour ago")
+        datetime_re = re.compile(r"^[a-zA-Z0-9_T:., -]+$")
+        for date_param in ("since", "until"):
+            if date_param in params:
+                val = str(params[date_param])
+                if not datetime_re.match(val):
+                    raise ValueError(f"Invalid format for {date_param}: {val!r}")
 
     def _construct_command(
         self,
@@ -309,47 +328,50 @@ class CommandRunner:
 
         # Parameter-specific command construction
         if command_key == "docker_inspect" and "container" in params:
-            parts.append(str(params["container"]))
+            parts.append(shlex.quote(str(params["container"])))
 
         elif command_key == "docker_logs":
             if "since" in params:
-                parts.extend(["--since", str(params["since"])])
+                parts.extend(["--since", shlex.quote(str(params["since"]))])
             if "until" in params:
-                parts.extend(["--until", str(params["until"])])
+                parts.extend(["--until", shlex.quote(str(params["until"]))])
             if "tail" in params:
-                parts.extend(["--tail", str(params["tail"])])
+                parts.extend(["--tail", shlex.quote(str(params["tail"]))])
             if "container" in params:
-                parts.append(str(params["container"]))
+                parts.append(shlex.quote(str(params["container"])))
 
         elif command_key in ("docker_stats", "docker_port") and "container" in params:
-            parts.append(str(params["container"]))
+            parts.append(shlex.quote(str(params["container"])))
 
         elif command_key == "systemctl_status" and "service" in params:
-            parts.append(str(params["service"]))
+            parts.append(shlex.quote(str(params["service"])))
 
         elif command_key == "journalctl":
             if "unit" in params:
-                parts.extend(["-u", str(params["unit"])])
+                parts.extend(["-u", shlex.quote(str(params["unit"]))])
             if "lines" in params:
-                parts.extend(["-n", str(params["lines"])])
+                parts.extend(["-n", shlex.quote(str(params["lines"]))])
             if "priority" in params:
-                parts.extend(["-p", str(params["priority"])])
+                parts.extend(["-p", shlex.quote(str(params["priority"]))])
             if "since" in params:
-                parts.extend(["--since", str(params["since"])])
+                parts.extend(["--since", shlex.quote(str(params["since"]))])
 
         elif command_key == "compose_logs":
             if "service" in params:
-                parts.append(str(params["service"]))
+                parts.append(shlex.quote(str(params["service"])))
             if "tail" in params:
-                parts.extend(["--tail", str(params["tail"])])
+                parts.extend(["--tail", shlex.quote(str(params["tail"]))])
 
         elif command_key in ("stat_size", "readlink") and "path" in params:
-            parts.append(str(params["path"]))
+            parts.append(shlex.quote(str(params["path"])))
 
         elif command_key == "tail_file":
             if "lines" in params:
-                parts.append(str(params["lines"]))
+                parts.append(shlex.quote(str(params["lines"])))
             if "path" in params:
-                parts.append(str(params["path"]))
+                parts.append(shlex.quote(str(params["path"])))
+
+        elif command_key == "workspace_deploy" and "project" in params:
+            parts.append(shlex.quote(str(params["project"])))
 
         return " ".join(parts)

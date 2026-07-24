@@ -13,6 +13,12 @@ from __future__ import annotations
 
 import structlog
 
+from mcp_oranpi.application.parsers import (
+    parse_docker_logs,
+    parse_journalctl,
+    parse_stat_size,
+)
+from mcp_oranpi.domain.contracts import CommandRunnerProtocol
 from mcp_oranpi.domain.errors import (
     CONN_FAILED,
     CONN_TIMEOUT,
@@ -30,12 +36,6 @@ from mcp_oranpi.domain.validation import (
     validate_line_limit,
     validate_log_path,
     validate_service_name,
-)
-from mcp_oranpi.infrastructure.command_runner import CommandRunner
-from mcp_oranpi.infrastructure.parsers import (
-    parse_docker_logs,
-    parse_journalctl,
-    parse_stat_size,
 )
 
 log = structlog.get_logger()
@@ -55,7 +55,7 @@ class LogsTools:
 
     def __init__(
         self,
-        runner: CommandRunner,
+        runner: CommandRunnerProtocol,
         allowed_log_dirs: list[str],
         max_log_file_mb: int = 50,
     ) -> None:
@@ -81,7 +81,7 @@ class LogsTools:
             from mcp_oranpi.domain.validation import validate_container_name
 
             validate_container_name(container)
-        except Exception as e:
+        except ValidationError as e:
             return ToolResult(
                 error=ToolError(
                     code="VALID_PARAM_INVALID",
@@ -92,7 +92,7 @@ class LogsTools:
 
         try:
             validate_line_limit(tail)
-        except Exception as e:
+        except ValidationError as e:
             return ToolResult(
                 error=ToolError(
                     code="VALID_PARAM_INVALID",
@@ -189,7 +189,7 @@ class LogsTools:
 
         try:
             validate_line_limit(tail)
-        except Exception as e:
+        except ValidationError as e:
             return ToolResult(
                 error=ToolError(
                     code="VALID_PARAM_INVALID",
@@ -214,9 +214,7 @@ class LogsTools:
                         "journalctl", lines=tail, priority=priority, since=since
                     )
                 else:
-                    result = await self._runner.run(
-                        "journalctl", lines=tail, priority=priority
-                    )
+                    result = await self._runner.run("journalctl", lines=tail, priority=priority)
         except TimeoutError:
             return ToolResult(
                 error=ToolError(
@@ -403,7 +401,7 @@ class LogsTools:
             return ToolResult(
                 error=ToolError(
                     code=CONN_TIMEOUT,
-                    message="Command timed out while reading log file",
+                    message="Command timed out while reading file",
                     retryable=True,
                 )
             )
@@ -413,6 +411,15 @@ class LogsTools:
                     code=CONN_FAILED,
                     message="SSH connection failed",
                     retryable=True,
+                )
+            )
+        except UnicodeDecodeError:
+            return ToolResult(
+                error=ToolError(
+                    code="LOG_FILE_BINARY",
+                    message="Cannot read file: Appears to be binary data (Unicode decode failed).",
+                    detail={"path": path},
+                    retryable=False,
                 )
             )
 

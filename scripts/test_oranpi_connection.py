@@ -1,11 +1,13 @@
 """Quick integration test against real OrangePi."""
+
 import asyncio
+
 from mcp_oranpi.config import AppConfig
 from mcp_oranpi.server import AppContainer
 
 
 async def main() -> None:
-    config = AppConfig()
+    config = AppConfig()  # type: ignore
     container = AppContainer(config)
 
     print("Connecting SSH...")

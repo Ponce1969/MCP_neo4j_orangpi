@@ -37,11 +37,11 @@ class TestNetworkScanPorts:
 tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("nginx",pid=1234,fd=6))
 tcp LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=1235,fd=7))
 tcp LISTEN 0 128 127.0.0.1:3000 0.0.0.0:* users:(("node",pid=2000,fd=6))"""
-        network_tools._runner.set_response(
+        network_tools._runner.set_response(  # type: ignore
             "ss_tulnp",
             CommandResult(exit_code=0, stdout=ss_output, stderr=""),
         )
-        network_tools._runner.set_response(
+        network_tools._runner.set_response(  # type: ignore
             "hostname",
             CommandResult(exit_code=0, stdout="oranpi.local", stderr=""),
         )
@@ -50,7 +50,7 @@ tcp LISTEN 0 128 127.0.0.1:3000 0.0.0.0:* users:(("node",pid=2000,fd=6))"""
 
         assert result.error is None
         assert result.data is not None
-        assert len(result.data["occupied_ports"]) == 3
+        assert len(result.data["occupied_ports"]) == 3  # type: ignore
         assert result.data["host"] == "oranpi.local"
 
     async def test_range_filter(self, network_tools: NetworkTools) -> None:
@@ -58,11 +58,11 @@ tcp LISTEN 0 128 127.0.0.1:3000 0.0.0.0:* users:(("node",pid=2000,fd=6))"""
 tcp LISTEN 0 128 0.0.0.0:80 0.0.0.0:* users:(("nginx",pid=1,fd=6))
 tcp LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=2,fd=6))
 tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("nginx",pid=3,fd=6))"""
-        network_tools._runner.set_response(
+        network_tools._runner.set_response(  # type: ignore
             "ss_tulnp",
             CommandResult(exit_code=0, stdout=ss_output, stderr=""),
         )
-        network_tools._runner.set_response(
+        network_tools._runner.set_response(  # type: ignore
             "hostname",
             CommandResult(exit_code=0, stdout="test", stderr=""),
         )
@@ -71,19 +71,15 @@ tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("nginx",pid=3,fd=6))"""
 
         assert result.error is None
         assert result.data is not None
-        assert len(result.data["occupied_ports"]) == 2
+        assert len(result.data["occupied_ports"]) == 2  # type: ignore
 
-    async def test_invalid_range_start_greater_than_end(
-        self, network_tools: NetworkTools
-    ) -> None:
+    async def test_invalid_range_start_greater_than_end(self, network_tools: NetworkTools) -> None:
         result = await network_tools.network_scan_ports(range_start=9000, range_end=1000)
 
         assert result.error is not None
         assert result.error.code == NET_SCAN_RANGE_INVALID
 
-    async def test_invalid_port_out_of_range(
-        self, network_tools: NetworkTools
-    ) -> None:
+    async def test_invalid_port_out_of_range(self, network_tools: NetworkTools) -> None:
         result = await network_tools.network_scan_ports(range_start=0, range_end=1024)
 
         assert result.error is not None
@@ -95,11 +91,13 @@ tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("nginx",pid=3,fd=6))"""
         assert result.error is not None
         assert result.error.code == NET_SCAN_RANGE_INVALID
 
-    async def test_timeout(self, network_tools: NetworkTools, mock_runner: MockCommandRunner) -> None:
+    async def test_timeout(
+        self, network_tools: NetworkTools, mock_runner: MockCommandRunner
+    ) -> None:
         async def timeout_run(*args: object, **kwargs: object) -> CommandResult:
             raise TimeoutError()
 
-        mock_runner.run = timeout_run  # type: ignore[method-assign]
+        mock_runner.run = timeout_run  # type: ignore
 
         result = await network_tools.network_scan_ports()
 
@@ -113,7 +111,7 @@ class TestNetworkSuggestPort:
     async def test_preferred_port_available(self, network_tools: NetworkTools) -> None:
         ss_output = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
 tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("nginx",pid=1234,fd=6))"""
-        network_tools._runner.set_response(
+        network_tools._runner.set_response(  # type: ignore
             "ss_tulnp",
             CommandResult(exit_code=0, stdout=ss_output, stderr=""),
         )
@@ -128,7 +126,7 @@ tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("nginx",pid=1234,fd=6))"""
     async def test_preferred_port_occupied(self, network_tools: NetworkTools) -> None:
         ss_output = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
 tcp LISTEN 0 128 0.0.0.0:9000 0.0.0.0:* users:(("app",pid=1,fd=6))"""
-        network_tools._runner.set_response(
+        network_tools._runner.set_response(  # type: ignore
             "ss_tulnp",
             CommandResult(exit_code=0, stdout=ss_output, stderr=""),
         )
@@ -138,7 +136,7 @@ tcp LISTEN 0 128 0.0.0.0:9000 0.0.0.0:* users:(("app",pid=1,fd=6))"""
         assert result.error is None
         assert result.data is not None
         assert result.data["preferred_available"] is True
-        assert len(result.data["suggestions"]) > 0
+        assert len(result.data["suggestions"]) > 0  # type: ignore
 
     async def test_invalid_port(self, network_tools: NetworkTools) -> None:
         result = await network_tools.network_suggest_port(preferred_port=0)
@@ -157,7 +155,7 @@ class TestNetworkInspectBindings:
 tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("nginx",pid=1234,fd=6))
 tcp LISTEN 0 128 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=1235,fd=7))
 udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:* users:(("dnsmasq",pid=567,fd=5))"""
-        network_tools._runner.set_response(
+        network_tools._runner.set_response(  # type: ignore
             "ss_tulnp",
             CommandResult(exit_code=0, stdout=ss_output, stderr=""),
         )
@@ -167,10 +165,10 @@ udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:* users:(("dnsmasq",pid=567,fd=5))"""
         assert result.error is None
         assert result.data is not None
         # Only TCP LISTEN ports are returned (2), UDP UNCONN is filtered
-        assert len(result.data["bindings"]) == 2
+        assert len(result.data["bindings"]) == 2  # type: ignore
 
     async def test_empty(self, network_tools: NetworkTools) -> None:
-        network_tools._runner.set_response(
+        network_tools._runner.set_response(  # type: ignore
             "ss_tulnp",
             CommandResult(exit_code=0, stdout="", stderr=""),
         )
@@ -179,7 +177,7 @@ udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:* users:(("dnsmasq",pid=567,fd=5))"""
 
         assert result.error is None
         assert result.data is not None
-        assert len(result.data["bindings"]) == 0
+        assert len(result.data["bindings"]) == 0  # type: ignore
 
 
 class TestNetworkTailscaleStatus:
@@ -196,7 +194,7 @@ class TestNetworkTailscaleStatus:
     "peer1": {"HostName": "macbook", "TailscaleIPs": ["100.64.1.2"], "Online": true}
   }
 }"""
-        network_tools._runner.set_response(
+        network_tools._runner.set_response(  # type: ignore
             "tailscale_status",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
         )
@@ -207,11 +205,11 @@ class TestNetworkTailscaleStatus:
         assert result.data is not None
         assert result.data["online"] is True
         assert result.data["dns_name"] == "oranpi.tailscale.local"
-        assert len(result.data["peers"]) == 1
+        assert len(result.data["peers"]) == 1  # type: ignore
 
     async def test_offline(self, network_tools: NetworkTools) -> None:
         stdout = '{"Self": {"Online": false}}'
-        network_tools._runner.set_response(
+        network_tools._runner.set_response(  # type: ignore
             "tailscale_status",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
         )
@@ -223,7 +221,7 @@ class TestNetworkTailscaleStatus:
         assert result.data["online"] is False
 
     async def test_not_installed(self, network_tools: NetworkTools) -> None:
-        network_tools._runner.set_response(
+        network_tools._runner.set_response(  # type: ignore
             "tailscale_status",
             CommandResult(
                 exit_code=127,
@@ -238,7 +236,7 @@ class TestNetworkTailscaleStatus:
         assert result.error.code == NET_TAILSCALE_NOT_INSTALLED
 
     async def test_error_exit_code(self, network_tools: NetworkTools) -> None:
-        network_tools._runner.set_response(
+        network_tools._runner.set_response(  # type: ignore
             "tailscale_status",
             CommandResult(exit_code=1, stdout="", stderr="some error"),
         )

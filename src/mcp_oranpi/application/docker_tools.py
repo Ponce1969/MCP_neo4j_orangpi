@@ -13,6 +13,14 @@ from __future__ import annotations
 
 import structlog
 
+from mcp_oranpi.application.parsers import (
+    parse_docker_inspect,
+    parse_docker_logs,
+    parse_docker_ps,
+    parse_docker_stats,
+    parse_ss_tulnp,
+)
+from mcp_oranpi.domain.contracts import CommandRunnerProtocol
 from mcp_oranpi.domain.errors import (
     CONN_FAILED,
     CONN_TIMEOUT,
@@ -25,14 +33,6 @@ from mcp_oranpi.domain.errors import (
 from mcp_oranpi.domain.models import PortOccupant
 from mcp_oranpi.domain.truncation import truncate_list
 from mcp_oranpi.domain.validation import validate_container_name, validate_line_limit
-from mcp_oranpi.infrastructure.command_runner import CommandRunner
-from mcp_oranpi.infrastructure.parsers import (
-    parse_docker_inspect,
-    parse_docker_logs,
-    parse_docker_ps,
-    parse_docker_stats,
-    parse_ss_tulnp,
-)
 
 log = structlog.get_logger()
 
@@ -48,7 +48,7 @@ class DockerTools:
         runner: CommandRunner instance for executing remote commands.
     """
 
-    def __init__(self, runner: CommandRunner) -> None:
+    def __init__(self, runner: CommandRunnerProtocol) -> None:
         self._runner = runner
 
     # ── Container Listing ─────────────────────────────────────────────────────
@@ -318,9 +318,7 @@ class DockerTools:
                     "docker_logs", container=container, tail=tail, until=until
                 )
             else:
-                result = await self._runner.run(
-                    "docker_logs", container=container, tail=tail
-                )
+                result = await self._runner.run("docker_logs", container=container, tail=tail)
         except TimeoutError:
             return ToolResult(
                 error=ToolError(
@@ -539,17 +537,14 @@ class DockerTools:
         occupied_ports = parse_ss_tulnp(ss_result.stdout)
 
         # Filter by protocol
-        if protocol != "tcp":
-            occupied_ports = [p for p in occupied_ports if p.protocol == protocol]
+        occupied_ports = [p for p in occupied_ports if protocol in p.protocol]
 
         # If container specified, get its port bindings
         docker_port_bindings: list[PortOccupant] = list()
 
         if container:
             try:
-                inspect_result = await self._runner.run(
-                    "docker_inspect", container=container
-                )
+                inspect_result = await self._runner.run("docker_inspect", container=container)
             except TimeoutError:
                 return ToolResult(
                     error=ToolError(

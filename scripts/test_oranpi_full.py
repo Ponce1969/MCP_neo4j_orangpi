@@ -1,4 +1,5 @@
 """Comprehensive integration test — all 22 tools against real OrangePi."""
+
 import asyncio
 import json
 
@@ -7,7 +8,7 @@ from mcp_oranpi.server import AppContainer
 
 
 async def main() -> None:
-    config = AppConfig()
+    config = AppConfig()  # type: ignore
     container = AppContainer(config)
 
     await container.ssh_client.connect()
@@ -25,7 +26,7 @@ async def main() -> None:
     passed = 0
     failed = 0
 
-    async def test_tool(name: str, args: dict) -> None:
+    async def test_tool(name: str, args: dict[str, object]) -> None:
         nonlocal passed, failed
         try:
             result = await container.mcp_handler.call_tool(name, args)
@@ -86,9 +87,9 @@ async def main() -> None:
         print("  Skipping workspace docker tools (meli_bunker has no compose detected)")
 
     await container.ssh_client.disconnect()
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"Results: {passed} passed, {failed} failed out of {passed + failed} tools")
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
 
 
 if __name__ == "__main__":

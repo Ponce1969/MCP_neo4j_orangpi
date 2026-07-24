@@ -245,28 +245,28 @@ class TestRedactJsonResponse:
                 "HOST=0.0.0.0",
             ],
         }
-        result = redact_json_response(data)
-        assert result["env"][0] == f"POSTGRES_PASSWORD={REDACTED}"
-        assert result["env"][1] == f"MELI_CLIENT_SECRET={REDACTED}"
-        assert result["env"][2] == f"JWT_SECRET_KEY={REDACTED}"
-        assert result["env"][3] == f"DEMO_PASS={REDACTED}"
-        assert result["env"][4] == "PORT=8000"
-        assert result["env"][5] == "HOST=0.0.0.0"
+        result = redact_json_response(data)  # type: ignore
+        assert result["env"][0] == f"POSTGRES_PASSWORD={REDACTED}"  # type: ignore
+        assert result["env"][1] == f"MELI_CLIENT_SECRET={REDACTED}"  # type: ignore
+        assert result["env"][2] == f"JWT_SECRET_KEY={REDACTED}"  # type: ignore
+        assert result["env"][3] == f"DEMO_PASS={REDACTED}"  # type: ignore
+        assert result["env"][4] == "PORT=8000"  # type: ignore
+        assert result["env"][5] == "HOST=0.0.0.0"  # type: ignore
 
     def test_redacts_env_dict(self) -> None:
         data = {"env": {"POSTGRES_PASSWORD": "abc123", "PORT": "5432"}}
-        result = redact_json_response(data)
-        assert result["env"]["POSTGRES_PASSWORD"] == REDACTED
-        assert result["env"]["PORT"] == "5432"
+        result = redact_json_response(data)  # type: ignore
+        assert result["env"]["POSTGRES_PASSWORD"] == REDACTED  # type: ignore
+        assert result["env"]["PORT"] == "5432"  # type: ignore
 
     def test_redacts_nested_text(self) -> None:
         data = {"config": {"url": "postgres://admin:secretpassword@db:5432/mydb"}}
-        result = redact_json_response(data)
+        result = redact_json_response(data)  # type: ignore
         assert "secretpassword" not in str(result)
 
     def test_preserves_non_secret_data(self) -> None:
         data = {"containers": [{"name": "svl-app", "status": "running", "port": 8002}]}
-        result = redact_json_response(data)
+        result = redact_json_response(data)  # type: ignore
         assert result == data
 
     def test_handles_none(self) -> None:
@@ -285,5 +285,5 @@ class TestRedactJsonResponse:
 
     def test_preserves_non_env_list(self) -> None:
         data = {"ports": ["8000/tcp", "5432/tcp"]}
-        result = redact_json_response(data)
+        result = redact_json_response(data)  # type: ignore
         assert result == data

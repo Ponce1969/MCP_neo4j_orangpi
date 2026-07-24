@@ -1,4 +1,5 @@
 """Integration test — verify secret redaction against real OrangePi."""
+
 import asyncio
 import json
 
@@ -7,13 +8,15 @@ from mcp_oranpi.server import AppContainer
 
 
 async def main() -> None:
-    config = AppConfig()
+    config = AppConfig()  # type: ignore
     container = AppContainer(config)
     await container.ssh_client.connect()
 
     # Test 1: docker_inspect should REDACT passwords and secrets
     print("=== TEST 1: docker_inspect redaction ===")
-    result = await container.mcp_handler.call_tool("docker_inspect_container", {"container": "svl-app"})
+    result = await container.mcp_handler.call_tool(
+        "docker_inspect_container", {"container": "svl-app"}
+    )
     data = json.loads(result[0].text)
     env_list = data.get("data", {}).get("env", [])
     for env in env_list[:8]:
@@ -33,7 +36,9 @@ async def main() -> None:
 
     # Test 2: logs_file should BLOCK .cloudflared paths
     print("\n=== TEST 2: logs_file blocks .cloudflared ===")
-    result = await container.mcp_handler.call_tool("logs_file", {"path": "/home/gonzalo/.cloudflared/config.yml"})
+    result = await container.mcp_handler.call_tool(
+        "logs_file", {"path": "/home/gonzalo/.cloudflared/config.yml"}
+    )
     data = json.loads(result[0].text)
     code = data.get("error", {}).get("code", "")
     msg = data.get("error", {}).get("message", "")[:80]
@@ -46,7 +51,9 @@ async def main() -> None:
 
     # Test 3: logs_file should BLOCK .pem files
     print("\n=== TEST 3: logs_file blocks .pem files ===")
-    result = await container.mcp_handler.call_tool("logs_file", {"path": "/etc/ssl/certs/server.pem"})
+    result = await container.mcp_handler.call_tool(
+        "logs_file", {"path": "/etc/ssl/certs/server.pem"}
+    )
     data = json.loads(result[0].text)
     code = data.get("error", {}).get("code", "")
     print(f"  error.code: {code}")
@@ -57,7 +64,9 @@ async def main() -> None:
 
     # Test 4: logs_file should BLOCK .ssh paths
     print("\n=== TEST 4: logs_file blocks .ssh ===")
-    result = await container.mcp_handler.call_tool("logs_file", {"path": "/home/gonzalo/.ssh/id_rsa"})
+    result = await container.mcp_handler.call_tool(
+        "logs_file", {"path": "/home/gonzalo/.ssh/id_rsa"}
+    )
     data = json.loads(result[0].text)
     code = data.get("error", {}).get("code", "")
     print(f"  error.code: {code}")
@@ -68,7 +77,9 @@ async def main() -> None:
 
     # Test 5: logs_file should ALLOW normal logs
     print("\n=== TEST 5: logs_file allows /var/log/syslog ===")
-    result = await container.mcp_handler.call_tool("logs_file", {"path": "/var/log/syslog", "tail": 3})
+    result = await container.mcp_handler.call_tool(
+        "logs_file", {"path": "/var/log/syslog", "tail": 3}
+    )
     data = json.loads(result[0].text)
     has_data = "data" in data and "error" not in data
     print(f"  [OK] Allowed: {has_data}")

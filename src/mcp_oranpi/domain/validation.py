@@ -26,7 +26,7 @@ from mcp_oranpi.domain.errors import (
 
 _WORKSPACE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 _CONTAINER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]+$")
-_SERVICE_NAME_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
+_SERVICE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
 _JOURNAL_PRIORITY_RE = re.compile(
     r"^(emerg|alert|crit|err|warning|notice|info|debug)$",
     re.IGNORECASE,
@@ -68,8 +68,7 @@ def validate_workspace_id(workspace_id: str) -> str:
     if not _WORKSPACE_ID_RE.match(workspace_id):
         raise ValidationError(
             VALID_PARAM_INVALID,
-            f"Invalid workspace ID: {workspace_id!r}. "
-            "Must match [a-zA-Z0-9_-]+",
+            f"Invalid workspace ID: {workspace_id!r}. Must match [a-zA-Z0-9_-]+",
             field="workspace_id",
         )
     return workspace_id
@@ -93,8 +92,7 @@ def validate_container_name(name: str) -> str:
     if not _CONTAINER_NAME_RE.match(name):
         raise ValidationError(
             VALID_PARAM_INVALID,
-            f"Invalid container name: {name!r}. "
-            "Must match [a-zA-Z0-9][a-zA-Z0-9_.-]+",
+            f"Invalid container name: {name!r}. Must match [a-zA-Z0-9][a-zA-Z0-9_.-]+",
             field="container_name",
         )
     return name
@@ -117,8 +115,7 @@ def validate_service_name(name: str) -> str:
     if not _SERVICE_NAME_RE.match(name):
         raise ValidationError(
             VALID_PARAM_INVALID,
-            f"Invalid service name: {name!r}. "
-            "Must match [a-zA-Z0-9_.-]+",
+            f"Invalid service name: {name!r}. Must match [a-zA-Z0-9_.-]+",
             field="service_name",
         )
     return name
@@ -148,10 +145,10 @@ def validate_port_range(start: int, end: int) -> tuple[int, int]:
     """Validate a port scan range.
 
     Both ports must be valid (1–65535) and start <= end.
-    The range is capped at 1024 ports maximum to prevent runaway scans.
+    The range is capped at 10000 ports maximum to prevent runaway scans.
 
     Raises:
-        ValidationError: If either port is invalid or the range exceeds 1024.
+        ValidationError: If either port is invalid or the range exceeds 10000.
     """
     validate_port(start)
     validate_port(end)
@@ -182,8 +179,7 @@ def validate_duration(duration: str) -> str:
     if duration not in allowed:
         raise ValidationError(
             VALID_PARAM_INVALID,
-            f"Invalid duration: {duration!r}. "
-            f"Must be one of: {', '.join(sorted(allowed))}",
+            f"Invalid duration: {duration!r}. Must be one of: {', '.join(sorted(allowed))}",
             field="duration",
         )
     return duration
@@ -218,8 +214,7 @@ def validate_priority(priority: str) -> str:
     if priority.lower() not in allowed:
         raise ValidationError(
             VALID_PARAM_INVALID,
-            f"Invalid priority: {priority!r}. "
-            f"Must be one of: {', '.join(sorted(allowed))}",
+            f"Invalid priority: {priority!r}. Must be one of: {', '.join(sorted(allowed))}",
             field="priority",
         )
     return priority.lower()
@@ -249,15 +244,10 @@ def validate_workspace_path(path: str, root_dir: str) -> str:
     normalized = PurePosixPath(path)
     root = PurePosixPath(root_dir)
 
-    # String-based containment check (works for remote paths
-    # that don't exist on the local filesystem)
-    path_str = str(normalized)
-    root_str = str(root)
-    if not path_str.startswith(root_str):
+    if not normalized.is_relative_to(root):
         raise ValidationError(
             WS_PATH_ESCAPE,
-            f"Workspace path escapes root directory: "
-            f"{path!r} is not under {root_dir!r}",
+            f"Workspace path escapes root directory: {path!r} is not under {root_dir!r}",
             field="workspace_path",
         )
 
@@ -289,12 +279,11 @@ def validate_log_path(path: str, allowed_dirs: list[str]) -> str:
 
     for allowed in allowed_dirs:
         allowed_prefix = PurePosixPath(allowed)
-        if str(normalized).startswith(str(allowed_prefix)):
+        if normalized.is_relative_to(allowed_prefix):
             return path
 
     raise ValidationError(
         VALID_PARAM_INVALID,
-        f"Log path {path!r} is not under any allowed directory: "
-        f"{', '.join(allowed_dirs)}",
+        f"Log path {path!r} is not under any allowed directory: {', '.join(allowed_dirs)}",
         field="log_path",
     )

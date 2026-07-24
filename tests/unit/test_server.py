@@ -18,8 +18,10 @@ from mcp_oranpi.server import AppContainer
 # ── Environment Fixture ───────────────────────────────────────────────────────
 
 
+from typing import Iterator
+
 @pytest.fixture
-def env_vars() -> dict[str, str]:
+def env_vars() -> Iterator[dict[str, str]]:
     """Set required environment variables for AppConfig."""
     env = {
         "ORANPI_SSH_HOST": "test-host",
@@ -34,7 +36,7 @@ def env_vars() -> dict[str, str]:
 @pytest.fixture
 def app_config(env_vars: dict[str, str]) -> AppConfig:
     """Provide an AppConfig loaded from mock environment variables."""
-    return AppConfig()
+    return AppConfig()  # type: ignore
 
 
 # ── AppContainer Tests ─────────────────────────────────────────────────────────
@@ -49,7 +51,7 @@ class TestAppContainer:
     ) -> None:
         """AppContainer should create all 5 tool modules plus MCPHandler."""
         with mock.patch("mcp_oranpi.infrastructure.ssh_client.asyncssh.connect"):
-            container = AppContainer(AppConfig())
+            container = AppContainer(AppConfig())  # type: ignore
 
             # Verify all tool modules exist
             assert hasattr(container, "docker_tools")
@@ -71,7 +73,7 @@ class TestAppContainer:
     ) -> None:
         """AppContainer should create SSHClient with config."""
         with mock.patch("mcp_oranpi.infrastructure.ssh_client.asyncssh.connect"):
-            container = AppContainer(AppConfig())
+            container = AppContainer(AppConfig())  # type: ignore
 
             assert hasattr(container, "ssh_client")
             # SSHClient should be created, not None
@@ -83,7 +85,7 @@ class TestAppContainer:
     ) -> None:
         """AppContainer should create CommandRunner wrapping SSHClient."""
         with mock.patch("mcp_oranpi.infrastructure.ssh_client.asyncssh.connect"):
-            container = AppContainer(AppConfig())
+            container = AppContainer(AppConfig())  # type: ignore
 
             assert hasattr(container, "command_runner")
             assert container.command_runner is not None
@@ -96,7 +98,7 @@ class TestAppContainer:
     ) -> None:
         """AppContainer should create WorkspaceResolver with config and SSH client."""
         with mock.patch("mcp_oranpi.infrastructure.ssh_client.asyncssh.connect"):
-            container = AppContainer(AppConfig())
+            container = AppContainer(AppConfig())  # type: ignore
 
             assert hasattr(container, "workspace_resolver")
             assert container.workspace_resolver is not None
@@ -114,7 +116,7 @@ class TestCreateServer:
     ) -> None:
         """create_server() should return a Server instance."""
         with mock.patch("mcp_oranpi.infrastructure.ssh_client.asyncssh.connect"):
-            container = AppContainer(AppConfig())
+            container = AppContainer(AppConfig())  # type: ignore
             server = container.create_server()
 
             assert isinstance(server, Server)
@@ -125,7 +127,7 @@ class TestCreateServer:
     ) -> None:
         """Server name should be 'mcp-oranpi'."""
         with mock.patch("mcp_oranpi.infrastructure.ssh_client.asyncssh.connect"):
-            container = AppContainer(AppConfig())
+            container = AppContainer(AppConfig())  # type: ignore
             server = container.create_server()
 
             # The server is created with Server("mcp-oranpi")

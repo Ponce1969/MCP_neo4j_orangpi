@@ -33,9 +33,7 @@ def allowed_dirs() -> list[str]:
 
 
 @pytest.fixture
-def logs_tools(
-    mock_runner: MockCommandRunner, allowed_dirs: list[str]
-) -> LogsTools:
+def logs_tools(mock_runner: MockCommandRunner, allowed_dirs: list[str]) -> LogsTools:
     """Provide a LogsTools instance with mock runner and config."""
     return LogsTools(mock_runner, allowed_log_dirs=allowed_dirs, max_log_file_mb=50)
 
@@ -45,7 +43,7 @@ class TestLogsDocker:
 
     async def test_success(self, logs_tools: LogsTools) -> None:
         stdout = "2024-01-15 10:30:00 App started\n2024-01-15 10:30:01 Request received"
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "docker_logs",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
         )
@@ -58,7 +56,7 @@ class TestLogsDocker:
         assert result.data["log_count"] == 2
 
     async def test_container_not_found(self, logs_tools: LogsTools) -> None:
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "docker_logs",
             CommandResult(
                 exit_code=1,
@@ -83,8 +81,10 @@ class TestLogsSystemd:
     """Tests for logs_systemd."""
 
     async def test_success_with_unit(self, logs_tools: LogsTools) -> None:
-        stdout = "Jan 15 10:30:00 nginx[1234]: Started\nJan 15 10:30:01 nginx[1234]: Request processed"
-        logs_tools._runner.set_response(
+        stdout = (
+            "Jan 15 10:30:00 nginx[1234]: Started\nJan 15 10:30:01 nginx[1234]: Request processed"
+        )
+        logs_tools._runner.set_response(  # type: ignore
             "journalctl",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
         )
@@ -98,7 +98,7 @@ class TestLogsSystemd:
 
     async def test_success_without_unit(self, logs_tools: LogsTools) -> None:
         stdout = "Jan 15 10:30:00 systemd[1]: Started some service"
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "journalctl",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
         )
@@ -111,7 +111,7 @@ class TestLogsSystemd:
 
     async def test_with_priority(self, logs_tools: LogsTools) -> None:
         stdout = "Jan 15 10:30:00 nginx[1234]: Error occurred"
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "journalctl",
             CommandResult(exit_code=0, stdout=stdout, stderr=""),
         )
@@ -119,12 +119,12 @@ class TestLogsSystemd:
         result = await logs_tools.logs_systemd(unit="nginx", priority="err", tail=50)
 
         assert result.error is None
-        last_call = logs_tools._runner.last_call()
+        last_call = logs_tools._runner.last_call()  # type: ignore
         assert last_call is not None
         assert "priority" in last_call[1]
 
     async def test_unit_not_found(self, logs_tools: LogsTools) -> None:
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "journalctl",
             CommandResult(
                 exit_code=4,
@@ -145,17 +145,17 @@ class TestLogsFile:
     async def test_success(self, logs_tools: LogsTools) -> None:
         # Step 1: path validation passes
         # Step 2: stat_size
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "stat_size",
             CommandResult(exit_code=0, stdout="12345", stderr=""),
         )
         # Step 3: readlink (no symlink)
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "readlink",
             CommandResult(exit_code=0, stdout="/var/log/app.log", stderr=""),
         )
         # Step 5: tail_file
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "tail_file",
             CommandResult(
                 exit_code=0,
@@ -185,7 +185,7 @@ class TestLogsFile:
 
     async def test_file_oversized(self, logs_tools: LogsTools) -> None:
         # 100MB file (exceeds 50MB default)
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "stat_size",
             CommandResult(exit_code=0, stdout="104857600", stderr=""),
         )
@@ -198,11 +198,11 @@ class TestLogsFile:
     async def test_symlink_escape(self, logs_tools: LogsTools) -> None:
         # Original path is valid
         # But symlink resolves outside allowed dirs
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "stat_size",
             CommandResult(exit_code=0, stdout="1000", stderr=""),
         )
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "readlink",
             CommandResult(exit_code=0, stdout="/etc/passwd", stderr=""),
         )
@@ -213,15 +213,15 @@ class TestLogsFile:
         assert result.error.code == LOG_PATH_FORBIDDEN
 
     async def test_file_not_found(self, logs_tools: LogsTools) -> None:
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "stat_size",
             CommandResult(exit_code=0, stdout="1000", stderr=""),
         )
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "readlink",
             CommandResult(exit_code=0, stdout="/var/log/app.log", stderr=""),
         )
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "tail_file",
             CommandResult(
                 exit_code=1,
@@ -236,17 +236,17 @@ class TestLogsFile:
         assert result.error.code == LOG_FILE_NOT_FOUND
 
     async def test_binary_file(self, logs_tools: LogsTools) -> None:
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "stat_size",
             CommandResult(exit_code=0, stdout="1000", stderr=""),
         )
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "readlink",
             CommandResult(exit_code=0, stdout="/var/log/app.log", stderr=""),
         )
         # Content with null bytes (binary indicator)
         binary_content = "\x00\x01\x02" + "text content" * 100
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "tail_file",
             CommandResult(exit_code=0, stdout=binary_content, stderr=""),
         )
@@ -256,11 +256,13 @@ class TestLogsFile:
         assert result.error is not None
         assert result.error.code == LOG_FILE_NOT_READABLE
 
-    async def test_stat_size_timeout(self, logs_tools: LogsTools, mock_runner: MockCommandRunner) -> None:
+    async def test_stat_size_timeout(
+        self, logs_tools: LogsTools, mock_runner: MockCommandRunner
+    ) -> None:
         async def timeout_run(*args: object, **kwargs: object) -> CommandResult:
             raise TimeoutError()
 
-        mock_runner.run = timeout_run  # type: ignore[method-assign]
+        mock_runner.run = timeout_run  # type: ignore
 
         result = await logs_tools.logs_file("/var/log/app.log", tail=1000)
 
@@ -268,11 +270,11 @@ class TestLogsFile:
         assert result.error.code == CONN_TIMEOUT
 
     async def test_tail_file_timeout(self, logs_tools: LogsTools) -> None:
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "stat_size",
             CommandResult(exit_code=0, stdout="1000", stderr=""),
         )
-        logs_tools._runner.set_response(
+        logs_tools._runner.set_response(  # type: ignore
             "readlink",
             CommandResult(exit_code=0, stdout="/var/log/app.log", stderr=""),
         )
@@ -280,7 +282,7 @@ class TestLogsFile:
         async def timeout_run(*args: object, **kwargs: object) -> CommandResult:
             raise TimeoutError()
 
-        logs_tools._runner.run = timeout_run
+        logs_tools._runner.run = timeout_run  # type: ignore
 
         result = await logs_tools.logs_file("/var/log/app.log", tail=1000)
 
