@@ -379,13 +379,49 @@ All errors use `CATEGORY_SPECIFIC_ERROR` format:
 
 ---
 
-## Infrastructure
+## Infrastructure — LIVE STATUS
 
-- **OrangePi 5 Plus** — RK3588S, 16 GB RAM, 7 thermal zones
-- **Tailscale** — remote SSH access via `100.106.85.109` (static Tailscale IP)
-- **Cloudflare Tunnel** — web endpoints exposed through Cloudflare
-- **Hostname**: `gonpatri`
-- **SSH**: `ssh gonzalo@100.106.85.109`
+**OrangePi 5 Plus** — RK3588S, 16 GB RAM, 7 thermal zones
+
+| Metric | Value |
+|--------|-------|
+| **Tailscale IP** | `100.106.85.109` |
+| **Hostname** | `gonpatri.tail919aa9.ts.net` |
+| **SSH** | `ssh gonzalo@100.106.85.109` |
+| **CPU** | 4% (1 core detected) |
+| **RAM** | 15.7 GB total, 38% used |
+| **Disk** | 1.8 TB, 13% used |
+| **Temperature** | 30-31°C (SoC, bigcore, gpu, npu) |
+| **Uptime** | ~16 days (1,375,140 seconds) |
+
+### Active Containers (23 total)
+
+| Container | Status | Ports |
+|----------|--------|-------|
+| svl-app (meli_bunker) | Up 3h, healthy | 8000 |
+| svl-db (meli_bunker) | Up 2w, healthy | 5433 |
+| svl-nginx (meli_bunker) | Up 2w, healthy | 8002 |
+| aplicacion_pedidos_multitenant-* | Up 9-10 days | 5445, 8010 |
+| agente_oriental-* | Up 2w, healthy | 8550, 8552 |
+| agente_hibrido-* | Up 2w, healthy | 8501, 8005, 5436 |
+| bot_discord-* | Up 2w | 8000, 8080, 8082, 5432 |
+| bookgraph-neo4j | Up 2w, healthy | 7474, 7687 |
+| api_seguros-* | Up 2w | 8001, 5050, 5440 |
+
+### Registered Workspaces (7)
+
+| ID | Path | Services |
+|----|------|----------|
+| `meli_bunker` | Meli_Bunker/Meli-Bunker | app, db, nginx |
+| `pedidos_multi` | Pedidos_Multi/aplicacion_pedidos_multitenant | app, db |
+| `agente_oriental` | Agente_Oriental | app, guardian, ocr |
+| `agente_hibrido` | agente_hibrido | frontend, backend, postgres |
+| `bot_discord` | bot_discord | bot, pgadmin, nginx, postgres |
+| `api_statica` | api_statica | — |
+| `guardian_rust` | Guardian_Rust/Guardian_Orangpi5 | — |
+
+**Cloudflare Tunnel**: Active on port 20241
+**Tailscale**: Online, reachable
 
 ---
 
