@@ -162,10 +162,13 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
 
         # Separate client for community-summary tasks, bound to the cheaper
         # community_model_name (which defaults to llm_model_name when unset).
+        # Use JSON mode instead of MD_JSON: NVIDIA NIM and other OpenAI-compatible
+        # APIs sometimes omit the markdown code fence that MD_JSON expects, which
+        # causes instructor to raise a ValidationError on every attempt.
         summary_model_name = settings.community_model_name or settings.llm_model_name
         self._summary_client = instructor.from_openai(
             AsyncOpenAI(base_url=settings.llm_base_url, api_key=api_key),
-            mode=instructor.Mode.MD_JSON,
+            mode=instructor.Mode.JSON,
         )
         self._summary_model_name = summary_model_name
 
