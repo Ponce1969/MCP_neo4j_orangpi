@@ -12,10 +12,11 @@ The module contains two groups of models:
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ── Editorial entities (inherited book structure, frozen) ────────────────────
 
@@ -249,6 +250,61 @@ class QueryLogEntry(BaseModel):
     entity_not_found: bool
     duration_ms: float
     error: str | None = None
+
+
+# ── Community summary models (GraphRAG global-query layer) ───────────────────
+
+
+def _community_summary_id(level: int, entity_ids: list[str]) -> str:
+    """Stable 16-char hex id for a community summary.
+
+    The hash covers the level and the sorted membership so the same community
+    always receives the same id across runs.
+    """
+    key = f"{level}:{','.join(sorted(entity_ids))}"
+    return hashlib.sha1(key.encode()).hexdigest()[:16]
+
+
+class CommunitySummary(BaseModel):
+    """A Leiden-derived community summary at a given hierarchical level.
+
+    The model is frozen because it represents a derived snapshot of the graph.
+    Its ``id`` is a stable hash of the level and member entity ids, so repeated
+    community runs produce the same identity for the same community.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    id: str
+    level: int = Field(ge=0, le=3)
+    summary: str
+    entity_ids: list[str] = Field(min_length=1)
+    parent_id: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _compute_and_validate_id(cls, data: Any) -> Any:
+        """Compute a stable id when missing and validate it when present."""
+        if isinstance(data, dict):
+            level = data.get("level")
+            entity_ids = data.get("entity_ids")
+            if level is not None and entity_ids is not None:
+                computed = _community_summary_id(level, entity_ids)
+                provided_id = data.get("id")
+                if provided_id is not None and provided_id != computed:
+                    raise ValueError(
+                        "id must be the stable hash of level and sorted entity_ids"
+                    )
+                data["id"] = computed
+        return data
+
+    @model_validator(mode="after")
+    def _validate_parent_id(self) -> CommunitySummary:
+        """Level 0 must have no parent; levels 1-3 must have one."""
+        if self.level == 0 and self.parent_id is not None:
+            raise ValueError("level 0 community cannot have a parent_id")
+        if self.level > 0 and self.parent_id is None:
+            raise ValueError("level > 0 community must have a parent_id")
+        return self
 
 
 # ── Domain errors (query layer) ──────────────────────────────────────────────

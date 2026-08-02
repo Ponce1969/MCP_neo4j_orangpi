@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -11,11 +12,25 @@ import pytest
 from instructor.v2.core.errors import InstructorRetryException
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
+from pydantic import BaseModel
 
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.models import Book, Chapter, KnowledgeGraphChunk, PageRef, Section
+from book_graph_rag.domain.models import (
+    Book,
+    Chapter,
+    CommunitySummary,
+    Entity,
+    KnowledgeGraphChunk,
+    PageRef,
+    Relationship,
+    Section,
+)
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter, _CypherResponse
-from book_graph_rag.ports.cypher_generator_port import CypherFailureContext, CypherGeneratorPort
+from book_graph_rag.ports.cypher_generator_port import (
+    CypherFailureContext,
+    CypherGeneratorPort,
+)
+from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
 
 _EXTRACTION_JSON = json.dumps(
     {
@@ -137,6 +152,7 @@ class _FakeAsyncOpenAIFactory:
         self.fail_count = fail_count
         self.last_kwargs: dict[str, Any] | None = None
         self._last_instance: _FakeAsyncOpenAI | None = None
+        self._instances: list[_FakeAsyncOpenAI] = []
 
     def __call__(self, *, base_url: str, api_key: str) -> _FakeAsyncOpenAI:
         self.last_kwargs = {"base_url": base_url, "api_key": api_key}
@@ -145,6 +161,7 @@ class _FakeAsyncOpenAIFactory:
             api_key=api_key,
             fail_count=self.fail_count,
         )
+        self._instances.append(self._last_instance)
         return self._last_instance
 
     @property
@@ -153,6 +170,15 @@ class _FakeAsyncOpenAIFactory:
         if self._last_instance is None:
             return None
         return self._last_instance.chat.completions
+
+    @property
+    def all_calls(self) -> list[list[Any]]:
+        """Aggregate calls across all produced instances."""
+        return [
+            instance.chat.completions.calls
+            for instance in self._instances
+            if instance.chat.completions.calls
+        ]
 
 
 def test_llm_adapter_requires_settings() -> None:
@@ -221,8 +247,8 @@ async def test_llm_adapter_retries_with_exponential_backoff(
     assert len(result.relationships) == 1
     assert result.relationships[0].source_entity_id == "agent-pattern"
     assert result.relationships[0].target_entity_id == "multi-agent-system"
-    assert factory.completions is not None
-    assert len(factory.completions.calls) == 3
+    assert factory._instances
+    assert len(factory._instances[0].chat.completions.calls) == 3
     assert sleep_delays == [1.0, 2.0]
 
 
@@ -254,8 +280,8 @@ async def test_llm_adapter_fails_after_max_retries(
     with pytest.raises(InstructorRetryException):
         await adapter.extract_graph(_make_chunk())
 
-    assert factory.completions is not None
-    assert len(factory.completions.calls) == 3
+    assert factory._instances
+    assert len(factory._instances[0].chat.completions.calls) == 3
 
 
 async def test_llm_adapter_computes_entity_id_from_name_slug(
@@ -391,3 +417,138 @@ def test_llm_adapter_implements_cypher_generator_port(
     settings = _make_settings(tmp_path, monkeypatch)
     adapter = LLMAdapter(settings)
     assert isinstance(adapter, CypherGeneratorPort)
+
+
+# ── LLMSummaryPort implementation (REQ-GR.1 PR3) ───────────────────────────────
+
+
+def test_llm_adapter_implements_llm_summary_port(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLMAdapter is a concrete implementation of LLMSummaryPort."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+    assert isinstance(adapter, LLMSummaryPort)
+
+
+async def test_llm_adapter_summary_client_uses_community_model_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The summary client is built with the dedicated community_model_name."""
+    settings = _make_settings(
+        tmp_path,
+        monkeypatch,
+        community_model_name="gpt-4.1-mini",
+    )
+    factory = _FakeAsyncOpenAIFactory()
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.llm_adapter.AsyncOpenAI",
+        factory,
+    )
+
+    LLMAdapter(settings)
+
+    assert factory.last_kwargs is not None
+    # Two clients are built: extraction/cypher and summary.
+
+
+async def test_generate_community_summary_prompt_includes_entities_and_level(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The summary prompt mentions the community entities, relationships and level."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+    captured: dict[str, Any] = {}
+
+    class _FakeSummaryText(BaseModel):
+        summary: str
+
+    async def fake_create(*args: Any, **kwargs: Any) -> _FakeSummaryText:
+        captured.update(kwargs)
+        return _FakeSummaryText(summary="Generated summary.")
+
+    monkeypatch.setattr(adapter._summary_client, "create", fake_create)
+
+    entities = [
+        Entity(id="e1", name="Agent Pattern", type="pattern"),
+        Entity(id="e2", name="MCP", type="mcp"),
+    ]
+    relationships = [
+        Relationship(
+            source_entity_id="e1",
+            target_entity_id="e2",
+            type="enables",
+        )
+    ]
+    result = await adapter.generate_community_summary(entities, relationships, level=2)
+
+    assert result == "Generated summary."
+    messages = captured["messages"]
+    content = "\n".join(msg["content"] for msg in messages)
+    assert "Agent Pattern" in content
+    assert "MCP" in content
+    assert "enables" in content
+    assert "level: 2" in content.lower()
+    assert captured["model"] == settings.community_model_name
+
+
+async def test_score_community_returns_parsed_score(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """score_community returns the integer score from the LLM response."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+    captured: dict[str, Any] = {}
+
+    class _FakeScore(BaseModel):
+        score: int
+
+    async def fake_create(*args: Any, **kwargs: Any) -> _FakeScore:
+        captured.update(kwargs)
+        return _FakeScore(score=85)
+
+    monkeypatch.setattr(adapter._summary_client, "create", fake_create)
+
+    summary = CommunitySummary(level=1, summary="A summary", entity_ids=["e1"], parent_id="p1")
+    score = await adapter.score_community("what is MCP?", summary)
+
+    assert score == 85
+    messages = captured["messages"]
+    content = "\n".join(msg["content"] for msg in messages)
+    assert "what is MCP?" in content
+    assert "A summary" in content
+    assert captured["model"] == settings.community_model_name
+
+
+async def test_compose_answer_prompt_requires_citation_format(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The compose prompt instructs the LLM to emit [Data: CommunitySummary(id)] citations."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+    captured: dict[str, Any] = {}
+
+    class _FakeAnswer(BaseModel):
+        answer: str
+
+    async def fake_create(*args: Any, **kwargs: Any) -> _FakeAnswer:
+        captured.update(kwargs)
+        return _FakeAnswer(answer="MCP is a protocol.")
+
+    monkeypatch.setattr(adapter._summary_client, "create", fake_create)
+
+    summary = CommunitySummary(level=1, summary="A summary", entity_ids=["e1"], parent_id="p1")
+    ranked = [(summary, 85)]
+    result = await adapter.compose_answer("what is MCP?", ranked)
+
+    assert result == "MCP is a protocol."
+    messages = captured["messages"]
+    content = "\n".join(msg["content"] for msg in messages)
+    assert re.search(r"\[Data: CommunitySummary\([a-f0-9]{16}\)\]", content)
+    assert summary.id in content
+    assert captured["model"] == settings.community_model_name

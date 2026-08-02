@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import TextContent
 
+from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.domain.models import (
     EntityType,
     QueryLogEntry,
@@ -16,6 +19,11 @@ from book_graph_rag.domain.models import (
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort
+
+
+def _tool_content(payload: dict[str, Any]) -> list[TextContent]:
+    """Serialize a dict result into MCP text content."""
+    return [TextContent(type="text", text=json.dumps(payload, indent=2))]
 
 
 class McpServerAdapter:
@@ -31,10 +39,12 @@ class McpServerAdapter:
         graph_query_port: GraphQueryPort,
         query_logger: QueryLoggerPort,
         text2cypher_port: Text2CypherPort,
+        global_query_use_case: GlobalQueryUseCase | None = None,
     ) -> None:
         self._graph_query_port = graph_query_port
         self._query_logger = query_logger
         self._text2cypher_port = text2cypher_port
+        self._global_query_use_case = global_query_use_case
 
     def _now(self) -> datetime:
         """Return the current UTC time (extracted for testability)."""
@@ -331,8 +341,23 @@ class McpServerAdapter:
             "retries": result.retries,
         }
 
+    async def ask_global(self, question: str, detail_level: int = 1) -> dict[str, Any]:
+        """Answer a global question using community-summary map-reduce.
+
+        ``detail_level`` must be in ``[0, 3]``; it is validated before any
+        expensive LLM or Neo4j calls are made.
+        """
+        if not 0 <= detail_level <= 3:
+            raise ValueError(
+                f"detail_level must be between 0 and 3, got {detail_level}"
+            )
+        if self._global_query_use_case is None:
+            raise RuntimeError("GlobalQueryUseCase is not configured")
+
+        return await self._global_query_use_case.ask(question, detail_level)
+
     def create_server(self, host: str = "0.0.0.0", port: int = 8003) -> FastMCP:
-        """Return a configured FastMCP instance with the 7 tools registered."""
+        """Return a configured FastMCP instance with the 8 tools registered."""
         mcp = FastMCP("book-graph-rag", host=host, port=port)
 
         @mcp.tool()
@@ -368,6 +393,10 @@ class McpServerAdapter:
         @mcp.tool()
         async def query_cypher(question: str) -> dict[str, Any]:
             return await self.query_cypher(question)
+
+        @mcp.tool()
+        async def ask_global(question: str, detail_level: int = 1) -> list[TextContent]:
+            return _tool_content(await self.ask_global(question, detail_level))
 
         return mcp
 

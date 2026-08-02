@@ -16,6 +16,14 @@ dependencies = [
     "mcp>=1.27,<2",
 ]
 
+[project.optional-dependencies]
+community = [
+    "graspologic>=3.4",
+    "networkx>=3.2",
+    "leidenalg>=0.11",
+    "python-igraph>=0.11",
+]
+
 [dependency-groups]
 dev = [
     "mypy>=1.11",
@@ -70,6 +78,10 @@ ignore_missing_imports = true
 # Si una de estas libs empieza a publicar stubs py.typed, SACARLA de acá.
 [[tool.mypy.overrides]]
 module = ["neo4j.*", "fitz.*", "instructor.*", "openai.*", "mcp.*"]
+disallow_any_unimported = false
+
+[[tool.mypy.overrides]]
+module = ["book_graph_rag.infrastructure.community_clustering"]
 disallow_any_unimported = false
 
 # ── Pytest ───────────────────────────────────────────────────────────────

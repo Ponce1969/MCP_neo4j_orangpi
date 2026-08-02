@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     # ── Text2Cypher fallback (REQ-GR.4) ───────────────────────────────────
     text2cypher_timeout: int = 10  # seconds, whole pipeline budget
 
+    # ── Community summaries (REQ-GR.1) ────────────────────────────────────
+    community_model_name: str | None = None  # defaults to llm_model_name
+    max_cluster_size: int = 10
+    summary_max_concurrency: int = 3  # max concurrent LLM calls for summarization
+    community_max_calls: int = 150  # hard guard on total community summaries per run
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -54,6 +60,33 @@ class Settings(BaseSettings):
             )
         return value
 
+    @field_validator("max_cluster_size")
+    @classmethod
+    def _validate_max_cluster_size(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError(
+                f"max_cluster_size ({value}) debe ser mayor o igual a 1"
+            )
+        return value
+
+    @field_validator("summary_max_concurrency")
+    @classmethod
+    def _validate_summary_max_concurrency(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError(
+                f"summary_max_concurrency ({value}) debe ser mayor o igual a 1"
+            )
+        return value
+
+    @field_validator("community_max_calls")
+    @classmethod
+    def _validate_community_max_calls(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError(
+                f"community_max_calls ({value}) debe ser mayor o igual a 1"
+            )
+        return value
+
     @model_validator(mode="after")
     def _validate_settings(self) -> "Settings":
         # Validación cross-field: requiere AMBOS valores ya validados.
@@ -61,6 +94,8 @@ class Settings(BaseSettings):
         # orden de definición, lo que vuelve frágil info.data.get(...).
         # model_validator(mode="after") se ejecuta cuando todos los campos
         # ya tienen su valor final — robusto ante reordenamientos de Settings.
+        if self.community_model_name is None:
+            self.community_model_name = self.llm_model_name
         if self.pdf_chunk_overlap >= self.pdf_max_chunk_size:
             raise ValueError(
                 f"pdf_chunk_overlap ({self.pdf_chunk_overlap}) debe ser "
@@ -69,7 +104,7 @@ class Settings(BaseSettings):
             )
         if not 1 <= self.mcp_port <= 65535:
             raise ValueError(
-                f"mcp_port ({self.mcp_port}) debe estar entre 1 y 65535"
+                f"mcp_port ({self.mcp_port}) debe ser entre 1 y 65535"
             )
         if self.mcp_log_retention_days < 1:
             raise ValueError(

@@ -87,6 +87,8 @@ def test_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.mcp_port == 8003
     assert settings.mcp_log_path == Path("logs/mcp_queries.jsonl")
     assert settings.mcp_log_retention_days == 7
+    assert settings.summary_max_concurrency == 3
+    assert settings.community_max_calls == 150
 
 
 def test_settings_mcp_values_can_be_overridden(
@@ -149,3 +151,187 @@ def test_settings_mcp_retention_must_be_positive(
         Settings.model_validate(data)
 
     assert "mcp_log_retention_days" in str(exc_info.value)
+
+
+def test_settings_community_model_name_defaults_to_llm_model_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """community_model_name inherits llm_model_name when not provided."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.community_model_name == settings.llm_model_name
+    assert settings.community_model_name == "llama3:70b"
+
+
+def test_settings_community_model_name_can_be_overridden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """community_model_name can be set explicitly."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "community_model_name": "gpt-4.1-mini",
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.community_model_name == "gpt-4.1-mini"
+
+
+def test_settings_max_cluster_size_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """max_cluster_size defaults to 10."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.max_cluster_size == 10
+
+
+def test_settings_max_cluster_size_must_be_positive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """max_cluster_size must be greater than 0."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "max_cluster_size": 0,
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "max_cluster_size" in str(exc_info.value)
+
+
+def test_settings_summary_max_concurrency_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """summary_max_concurrency defaults to 3."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.summary_max_concurrency == 3
+
+
+def test_settings_summary_max_concurrency_can_be_overridden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """summary_max_concurrency can be customized."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "summary_max_concurrency": 5,
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.summary_max_concurrency == 5
+
+
+def test_settings_summary_max_concurrency_must_be_positive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """summary_max_concurrency must be greater than 0."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "summary_max_concurrency": 0,
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "summary_max_concurrency" in str(exc_info.value)
+
+
+def test_settings_community_max_calls_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """community_max_calls defaults to 150."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.community_max_calls == 150
+
+
+def test_settings_community_max_calls_can_be_overridden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """community_max_calls can be customized."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "community_max_calls": 50,
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.community_max_calls == 50
+
+
+def test_settings_community_max_calls_must_be_positive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """community_max_calls must be greater than 0."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "community_max_calls": 0,
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "community_max_calls" in str(exc_info.value)
+

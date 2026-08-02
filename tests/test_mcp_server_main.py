@@ -44,10 +44,17 @@ class _FakeText2CypherAdapter:
 
 
 class _FakeMcpServerAdapter:
-    def __init__(self, query_port: Any, query_logger: Any, text2cypher_port: Any) -> None:
+    def __init__(
+        self,
+        query_port: Any,
+        query_logger: Any,
+        text2cypher_port: Any,
+        global_query_use_case: Any | None = None,
+    ) -> None:
         self.query_port = query_port
         self.query_logger = query_logger
         self.text2cypher_port = text2cypher_port
+        self.global_query_use_case = global_query_use_case
         self.run_sse_mock = AsyncMock()
 
     async def run_sse(self, host: str = "0.0.0.0", port: int = 8003) -> None:
@@ -55,6 +62,15 @@ class _FakeMcpServerAdapter:
 
     def create_server(self) -> MagicMock:
         return MagicMock()
+
+
+class _FakeNeo4jCommunityAdapter:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
 
 
 @pytest.fixture
@@ -79,14 +95,25 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             super().__init__(settings)
             created["query_adapter"] = self
 
+    class _FakeNeo4jCommunityAdapterTracked(_FakeNeo4jCommunityAdapter):
+        def __init__(self, settings: Settings) -> None:
+            super().__init__(settings)
+            created["community_adapter"] = self
+
     class _FakeJsonLoggerTracked(_FakeJsonFileQueryLoggerAdapter):
         def __init__(self, settings: Settings) -> None:
             super().__init__(settings)
             created["query_logger"] = self
 
     class _FakeMcpServerAdapterTracked(_FakeMcpServerAdapter):
-        def __init__(self, query_port: Any, query_logger: Any, text2cypher_port: Any) -> None:
-            super().__init__(query_port, query_logger, text2cypher_port)
+        def __init__(
+            self,
+            query_port: Any,
+            query_logger: Any,
+            text2cypher_port: Any,
+            global_query_use_case: Any | None = None,
+        ) -> None:
+            super().__init__(query_port, query_logger, text2cypher_port, global_query_use_case)
             created["server_adapter"] = self
 
     class _FakeLLMAdapterTracked(_FakeLLMAdapter):
@@ -103,6 +130,10 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "book_graph_rag.mcp_server_main.Neo4jQueryAdapter", _FakeNeo4jQueryAdapterTracked
     )
     monkeypatch.setattr(
+        "book_graph_rag.mcp_server_main.Neo4jCommunityAdapter",
+        _FakeNeo4jCommunityAdapterTracked,
+    )
+    monkeypatch.setattr(
         "book_graph_rag.mcp_server_main.JsonFileQueryLoggerAdapter",
         _FakeJsonLoggerTracked,
     )
@@ -116,6 +147,7 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "book_graph_rag.mcp_server_main.McpServerAdapter", _FakeMcpServerAdapterTracked
     )
     return created
+
 
 
 def test_main_entrypoint_is_callable() -> None:
@@ -161,6 +193,7 @@ def test_composition_root_creates_components_in_order(
     assert server_adapter.query_port is query_adapter
     assert server_adapter.query_logger is query_logger
     assert server_adapter.text2cypher_port is text2cypher_adapter
+    assert server_adapter.global_query_use_case is not None
     assert text2cypher_adapter.query_adapter is query_adapter
     assert text2cypher_adapter.llm_adapter is llm_adapter
     assert text2cypher_adapter.settings is fake_settings
@@ -169,12 +202,13 @@ def test_composition_root_creates_components_in_order(
 def test_lifecycle_closes_driver_and_logger_on_shutdown(
     fake_settings: Settings, fake_adapters: dict[str, Any]
 ) -> None:
-    """Driver and logger are closed when the server shuts down."""
+    """Driver, community adapter and logger are closed when the server shuts down."""
     runner = CliRunner()
     result = runner.invoke(mcp_cli, ["serve"])
 
     assert result.exit_code == 0
     assert fake_adapters["query_adapter"].closed is True
+    assert fake_adapters["community_adapter"].closed is True
     assert fake_adapters["query_logger"].closed is True
 
 

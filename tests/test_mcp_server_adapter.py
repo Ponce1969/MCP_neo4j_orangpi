@@ -177,8 +177,8 @@ def _relationship(
 # ── create_server ────────────────────────────────────────────────────────────
 
 
-async def test_create_server_registers_seven_tools(adapter: McpServerAdapter) -> None:
-    """create_server exposes exactly the 7 MCP tools including query_cypher."""
+async def test_create_server_registers_eight_tools(adapter: McpServerAdapter) -> None:
+    """create_server exposes the 8 MCP tools including query_cypher and ask_global."""
     server = adapter.create_server()
     tools = await server.list_tools()
     names = {tool.name for tool in tools}
@@ -190,6 +190,7 @@ async def test_create_server_registers_seven_tools(adapter: McpServerAdapter) ->
         "count_entities",
         "search_rag",
         "query_cypher",
+        "ask_global",
     }
 
 
