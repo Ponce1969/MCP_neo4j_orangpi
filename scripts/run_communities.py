@@ -84,6 +84,8 @@ async def _run_communities(
             summary_text = await llm_port.generate_community_summary(
                 community_entities, community_relationships, level
             )
+            if settings.summary_request_delay > 0:
+                await asyncio.sleep(settings.summary_request_delay)
         return CommunitySummary(
             level=level,
             summary=summary_text,

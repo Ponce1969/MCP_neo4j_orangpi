@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     max_cluster_size: int = 10
     summary_max_concurrency: int = 3  # max concurrent LLM calls for summarization
     community_max_calls: int = 150  # hard guard on total community summaries per run
+    # Minimum seconds to wait between LLM calls for community summaries.
+    # Set to 12.0 for NVIDIA NIM free tier (~5 RPM limit).
+    # Set to 0.0 to disable throttling (local Ollama or paid tiers).
+    summary_request_delay: float = 0.0
 
     model_config = SettingsConfigDict(
         env_file=".env",
