@@ -8,11 +8,13 @@ import sys
 import click
 
 from book_graph_rag.config import Settings
+from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.logging.json_query_logger_adapter import (
     JsonFileQueryLoggerAdapter,
 )
 from book_graph_rag.infrastructure.mcp.mcp_server_adapter import McpServerAdapter
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
+from book_graph_rag.infrastructure.text2cypher_adapter import Text2CypherAdapter
 
 
 @click.group()
@@ -27,7 +29,13 @@ async def _run_server(settings: Settings) -> None:
     try:
         query_logger: JsonFileQueryLoggerAdapter = JsonFileQueryLoggerAdapter(settings)
         try:
-            server_adapter: McpServerAdapter = McpServerAdapter(query_adapter, query_logger)
+            llm_adapter: LLMAdapter = LLMAdapter(settings)
+            text2cypher_adapter: Text2CypherAdapter = Text2CypherAdapter(
+                query_adapter, llm_adapter, settings
+            )
+            server_adapter: McpServerAdapter = McpServerAdapter(
+                query_adapter, query_logger, text2cypher_adapter
+            )
             click.echo(f"MCP server starting on port {settings.mcp_port}")
             await server_adapter.run_sse(host="0.0.0.0", port=settings.mcp_port)
         finally:

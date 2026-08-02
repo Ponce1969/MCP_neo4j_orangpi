@@ -20,6 +20,7 @@ from book_graph_rag.domain.models import (
 from book_graph_rag.infrastructure.mcp.mcp_server_adapter import McpServerAdapter
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
+from book_graph_rag.ports.text2cypher_port import Text2CypherPort, Text2CypherResult
 
 
 class _FakeGraphQueryPort(GraphQueryPort):
@@ -115,6 +116,24 @@ class _FakeQueryLoggerPort(QueryLoggerPort):
         self.closed = True
 
 
+class _FakeText2CypherPort(Text2CypherPort):
+    """In-memory Text2CypherPort with configurable result."""
+
+    def __init__(self, result: Text2CypherResult | None = None) -> None:
+        self._result = result or Text2CypherResult(
+            question="",
+            cypher="MATCH (n) RETURN n LIMIT 100",
+            rows=[],
+            schema_source="hardcoded",
+            retries=0,
+        )
+        self.calls: list[str] = []
+
+    async def generate_and_run(self, question: str) -> Text2CypherResult:
+        self.calls.append(question)
+        return self._result
+
+
 @pytest.fixture
 def graph_query_port() -> _FakeGraphQueryPort:
     return _FakeGraphQueryPort()
@@ -126,10 +145,17 @@ def query_logger() -> _FakeQueryLoggerPort:
 
 
 @pytest.fixture
+def text2cypher_port() -> _FakeText2CypherPort:
+    return _FakeText2CypherPort()
+
+
+@pytest.fixture
 def adapter(
-    graph_query_port: _FakeGraphQueryPort, query_logger: _FakeQueryLoggerPort
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
 ) -> McpServerAdapter:
-    return McpServerAdapter(graph_query_port, query_logger)
+    return McpServerAdapter(graph_query_port, query_logger, text2cypher_port)
 
 
 def _entity(
@@ -151,8 +177,8 @@ def _relationship(
 # ── create_server ────────────────────────────────────────────────────────────
 
 
-async def test_create_server_registers_six_tools(adapter: McpServerAdapter) -> None:
-    """create_server exposes exactly the 6 MCP tools including search_rag."""
+async def test_create_server_registers_seven_tools(adapter: McpServerAdapter) -> None:
+    """create_server exposes exactly the 7 MCP tools including query_cypher."""
     server = adapter.create_server()
     tools = await server.list_tools()
     names = {tool.name for tool in tools}
@@ -163,6 +189,7 @@ async def test_create_server_registers_six_tools(adapter: McpServerAdapter) -> N
         "list_entities",
         "count_entities",
         "search_rag",
+        "query_cypher",
     }
 
 
@@ -648,3 +675,68 @@ async def test_search_rag_logs_query_entry_with_correct_fields(
     assert entry.entity_not_found is False
     assert entry.error is None
     assert entry.duration_ms >= 0.0
+
+
+# ── query_cypher ─────────────────────────────────────────────────────────────
+
+
+async def test_query_cypher_returns_text2cypher_result(
+    adapter: McpServerAdapter,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """query_cypher delegates to the Text2CypherPort and returns its result."""
+    text2cypher_port._result = Text2CypherResult(
+        question="what patterns mitigate security risks?",
+        cypher="MATCH (e:Entity) RETURN e LIMIT 100",
+        rows=[{"e": {"name": "MCP"}}],
+        schema_source="apoc",
+        retries=0,
+    )
+
+    result = await adapter.query_cypher("what patterns mitigate security risks?")
+
+    assert result == {
+        "question": "what patterns mitigate security risks?",
+        "cypher": "MATCH (e:Entity) RETURN e LIMIT 100",
+        "rows": [{"e": {"name": "MCP"}}],
+        "schema_source": "apoc",
+        "retries": 0,
+    }
+    assert text2cypher_port.calls == ["what patterns mitigate security risks?"]
+
+
+async def test_query_cypher_logs_entry_with_text2cypher_query_type(
+    adapter: McpServerAdapter,
+    query_logger: _FakeQueryLoggerPort,
+) -> None:
+    """query_cypher logs a QueryLogEntry with tool_name and query_type text2cypher."""
+    await adapter.query_cypher("what patterns mitigate security risks?")
+
+    assert len(query_logger.entries) == 1
+    entry = query_logger.entries[0]
+    assert entry.tool_name == "query_cypher"
+    assert entry.query_type == "text2cypher"
+    assert entry.query_params == {"question": "what patterns mitigate security risks?"}
+    assert entry.result_count == 0
+    assert entry.duration_ms >= 0.0
+    assert entry.error is None
+
+
+async def test_query_cypher_error_is_logged_and_propagated(
+    adapter: McpServerAdapter,
+    text2cypher_port: _FakeText2CypherPort,
+    query_logger: _FakeQueryLoggerPort,
+) -> None:
+    """When Text2CypherPort raises, the error is logged and re-raised."""
+    text2cypher_port.generate_and_run = AsyncMock(  # type: ignore[method-assign]
+        side_effect=RuntimeError("pipeline failed")
+    )
+
+    with pytest.raises(RuntimeError, match="pipeline failed"):
+        await adapter.query_cypher("what patterns mitigate security risks?")
+
+    entry = query_logger.entries[0]
+    assert entry.tool_name == "query_cypher"
+    assert entry.query_type == "text2cypher"
+    assert entry.error == "pipeline failed"
+    assert entry.result_count == 0

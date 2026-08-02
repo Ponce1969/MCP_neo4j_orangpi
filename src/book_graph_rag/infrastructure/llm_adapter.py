@@ -22,7 +22,24 @@ from book_graph_rag.domain.models import (
     Relationship,
     RelationshipType,
 )
+from book_graph_rag.ports.cypher_generator_port import (
+    CypherFailureContext,
+    CypherGeneratorPort,
+)
 from book_graph_rag.ports.llm_port import LLMProviderPort
+
+_SYSTEM_PROMPT_CYPHER = (
+    "You are a Cypher expert for a Neo4j knowledge graph about agentic "
+    "architectural patterns for multi-agent systems.\n\n"
+    "Graph schema:\n"
+    "{schema}\n\n"
+    "Rules:\n"
+    "- Generate a single Cypher query that answers the user's question.\n"
+    "- Use ONLY the labels and relationship types in the schema.\n"
+    "- The query MUST be read-only (MATCH/RETURN/WHERE/CALL db.index.*).\n"
+    "- The query MUST include a LIMIT 100 clause.\n"
+    "- If a previous query failed, fix it using the error message.\n"
+)
 
 _SYSTEM_PROMPT = (
     "You are a knowledge-graph extractor for a book on agentic architectural "
@@ -72,8 +89,16 @@ class _LLMExtraction(BaseModel):
     relationships: list[_LLMRelationshipDTO] = Field(default_factory=list)
 
 
-class LLMAdapter(LLMProviderPort):
-    """Instructor + AsyncOpenAI implementation of ``LLMProviderPort``."""
+class _CypherResponse(BaseModel):
+    """Structured LLM output schema for Cypher generation."""
+
+    cypher: str
+
+
+class LLMAdapter(LLMProviderPort, CypherGeneratorPort):
+    """Instructor + AsyncOpenAI implementation of ``LLMProviderPort`` and
+    ``CypherGeneratorPort``.
+    """
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -157,6 +182,38 @@ class LLMAdapter(LLMProviderPort):
         context_parts.append(f"Page range: {chunk.page_ref.start}-{chunk.page_ref.end}")
 
         return "\n".join(context_parts) + f"\n\nText:\n{chunk.text}"
+
+    async def generate_cypher(
+        self, schema: str, question: str, failure: CypherFailureContext | None
+    ) -> str:
+        """Generate a read-only Cypher query from ``question`` and ``schema``."""
+        system_prompt = _SYSTEM_PROMPT_CYPHER.format(schema=schema)
+        user_prompt = f"Question: {question}"
+        failure_prompt = ""
+        if failure is not None:
+            failure_prompt = (
+                f"The previous query failed:\n{failure.failed_cypher}\n\n"
+                f"Error: {failure.error_message}\n\n"
+                "Please fix it."
+            )
+
+        response: _CypherResponse | None = None
+        async for attempt in self._retrying:
+            with attempt:
+                response = await self._client.create(
+                    response_model=_CypherResponse,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                        {"role": "user", "content": failure_prompt},
+                    ],
+                    model=self._settings.llm_model_name,
+                    max_retries=AsyncRetrying(stop=stop_after_attempt(1)),
+                )
+
+        if response is None:  # pragma: no cover
+            raise RuntimeError("Cypher generation failed without raising")
+        return response.cypher
 
     @staticmethod
     def _slugify(text: str) -> str:

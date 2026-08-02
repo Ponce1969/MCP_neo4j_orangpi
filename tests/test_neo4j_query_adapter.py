@@ -666,3 +666,58 @@ async def test_ensure_indexes_fulltext_uses_on_each(adapter: Neo4jQueryAdapter) 
         q for q, _ in session.queries if "FULLTEXT INDEX chunk_text_index" in q
     )
     assert "ON EACH [n.text]" in fulltext_query
+
+
+# ── T-GR.4: text2cypher read helpers ─────────────────────────────────────────
+
+
+async def test_explain_runs_explain_query(adapter: Neo4jQueryAdapter) -> None:
+    """explain prepends EXPLAIN to the supplied Cypher."""
+    session = _make_session([])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.explain("MATCH (n) RETURN n LIMIT 1")
+
+    assert len(session.queries) == 1
+    query, params = session.queries[0]
+    assert query == "EXPLAIN MATCH (n) RETURN n LIMIT 1"
+    assert params == {}
+
+
+async def test_explain_uses_run_with_timeout(adapter: Neo4jQueryAdapter) -> None:
+    """explain respects the 3-second internal timeout."""
+    session = _FakeSession(raise_exc=TimeoutError())
+    adapter._driver = _FakeDriver(session)
+
+    with pytest.raises(QueryTimeoutError, match=r"Query exceeded 3\.?0?s timeout"):
+        await adapter.explain("MATCH (n) RETURN n")
+
+
+async def test_execute_read_runs_query_and_returns_records(adapter: Neo4jQueryAdapter) -> None:
+    """execute_read returns raw record data as a list of dicts."""
+    session = _make_session(
+        [
+            _FakeRecord({"n.name": "MCP", "n.type": "mcp"}),
+            _FakeRecord({"n.name": "Agent", "n.type": "agent"}),
+        ]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.execute_read("MATCH (n:Entity) RETURN n.name, n.type LIMIT 2")
+
+    assert result == [
+        {"n.name": "MCP", "n.type": "mcp"},
+        {"n.name": "Agent", "n.type": "agent"},
+    ]
+    query, params = session.queries[0]
+    assert query == "MATCH (n:Entity) RETURN n.name, n.type LIMIT 2"
+    assert params == {}
+
+
+async def test_execute_read_uses_run_with_timeout(adapter: Neo4jQueryAdapter) -> None:
+    """execute_read maps driver timeouts to QueryTimeoutError."""
+    session = _FakeSession(raise_exc=TimeoutError())
+    adapter._driver = _FakeDriver(session)
+
+    with pytest.raises(QueryTimeoutError, match=r"Query exceeded 3\.?0?s timeout"):
+        await adapter.execute_read("MATCH (n) RETURN n")

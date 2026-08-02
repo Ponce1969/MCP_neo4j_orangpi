@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import SecretStr, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,11 +36,23 @@ class Settings(BaseSettings):
     mcp_log_path: Path = Path("logs/mcp_queries.jsonl")
     mcp_log_retention_days: int = 7
 
+    # ── Text2Cypher fallback (REQ-GR.4) ───────────────────────────────────
+    text2cypher_timeout: int = 10  # seconds, whole pipeline budget
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @field_validator("text2cypher_timeout")
+    @classmethod
+    def _validate_text2cypher_timeout(cls, value: int) -> int:
+        if not 1 <= value <= 60:
+            raise ValueError(
+                f"text2cypher_timeout ({value}) debe estar entre 1 y 60"
+            )
+        return value
 
     @model_validator(mode="after")
     def _validate_settings(self) -> "Settings":

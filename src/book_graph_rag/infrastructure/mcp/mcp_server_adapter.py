@@ -15,12 +15,13 @@ from book_graph_rag.domain.models import (
 )
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
+from book_graph_rag.ports.text2cypher_port import Text2CypherPort
 
 
 class McpServerAdapter:
-    """Wraps a ``GraphQueryPort`` as a set of MCP tools served by FastMCP.
+    """Wraps a ``GraphQueryPort`` and a ``Text2CypherPort`` as MCP tools.
 
-    The adapter calls the port directly (bypassing the application use case)
+    The adapter calls the ports directly (bypassing the application use case)
     because each MCP tool has a distinct input/output shape that does not fit
     the unified ``GraphQueryUnion`` dispatch.
     """
@@ -29,9 +30,11 @@ class McpServerAdapter:
         self,
         graph_query_port: GraphQueryPort,
         query_logger: QueryLoggerPort,
+        text2cypher_port: Text2CypherPort,
     ) -> None:
         self._graph_query_port = graph_query_port
         self._query_logger = query_logger
+        self._text2cypher_port = text2cypher_port
 
     def _now(self) -> datetime:
         """Return the current UTC time (extracted for testability)."""
@@ -292,8 +295,44 @@ class McpServerAdapter:
             "errors": errors,
         }
 
+    async def query_cypher(self, question: str) -> dict[str, Any]:
+        """Generate and execute a Cypher query from a natural-language question."""
+        params = {"question": question}
+        start = self._now()
+        try:
+            result = await self._text2cypher_port.generate_and_run(question)
+        except Exception as exc:
+            duration_ms = (self._now() - start).total_seconds() * 1000
+            await self._log(
+                tool_name="query_cypher",
+                query_type="text2cypher",
+                query_params=params,
+                result_count=0,
+                entity_not_found=False,
+                duration_ms=duration_ms,
+                error=str(exc),
+            )
+            raise
+
+        duration_ms = (self._now() - start).total_seconds() * 1000
+        await self._log(
+            tool_name="query_cypher",
+            query_type="text2cypher",
+            query_params=params,
+            result_count=len(result.rows),
+            entity_not_found=False,
+            duration_ms=duration_ms,
+        )
+        return {
+            "question": result.question,
+            "cypher": result.cypher,
+            "rows": result.rows,
+            "schema_source": result.schema_source,
+            "retries": result.retries,
+        }
+
     def create_server(self, host: str = "0.0.0.0", port: int = 8003) -> FastMCP:
-        """Return a configured FastMCP instance with the 6 tools registered."""
+        """Return a configured FastMCP instance with the 7 tools registered."""
         mcp = FastMCP("book-graph-rag", host=host, port=port)
 
         @mcp.tool()
@@ -325,6 +364,10 @@ class McpServerAdapter:
             query: str, limit: int = 10, include_relations: bool = True
         ) -> dict[str, Any]:
             return await self.search_rag(query, limit, include_relations)
+
+        @mcp.tool()
+        async def query_cypher(question: str) -> dict[str, Any]:
+            return await self.query_cypher(question)
 
         return mcp
 

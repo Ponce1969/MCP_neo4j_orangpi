@@ -276,3 +276,24 @@ class UnsupportedQueryTypeError(Exception):
     def __init__(self, query_type: str) -> None:
         self.query_type = query_type
         super().__init__(f"Unsupported query type: {query_type}")
+
+
+class UnsafeCypherQueryError(Exception):
+    """Raised when a generated Cypher query contains a write or admin operation."""
+
+    def __init__(self, message: str = "Generated Cypher query is not read-only") -> None:
+        super().__init__(message)
+
+
+class Text2CypherTimeoutError(Exception):
+    """Raised when the text-to-Cypher pipeline exceeds the configured timeout."""
+
+    def __init__(self, message: str = "Text-to-Cypher pipeline exceeded the timeout") -> None:
+        super().__init__(message)
+
+
+class CypherGenerationError(Exception):
+    """Raised when the text-to-Cypher pipeline exhausts its self-healing retries."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)

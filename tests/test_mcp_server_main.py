@@ -31,10 +31,23 @@ class _FakeJsonFileQueryLoggerAdapter:
         self.closed = True
 
 
+class _FakeLLMAdapter:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+
+class _FakeText2CypherAdapter:
+    def __init__(self, query_adapter: Any, llm_adapter: Any, settings: Settings) -> None:
+        self.query_adapter = query_adapter
+        self.llm_adapter = llm_adapter
+        self.settings = settings
+
+
 class _FakeMcpServerAdapter:
-    def __init__(self, query_port: Any, query_logger: Any) -> None:
+    def __init__(self, query_port: Any, query_logger: Any, text2cypher_port: Any) -> None:
         self.query_port = query_port
         self.query_logger = query_logger
+        self.text2cypher_port = text2cypher_port
         self.run_sse_mock = AsyncMock()
 
     async def run_sse(self, host: str = "0.0.0.0", port: int = 8003) -> None:
@@ -72,9 +85,19 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             created["query_logger"] = self
 
     class _FakeMcpServerAdapterTracked(_FakeMcpServerAdapter):
-        def __init__(self, query_port: Any, query_logger: Any) -> None:
-            super().__init__(query_port, query_logger)
+        def __init__(self, query_port: Any, query_logger: Any, text2cypher_port: Any) -> None:
+            super().__init__(query_port, query_logger, text2cypher_port)
             created["server_adapter"] = self
+
+    class _FakeLLMAdapterTracked(_FakeLLMAdapter):
+        def __init__(self, settings: Settings) -> None:
+            super().__init__(settings)
+            created["llm_adapter"] = self
+
+    class _FakeText2CypherAdapterTracked(_FakeText2CypherAdapter):
+        def __init__(self, query_adapter: Any, llm_adapter: Any, settings: Settings) -> None:
+            super().__init__(query_adapter, llm_adapter, settings)
+            created["text2cypher_adapter"] = self
 
     monkeypatch.setattr(
         "book_graph_rag.mcp_server_main.Neo4jQueryAdapter", _FakeNeo4jQueryAdapterTracked
@@ -82,6 +105,12 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(
         "book_graph_rag.mcp_server_main.JsonFileQueryLoggerAdapter",
         _FakeJsonLoggerTracked,
+    )
+    monkeypatch.setattr(
+        "book_graph_rag.mcp_server_main.LLMAdapter", _FakeLLMAdapterTracked
+    )
+    monkeypatch.setattr(
+        "book_graph_rag.mcp_server_main.Text2CypherAdapter", _FakeText2CypherAdapterTracked
     )
     monkeypatch.setattr(
         "book_graph_rag.mcp_server_main.McpServerAdapter", _FakeMcpServerAdapterTracked
@@ -125,10 +154,16 @@ def test_composition_root_creates_components_in_order(
 
     query_adapter = fake_adapters["query_adapter"]
     query_logger = fake_adapters["query_logger"]
+    llm_adapter = fake_adapters["llm_adapter"]
+    text2cypher_adapter = fake_adapters["text2cypher_adapter"]
     server_adapter = fake_adapters["server_adapter"]
 
     assert server_adapter.query_port is query_adapter
     assert server_adapter.query_logger is query_logger
+    assert server_adapter.text2cypher_port is text2cypher_adapter
+    assert text2cypher_adapter.query_adapter is query_adapter
+    assert text2cypher_adapter.llm_adapter is llm_adapter
+    assert text2cypher_adapter.settings is fake_settings
 
 
 def test_lifecycle_closes_driver_and_logger_on_shutdown(
@@ -190,6 +225,12 @@ async def test_neo4j_connection_failure_raises_clear_error(
     monkeypatch.setattr(
         "book_graph_rag.mcp_server_main.Neo4jQueryAdapter", _FailingNeo4jQueryAdapter
     )
+    monkeypatch.setattr(
+        "book_graph_rag.mcp_server_main.LLMAdapter", _FakeLLMAdapter
+    )
+    monkeypatch.setattr(
+        "book_graph_rag.mcp_server_main.Text2CypherAdapter", _FakeText2CypherAdapter
+    )
 
     from book_graph_rag.mcp_server_main import _run_server
 
@@ -210,6 +251,12 @@ async def test_logger_creation_uses_settings(
 
     monkeypatch.setattr(
         "book_graph_rag.mcp_server_main.JsonFileQueryLoggerAdapter", _CapturingJsonLogger
+    )
+    monkeypatch.setattr(
+        "book_graph_rag.mcp_server_main.LLMAdapter", _FakeLLMAdapter
+    )
+    monkeypatch.setattr(
+        "book_graph_rag.mcp_server_main.Text2CypherAdapter", _FakeText2CypherAdapter
     )
     monkeypatch.setattr(
         "book_graph_rag.mcp_server_main.McpServerAdapter", _FakeMcpServerAdapter

@@ -14,7 +14,8 @@ from openai.types.chat import ChatCompletion
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import Book, Chapter, KnowledgeGraphChunk, PageRef, Section
-from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
+from book_graph_rag.infrastructure.llm_adapter import LLMAdapter, _CypherResponse
+from book_graph_rag.ports.cypher_generator_port import CypherFailureContext, CypherGeneratorPort
 
 _EXTRACTION_JSON = json.dumps(
     {
@@ -294,3 +295,99 @@ async def test_llm_adapter_computes_relationship_ids_from_entity_names(
     relationship = result.relationships[0]
     assert relationship.source_entity_id == "agent-pattern"
     assert relationship.target_entity_id == "multi-agent-system"
+
+
+async def test_llm_adapter_generate_cypher_returns_cypher_string(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """generate_cypher returns the cypher string extracted from the LLM response."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+
+    async def fake_create(*args: Any, **kwargs: Any) -> _CypherResponse:
+        return _CypherResponse(cypher="MATCH (n:Entity) RETURN n LIMIT 100")
+
+    monkeypatch.setattr(adapter._client, "create", fake_create)
+
+    cypher = await adapter.generate_cypher("schema", "question", None)
+
+    assert cypher == "MATCH (n:Entity) RETURN n LIMIT 100"
+
+
+async def test_llm_adapter_generate_cypher_prompt_includes_schema_and_question(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The LLM prompt contains the schema and the user question."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+    captured: dict[str, Any] = {}
+
+    async def fake_create(*args: Any, **kwargs: Any) -> _CypherResponse:
+        captured.update(kwargs)
+        return _CypherResponse(cypher="MATCH (n) RETURN n LIMIT 100")
+
+    monkeypatch.setattr(adapter._client, "create", fake_create)
+
+    await adapter.generate_cypher("(:Entity)-[:RELATED]->(:Entity)", "find patterns", None)
+
+    messages = captured["messages"]
+    assert any("(:Entity)-[:RELATED]->(:Entity)" in msg["content"] for msg in messages)
+    assert any("find patterns" in msg["content"] for msg in messages)
+
+
+async def test_llm_adapter_generate_cypher_includes_failure_context_on_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On retry the prompt includes the failed query and the Neo4j error."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+    captured: dict[str, Any] = {}
+
+    async def fake_create(*args: Any, **kwargs: Any) -> _CypherResponse:
+        captured.update(kwargs)
+        return _CypherResponse(cypher="MATCH (n) RETURN n LIMIT 100")
+
+    monkeypatch.setattr(adapter._client, "create", fake_create)
+
+    failure = CypherFailureContext(failed_cypher="BAD", error_message="syntax error")
+    await adapter.generate_cypher("schema", "question", failure)
+
+    messages = captured["messages"]
+    content = "\n".join(msg["content"] for msg in messages)
+    assert "BAD" in content
+    assert "syntax error" in content
+
+
+async def test_llm_adapter_generate_cypher_system_prompt_demands_limit_100(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The system prompt instructs the LLM to always include LIMIT 100."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+    captured: dict[str, Any] = {}
+
+    async def fake_create(*args: Any, **kwargs: Any) -> _CypherResponse:
+        captured.update(kwargs)
+        return _CypherResponse(cypher="MATCH (n) RETURN n LIMIT 100")
+
+    monkeypatch.setattr(adapter._client, "create", fake_create)
+
+    await adapter.generate_cypher("schema", "question", None)
+
+    messages = captured["messages"]
+    system_content = next(msg["content"] for msg in messages if msg["role"] == "system")
+    assert "LIMIT 100" in system_content
+
+
+def test_llm_adapter_implements_cypher_generator_port(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLMAdapter is a concrete implementation of CypherGeneratorPort."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+    assert isinstance(adapter, CypherGeneratorPort)
