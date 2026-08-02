@@ -105,16 +105,21 @@ async def _run_communities(
     click.echo(f"Persisted {len(summaries)} CommunitySummary nodes")
 
 
-@cli.command()
-def run() -> None:
-    """Run the community detection + summarization pipeline."""
+async def _run_main() -> None:
+    """Single-entry coroutine so the event loop stays open for cleanup."""
     settings = Settings()
     adapter = Neo4jCommunityAdapter(settings)
     llm_port: LLMSummaryPort = LLMAdapter(settings)
     try:
-        asyncio.run(_run_communities(adapter, adapter, llm_port, settings))
+        await _run_communities(adapter, adapter, llm_port, settings)
     finally:
-        asyncio.run(adapter.close())
+        await adapter.close()
+
+
+@cli.command()
+def run() -> None:
+    """Run the community detection + summarization pipeline."""
+    asyncio.run(_run_main())
 
 
 if __name__ == "__main__":
