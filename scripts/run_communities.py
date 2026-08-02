@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import click
 
@@ -119,6 +120,7 @@ async def _run_main() -> None:
 @cli.command()
 def run() -> None:
     """Run the community detection + summarization pipeline."""
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     asyncio.run(_run_main())
 
 

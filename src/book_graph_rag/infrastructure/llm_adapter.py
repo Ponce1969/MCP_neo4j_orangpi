@@ -7,12 +7,13 @@ OpenAI-compatible LLM and populates the chunk's ``entities`` and
 
 from __future__ import annotations
 
+import logging
 import re
 
 import instructor
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
-from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
+from tenacity import AsyncRetrying, before_sleep_log, stop_after_attempt, wait_exponential
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import (
@@ -29,6 +30,8 @@ from book_graph_rag.ports.cypher_generator_port import (
 )
 from book_graph_rag.ports.llm_port import LLMProviderPort
 from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
+
+logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT_CYPHER = (
     "You are a Cypher expert for a Neo4j knowledge graph about agentic "
@@ -179,6 +182,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                 multiplier=settings.llm_retry_wait_multiplier,
                 max=settings.llm_retry_wait_max,
             ),
+            before_sleep=before_sleep_log(logger, logging.WARNING),
             reraise=True,
         )
 
