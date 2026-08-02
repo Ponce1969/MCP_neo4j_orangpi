@@ -208,7 +208,6 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort):
                         {"role": "user", "content": failure_prompt},
                     ],
                     model=self._settings.llm_model_name,
-                    mode=instructor.Mode.JSON,
                     max_retries=AsyncRetrying(stop=stop_after_attempt(1)),
                 )
 
