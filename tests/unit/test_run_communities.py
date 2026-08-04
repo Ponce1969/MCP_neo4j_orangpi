@@ -73,12 +73,16 @@ class _FakeWritePort:
     def __init__(self) -> None:
         self.cleared = False
         self.upserted: list[CommunitySummary] = []
+        self.single_upserted: list[CommunitySummary] = []
 
     async def clear_summaries(self) -> None:
         self.cleared = True
 
     async def upsert_summaries(self, summaries: list[CommunitySummary]) -> None:
         self.upserted = summaries
+
+    async def upsert_summary(self, summary: CommunitySummary) -> None:
+        self.single_upserted.append(summary)
 
 
 class _FakeLLMPort:
@@ -133,13 +137,13 @@ async def test_run_communities_clears_and_upserts(
     llm_port = _FakeLLMPort()
 
     await run_communities._run_communities(
-        read_port, write_port, llm_port, settings
+        read_port, write_port, llm_port, settings, fresh=True
     )
 
     assert write_port.cleared
-    assert len(write_port.upserted) >= 1
-    assert all(isinstance(s, CommunitySummary) for s in write_port.upserted)
-    assert any(s.level == 0 for s in write_port.upserted)
+    assert len(write_port.single_upserted) >= 1
+    assert all(isinstance(s, CommunitySummary) for s in write_port.single_upserted)
+    assert any(s.level == 0 for s in write_port.single_upserted)
 
 
 async def test_run_communities_aborts_when_max_calls_exceeded(
@@ -190,7 +194,7 @@ async def test_run_communities_llm_calls_respect_concurrency(
         read_port, write_port, llm_port, settings
     )
 
-    assert len(llm_port.calls) == len(write_port.upserted)
+    assert len(llm_port.calls) == len(write_port.single_upserted)
     assert all(call[0] in {0, 1, 2, 3} for call in llm_port.calls)
 
 
@@ -260,9 +264,13 @@ def test_cli_run_invokes_orchestration(
     async def fake_upsert(self, summaries: list[CommunitySummary]) -> None:
         calls.append("upsert")
 
+    async def fake_upsert_summary(self, summary: CommunitySummary) -> None:
+        calls.append("upsert_summary")
+
     FakeAdapter.load_entity_graph = fake_load
     FakeAdapter.clear_summaries = fake_clear
     FakeAdapter.upsert_summaries = fake_upsert
+    FakeAdapter.upsert_summary = fake_upsert_summary
     FakeAdapter.get_summaries_by_level = lambda self, level: []
     FakeAdapter.count_summaries = lambda self: 0
 
@@ -292,10 +300,10 @@ def test_cli_run_invokes_orchestration(
     monkeypatch.setattr(run_communities, "LLMAdapter", FakeLLM)
 
     runner = CliRunner()
-    result = runner.invoke(run_communities.cli, ["run"])
+    result = runner.invoke(run_communities.cli, ["run", "--fresh"])
 
     assert result.exit_code == 0, result.output
     assert "adapter" in calls
     assert "clear" in calls
-    assert "upsert" in calls
+    assert "upsert_summary" in calls
     assert "close" in calls

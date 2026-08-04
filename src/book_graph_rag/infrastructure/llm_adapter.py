@@ -182,6 +182,10 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         self._summary_model_name = summary_model_name
         # Max input tokens per summary call; larger communities are chunked.
         self._summary_chunk_tokens = settings.summary_chunk_tokens
+        # Instructor internal retries for JSON self-healing. A malformed JSON
+        # response (trailing characters, etc.) is re-prompted with the parse
+        # error so instructor can recover instead of raising immediately.
+        self._instructor_retries = settings.llm_instructor_max_retries
 
         # Retry policy captured at construction time.
         self._retrying = AsyncRetrying(
@@ -211,7 +215,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                     # Disable instructor's internal retries; tenacity owns retry policy.
                     # Instructor internal retries disabled; tenacity owns the
                     # retry policy (stop_after_attempt in self._retrying).
-                    max_retries=0,
+                    max_retries=self._instructor_retries,
                 )
 
         if extraction is None:  # pragma: no cover
@@ -279,7 +283,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                     model=self._settings.llm_model_name,
                     # Instructor internal retries disabled; tenacity owns the
                     # retry policy (stop_after_attempt in self._retrying).
-                    max_retries=0,
+                    max_retries=self._instructor_retries,
                 )
 
         if response is None:  # pragma: no cover
@@ -371,7 +375,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                     model=self._summary_model_name,
                     # Instructor internal retries disabled; tenacity owns the
                     # retry policy (stop_after_attempt in self._retrying).
-                    max_retries=0,
+                    max_retries=self._instructor_retries,
                 )
 
         if response is None:  # pragma: no cover
@@ -412,7 +416,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                     model=self._summary_model_name,
                     # Instructor internal retries disabled; tenacity owns the
                     # retry policy (stop_after_attempt in self._retrying).
-                    max_retries=0,
+                    max_retries=self._instructor_retries,
                 )
 
         if response is None:  # pragma: no cover
@@ -449,7 +453,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                     model=self._summary_model_name,
                     # Instructor internal retries disabled; tenacity owns the
                     # retry policy (stop_after_attempt in self._retrying).
-                    max_retries=0,
+                    max_retries=self._instructor_retries,
                 )
 
         if response is None:  # pragma: no cover

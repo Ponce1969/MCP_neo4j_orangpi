@@ -132,6 +132,26 @@ class Neo4jCommunityAdapter(CommunityReadPort, CommunityWritePort):
                 {"summaries": [summary.model_dump() for summary in summaries]},
             )
 
+    async def upsert_summary(self, summary: CommunitySummary) -> None:
+        """Persist a single summary idempotently (incremental checkpoint)."""
+        async with self._driver.session() as session:
+            await session.run(
+                """
+                MERGE (c:CommunitySummary {id: $id})
+                SET c.level = $level,
+                    c.summary = $summary,
+                    c.entity_ids = $entity_ids,
+                    c.parent_id = $parent_id
+                """,
+                {
+                    "id": summary.id,
+                    "level": summary.level,
+                    "summary": summary.summary,
+                    "entity_ids": summary.entity_ids,
+                    "parent_id": summary.parent_id,
+                },
+            )
+
     async def clear_summaries(self) -> None:
         """Remove all :CommunitySummary nodes without touching the base graph."""
         async with self._driver.session() as session:

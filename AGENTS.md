@@ -31,4 +31,34 @@ uv run ruff check .
 uv run mypy .
 uv run python scripts/validate_architecture.py
 ```
-Si alguno falla, no es done.
+    Si alguno falla, no es done.
+
+## 6. Política de exposición vía MCP (`agentic-patterns`)
+
+Este proyecto (cuando la fase 07 del MCP server esté lista) se consume vía el
+MCP **`agentic-patterns`** (remote SSE, hosteado en el OrangePi via Tailscale).
+
+**El criterio de uso es OPT-IN, no por defecto.**
+
+- **Estado por defecto: `enabled: false`** en el runtime del agente
+  (`~/.config/opencode/opencode.json` -> `mcp.agentic-patterns.enabled`).
+- **Se habilita on-demand**, sólo durante sesiones de **diseño de arquitectura
+  multi-agente nueva** o casos específicos donde se necesita resolver patrones
+  del libro contra el grafo Neo4j.
+- **NO se porta a pi.** Pi queda acotado a los MCPs de trabajo diario
+  (`oranpi` infra, `context7` docs). Este MCP vive únicamente en opencode para
+  que el ruido en el system prompt de pi sea mínimo.
+- **Menos es más:** un MCP habilitado inyecta TODAS sus tool descriptions en el
+  system prompt en cada turno, gasta tokens, y distrae al modelo. No exponer lo
+  que no aporta al 95 % de las sesiones es una decisión de ingeniería, no un
+  capricho.
+
+### Regla para cualquier agente que asista a este repo
+- **NUNCA** auto-habilitar `agentic-patterns` sin confirmación explícita del humano.
+- Si una tarea no requiere resolver patrones del libro contra el grafo, dejá el
+  MCP apagado y usá las tools generales del runtime.
+- Si una tarea SÍ lo requiere (ej. "diseñá una arquitectura multi-agente usando
+  patrones del libro"), el humano debe confirmar el `enabled: true` antes de
+  empezar; el agente no lo prende solo.
+- Este criterio aplica también tras la fase 07: el MCP server se expone, pero
+  el consumo es opt-in por sesión, no permanente.

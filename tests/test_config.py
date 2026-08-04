@@ -78,7 +78,7 @@ def test_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.llm_max_concurrency == 3
     assert settings.processing_batch_size == 5
     assert settings.dead_letter_path == Path("data/dead_letter.log")
-    assert settings.llm_max_retries == 3
+    assert settings.llm_max_retries == 5
     assert settings.llm_retry_wait_multiplier == 1.0
     assert settings.llm_retry_wait_max == 30.0
     assert settings.llm_base_url == "http://localhost:11434/v1"

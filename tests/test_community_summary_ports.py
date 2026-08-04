@@ -217,6 +217,9 @@ class _CompleteCommunityWritePort(CommunityWritePort):
     async def upsert_summaries(self, summaries: list[CommunitySummary]) -> None:
         return None
 
+    async def upsert_summary(self, summary: CommunitySummary) -> None:
+        return None
+
     async def clear_summaries(self) -> None:
         return None
 

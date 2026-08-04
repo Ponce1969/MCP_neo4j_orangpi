@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     dead_letter_path: Path = Path("data/dead_letter.log")  # chunks fallidos
 
     # ── Reintentos (consumidos por LLMAdapter — backoff EXPONENCIAL) ───
-    llm_max_retries: int = 3
+    llm_max_retries: int = 5
     llm_retry_wait_multiplier: float = 1.0
     llm_retry_wait_max: float = 30.0
     # wait = min(multiplier * 2^(intento-1), max)  → 1s, 2s, 4s ... hasta 30s
@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     # exceeds the model context window. DeepSeek-chat has a 64K context; keep a
     # safe margin for the generated summary. ~12000 tokens ≈ 48K chars.
     summary_chunk_tokens: int = 12000
+
+    # Instructor internal retries for JSON self-healing. When the LLM returns
+    # malformed JSON (trailing characters, etc.), instructor re-prompts with the
+    # parse error so it can recover. 0 disables self-healing (fragile); 3
+    # recovers most malformed outputs without exploding call volume.
+    llm_instructor_max_retries: int = 3
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -103,6 +109,15 @@ class Settings(BaseSettings):
         if not 1000 <= value <= 60000:
             raise ValueError(
                 f"summary_chunk_tokens ({value}) debe estar entre 1000 y 60000"
+            )
+        return value
+
+    @field_validator("llm_instructor_max_retries")
+    @classmethod
+    def _validate_llm_instructor_max_retries(cls, value: int) -> int:
+        if not 0 <= value <= 10:
+            raise ValueError(
+                f"llm_instructor_max_retries ({value}) debe estar entre 0 y 10"
             )
         return value
 
