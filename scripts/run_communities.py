@@ -106,7 +106,25 @@ async def _run_communities(
         for level, communities in assignments.items()
         for community_ids, parent_id in communities
     ]
-    summaries = await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # A single failed community must not abort the whole run. Keep the
+    # successful summaries and surface the failures so the graph stays useful.
+    summaries: list[CommunitySummary] = []
+    failed = 0
+    for result in results:
+        if isinstance(result, CommunitySummary):
+            summaries.append(result)
+        else:
+            failed += 1
+            click.echo(f"ERROR: community summary failed: {result}", err=True)
+
+    if failed:
+        click.echo(
+            f"WARNING: {failed}/{len(results)} communities failed; "
+            f"persisting {len(summaries)} successful summaries",
+            err=True,
+        )
 
     await write_port.clear_summaries()
     await write_port.upsert_summaries(list(summaries))

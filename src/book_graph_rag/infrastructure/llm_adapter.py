@@ -72,7 +72,8 @@ _SUMMARY_SYSTEM_PROMPT = (
     "for multi-agent systems.\n\n"
     "Given a community of related entities from the knowledge graph, write a concise "
     "summary (500–1000 tokens) that explains what the community represents.\n"
-    "Focus on the most important concepts, patterns, and relationships.\n"
+    "Focus on the most important concepts, patterns, and relationships.\n\n"
+    "Respond with a JSON object with a single field \"summary\" (string)."
 )
 
 _SCORE_SYSTEM_PROMPT = (
@@ -168,14 +169,15 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
 
         # Separate client for community-summary tasks, bound to the cheaper
         # community_model_name (which defaults to llm_model_name when unset).
-        # Use MD_JSON (not JSON mode): it is the SAME mode that extract_graph
-        # already uses successfully against DeepSeek, so we keep one proven path.
-        # JSON mode was switched earlier to dodge NVIDIA NIM dropping the markdown
-        # fence, but DeepSeek works reliably with MD_JSON.
+        # Use JSON mode (response_format={"type": "json_object"}): DeepSeek
+        # returns CLEAN JSON without a markdown fence, which avoids the
+        # MD_JSON fence-stripping failure we hit on _CommunitySummaryText
+        # (instructor received '```json ... ```' and failed to parse it).
+        # The 60s timeout below prevents the previous indefinite network hang.
         summary_model_name = settings.community_model_name or settings.llm_model_name
         self._summary_client = instructor.from_openai(
             AsyncOpenAI(base_url=settings.llm_base_url, api_key=api_key, timeout=60.0),
-            mode=instructor.Mode.MD_JSON,
+            mode=instructor.Mode.JSON,
         )
         self._summary_model_name = summary_model_name
 
