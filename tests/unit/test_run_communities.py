@@ -102,6 +102,10 @@ class _FakeLLMPort:
     ) -> str:
         return "answer"
 
+    async def generate_summary_from_children(self, child_summaries: list[str], level: int) -> str:
+        self.calls.append((level, child_summaries))
+        return f"Summary for level {level} from {len(child_summaries)} children"
+
 
 def test_build_cli_help(run_communities: Any) -> None:
     """The CLI exposes a ``run`` command with --help."""
@@ -278,6 +282,11 @@ def test_cli_run_invokes_orchestration(
             self, question: str, ranked: list[tuple[CommunitySummary, int]]
         ) -> str:
             return "answer"
+
+        async def generate_summary_from_children(
+            self, child_summaries: list[str], level: int
+        ) -> str:
+            return "summary"
 
     monkeypatch.setattr(run_communities, "Neo4jCommunityAdapter", FakeAdapter)
     monkeypatch.setattr(run_communities, "LLMAdapter", FakeLLM)

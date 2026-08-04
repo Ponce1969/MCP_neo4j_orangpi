@@ -42,6 +42,11 @@ class _FakeLLMSummaryPort(LLMSummaryPort):
         self.compose_calls.append((question, ranked))
         return self.answer
 
+    async def generate_summary_from_children(
+        self, child_summaries: list[str], level: int
+    ) -> str:
+        return f"level {level} summary"
+
 
 class _FakeCommunityReadPort(CommunityReadPort):
     """In-memory CommunityReadPort with configurable summaries."""

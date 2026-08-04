@@ -21,11 +21,25 @@ class LLMSummaryPort(abc.ABC):
         relationships: list[Relationship],
         level: int,
     ) -> str:
-        """Return a 500–1000 token summary for the given community.
+        """Return a 500–1000 token summary for a LEAF community.
 
-        ``level`` identifies the Leiden hierarchy level (0-3) of the community.
-        The implementation is free to ignore relationships/entities it cannot
-        summarize but must not mutate the inputs.
+        Used for the finest level (no child communities), where the input is the
+        raw entities/relationships of the community.  ``level`` identifies the
+        Leiden hierarchy level (0-3).
+        """
+        ...
+
+    @abc.abstractmethod
+    async def generate_summary_from_children(
+        self, child_summaries: list[str], level: int
+    ) -> str:
+        """Return a summary for a PARENT community from its children's summaries.
+
+        Implements the bottom-up map-reduce: a coarse community is summarized from
+        the already-synthesized texts of its immediately-finer child communities,
+        never from raw entities.  This keeps every LLM call within the context
+        window.  ``child_summaries`` is the list of ``summary`` texts of the
+        child CommunitySummary nodes (order is not significant).
         """
         ...
 

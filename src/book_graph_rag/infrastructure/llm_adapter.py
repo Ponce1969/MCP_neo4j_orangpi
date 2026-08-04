@@ -378,6 +378,20 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             raise RuntimeError("Community summary generation failed without raising")
         return response.summary
 
+    async def generate_summary_from_children(
+        self, child_summaries: list[str], level: int
+    ) -> str:
+        """Summarize a parent community from its children's summaries.
+
+        Bottom-up map-reduce: the input is already-synthesized child texts, never
+        raw entities, so each call stays within the context window.  Large parent
+        communities (many children) are chunked recursively by ``_summarize_blocks_recursive``.
+        """
+        if not child_summaries:
+            return ""
+        blocks = [f"Child community summary:\n{summary}" for summary in child_summaries]
+        return await self._summarize_blocks_recursive(blocks, level)
+
     async def score_community(self, question: str, summary: CommunitySummary) -> int:
         """Score a community summary for relevance to ``question``."""
         prompt = (

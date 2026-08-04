@@ -35,6 +35,9 @@ class _FakeLLMSummaryPort(LLMSummaryPort):
     async def compose_answer(self, question: str, ranked: list[Any]) -> str:
         return "answer"
 
+    async def generate_summary_from_children(self, child_summaries: list[Any], level: int) -> str:
+        return "summary"
+
 
 class _FakeGlobalQueryUseCase:
     """Configurable GlobalQueryUseCase stand-in for the MCP adapter."""

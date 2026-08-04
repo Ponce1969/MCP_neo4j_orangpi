@@ -79,6 +79,11 @@ class _CompleteLLMSummaryPort(LLMSummaryPort):
     ) -> str:
         return "answer"
 
+    async def generate_summary_from_children(
+        self, child_summaries: list[str], level: int
+    ) -> str:
+        return "summary"
+
 
 def test_llm_summary_port_complete_subclass_can_be_instantiated() -> None:
     """A subclass implementing the methods can be instantiated."""
