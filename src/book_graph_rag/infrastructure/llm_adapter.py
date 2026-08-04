@@ -180,6 +180,8 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             mode=instructor.Mode.JSON,
         )
         self._summary_model_name = summary_model_name
+        # Max input tokens per summary call; larger communities are chunked.
+        self._summary_chunk_tokens = settings.summary_chunk_tokens
 
         # Retry policy captured at construction time.
         self._retrying = AsyncRetrying(
@@ -296,19 +298,64 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         relationships: list[Relationship],
         level: int,
     ) -> str:
-        """Generate a concise natural-language summary for a community."""
-        entity_lines = "\n".join(
+        """Generate a concise natural-language summary for a community.
+
+        Large communities (e.g. level 0 = whole graph, or a 2000-entity blob)
+        would overflow the model context window in a single call.  To avoid that
+        we split the community into character-budgeted chunks, summarize each
+        chunk, and recursively combine the chunk summaries until the result fits
+        one call.  This is the map-reduce pattern: no single LLM call ever
+        exceeds ``summary_chunk_tokens``.
+        """
+        entity_lines = [
             f"- {entity.name} ({entity.type})" for entity in entities
-        )
-        relationship_lines = "\n".join(
+        ]
+        relationship_lines = [
             f"- {relationship.source_entity_id} --[{relationship.type}]--> "
             f"{relationship.target_entity_id}"
             for relationship in relationships
-        )
+        ]
+        blocks = entity_lines + relationship_lines
+        if not blocks:
+            return ""
+        return await self._summarize_blocks_recursive(blocks, level)
+
+    async def _summarize_blocks_recursive(self, blocks: list[str], level: int) -> str:
+        """Summarize ``blocks``, chunking recursively to stay within context."""
+        joined = "\n".join(blocks)
+        # Rough token estimate: ~4 chars per token.
+        estimated_tokens = len(joined) // 4
+        if estimated_tokens <= self._summary_chunk_tokens:
+            return await self._summarize_one(joined, level)
+
+        # Split into ~equal chunks by a character budget derived from the token
+        # limit.  Bound the number of chunks to avoid pathological splits.
+        budget_chars = self._summary_chunk_tokens * 4
+        chunks: list[str] = []
+        current = ""
+        for block in blocks:
+            if current and len(current) + len(block) + 1 > budget_chars:
+                chunks.append(current)
+                current = block
+            else:
+                current = f"{current}\n{block}" if current else block
+        if current:
+            chunks.append(current)
+
+        chunk_summaries = [
+            await self._summarize_one(chunk, level) for chunk in chunks
+        ]
+        # Combine the chunk summaries; recurse in case they still overflow.
+        combined_blocks = [
+            f"Sub-summary {i + 1}:\n{summary}" for i, summary in enumerate(chunk_summaries)
+        ]
+        return await self._summarize_blocks_recursive(combined_blocks, level)
+
+    async def _summarize_one(self, content: str, level: int) -> str:
+        """Single-shot summary call for one chunk of community content."""
         prompt = (
             f"Level: {level}\n\n"
-            f"Entities:\n{entity_lines}\n\n"
-            f"Relationships:\n{relationship_lines}\n\n"
+            f"Community items:\n{content}\n\n"
             "Write a concise summary of this community."
         )
 

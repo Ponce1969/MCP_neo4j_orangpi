@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     # Set to 0.0 to disable throttling (local Ollama or paid tiers).
     summary_request_delay: float = 0.0
 
+    # Max input tokens per summary LLM call. Communities larger than this are
+    # split into chunks (each summarized, then combined) so a single call never
+    # exceeds the model context window. DeepSeek-chat has a 64K context; keep a
+    # safe margin for the generated summary. ~12000 tokens ≈ 48K chars.
+    summary_chunk_tokens: int = 12000
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -88,6 +94,15 @@ class Settings(BaseSettings):
         if value < 1:
             raise ValueError(
                 f"community_max_calls ({value}) debe ser mayor o igual a 1"
+            )
+        return value
+
+    @field_validator("summary_chunk_tokens")
+    @classmethod
+    def _validate_summary_chunk_tokens(cls, value: int) -> int:
+        if not 1000 <= value <= 60000:
+            raise ValueError(
+                f"summary_chunk_tokens ({value}) debe estar entre 1000 y 60000"
             )
         return value
 
