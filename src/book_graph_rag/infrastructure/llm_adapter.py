@@ -157,21 +157,25 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             else "ollama"
         )
 
+        # Hard network deadline: without it a stalled API response hangs forever
+        # (no timeout => the coroutine never returns). 60s covers LLM + parse.
         raw_client = AsyncOpenAI(
             base_url=settings.llm_base_url,
             api_key=api_key,
+            timeout=60.0,
         )
         self._client = instructor.from_openai(raw_client, mode=instructor.Mode.MD_JSON)
 
         # Separate client for community-summary tasks, bound to the cheaper
         # community_model_name (which defaults to llm_model_name when unset).
-        # Use JSON mode instead of MD_JSON: NVIDIA NIM and other OpenAI-compatible
-        # APIs sometimes omit the markdown code fence that MD_JSON expects, which
-        # causes instructor to raise a ValidationError on every attempt.
+        # Use MD_JSON (not JSON mode): it is the SAME mode that extract_graph
+        # already uses successfully against DeepSeek, so we keep one proven path.
+        # JSON mode was switched earlier to dodge NVIDIA NIM dropping the markdown
+        # fence, but DeepSeek works reliably with MD_JSON.
         summary_model_name = settings.community_model_name or settings.llm_model_name
         self._summary_client = instructor.from_openai(
-            AsyncOpenAI(base_url=settings.llm_base_url, api_key=api_key),
-            mode=instructor.Mode.JSON,
+            AsyncOpenAI(base_url=settings.llm_base_url, api_key=api_key, timeout=60.0),
+            mode=instructor.Mode.MD_JSON,
         )
         self._summary_model_name = summary_model_name
 
@@ -201,7 +205,9 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                     ],
                     model=self._settings.llm_model_name,
                     # Disable instructor's internal retries; tenacity owns retry policy.
-                    max_retries=AsyncRetrying(stop=stop_after_attempt(1)),
+                    # Instructor internal retries disabled; tenacity owns the
+                    # retry policy (stop_after_attempt in self._retrying).
+                    max_retries=0,
                 )
 
         if extraction is None:  # pragma: no cover
@@ -267,7 +273,9 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                         {"role": "user", "content": failure_prompt},
                     ],
                     model=self._settings.llm_model_name,
-                    max_retries=AsyncRetrying(stop=stop_after_attempt(1)),
+                    # Instructor internal retries disabled; tenacity owns the
+                    # retry policy (stop_after_attempt in self._retrying).
+                    max_retries=0,
                 )
 
         if response is None:  # pragma: no cover
@@ -312,7 +320,9 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                         {"role": "user", "content": prompt},
                     ],
                     model=self._summary_model_name,
-                    max_retries=AsyncRetrying(stop=stop_after_attempt(1)),
+                    # Instructor internal retries disabled; tenacity owns the
+                    # retry policy (stop_after_attempt in self._retrying).
+                    max_retries=0,
                 )
 
         if response is None:  # pragma: no cover
@@ -337,7 +347,9 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                         {"role": "user", "content": prompt},
                     ],
                     model=self._summary_model_name,
-                    max_retries=AsyncRetrying(stop=stop_after_attempt(1)),
+                    # Instructor internal retries disabled; tenacity owns the
+                    # retry policy (stop_after_attempt in self._retrying).
+                    max_retries=0,
                 )
 
         if response is None:  # pragma: no cover
@@ -372,7 +384,9 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                         {"role": "user", "content": prompt},
                     ],
                     model=self._summary_model_name,
-                    max_retries=AsyncRetrying(stop=stop_after_attempt(1)),
+                    # Instructor internal retries disabled; tenacity owns the
+                    # retry policy (stop_after_attempt in self._retrying).
+                    max_retries=0,
                 )
 
         if response is None:  # pragma: no cover

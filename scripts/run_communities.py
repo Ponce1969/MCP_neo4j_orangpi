@@ -68,10 +68,12 @@ async def _run_communities(
 
     assignments = assign_parent_ids(communities_by_level)
     semaphore = asyncio.Semaphore(settings.summary_max_concurrency)
+    done_counter = 0
 
     async def _summarize(
         level: int, community_ids: list[str], parent_id: str | None
     ) -> CommunitySummary:
+        nonlocal done_counter
         community_ids_set = set(community_ids)
         community_entities = [entity_map[eid] for eid in community_ids if eid in entity_map]
         community_relationships = [
@@ -81,6 +83,12 @@ async def _run_communities(
             and relationship.target_entity_id in community_ids_set
         ]
         async with semaphore:
+            done_counter += 1
+            click.echo(
+                f"[{done_counter}/{total_communities}] summarizing "
+                f"level {level} community ({len(community_ids)} entities)",
+                err=True,
+            )
             summary_text = await llm_port.generate_community_summary(
                 community_entities, community_relationships, level
             )
