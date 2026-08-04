@@ -160,10 +160,16 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
 
         # Hard network deadline: without it a stalled API response hangs forever
         # (no timeout => the coroutine never returns). 60s covers LLM + parse.
+        # max_retries=0: the OpenAI SDK default is 2, which would retry transport
+        # errors IMMEDIATELY on top of instructor's and tenacity's retries,
+        # producing a burst of calls that worsens 503/429 saturation. Tenacity
+        # (self._retrying) is the sole authority for transport retries, with
+        # exponential backoff.
         raw_client = AsyncOpenAI(
             base_url=settings.llm_base_url,
             api_key=api_key,
             timeout=60.0,
+            max_retries=0,
         )
         self._client = instructor.from_openai(raw_client, mode=instructor.Mode.MD_JSON)
 
@@ -176,7 +182,12 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         # The 60s timeout below prevents the previous indefinite network hang.
         summary_model_name = settings.community_model_name or settings.llm_model_name
         self._summary_client = instructor.from_openai(
-            AsyncOpenAI(base_url=settings.llm_base_url, api_key=api_key, timeout=60.0),
+            AsyncOpenAI(
+                base_url=settings.llm_base_url,
+                api_key=api_key,
+                timeout=60.0,
+                max_retries=0,
+            ),
             mode=instructor.Mode.JSON,
         )
         self._summary_model_name = summary_model_name

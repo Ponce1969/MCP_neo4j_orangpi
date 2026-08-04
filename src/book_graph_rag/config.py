@@ -55,11 +55,13 @@ class Settings(BaseSettings):
     # safe margin for the generated summary. ~12000 tokens ≈ 48K chars.
     summary_chunk_tokens: int = 12000
 
-    # Instructor internal retries for JSON self-healing. When the LLM returns
+    # Instructor internal retries for JSON self-healing only. When the LLM returns
     # malformed JSON (trailing characters, etc.), instructor re-prompts with the
-    # parse error so it can recover. 0 disables self-healing (fragile); 3
-    # recovers most malformed outputs without exploding call volume.
-    llm_instructor_max_retries: int = 3
+    # parse error so it can recover. Keep this LOW (1): transport errors (503/429/
+    # timeout) are retried by tenacity with exponential backoff, and the OpenAI SDK
+    # client is configured with max_retries=0. A high value here would burst retries
+    # immediately on a saturated endpoint, worsening 503 storms.
+    llm_instructor_max_retries: int = 1
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -139,10 +139,11 @@ class _FakeChat:
 class _FakeAsyncOpenAI(AsyncOpenAI):
     """AsyncOpenAI stand-in that bypasses network setup and returns fake completions."""
 
-    def __init__(self, *, base_url: str, api_key: str, timeout: float = 60.0, fail_count: int = 0) -> None:
+    def __init__(self, *, base_url: str, api_key: str, timeout: float = 60.0, max_retries: int = 0, fail_count: int = 0) -> None:
         self.base_url = base_url
         self.api_key = api_key
         self.timeout = timeout
+        self.max_retries = max_retries
         self.chat = _FakeChat(_FakeCompletions(fail_count=fail_count))
 
 
@@ -155,12 +156,13 @@ class _FakeAsyncOpenAIFactory:
         self._last_instance: _FakeAsyncOpenAI | None = None
         self._instances: list[_FakeAsyncOpenAI] = []
 
-    def __call__(self, *, base_url: str, api_key: str, timeout: float = 60.0) -> _FakeAsyncOpenAI:
-        self.last_kwargs = {"base_url": base_url, "api_key": api_key, "timeout": timeout}
+    def __call__(self, *, base_url: str, api_key: str, timeout: float = 60.0, max_retries: int = 0) -> _FakeAsyncOpenAI:
+        self.last_kwargs = {"base_url": base_url, "api_key": api_key, "timeout": timeout, "max_retries": max_retries}
         self._last_instance = _FakeAsyncOpenAI(
             base_url=base_url,
             api_key=api_key,
             timeout=timeout,
+            max_retries=max_retries,
             fail_count=self.fail_count,
         )
         self._instances.append(self._last_instance)
