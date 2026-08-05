@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import warnings
 
 import click
 
@@ -41,6 +42,14 @@ from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.ports.community_read_port import CommunityReadPort
 from book_graph_rag.ports.community_write_port import CommunityWritePort
 from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
+
+# Third-party warnings that add no signal to the community pipeline output are
+# suppressed so the terminal stays clean:
+# - numba: FNV hashing falls back to siphash24 (internal, harmless).
+# - graspologic: Leiden excludes degree-0 (isolated) nodes from its partitions;
+#   those nodes are still covered by the level-0 global summary.
+warnings.filterwarnings("ignore", category=UserWarning, module="numba.*")
+warnings.filterwarnings("ignore", category=UserWarning, module="graspologic.*")
 
 # Resolutions for Leiden levels 1-3.  Level 0 is the whole graph.
 _LEIDEN_RESOLUTIONS = [0.1, 0.5, 1.0]
@@ -236,6 +245,7 @@ async def _run_main(fresh: bool = False) -> None:
     adapter = Neo4jCommunityAdapter(settings)
     llm_port: LLMSummaryPort = LLMAdapter(settings)
     try:
+        await adapter.ensure_indexes()
         await _run_communities(adapter, adapter, llm_port, settings, fresh=fresh)
     finally:
         await adapter.close()

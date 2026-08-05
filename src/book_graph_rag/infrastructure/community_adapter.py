@@ -37,6 +37,20 @@ class Neo4jCommunityAdapter(CommunityReadPort, CommunityWritePort):
         """Close the underlying Neo4j driver."""
         await self._driver.close()
 
+    async def ensure_indexes(self) -> None:
+        """Create the index backing ``:CommunitySummary`` checkpoint lookups.
+
+        Idempotent (``IF NOT EXISTS``). Also registers the label in Neo4j's
+        schema so checkpoint queries don't emit an unknown-label notification
+        on the first run before any summary has been written.
+        """
+        async with self._driver.session() as session:
+            result = await session.run(
+                "CREATE INDEX community_summary_level IF NOT EXISTS "
+                "FOR (c:CommunitySummary) ON (c.level)"
+            )
+            await result.consume()
+
     async def load_entity_graph(self) -> tuple[list[Entity], list[Relationship]]:
         """Read all :Entity nodes and :RELATED edges from the base graph."""
         async with self._driver.session() as session:
