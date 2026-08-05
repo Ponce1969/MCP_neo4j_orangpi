@@ -64,7 +64,14 @@ _SYSTEM_PROMPT = (
     "- Set source_page to the chunk's starting page when the entity/relationship "
     "is mentioned there.\n"
     "- Keep descriptions concise but informative.\n"
-    "- Relationships must connect entities that appear in the same chunk.\n"
+    "- Every relationship must connect two entities you extracted from the same "
+    "chunk, and must be directly supported by the text (never invent links).\n"
+    "- Connect EVERY extracted entity to at least one other entity in the chunk. "
+    "Orphaned entities (extracted but never related) lose their place in the graph "
+    "and cannot be clustered, so prefer emitting a plausible, text-grounded "
+    "relationship for each one - even for secondary or supporting concepts. If a "
+    "link is loose, pick the closest valid type (e.g. composes/requires/enables) "
+    "instead of leaving it unconnected.\n"
 )
 
 _SUMMARY_SYSTEM_PROMPT = (
