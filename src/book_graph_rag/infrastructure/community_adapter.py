@@ -97,6 +97,22 @@ class Neo4jCommunityAdapter(CommunityReadPort, CommunityWritePort):
 
             return entities, relationships
 
+    async def get_isolated_entities(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Return ``:Entity`` nodes with no ``:RELATED`` edges (degree 0).
+
+        Isolated entities are excluded by Leiden and only covered by the level-0
+        global summary. Useful for spotting extraction noise vs. orphaned entities
+        that should have been related during ingestion.
+        """
+        async with self._driver.session() as session:
+            result = await session.run(
+                "MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() "
+                "RETURN e.name AS name, e.type AS type "
+                "LIMIT $limit",
+                {"limit": limit},
+            )
+            return [record.data() async for record in result]
+
     async def get_summaries_by_level(self, level: int) -> list[CommunitySummary]:
         """Return all :CommunitySummary nodes for the given level."""
         async with self._driver.session() as session:
