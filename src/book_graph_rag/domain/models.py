@@ -137,7 +137,10 @@ class GraphQuery(BaseModel):
     """Base for all read-side graph queries; discriminated by ``type``."""
 
     model_config = ConfigDict()
-    type: Literal["entity", "relation", "path", "similarity", "batch_entity"]
+    type: Literal[
+        "entity", "relation", "path", "similarity", "batch_entity",
+        "community", "text2cypher",
+    ]
 
 
 class EntityQuery(GraphQuery):
@@ -182,8 +185,34 @@ class BatchEntityQuery(GraphQuery):
     ids: list[str]
 
 
+class CommunityQuery(GraphQuery):
+    """Retrieve community summaries for global, high-level questions.
+
+    Community summaries are Leiden-derived hierarchical clusters (level 0–3)
+    persisted as ``:CommunitySummary`` nodes in Neo4j.
+    """
+
+    type: Literal["community"] = "community"
+    level: int = Field(ge=0, le=3, default=1)
+    keyword: str | None = None
+    top_k: int = 5
+
+
+class Text2CypherQuery(GraphQuery):
+    """Free-text question transformed into a Cypher MATCH query by the LLM.
+
+    ``validated_cypher`` is populated by the text-to-Cypher adapter after
+    syntactic validation (EXPLAIN) and safety guard (read-only check).
+    """
+
+    type: Literal["text2cypher"] = "text2cypher"
+    natural_language: str
+    validated_cypher: str | None = None
+
+
 GraphQueryUnion = Annotated[
-    EntityQuery | RelationQuery | PathQuery | SimilarityQuery | BatchEntityQuery,
+    EntityQuery | RelationQuery | PathQuery | SimilarityQuery | BatchEntityQuery
+    | CommunityQuery | Text2CypherQuery,
     Field(discriminator="type"),
 ]
 
@@ -225,6 +254,7 @@ class GraphQueryResult(BaseModel):
     relationships: list[Relationship] = []
     paths: list[GraphPath] = []
     chunks: list[dict[str, Any]] = []
+    community_summaries: list[CommunitySummary] = []
     metadata: QueryMetadata
 
 

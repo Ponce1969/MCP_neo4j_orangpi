@@ -94,5 +94,15 @@ class QueryKnowledgeGraphUseCase:
             case "similarity":
                 raise UnsupportedQueryTypeError("similarity")
 
+            case "community":
+                raise UnsupportedQueryTypeError(
+                    "community (use GlobalQueryUseCase.ask for community queries)"
+                )
+
+            case "text2cypher":
+                raise UnsupportedQueryTypeError(
+                    "text2cypher (use Text2CypherAdapter for NL-to-Cypher queries)"
+                )
+
             case unknown_type:
                 raise UnsupportedQueryTypeError(str(unknown_type))
