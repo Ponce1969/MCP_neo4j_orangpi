@@ -33,11 +33,41 @@ from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
 
 logger = logging.getLogger(__name__)
 
+_TERMINOLOGY_MAPPING = (
+    "Terminology mapping (natural language → schema):\n"
+    "- \"agente\" / \"agent\" → :Entity {type: 'agent'}\n"
+    "- \"patrón\" / \"pattern\" → :Entity {type: 'pattern'}\n"
+    "- \"componente\" / \"component\" → :Entity {type: 'component'}\n"
+    "- \"concepto\" / \"concept\" → :Entity {type: 'concept'}\n"
+    "- \"herramienta\" / \"tool\" → :Entity {type: 'tool'}\n"
+    "- \"framework\" → :Entity {type: 'framework'}\n"
+    "- \"MCP\" → :Entity {type: 'mcp'}\n"
+    "- \"LLMOps\" / \"MLOps\" → :Entity {type: 'llmops'}\n"
+    "- \"riesgo\" / \"risk\" / \"vulnerability\" → :Entity {type: 'risk'}\n"
+    "- \"usa\" / \"needs\" / \"requires\" → "
+    "[:RELATED {type: 'requires'}]\n"
+    "- \"alternativa a\" / \"vs\" / \"alternative to\" → "
+    "[:RELATED {type: 'alternative_to'}]\n"
+    "- \"compone\" / \"part of\" / \"composes\" → "
+    "[:RELATED {type: 'composes'}]\n"
+    "- \"extiende\" / \"inherits\" / \"extends\" → "
+    "[:RELATED {type: 'extends'}]\n"
+    "- \"habilita\" / \"enables\" / \"allows\" → "
+    "[:RELATED {type: 'enables'}]\n"
+    "- \"depende de\" / \"depends on\" → "
+    "[:RELATED {type: 'depends_on'}]\n"
+    "- \"contrasta con\" / \"differs from\" / \"contrasts with\" → "
+    "[:RELATED {type: 'contrasts_with'}]\n"
+    "- \"evoluciona a\" / \"evolves to\" → "
+    "[:RELATED {type: 'evolves_to'}]\n"
+)
+
 _SYSTEM_PROMPT_CYPHER = (
     "You are a Cypher expert for a Neo4j knowledge graph about agentic "
     "architectural patterns for multi-agent systems.\n\n"
     "Graph schema:\n"
     "{schema}\n\n"
+    "{terminology_mapping}\n\n"
     "Rules:\n"
     "- Generate a single Cypher query that answers the user's question.\n"
     "- Use ONLY the labels and relationship types in the schema.\n"
@@ -278,7 +308,9 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         self, schema: str, question: str, failure: CypherFailureContext | None
     ) -> str:
         """Generate a read-only Cypher query from ``question`` and ``schema``."""
-        system_prompt = _SYSTEM_PROMPT_CYPHER.format(schema=schema)
+        system_prompt = _SYSTEM_PROMPT_CYPHER.format(
+            schema=schema, terminology_mapping=_TERMINOLOGY_MAPPING
+        )
         user_prompt = f"Question: {question}"
         failure_prompt = ""
         if failure is not None:
