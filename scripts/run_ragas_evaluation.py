@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from pydantic import BaseModel
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.config import Settings
@@ -37,8 +38,6 @@ from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapte
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.ports.community_read_port import CommunityReadPort
-
-from pydantic import BaseModel
 
 
 class _ProxyAnswer(BaseModel):
@@ -270,11 +269,14 @@ def main(dataset: str, detail_level: int, no_ragas: bool) -> None:
             )
         return results
 
-    try:
-        results = asyncio.run(_eval_all())
-    finally:
-        asyncio.run(community_adapter.close())
-        asyncio.run(query_adapter.close())
+    async def _run() -> list[dict[str, Any]]:
+        try:
+            return await _eval_all()
+        finally:
+            await community_adapter.close()
+            await query_adapter.close()
+
+    results = asyncio.run(_run())
 
     # Persist raw tuples for reproducibility.
     with open(_RESULTS_OUTPUT, "w", encoding="utf-8") as f:
