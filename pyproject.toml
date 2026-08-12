@@ -31,6 +31,9 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.23",  # 🔧 añadido: casos de uso async requieren plugin asyncio
     "pre-commit>=3.8",
+    "ragas>=0.2",
+    "datasets>=3.0",
+    "langchain-openai>=0.3",
 ]
 
 [project.scripts]
