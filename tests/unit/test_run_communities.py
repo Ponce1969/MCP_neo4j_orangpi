@@ -252,6 +252,9 @@ def test_cli_run_invokes_orchestration(
             self._settings = settings
             calls.append("adapter")
 
+        async def ensure_indexes(self) -> None:
+            calls.append("ensure_indexes")
+
         async def close(self) -> None:
             calls.append("close")
 
@@ -304,6 +307,7 @@ def test_cli_run_invokes_orchestration(
 
     assert result.exit_code == 0, result.output
     assert "adapter" in calls
+    assert "ensure_indexes" in calls
     assert "clear" in calls
     assert "upsert_summary" in calls
     assert "close" in calls
