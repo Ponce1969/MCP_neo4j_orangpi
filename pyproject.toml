@@ -34,6 +34,7 @@ dev = [
     "ragas>=0.2",
     "datasets>=3.0",
     "langchain-openai>=0.3",
+    "sentence-transformers>=3.0",  # embeddings locales para AnswerRelevancy (ragas 0.4)
 ]
 
 [project.scripts]

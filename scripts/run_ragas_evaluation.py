@@ -35,10 +35,7 @@ from pydantic import BaseModel
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.config import Settings
 from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
-from book_graph_rag.infrastructure.llm_adapter import (
-    LLMAdapter,
-    _escape_json_string_control_chars,
-)
+from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.ports.community_read_port import CommunityReadPort
 
@@ -56,6 +53,11 @@ _RESULTS_OUTPUT = "evaluation_results.jsonl"
 _BENCHMARK_DIR = Path("docs") / "benchmarks"
 _BASELINE_OUTPUT = _BENCHMARK_DIR / "gr3_baseline.json"
 
+# Local embedding model for AnswerRelevancy: DeepSeek offers no embeddings
+# API, and a remote embedder would add rate-limit flakiness to a baseline we
+# re-run after every change. all-MiniLM-L6-v2 is small, CPU-only, and stable.
+_EMBEDDINGS_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -71,9 +73,7 @@ def _load_dataset(path: str) -> list[dict[str, str]]:
     return samples
 
 
-async def _proxy_compose(
-    llm_adapter: LLMAdapter, question: str, contexts: list[str]
-) -> str:
+async def _proxy_compose(llm_adapter: LLMAdapter, question: str, contexts: list[str]) -> str:
     """Generate a short NL answer from retrieved contexts.
 
     This is the proxy for entity-level questions — the real system returns
@@ -130,9 +130,7 @@ async def _evaluate_local(
 
     contexts: list[str] = []
     if isinstance(chunks, list):
-        contexts.extend(
-            c.get("text", "") for c in chunks if isinstance(c, dict) and c.get("text")
-        )
+        contexts.extend(c.get("text", "") for c in chunks if isinstance(c, dict) and c.get("text"))
     if isinstance(entities, list):
         contexts.extend(
             f"{e.entity.name}: {e.entity.description}"
@@ -153,17 +151,17 @@ def _run_ragas(
 ) -> Any:  # ragas returns EvaluationResult (a dict-like dataclass)
     """Compute Faithfulness, AnswerRelevancy, and ContextPrecision.
 
-    Returns a dict with per-metric averages and per-question scores.
-    Requires ``ragas`` and ``langchain-openai`` in the dev group.
+    Requires ``ragas`` in the dev group.
     """
     try:
         from datasets import Dataset
-        from langchain_openai import ChatOpenAI
+        from openai import AsyncOpenAI
         from ragas import evaluate
-        from ragas.llms import LangchainLLMWrapper
-        from ragas.metrics import (
+        from ragas.embeddings import HuggingFaceEmbeddings
+        from ragas.llms import llm_factory
+        from ragas.metrics.collections import (
             AnswerRelevancy,
-            ContextPrecision,
+            ContextPrecisionWithoutReference,
             Faithfulness,
         )
     except ImportError as exc:
@@ -175,42 +173,32 @@ def _run_ragas(
         sys.exit(1)
 
     api_key: str = (
-        settings.llm_api_key.get_secret_value()
-        if settings.llm_api_key is not None
-        else "ollama"
+        settings.llm_api_key.get_secret_value() if settings.llm_api_key is not None else "ollama"
     )
-    class _SanitizingChatOpenAI(ChatOpenAI):
-        """ChatOpenAI whose outputs escape raw control chars before ragas parses them.
 
-        RAGAS metrics parse the LLM's JSON with strict parsers; the same
-        NIM/model defect that broke instructor calls (raw newlines inside JSON
-        string values) would break metric scoring. Escaping before ragas sees
-        the text makes the metric LLM as robust as the retrieval one.
-        """
-
-        def _generate(
-            self,
-            messages: list[Any],
-            stop: list[str] | None = None,
-            run_manager: Any = None,
-            **kwargs: Any,
-        ) -> Any:
-            result = super()._generate(
-                messages, stop=stop, run_manager=run_manager, **kwargs
-            )
-            for generation_list in result.generations:
-                for generation in generation_list:
-                    generation.text = _escape_json_string_control_chars(generation.text)
-            return result
-
-    eval_llm = LangchainLLMWrapper(
-        _SanitizingChatOpenAI(
-            model=settings.llm_model_name,
+    # ragas 0.4 collections metrics only accept the instructor-based LLM from
+    # llm_factory. The judge is the project model (deepseek-chat); if a future
+    # judge ever emits raw control chars inside JSON (the NIM flash defect),
+    # wrap this client with a sanitizing proxy before handing it over.
+    eval_llm = llm_factory(
+        settings.llm_model_name,
+        client=AsyncOpenAI(
             base_url=settings.llm_base_url,
             api_key=api_key,  # type: ignore[arg-type]
-            temperature=0,
-        )
+        ),
+        temperature=0,
     )
+
+    try:
+        embeddings = HuggingFaceEmbeddings(model=_EMBEDDINGS_MODEL)
+    except ImportError as exc:
+        click.echo(
+            f"Local embeddings backend not available ({exc}).  Run "
+            "`uv sync --group dev` to install sentence-transformers and "
+            "try again.",
+            err=True,
+        )
+        sys.exit(1)
 
     metric_rows = [r for r in results if r.get("answer") is not None]
     if not metric_rows:
@@ -232,11 +220,20 @@ def _run_ragas(
         ]
     )
 
-    metrics = [Faithfulness(), AnswerRelevancy(), ContextPrecision()]
-    for m in metrics:
-        m.llm = eval_llm
+    # ContextPrecision (with reference) demands a ``reference`` ground-truth
+    # column, which the curated dataset does not carry. Synthesizing references
+    # from the same retrieval would be circular and inflate precision; the
+    # without-reference variant judges context relevance against the question
+    # alone and is the honest baseline while no human reference set exists.
+    metrics = [
+        Faithfulness(llm=eval_llm),
+        AnswerRelevancy(llm=eval_llm, embeddings=embeddings),
+        ContextPrecisionWithoutReference(llm=eval_llm),
+    ]
 
-    return evaluate(dataset, metrics=metrics)
+    # ragas's own typing: v2 collections metrics are BaseMetric while evaluate()
+    # annotates Sequence[Metric]; the classes it accepts are exactly these.
+    return evaluate(dataset, metrics=metrics)  # type: ignore[arg-type]
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
@@ -244,18 +241,21 @@ def _run_ragas(
 
 @click.command()
 @click.option(
-    "--dataset", "-d",
+    "--dataset",
+    "-d",
     default=_DEFAULT_DATASET,
     help="Path to the curated evaluation dataset (JSONL)",
 )
 @click.option(
-    "--detail-level", "-l",
+    "--detail-level",
+    "-l",
     default=1,
     type=click.IntRange(0, 3),
     help="Community summary level for global questions (0-3)",
 )
 @click.option(
-    "--no-ragas", is_flag=True,
+    "--no-ragas",
+    is_flag=True,
     help="Skip RAGAS metric computation (only generate result tuples)",
 )
 def main(dataset: str, detail_level: int, no_ragas: bool) -> None:
@@ -282,18 +282,21 @@ def main(dataset: str, detail_level: int, no_ragas: bool) -> None:
         for i, sample in enumerate(samples, 1):
             qtype = sample["type"]
             question = sample["question"]
-            click.echo(
-                f"[{i}/{total}] {qtype}: {question[:80]}{'…' if len(question) > 80 else ''}"
-            )
+            click.echo(f"[{i}/{total}] {qtype}: {question[:80]}{'…' if len(question) > 80 else ''}")
 
             try:
                 if qtype == "global":
                     answer, contexts = await _evaluate_global(
-                        question, global_uc, community_adapter, detail_level,
+                        question,
+                        global_uc,
+                        community_adapter,
+                        detail_level,
                     )
                 else:
                     answer, contexts = await _evaluate_local(
-                        question, query_adapter, llm_adapter,
+                        question,
+                        query_adapter,
+                        llm_adapter,
                     )
             except Exception as exc:  # noqa: BLE001 — one bad question must not kill the batch
                 click.echo(f"  FAILED: {type(exc).__name__}: {exc}", err=True)
