@@ -38,3 +38,8 @@ Thumbs.db
 .vscode/
 *.swp
 .atl/
+
+# ── Eval runtime artifacts (regenerable — datasets ARE committed) ───────
+logs/
+*.log
+evaluation_results.jsonl
