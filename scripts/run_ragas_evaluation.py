@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +36,10 @@ from pydantic import BaseModel
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.config import Settings
 from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
-from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
+from book_graph_rag.infrastructure.llm_adapter import (
+    LLMAdapter,
+    _escape_json_string_control_chars,
+)
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.ports.community_read_port import CommunityReadPort
 
@@ -151,19 +155,19 @@ def _run_ragas(
 ) -> Any:  # ragas returns EvaluationResult (a dict-like dataclass)
     """Compute Faithfulness, AnswerRelevancy, and ContextPrecision.
 
-    Requires ``ragas`` in the dev group.
+    ragas 0.4.3 note: ``evaluate()`` only accepts v1 ``Metric`` objects — the
+    v2 ``collections`` metrics fail its isinstance gate — so we import the v1
+    classes (the same ones behind the deprecated public re-exports, hence the
+    targeted warning filter) and pair them with a local embedding model.
+
+    Requires ``ragas`` and ``langchain-openai`` in the dev group.
     """
     try:
         from datasets import Dataset
-        from openai import AsyncOpenAI
+        from langchain_openai import ChatOpenAI
         from ragas import evaluate
         from ragas.embeddings import HuggingFaceEmbeddings
-        from ragas.llms import llm_factory
-        from ragas.metrics.collections import (
-            AnswerRelevancy,
-            ContextPrecisionWithoutReference,
-            Faithfulness,
-        )
+        from ragas.llms import LangchainLLMWrapper
     except ImportError as exc:
         click.echo(
             f"RAGAS not available ({exc}).  Run `uv sync --group dev` and "
@@ -176,17 +180,56 @@ def _run_ragas(
         settings.llm_api_key.get_secret_value() if settings.llm_api_key is not None else "ollama"
     )
 
-    # ragas 0.4 collections metrics only accept the instructor-based LLM from
-    # llm_factory. The judge is the project model (deepseek-chat); if a future
-    # judge ever emits raw control chars inside JSON (the NIM flash defect),
-    # wrap this client with a sanitizing proxy before handing it over.
-    eval_llm = llm_factory(
-        settings.llm_model_name,
-        client=AsyncOpenAI(
+    class _SanitizingChatOpenAI(ChatOpenAI):
+        """ChatOpenAI whose outputs escape raw control chars before ragas parses them.
+
+        RAGAS metrics parse the LLM's JSON with strict parsers; the same
+        NIM/model defect that broke instructor calls (raw newlines inside JSON
+        string values) would break metric scoring. Escaping before ragas sees
+        the text makes the metric LLM as robust as the retrieval one.
+        """
+
+        def _generate(
+            self,
+            messages: list[Any],
+            stop: list[str] | None = None,
+            run_manager: Any = None,
+            **kwargs: Any,
+        ) -> Any:
+            result = super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+            for generation_list in result.generations:
+                for generation in generation_list:
+                    # langchain types generations loosely; .text is the payload
+                    raw_text = generation.text  # type: ignore[attr-defined]
+                    generation.text = _escape_json_string_control_chars(  # type: ignore[attr-defined]
+                        raw_text
+                    )
+            return result
+
+    with warnings.catch_warnings():
+        # The public ragas.metrics names are the v1 classes evaluate() accepts;
+        # they are re-exported with a deprecation warning we do not need.
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Importing .* from 'ragas\.metrics' is deprecated.*",
+        )
+        from ragas.metrics import (  # noqa: F811 — re-import under the filter
+            AnswerRelevancy as _AnswerRelevancy,
+        )
+        from ragas.metrics import (
+            Faithfulness as _Faithfulness,
+        )
+        from ragas.metrics import (
+            LLMContextPrecisionWithoutReference as _LLMContextPrecisionWithoutReference,
+        )
+
+    eval_llm = LangchainLLMWrapper(
+        _SanitizingChatOpenAI(
+            model=settings.llm_model_name,
             base_url=settings.llm_base_url,
             api_key=api_key,  # type: ignore[arg-type]
-        ),
-        temperature=0,
+            temperature=0,
+        )
     )
 
     try:
@@ -226,14 +269,14 @@ def _run_ragas(
     # without-reference variant judges context relevance against the question
     # alone and is the honest baseline while no human reference set exists.
     metrics = [
-        Faithfulness(llm=eval_llm),
-        AnswerRelevancy(llm=eval_llm, embeddings=embeddings),
-        ContextPrecisionWithoutReference(llm=eval_llm),
+        _Faithfulness(llm=eval_llm),
+        _AnswerRelevancy(llm=eval_llm, embeddings=embeddings),
+        _LLMContextPrecisionWithoutReference(llm=eval_llm),
     ]
 
     # ragas's own typing: v2 collections metrics are BaseMetric while evaluate()
     # annotates Sequence[Metric]; the classes it accepts are exactly these.
-    return evaluate(dataset, metrics=metrics)  # type: ignore[arg-type]
+    return evaluate(dataset, metrics=metrics)
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
