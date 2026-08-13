@@ -158,16 +158,19 @@ def _run_ragas(
     ragas 0.4.3 note: ``evaluate()`` only accepts v1 ``Metric`` objects — the
     v2 ``collections`` metrics fail its isinstance gate — so we import the v1
     classes (the same ones behind the deprecated public re-exports, hence the
-    targeted warning filter) and pair them with a local embedding model.
+    targeted warning filter) and pair them with a langchain-compatible local
+    embedding model (v1 AnswerRelevancy calls embed_query/embed_documents).
 
-    Requires ``ragas`` and ``langchain-openai`` in the dev group.
+    Requires ``ragas``, ``langchain-openai`` and ``langchain-huggingface`` in
+    the dev group.
     """
     try:
         from datasets import Dataset
+        from langchain_huggingface import HuggingFaceEmbeddings as LangchainHFEmbeddings
         from langchain_openai import ChatOpenAI
         from ragas import evaluate
-        from ragas.embeddings import HuggingFaceEmbeddings
         from ragas.llms import LangchainLLMWrapper
+        from ragas.run_config import RunConfig
     except ImportError as exc:
         click.echo(
             f"RAGAS not available ({exc}).  Run `uv sync --group dev` and "
@@ -229,15 +232,17 @@ def _run_ragas(
             base_url=settings.llm_base_url,
             api_key=api_key,  # type: ignore[arg-type]
             temperature=0,
+            timeout=300.0,
+            max_retries=2,
         )
     )
 
     try:
-        embeddings = HuggingFaceEmbeddings(model=_EMBEDDINGS_MODEL)
+        embeddings = LangchainHFEmbeddings(model_name=_EMBEDDINGS_MODEL)
     except ImportError as exc:
         click.echo(
             f"Local embeddings backend not available ({exc}).  Run "
-            "`uv sync --group dev` to install sentence-transformers and "
+            "`uv sync --group dev` to install langchain-huggingface and "
             "try again.",
             err=True,
         )
@@ -276,7 +281,14 @@ def _run_ragas(
 
     # ragas's own typing: v2 collections metrics are BaseMetric while evaluate()
     # annotates Sequence[Metric]; the classes it accepts are exactly these.
-    return evaluate(dataset, metrics=metrics)
+    return evaluate(
+        dataset,
+        metrics=metrics,
+        # Slow-but-successful deepseek responses must not be killed by the
+        # executor's default 180s timeout, and 16 parallel n=3 calls would
+        # saturate the API from a home connection.
+        run_config=RunConfig(timeout=600, max_retries=3, max_wait=90, max_workers=4),
+    )
 
 
 # ── Main ───────────────────────────────────────────────────────────────────

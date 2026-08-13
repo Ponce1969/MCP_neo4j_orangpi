@@ -35,6 +35,7 @@ dev = [
     "datasets>=3.0",
     "langchain-openai>=0.3",
     "sentence-transformers>=3.0",  # embeddings locales para AnswerRelevancy (ragas 0.4)
+    "langchain-huggingface>=0.3",
 ]
 
 [project.scripts]
