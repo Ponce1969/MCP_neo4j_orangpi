@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
+from typing import Any, cast
 
 import instructor
 from openai import AsyncOpenAI
@@ -74,6 +76,8 @@ _SYSTEM_PROMPT_CYPHER = (
     "- The query MUST be read-only (MATCH/RETURN/WHERE/CALL db.index.*).\n"
     "- The query MUST include a LIMIT 100 clause.\n"
     "- If a previous query failed, fix it using the error message.\n"
+    "- Emit valid JSON: escape newlines inside string values as \\n, "
+    "never raw control characters.\n"
 )
 
 _SYSTEM_PROMPT = (
@@ -102,6 +106,8 @@ _SYSTEM_PROMPT = (
     "relationship for each one - even for secondary or supporting concepts. If a "
     "link is loose, pick the closest valid type (e.g. composes/requires/enables) "
     "instead of leaving it unconnected.\n"
+    "- Emit valid JSON: escape newlines inside string values as \\n, "
+    "never raw control characters.\n"
 )
 
 _SUMMARY_SYSTEM_PROMPT = (
@@ -110,7 +116,8 @@ _SUMMARY_SYSTEM_PROMPT = (
     "Given a community of related entities from the knowledge graph, write a concise "
     "summary (500–1000 tokens) that explains what the community represents.\n"
     "Focus on the most important concepts, patterns, and relationships.\n\n"
-    "Respond with a JSON object with a single field \"summary\" (string)."
+    "Respond with ONLY the summary text: plain text, no JSON, no markdown fences, "
+    "no headings."
 )
 
 _SCORE_SYSTEM_PROMPT = (
@@ -118,6 +125,7 @@ _SCORE_SYSTEM_PROMPT = (
     "Given a question and a community summary, return an integer score from 0 to 100 "
     "indicating how relevant the summary is to answering the question. "
     "100 means the summary directly answers the question; 0 means it is completely unrelated.\n"
+    "Emit valid JSON: escape newlines inside string values as \\n, never raw control characters.\n"
 )
 
 _COMPOSE_SYSTEM_PROMPT = (
@@ -126,7 +134,75 @@ _COMPOSE_SYSTEM_PROMPT = (
     "concise answer. Cite each piece of information using the exact format:\n"
     "[Data: CommunitySummary(a1b2c3d4e5f6a7b8)]\n"
     "where the id is the 16-character community summary id shown next to each summary.\n"
+    "Respond with ONLY the answer text: plain text, no JSON, no markdown fences.\n"
 )
+
+# Some OpenAI-compatible deployments (e.g. DeepSeek-family models on NVIDIA NIM)
+# occasionally emit RAW control characters — newlines, tabs, sometimes even NUL
+# bytes — inside JSON string values instead of the escaped ``\uXXXX`` forms the
+# JSON spec requires.  Both ``json.loads`` and pydantic-core (jiter) reject such
+# payloads with "Invalid JSON: control character found while parsing a string".
+# Instructor's auto-repair cannot recover from this because the model re-emits
+# the same invalid bytes on retry (greedy sampling).  We therefore sanitize the
+# completion content BEFORE instructor parses it, making structured calls
+# deterministic instead of flaky.
+_JSON_STRING_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
+_JSON_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f]")
+
+
+def _escape_json_string_control_chars(content: str) -> str:
+    """Escape raw control characters that appear inside JSON string values.
+
+    Only characters inside double-quoted JSON strings are rewritten to their
+    ``\\uXXXX`` escape form.  Whitespace and structure outside strings (which
+    are valid JSON and must stay untouched) are preserved as-is.
+    """
+
+    def _escape(match: re.Match[str]) -> str:
+        return _JSON_CONTROL_CHAR_RE.sub(
+            lambda m: f"\\u{ord(m.group()):04x}", match.group()
+        )
+
+    return _JSON_STRING_RE.sub(_escape, content)
+
+
+def _build_instructor_client(
+    client: AsyncOpenAI, mode: instructor.Mode
+) -> instructor.AsyncInstructor:
+    """Build an instructor client whose completions are sanitized before parsing.
+
+    Equivalent to ``instructor.from_openai(client, mode=mode)`` except the
+    underlying ``chat.completions.create`` wrapper escapes raw control
+    characters inside JSON string values first (see
+    ``_escape_json_string_control_chars``), so structured responses survive
+    models that emit slightly-invalid JSON.
+    """
+
+    raw_create = client.chat.completions.create
+
+    async def _sanitizing_create(*args: Any, **kwargs: Any) -> Any:
+        completion = await raw_create(*args, **kwargs)
+        for choice in completion.choices:
+            message = choice.message
+            if message is not None and message.content is not None:
+                message.content = _escape_json_string_control_chars(message.content)
+        return completion
+
+    return instructor.AsyncInstructor(
+        client=client,
+        create=cast(Callable[..., Any], instructor.patch(create=_sanitizing_create, mode=mode)),
+        mode=mode,
+    )
+
+
+def _plain_text_messages(
+    system: str, user: str
+) -> list[dict[str, str]]:
+    """Build the standard system/user message pair for plain-text calls."""
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
 
 
 class _LLMEntityDTO(BaseModel):
@@ -161,22 +237,10 @@ class _CypherResponse(BaseModel):
     cypher: str
 
 
-class _CommunitySummaryText(BaseModel):
-    """Structured LLM output schema for a single community summary."""
-
-    summary: str
-
-
 class _CommunityScore(BaseModel):
     """Structured LLM output schema for summary relevance scoring."""
 
     score: int = Field(ge=0, le=100)
-
-
-class _ComposedAnswer(BaseModel):
-    """Structured LLM output schema for the final answer."""
-
-    answer: str
 
 
 class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
@@ -208,24 +272,25 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             timeout=60.0,
             max_retries=0,
         )
-        self._client = instructor.from_openai(raw_client, mode=instructor.Mode.MD_JSON)
+        self._client = _build_instructor_client(raw_client, instructor.Mode.MD_JSON)
 
         # Separate client for community-summary tasks, bound to the cheaper
         # community_model_name (which defaults to llm_model_name when unset).
-        # Use JSON mode (response_format={"type": "json_object"}): DeepSeek
-        # returns CLEAN JSON without a markdown fence, which avoids the
-        # MD_JSON fence-stripping failure we hit on _CommunitySummaryText
-        # (instructor received '```json ... ```' and failed to parse it).
-        # The 60s timeout below prevents the previous indefinite network hang.
         summary_model_name = settings.community_model_name or settings.llm_model_name
-        self._summary_client = instructor.from_openai(
-            AsyncOpenAI(
-                base_url=settings.llm_base_url,
-                api_key=api_key,
-                timeout=60.0,
-                max_retries=0,
-            ),
-            mode=instructor.Mode.JSON,
+        self._summary_raw_client = AsyncOpenAI(
+            base_url=settings.llm_base_url,
+            api_key=api_key,
+            timeout=60.0,
+            max_retries=0,
+        )
+        # JSON-mode instructor client, used ONLY for structured outputs
+        # (community scoring). Prose outputs (summaries, composed answers) go
+        # through _plain_text on the same raw client: they need no JSON
+        # envelope, and plain text is immune to the raw-control-character
+        # failures (see the note above _escape_json_string_control_chars).
+        self._summary_client = _build_instructor_client(
+            self._summary_raw_client,
+            instructor.Mode.JSON,
         )
         self._summary_model_name = summary_model_name
         # Max input tokens per summary call; larger communities are chunked.
@@ -245,6 +310,38 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             before_sleep=before_sleep_log(logger, logging.WARNING),
             reraise=True,
         )
+
+    async def _plain_text(self, *, messages: list[Any], model: str) -> str:
+        """Run one plain-text completion, then normalize the response.
+
+        Prose outputs (composed answers, community summaries) do not need a
+        JSON envelope: asking for JSON forces the model to escape newlines
+        inside string values, which is exactly where DeepSeek-class models
+        fail (raw control characters). Plain text keeps raw newlines valid,
+        so that entire failure class cannot occur. A stale markdown fence is
+        stripped defensively.
+        """
+        content: str | None = None
+        async for attempt in self._retrying:
+            with attempt:
+                completion = await self._summary_raw_client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                )
+                content = completion.choices[0].message.content
+
+        if content is None:
+            raise RuntimeError("Plain-text LLM completion returned empty content")
+
+        content = content.strip()
+        if content.startswith("```"):
+            lines = content.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            content = "\n".join(lines).strip()
+        return content
 
     async def extract_graph(self, chunk: KnowledgeGraphChunk) -> KnowledgeGraphChunk:
         """Extract entities/relationships from ``chunk`` and mutate it in place."""
@@ -412,25 +509,10 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             f"Community items:\n{content}\n\n"
             "Write a concise summary of this community."
         )
-
-        response: _CommunitySummaryText | None = None
-        async for attempt in self._retrying:
-            with attempt:
-                response = await self._summary_client.create(
-                    response_model=_CommunitySummaryText,
-                    messages=[
-                        {"role": "system", "content": _SUMMARY_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    model=self._summary_model_name,
-                    # Instructor internal retries disabled; tenacity owns the
-                    # retry policy (stop_after_attempt in self._retrying).
-                    max_retries=self._instructor_retries,
-                )
-
-        if response is None:  # pragma: no cover
-            raise RuntimeError("Community summary generation failed without raising")
-        return response.summary
+        return await self._plain_text(
+            messages=_plain_text_messages(_SUMMARY_SYSTEM_PROMPT, prompt),
+            model=self._summary_model_name,
+        )
 
     async def generate_summary_from_children(
         self, child_summaries: list[str], level: int
@@ -490,22 +572,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             "Compose an answer that cites the summaries using "
             "[Data: CommunitySummary(id)]."
         )
-
-        response: _ComposedAnswer | None = None
-        async for attempt in self._retrying:
-            with attempt:
-                response = await self._summary_client.create(
-                    response_model=_ComposedAnswer,
-                    messages=[
-                        {"role": "system", "content": _COMPOSE_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    model=self._summary_model_name,
-                    # Instructor internal retries disabled; tenacity owns the
-                    # retry policy (stop_after_attempt in self._retrying).
-                    max_retries=self._instructor_retries,
-                )
-
-        if response is None:  # pragma: no cover
-            raise RuntimeError("Answer composition failed without raising")
-        return response.answer
+        return await self._plain_text(
+            messages=_plain_text_messages(_COMPOSE_SYSTEM_PROMPT, prompt),
+            model=self._summary_model_name,
+        )

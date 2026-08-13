@@ -25,7 +25,11 @@ from book_graph_rag.domain.models import (
     Relationship,
     Section,
 )
-from book_graph_rag.infrastructure.llm_adapter import LLMAdapter, _CypherResponse
+from book_graph_rag.infrastructure.llm_adapter import (
+    LLMAdapter,
+    _CypherResponse,
+    _escape_json_string_control_chars,
+)
 from book_graph_rag.ports.cypher_generator_port import (
     CypherFailureContext,
     CypherGeneratorPort,
@@ -102,6 +106,23 @@ def _make_chunk() -> KnowledgeGraphChunk:
     )
 
 
+def _make_completion(content: str) -> ChatCompletion:
+    """Build a minimal ChatCompletion carrying ``content`` as the assistant message."""
+    return ChatCompletion(
+        id="fake",
+        object="chat.completion",
+        created=0,
+        model="fake",
+        choices=[
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": "stop",
+            }
+        ],
+    )
+
+
 class _FakeCompletions:
     """Records calls and supports fail-then-succeed behaviour."""
 
@@ -113,22 +134,7 @@ class _FakeCompletions:
         self.calls.append(kwargs)
         if len(self.calls) <= self.fail_count:
             raise RuntimeError(f"failure {len(self.calls)}")
-        return ChatCompletion(
-            id="fake",
-            object="chat.completion",
-            created=0,
-            model="fake",
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": _EXTRACTION_JSON,
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-        )
+        return _make_completion(_EXTRACTION_JSON)
 
 
 class _FakeChat:
@@ -139,7 +145,15 @@ class _FakeChat:
 class _FakeAsyncOpenAI(AsyncOpenAI):
     """AsyncOpenAI stand-in that bypasses network setup and returns fake completions."""
 
-    def __init__(self, *, base_url: str, api_key: str, timeout: float = 60.0, max_retries: int = 0, fail_count: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        timeout: float = 60.0,
+        max_retries: int = 0,
+        fail_count: int = 0,
+    ) -> None:
         self.base_url = base_url
         self.api_key = api_key
         self.timeout = timeout
@@ -156,8 +170,20 @@ class _FakeAsyncOpenAIFactory:
         self._last_instance: _FakeAsyncOpenAI | None = None
         self._instances: list[_FakeAsyncOpenAI] = []
 
-    def __call__(self, *, base_url: str, api_key: str, timeout: float = 60.0, max_retries: int = 0) -> _FakeAsyncOpenAI:
-        self.last_kwargs = {"base_url": base_url, "api_key": api_key, "timeout": timeout, "max_retries": max_retries}
+    def __call__(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        timeout: float = 60.0,
+        max_retries: int = 0,
+    ) -> _FakeAsyncOpenAI:
+        self.last_kwargs = {
+            "base_url": base_url,
+            "api_key": api_key,
+            "timeout": timeout,
+            "max_retries": max_retries,
+        }
         self._last_instance = _FakeAsyncOpenAI(
             base_url=base_url,
             api_key=api_key,
@@ -467,14 +493,13 @@ async def test_generate_community_summary_prompt_includes_entities_and_level(
     adapter = LLMAdapter(settings)
     captured: dict[str, Any] = {}
 
-    class _FakeSummaryText(BaseModel):
-        summary: str
-
-    async def fake_create(*args: Any, **kwargs: Any) -> _FakeSummaryText:
+    async def fake_create(**kwargs: Any) -> ChatCompletion:
         captured.update(kwargs)
-        return _FakeSummaryText(summary="Generated summary.")
+        return _make_completion("Generated summary.")
 
-    monkeypatch.setattr(adapter._summary_client, "create", fake_create)
+    monkeypatch.setattr(
+        adapter._summary_raw_client.chat.completions, "create", fake_create
+    )
 
     entities = [
         Entity(id="e1", name="Agent Pattern", type="pattern"),
@@ -537,14 +562,13 @@ async def test_compose_answer_prompt_requires_citation_format(
     adapter = LLMAdapter(settings)
     captured: dict[str, Any] = {}
 
-    class _FakeAnswer(BaseModel):
-        answer: str
-
-    async def fake_create(*args: Any, **kwargs: Any) -> _FakeAnswer:
+    async def fake_create(**kwargs: Any) -> ChatCompletion:
         captured.update(kwargs)
-        return _FakeAnswer(answer="MCP is a protocol.")
+        return _make_completion("MCP is a protocol.")
 
-    monkeypatch.setattr(adapter._summary_client, "create", fake_create)
+    monkeypatch.setattr(
+        adapter._summary_raw_client.chat.completions, "create", fake_create
+    )
 
     summary = CommunitySummary(level=1, summary="A summary", entity_ids=["e1"], parent_id="p1")
     ranked = [(summary, 85)]
@@ -556,3 +580,81 @@ async def test_compose_answer_prompt_requires_citation_format(
     assert re.search(r"\[Data: CommunitySummary\([a-f0-9]{16}\)\]", content)
     assert summary.id in content
     assert captured["model"] == settings.community_model_name
+
+
+async def test_plain_text_preserves_raw_newlines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plain-text prose keeps raw newlines: the JSON control-char class cannot occur."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+
+    async def fake_create(**kwargs: Any) -> ChatCompletion:
+        return _make_completion("line 1\n\nline 2")
+
+    monkeypatch.setattr(
+        adapter._summary_raw_client.chat.completions, "create", fake_create
+    )
+
+    summary = CommunitySummary(level=1, summary="s", entity_ids=["e1"], parent_id="p1")
+    result = await adapter.compose_answer("q?", [(summary, 85)])
+
+    assert result == "line 1\n\nline 2"
+
+
+async def test_plain_text_strips_stale_markdown_fence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale markdown fence around the plain answer is stripped defensively."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+
+    async def fake_create(**kwargs: Any) -> ChatCompletion:
+        return _make_completion("```markdown\nMCP is a protocol.\n```")
+
+    monkeypatch.setattr(
+        adapter._summary_raw_client.chat.completions, "create", fake_create
+    )
+
+    summary = CommunitySummary(level=1, summary="s", entity_ids=["e1"], parent_id="p1")
+    result = await adapter.compose_answer("q?", [(summary, 85)])
+
+    assert result == "MCP is a protocol."
+
+
+# ── _escape_json_string_control_chars ──────────────────────────────────────
+
+
+def test_escape_json_string_control_chars_escapes_raw_control_chars() -> None:
+    """Raw newlines/tabs inside JSON strings are rewritten to \\uXXXX escapes."""
+    raw = (
+        '{"answer": "line 1\nline 2\tok [Data: CommunitySummary(4edef17af58d735f)]", '
+        '"n": 1}'
+    )
+    sanitized = _escape_json_string_control_chars(raw)
+
+    assert "line 1" in sanitized
+    assert "line 2" in sanitized
+    assert json.loads(sanitized)["answer"] == (
+        "line 1\nline 2\tok [Data: CommunitySummary(4edef17af58d735f)]"
+    )
+
+
+def test_escape_json_string_control_chars_preserves_escapes_and_structure() -> None:
+    """Already-escaped sequences and whitespace outside strings stay untouched."""
+    raw = '{\n  "a": "x\\ny\\\\z", "b": [1, 2], "c": "tail"\n}'
+    sanitized = _escape_json_string_control_chars(raw)
+
+    assert sanitized == raw
+    assert json.loads(sanitized) == {"a": "x\ny\\z", "b": [1, 2], "c": "tail"}
+
+
+def test_escape_json_string_control_chars_handles_nul_bytes() -> None:
+    """NUL bytes inside strings are escaped so the payload still parses."""
+    raw = '{"answer": "a\x00b"}'
+    sanitized = _escape_json_string_control_chars(raw)
+
+    assert "\x00" not in sanitized
+    assert json.loads(sanitized)["answer"] == "a\x00b"

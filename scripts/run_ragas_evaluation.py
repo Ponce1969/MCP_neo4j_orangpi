@@ -35,7 +35,10 @@ from pydantic import BaseModel
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.config import Settings
 from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
-from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
+from book_graph_rag.infrastructure.llm_adapter import (
+    LLMAdapter,
+    _escape_json_string_control_chars,
+)
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.ports.community_read_port import CommunityReadPort
 
@@ -176,14 +179,47 @@ def _run_ragas(
         if settings.llm_api_key is not None
         else "ollama"
     )
+    class _SanitizingChatOpenAI(ChatOpenAI):
+        """ChatOpenAI whose outputs escape raw control chars before ragas parses them.
+
+        RAGAS metrics parse the LLM's JSON with strict parsers; the same
+        NIM/model defect that broke instructor calls (raw newlines inside JSON
+        string values) would break metric scoring. Escaping before ragas sees
+        the text makes the metric LLM as robust as the retrieval one.
+        """
+
+        def _generate(
+            self,
+            messages: list[Any],
+            stop: list[str] | None = None,
+            run_manager: Any = None,
+            **kwargs: Any,
+        ) -> Any:
+            result = super()._generate(
+                messages, stop=stop, run_manager=run_manager, **kwargs
+            )
+            for generation_list in result.generations:
+                for generation in generation_list:
+                    generation.text = _escape_json_string_control_chars(generation.text)
+            return result
+
     eval_llm = LangchainLLMWrapper(
-        ChatOpenAI(
+        _SanitizingChatOpenAI(
             model=settings.llm_model_name,
             base_url=settings.llm_base_url,
             api_key=api_key,  # type: ignore[arg-type]
             temperature=0,
         )
     )
+
+    metric_rows = [r for r in results if r.get("answer") is not None]
+    if not metric_rows:
+        click.echo(
+            f"All {len(results)} questions failed — nothing to score. "
+            "Check the per-question errors above.",
+            err=True,
+        )
+        return None
 
     dataset = Dataset.from_list(
         [
@@ -192,7 +228,7 @@ def _run_ragas(
                 "response": r["answer"],
                 "retrieved_contexts": r["contexts"],
             }
-            for r in results
+            for r in metric_rows
         ]
     )
 
@@ -250,14 +286,26 @@ def main(dataset: str, detail_level: int, no_ragas: bool) -> None:
                 f"[{i}/{total}] {qtype}: {question[:80]}{'…' if len(question) > 80 else ''}"
             )
 
-            if qtype == "global":
-                answer, contexts = await _evaluate_global(
-                    question, global_uc, community_adapter, detail_level,
+            try:
+                if qtype == "global":
+                    answer, contexts = await _evaluate_global(
+                        question, global_uc, community_adapter, detail_level,
+                    )
+                else:
+                    answer, contexts = await _evaluate_local(
+                        question, query_adapter, llm_adapter,
+                    )
+            except Exception as exc:  # noqa: BLE001 — one bad question must not kill the batch
+                click.echo(f"  FAILED: {type(exc).__name__}: {exc}", err=True)
+                results.append(
+                    {
+                        **sample,
+                        "answer": None,
+                        "contexts": [],
+                        "error": str(exc),
+                    }
                 )
-            else:
-                answer, contexts = await _evaluate_local(
-                    question, query_adapter, llm_adapter,
-                )
+                continue
 
             results.append(
                 {
@@ -292,6 +340,8 @@ def main(dataset: str, detail_level: int, no_ragas: bool) -> None:
     click.echo("Computing RAGAS metrics…")
     score = _run_ragas(results, settings)
 
+    failed_rows = [r for r in results if r.get("error")]
+
     _BENCHMARK_DIR.mkdir(parents=True, exist_ok=True)
     baseline: dict[str, Any] = {
         "dataset": dataset,
@@ -299,6 +349,7 @@ def main(dataset: str, detail_level: int, no_ragas: bool) -> None:
         "total_questions": len(results),
         "global_questions": sum(1 for r in results if r["type"] == "global"),
         "local_questions": sum(1 for r in results if r["type"] == "local"),
+        "failed_questions": [{"question": r["question"], "error": r["error"]} for r in failed_rows],
         "metrics": score,
     }
     with open(_BASELINE_OUTPUT, "w", encoding="utf-8") as f:
