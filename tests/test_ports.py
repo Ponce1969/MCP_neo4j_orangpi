@@ -51,6 +51,11 @@ class _DummyGraphDB(GraphDatabasePort):
     async def upsert_relationships(self, relationships: list[Relationship]) -> None:
         return None
 
+    async def upsert_mentions(
+        self, chunk_index: int, book_id: str | None, entity_ids: list[str]
+    ) -> None:
+        return None
+
     async def upsert_editorial_structure(
         self, chapter: Chapter, sections: list[Section], chunk: KnowledgeGraphChunk
     ) -> None:
@@ -79,6 +84,11 @@ class _DummyGraphDBMissingBook(GraphDatabasePort):
     async def upsert_relationships(self, relationships: list[Relationship]) -> None:
         return None
 
+    async def upsert_mentions(
+        self, chunk_index: int, book_id: str | None, entity_ids: list[str]
+    ) -> None:
+        return None
+
     async def upsert_editorial_structure(
         self, chapter: Chapter, sections: list[Section], chunk: KnowledgeGraphChunk
     ) -> None:
@@ -101,6 +111,11 @@ def test_graph_db_port_complete_subclass_can_be_instantiated() -> None:
         async def upsert_relationships(self, relationships: list[Relationship]) -> None:
             return None
 
+        async def upsert_mentions(
+            self, chunk_index: int, book_id: str | None, entity_ids: list[str]
+        ) -> None:
+            return None
+
         async def upsert_editorial_structure(
             self, chapter: Chapter, sections: list[Section], chunk: KnowledgeGraphChunk
         ) -> None:
@@ -120,6 +135,7 @@ def test_llm_and_graph_methods_are_async() -> None:
     assert inspect.iscoroutinefunction(GraphDatabasePort.upsert_book)
     assert inspect.iscoroutinefunction(GraphDatabasePort.upsert_entities)
     assert inspect.iscoroutinefunction(GraphDatabasePort.upsert_relationships)
+    assert inspect.iscoroutinefunction(GraphDatabasePort.upsert_mentions)
     assert inspect.iscoroutinefunction(GraphDatabasePort.upsert_editorial_structure)
 
 

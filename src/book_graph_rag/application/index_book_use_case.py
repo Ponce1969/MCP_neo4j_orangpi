@@ -37,6 +37,7 @@ class IndexBookUseCase:
         max_concurrency: int,
         batch_size: int,
         dead_letter_path: Path,
+        orphan_policy: str = "log_orphan",
     ) -> None:
         self._pdf_port = pdf_port
         self._llm_port = llm_port
@@ -44,6 +45,7 @@ class IndexBookUseCase:
         self._max_concurrency = max_concurrency
         self._batch_size = batch_size
         self._dead_letter_path = dead_letter_path
+        self._orphan_policy = orphan_policy
 
     async def execute(self, pdf_path: str) -> None:
         """Index ``pdf_path`` into the graph database.
@@ -118,6 +120,7 @@ class IndexBookUseCase:
     async def _flush_batch(self, batch: list[KnowledgeGraphChunk], seen_book_ids: set[str]) -> None:
         all_entities: list[Entity] = []
         all_relationships: list[Relationship] = []
+        chunk_provenance: list[tuple[int, str | None, list[str]]] = []
 
         for chunk in batch:
             if chunk.book is not None and chunk.book.id not in seen_book_ids:
@@ -130,11 +133,18 @@ class IndexBookUseCase:
                     chunk.chapter, sections, chunk
                 )
 
+            book_id = chunk.book.id if chunk.book is not None else None
+            entity_ids = [entity.id for entity in chunk.entities]
+            chunk_provenance.append((chunk.chunk_index, book_id, entity_ids))
+
             all_entities.extend(chunk.entities)
             all_relationships.extend(chunk.relationships)
 
         await self._graph_db_port.upsert_entities(all_entities)
         await self._graph_db_port.upsert_relationships(all_relationships)
+
+        for chunk_index, book_id, entity_ids in chunk_provenance:
+            await self._graph_db_port.upsert_mentions(chunk_index, book_id, entity_ids)
 
     def _write_dead_letter(self, chunk: KnowledgeGraphChunk, error: Exception) -> None:
         record = {

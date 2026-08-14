@@ -88,6 +88,32 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                 {"rels": [rel.model_dump() for rel in relationships]},
             )
 
+    async def upsert_mentions(
+        self, chunk_index: int, book_id: str | None, entity_ids: list[str]
+    ) -> None:
+        """Idempotently persist (:Chunk)-[:MENTIONS]->(:Entity) edges.
+
+        The ``WHERE`` guard is required because Cypher equality with ``NULL``
+        evaluates to ``UNKNOWN``; a direct ``{book_id: $book_id}`` matcher would
+        fail to match chunks whose ``book_id`` is null (TOC-less PDFs).
+        """
+        async with self._driver.session() as session:
+            await session.run(
+                """
+                UNWIND $entity_ids AS eid
+                MATCH (c:Chunk {chunk_index: $chunk_index})
+                WHERE ($book_id IS NULL AND c.book_id IS NULL) OR c.book_id = $book_id
+                MATCH (e:Entity {id: eid})
+                MERGE (c)-[m:MENTIONS]->(e)
+                SET m.source_page = coalesce(m.source_page, e.source_page)
+                """,
+                {
+                    "chunk_index": chunk_index,
+                    "book_id": book_id,
+                    "entity_ids": entity_ids,
+                },
+            )
+
     async def upsert_editorial_structure(
         self, chapter: Chapter, sections: list[Section], chunk: KnowledgeGraphChunk
     ) -> None:

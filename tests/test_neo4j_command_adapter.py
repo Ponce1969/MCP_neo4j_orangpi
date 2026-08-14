@@ -229,3 +229,78 @@ async def test_neo4j_adapter_upsert_editorial_structure_links_chunk(
     assert any("MERGE (sec:Section" in q for q in queries)
     assert any("MERGE (k:Chunk" in q for q in queries)
     assert any("HAS_CHUNK" in q for q in queries)
+
+
+# ── :MENTIONS provenance (REQ-PROV, SCEN-PROV-01..04, AC-PROV-02) ─────────────
+
+
+async def test_neo4j_adapter_upsert_mentions_uses_chunk_guard_and_merge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SCEN-PROV-01/02: mention write matches chunk by guarded book_id and MERGEs."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    fake_db = _FakeGraphDatabase()
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.neo4j_command_adapter.AsyncGraphDatabase",
+        fake_db,
+    )
+    adapter = Neo4jCommandAdapter(settings)
+
+    await adapter.upsert_mentions(chunk_index=4, book_id="book-1", entity_ids=["e1", "e2"])
+
+    query, params = adapter._driver.session().calls[-1]
+    assert params is not None
+    assert "MATCH (c:Chunk {chunk_index: $chunk_index})" in query
+    assert "($book_id IS NULL AND c.book_id IS NULL) OR c.book_id = $book_id" in query
+    assert "MERGE (c)-[m:MENTIONS]->(e)" in query
+    assert "coalesce(m.source_page, e.source_page)" in query
+    assert params["chunk_index"] == 4
+    assert params["book_id"] == "book-1"
+    assert params["entity_ids"] == ["e1", "e2"]
+
+
+async def test_neo4j_adapter_upsert_mentions_with_null_book_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SCEN-PROV-03: TOC-less PDFs pass book_id=None and the guard keeps the match."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    fake_db = _FakeGraphDatabase()
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.neo4j_command_adapter.AsyncGraphDatabase",
+        fake_db,
+    )
+    adapter = Neo4jCommandAdapter(settings)
+
+    await adapter.upsert_mentions(chunk_index=7, book_id=None, entity_ids=["e3"])
+
+    query, params = adapter._driver.session().calls[-1]
+    assert params is not None
+    assert "($book_id IS NULL AND c.book_id IS NULL) OR c.book_id = $book_id" in query
+    assert params["book_id"] is None
+    assert params["chunk_index"] == 7
+
+
+async def test_neo4j_adapter_upsert_mentions_idempotent_on_repeats(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-PROV-02: re-flushing the same chunk produces identical Cypher/parameters."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    fake_db = _FakeGraphDatabase()
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.neo4j_command_adapter.AsyncGraphDatabase",
+        fake_db,
+    )
+    adapter = Neo4jCommandAdapter(settings)
+
+    await adapter.upsert_mentions(chunk_index=2, book_id="book-1", entity_ids=["e1"])
+    first_call = adapter._driver.session().calls[-1]
+
+    await adapter.upsert_mentions(chunk_index=2, book_id="book-1", entity_ids=["e1"])
+    second_call = adapter._driver.session().calls[-1]
+
+    assert first_call == second_call
+    query, _ = first_call
+    assert "MERGE (c)-[m:MENTIONS]->(e)" in query

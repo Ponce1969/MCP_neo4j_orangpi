@@ -35,6 +35,18 @@ class GraphDatabasePort(abc.ABC):
         ...
 
     @abc.abstractmethod
+    async def upsert_mentions(
+        self, chunk_index: int, book_id: str | None, entity_ids: list[str]
+    ) -> None:
+        """Idempotently persist (:Chunk)-[:MENTIONS]->(:Entity) edges.
+
+        Anchored on the Chunk node keyed by ``(chunk_index, book_id)`` and the
+        Entity node keyed by ``id``. ``book_id`` may be ``None`` for PDFs
+        without a TOC.
+        """
+        ...
+
+    @abc.abstractmethod
     async def upsert_editorial_structure(
         self, chapter: Chapter, sections: list[Section], chunk: KnowledgeGraphChunk
     ) -> None:

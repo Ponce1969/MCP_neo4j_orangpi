@@ -100,6 +100,7 @@ class _FakeGraphDBPort(GraphDatabasePort):
         self.books_upserted: list[Book] = []
         self.entity_batches_upserted: list[list[Entity]] = []
         self.relationship_batches_upserted: list[list[Relationship]] = []
+        self.mention_calls: list[tuple[int, str | None, list[str]]] = []
         self.editorial_calls: list[tuple[Chapter | None, list[Section], KnowledgeGraphChunk]] = []
 
     async def upsert_book(self, book: Book) -> None:
@@ -110,6 +111,11 @@ class _FakeGraphDBPort(GraphDatabasePort):
 
     async def upsert_relationships(self, relationships: list[Relationship]) -> None:
         self.relationship_batches_upserted.append(list(relationships))
+
+    async def upsert_mentions(
+        self, chunk_index: int, book_id: str | None, entity_ids: list[str]
+    ) -> None:
+        self.mention_calls.append((chunk_index, book_id, list(entity_ids)))
 
     async def upsert_editorial_structure(
         self, chapter: Chapter | None, sections: list[Section], chunk: KnowledgeGraphChunk
@@ -300,3 +306,81 @@ def test_use_case_does_not_accept_settings() -> None:
 
     hints = get_type_hints(IndexBookUseCase.__init__)
     assert Settings not in hints.values()
+
+
+# ── :MENTIONS provenance wiring (REQ-PROV, SCEN-PROV-01..04) ──────────────────
+
+
+async def test_use_case_calls_upsert_mentions_per_successful_chunk(
+    tmp_path: Path,
+) -> None:
+    """SCEN-PROV-01: every successfully extracted chunk triggers one mention call."""
+    chunks = _make_chunks(5, book=_make_book())
+    pdf = _FakePDFPort(chunks)
+    llm = _FakeLLMPort()
+    graph = _FakeGraphDBPort()
+    use_case = IndexBookUseCase(
+        pdf_port=pdf,
+        llm_port=llm,
+        graph_db_port=graph,
+        max_concurrency=3,
+        batch_size=5,
+        dead_letter_path=tmp_path / "dl.log",
+    )
+
+    await use_case.execute("dummy.pdf")
+
+    assert len(graph.mention_calls) == 5
+    sorted_calls = sorted(graph.mention_calls, key=lambda call: call[0])
+    for index, (chunk_index, book_id, entity_ids) in enumerate(sorted_calls):
+        assert chunk_index == index
+        assert book_id == "book-1"
+        assert entity_ids == [f"ent-{index}"]
+
+
+async def test_use_case_mentions_use_null_book_id_for_toc_less_pdf(
+    tmp_path: Path,
+) -> None:
+    """SCEN-PROV-03: chunks without a book pass book_id=None to upsert_mentions."""
+    chunks = _make_chunks(3, book=None)
+    pdf = _FakePDFPort(chunks)
+    llm = _FakeLLMPort()
+    graph = _FakeGraphDBPort()
+    use_case = IndexBookUseCase(
+        pdf_port=pdf,
+        llm_port=llm,
+        graph_db_port=graph,
+        max_concurrency=3,
+        batch_size=5,
+        dead_letter_path=tmp_path / "dl.log",
+    )
+
+    await use_case.execute("dummy.pdf")
+
+    assert len(graph.mention_calls) == 3
+    assert all(book_id is None for _chunk_index, book_id, _entity_ids in graph.mention_calls)
+
+
+async def test_use_case_dead_lettered_chunks_do_not_produce_mentions(
+    tmp_path: Path,
+) -> None:
+    """SCEN-PROV-04: failed chunks are skipped, so no :MENTIONS edges are created."""
+    chunks = _make_chunks(10, book=_make_book())
+    pdf = _FakePDFPort(chunks)
+    llm = _FakeLLMPort(fail_indices={3, 7})
+    graph = _FakeGraphDBPort()
+    use_case = IndexBookUseCase(
+        pdf_port=pdf,
+        llm_port=llm,
+        graph_db_port=graph,
+        max_concurrency=3,
+        batch_size=5,
+        dead_letter_path=tmp_path / "dl.log",
+    )
+
+    await use_case.execute("dummy.pdf")
+
+    mentioned_indices = {call[0] for call in graph.mention_calls}
+    assert 3 not in mentioned_indices
+    assert 7 not in mentioned_indices
+    assert len(graph.mention_calls) == 8
