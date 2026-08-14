@@ -7,6 +7,7 @@ All queries are MATCH-only (read-side). Write operations live in
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from neo4j import AsyncGraphDatabase
@@ -22,6 +23,8 @@ from book_graph_rag.domain.models import (
     RelationshipType,
 )
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
+
+logger = logging.getLogger(__name__)
 
 
 class Neo4jQueryAdapter(GraphQueryPort):
@@ -55,26 +58,123 @@ class Neo4jQueryAdapter(GraphQueryPort):
             type=node.get("type", ""),
             description=node.get("description", ""),
             source_page=node.get("source_page"),
+            aliases=node.get("aliases") or [],
+            canonical_name=node.get("canonical_name"),
         )
         return EntityWithContext(entity=entity)
+
+    def _record_to_entity_with_context(self, record: Any) -> EntityWithContext:
+        """Map a Neo4j result record to an ``EntityWithContext`` with provenance."""
+        entity_with_context = self._node_to_entity(record["n"])
+        entity_with_context.confidence = record.get("score")
+        entity_with_context.source = self._format_source(
+            record.get("chunk_index"), record.get("book_id")
+        )
+        return entity_with_context
+
+    @staticmethod
+    def _format_source(chunk_index: Any, book_id: Any) -> str | None:
+        """Format chunk provenance for ``EntityWithContext.source``."""
+        if chunk_index is None:
+            return None
+        if book_id is not None:
+            return f"book_id={book_id},chunk_index={chunk_index}"
+        return f"chunk_index={chunk_index}"
 
     async def find_entity(
         self, name: str, entity_type: EntityType | None
     ) -> list[EntityWithContext]:
-        """Return entities matching ``name`` and optional ``entity_type``."""
+        """Return entities matching ``name`` and optional ``entity_type``.
+
+        Cascades through exact, case-insensitive, substring and fulltext tiers,
+        stopping at the first non-empty tier. The fulltext tier is wrapped in a
+        try/except so a missing index degrades gracefully to Tiers 1-3.
+        """
+        limit = 100
+        params = {"name": name, "entity_type": entity_type, "limit": limit}
+
+        tier_queries: list[tuple[float, str]] = [
+            (
+                1.0,
+                """
+                MATCH (n:Entity {name: $name})
+                WHERE $entity_type IS NULL OR n.type = $entity_type
+                OPTIONAL MATCH (c:Chunk)-[:MENTIONS]->(n)
+                RETURN n, 1.0 AS score, c.chunk_index AS chunk_index, c.book_id AS book_id
+                LIMIT $limit
+                """,
+            ),
+            (
+                0.8,
+                """
+                MATCH (n:Entity)
+                WHERE toLower(n.name) = toLower($name)
+                  AND ($entity_type IS NULL OR n.type = $entity_type)
+                OPTIONAL MATCH (c:Chunk)-[:MENTIONS]->(n)
+                RETURN n, 0.8 AS score, c.chunk_index AS chunk_index, c.book_id AS book_id
+                LIMIT $limit
+                """,
+            ),
+            (
+                0.6,
+                """
+                MATCH (n:Entity)
+                WHERE n.name CONTAINS $name
+                  AND ($entity_type IS NULL OR n.type = $entity_type)
+                OPTIONAL MATCH (c:Chunk)-[:MENTIONS]->(n)
+                RETURN n, 0.6 AS score, c.chunk_index AS chunk_index, c.book_id AS book_id
+                ORDER BY size(n.name) ASC
+                LIMIT $limit
+                """,
+            ),
+        ]
+
         async with self._driver.session() as session:
-            result = await self._run_with_timeout(
-                session.run(
-                    """
-                    MATCH (n:Entity {name: $name})
-                    WHERE $type IS NULL OR n.type = $type
-                    RETURN n
-                    LIMIT $limit
-                    """,
-                    {"name": name, "type": entity_type, "limit": 100},
-                )
-            )
-            return [self._node_to_entity(record["n"]) async for record in result]
+            results_by_id: dict[str, EntityWithContext] = {}
+            for _score, query in tier_queries:
+                result = await self._run_with_timeout(session.run(query, params))
+                async for record in result:
+                    entity = self._record_to_entity_with_context(record)
+                    if entity.entity.id not in results_by_id:
+                        results_by_id[entity.entity.id] = entity
+                if results_by_id:
+                    break
+
+            if not results_by_id:
+                try:
+                    result = await self._run_with_timeout(
+                        session.run(
+                            """
+                            CALL db.index.fulltext.queryNodes(
+                                "entity_name_aliases_index", $name
+                            )
+                            YIELD node AS n, score AS ft_score
+                            WHERE $entity_type IS NULL OR n.type = $entity_type
+                            OPTIONAL MATCH (c:Chunk)-[:MENTIONS]->(n)
+                            RETURN
+                                n,
+                                ft_score * 0.4 AS score,
+                                c.chunk_index AS chunk_index,
+                                c.book_id AS book_id
+                            ORDER BY score DESC
+                            LIMIT $limit
+                            """,
+                            params,
+                        )
+                    )
+                    async for record in result:
+                        entity = self._record_to_entity_with_context(record)
+                        if entity.entity.id not in results_by_id:
+                            results_by_id[entity.entity.id] = entity
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Fulltext index entity_name_aliases_index unavailable; "
+                        "falling back to Tiers 1-3 for find_entity(%r): %s",
+                        name,
+                        exc,
+                    )
+
+            return list(results_by_id.values())
 
     async def find_entities_batch(self, ids: list[str]) -> list[EntityWithContext]:
         """Return entities for the given list of ids (max 200)."""
@@ -84,12 +184,20 @@ class Neo4jQueryAdapter(GraphQueryPort):
                     """
                     UNWIND $ids AS id
                     MATCH (n:Entity {id: id})
-                    RETURN n
+                    OPTIONAL MATCH (c:Chunk)-[:MENTIONS]->(n)
+                    RETURN n, c.chunk_index AS chunk_index, c.book_id AS book_id
                     """,
                     {"ids": ids},
                 )
             )
-            return [self._node_to_entity(record["n"]) async for record in result]
+            seen_ids: set[str] = set()
+            entities: list[EntityWithContext] = []
+            async for record in result:
+                entity = self._record_to_entity_with_context(record)
+                if entity.entity.id not in seen_ids:
+                    seen_ids.add(entity.entity.id)
+                    entities.append(entity)
+            return entities
 
     def _relationship_to_domain(self, rel: Any) -> Relationship:
         """Map a Neo4j Relationship to a domain ``Relationship``.
@@ -291,6 +399,11 @@ class Neo4jQueryAdapter(GraphQueryPort):
             "CREATE INDEX entity_id IF NOT EXISTS FOR (n:Entity) ON (n.id)",
             "CREATE INDEX rel_type IF NOT EXISTS FOR ()-[r:RELATED]-() ON (r.type)",
             "CREATE FULLTEXT INDEX chunk_text_index IF NOT EXISTS FOR (n:Chunk) ON EACH [n.text]",
+            (
+                "CREATE FULLTEXT INDEX entity_name_aliases_index "
+                "IF NOT EXISTS FOR (n:Entity) "
+                "ON EACH [n.name, n.canonical_name, n.aliases]"
+            ),
         ]
         async with self._driver.session() as session:
             for statement in index_statements:

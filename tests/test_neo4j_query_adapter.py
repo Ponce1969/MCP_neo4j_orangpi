@@ -102,6 +102,30 @@ class _FakeSession:
         pass
 
 
+class _TieredFakeSession(_FakeSession):
+    """Fake session that returns different records per query substring."""
+
+    def __init__(
+        self,
+        responses: list[tuple[str, list[_FakeRecord]]],
+        raise_on: str | None = None,
+    ) -> None:
+        super().__init__(records=[])
+        self._responses = responses
+        self._raise_on = raise_on
+
+    async def run(
+        self, query: str, parameters: dict[str, Any] | None = None
+    ) -> _FakeResult:
+        self.queries.append((query, parameters or {}))
+        if self._raise_on is not None and self._raise_on in query:
+            raise RuntimeError(f"fulltext index missing: {query}")
+        for pattern, records in self._responses:
+            if pattern in query:
+                return _FakeResult(records)
+        return _FakeResult([])
+
+
 class _FakeDriver:
     def __init__(self, session: _FakeSession) -> None:
         self._session = session
@@ -221,7 +245,7 @@ async def test_find_entity_by_name(adapter: Neo4jQueryAdapter) -> None:
     query, params = session.queries[0]
     assert "MATCH (n:Entity {name: $name})" in query
     assert params["name"] == "MCP"
-    assert params["type"] is None
+    assert params["entity_type"] is None
 
 
 async def test_find_entity_with_type_filter(adapter: Neo4jQueryAdapter) -> None:
@@ -235,8 +259,8 @@ async def test_find_entity_with_type_filter(adapter: Neo4jQueryAdapter) -> None:
     await adapter.find_entity("Agent", "agent")
 
     query, params = session.queries[0]
-    assert "WHERE $type IS NULL OR n.type = $type" in query
-    assert params["type"] == "agent"
+    assert "WHERE $entity_type IS NULL OR n.type = $entity_type" in query
+    assert params["entity_type"] == "agent"
 
 
 async def test_find_entity_without_type_does_not_filter(adapter: Neo4jQueryAdapter) -> None:
@@ -250,8 +274,8 @@ async def test_find_entity_without_type_does_not_filter(adapter: Neo4jQueryAdapt
     await adapter.find_entity("Homonym", None)
 
     query, params = session.queries[0]
-    assert "WHERE $type IS NULL OR n.type = $type" in query
-    assert params["type"] is None
+    assert "WHERE $entity_type IS NULL OR n.type = $entity_type" in query
+    assert params["entity_type"] is None
 
 
 async def test_find_entity_no_results_returns_empty_list(adapter: Neo4jQueryAdapter) -> None:
@@ -262,6 +286,207 @@ async def test_find_entity_no_results_returns_empty_list(adapter: Neo4jQueryAdap
     result = await adapter.find_entity("missing", None)
 
     assert result == []
+
+
+# ── T-GR.3-PR4: tiered find_entity ───────────────────────────────────────────
+
+
+def _entity_node(
+    entity_id: str,
+    name: str,
+    entity_type: str,
+    aliases: list[str] | None = None,
+    canonical_name: str | None = None,
+) -> _FakeRecord:
+    """Build a fake entity node record."""
+    return _FakeRecord(
+        {
+            "id": entity_id,
+            "name": name,
+            "type": entity_type,
+            "description": "",
+            "source_page": None,
+            "aliases": aliases or [],
+            "canonical_name": canonical_name,
+        }
+    )
+
+
+def _tier_record(
+    node: _FakeRecord,
+    score: float,
+    chunk_index: int | None = None,
+    book_id: str | None = None,
+) -> _FakeRecord:
+    """Build a fake result record for a find_entity tier."""
+    return _FakeRecord(
+        {
+            "n": node,
+            "score": score,
+            "chunk_index": chunk_index,
+            "book_id": book_id,
+        }
+    )
+
+
+async def test_find_entity_tier1_short_circuits(adapter: Neo4jQueryAdapter) -> None:
+    """AC-FIND-02: exact match returns Tier 1 results without running Tier 4."""
+    node = _entity_node("model-context-protocol", "Model Context Protocol", "mcp")
+    session = _TieredFakeSession(
+        responses=[("MATCH (n:Entity {name: $name})", [_tier_record(node, 1.0, 5, "book-1")])]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_entity("Model Context Protocol", None)
+
+    assert len(result) == 1
+    assert result[0].entity.name == "Model Context Protocol"
+    assert result[0].confidence == 1.0
+    assert result[0].source == "book_id=book-1,chunk_index=5"
+    assert len(session.queries) == 1
+    assert "CALL db.index.fulltext.queryNodes" not in session.queries[0][0]
+
+
+async def test_find_entity_tier2_case_insensitive(adapter: Neo4jQueryAdapter) -> None:
+    """Tier 2 matches when exact match is absent."""
+    node = _entity_node("model-context-protocol", "Model Context Protocol", "mcp")
+    session = _TieredFakeSession(
+        responses=[
+            ("MATCH (n:Entity {name: $name})", []),
+            ("toLower(n.name) = toLower($name)", [_tier_record(node, 0.8, 7)]),
+        ]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_entity("model context protocol", None)
+
+    assert len(result) == 1
+    assert result[0].confidence == 0.8
+    assert result[0].source == "chunk_index=7"
+    assert len(session.queries) == 2
+
+
+async def test_find_entity_tier3_partial(adapter: Neo4jQueryAdapter) -> None:
+    """Tier 3 substring match runs only when Tiers 1-2 are empty."""
+    node = _entity_node("model-context-protocol", "Model Context Protocol", "mcp")
+    session = _TieredFakeSession(
+        responses=[
+            ("MATCH (n:Entity {name: $name})", []),
+            ("toLower(n.name) = toLower($name)", []),
+            ("n.name CONTAINS $name", [_tier_record(node, 0.6, 3)]),
+        ]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_entity("Context Protocol", None)
+
+    assert len(result) == 1
+    assert result[0].confidence == 0.6
+    assert len(session.queries) == 3
+
+
+async def test_find_entity_tier4_alias_returns_canonical_entity(
+    adapter: Neo4jQueryAdapter,
+) -> None:
+    """AC-FIND-01: find_entity('mcp') resolves to the canonical entity via alias."""
+    node = _entity_node(
+        "model-context-protocol",
+        "Model Context Protocol",
+        "mcp",
+        aliases=["MCP"],
+        canonical_name="Model Context Protocol",
+    )
+    session = _TieredFakeSession(
+        responses=[
+            ("MATCH (n:Entity {name: $name})", []),
+            ("toLower(n.name) = toLower($name)", []),
+            ("n.name CONTAINS $name", []),
+            (
+                "CALL db.index.fulltext.queryNodes",
+                [_tier_record(node, 0.4 * 1.0, 12, "book-1")],
+            ),
+        ]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_entity("mcp", None)
+
+    assert len(result) == 1
+    assert result[0].entity.id == "model-context-protocol"
+    assert result[0].entity.name == "Model Context Protocol"
+    assert result[0].entity.aliases == ["MCP"]
+    assert result[0].confidence == pytest.approx(0.4)
+    assert result[0].source == "book_id=book-1,chunk_index=12"
+    assert len(session.queries) == 4
+
+
+async def test_find_entity_type_filter_applied_to_all_tiers(
+    adapter: Neo4jQueryAdapter,
+) -> None:
+    """REQ-FIND-02: the entity_type filter is present in every tier query."""
+    node = _entity_node("mcp-tool", "MCP", "tool")
+    session = _TieredFakeSession(
+        responses=[
+            ("MATCH (n:Entity {name: $name})", []),
+            ("toLower(n.name) = toLower($name)", []),
+            ("n.name CONTAINS $name", [_tier_record(node, 0.6, 1)]),
+        ]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_entity("mcp", "tool")
+
+    assert len(result) == 1
+    assert result[0].entity.type == "tool"
+    for query, _params in session.queries:
+        assert "$entity_type IS NULL OR n.type = $entity_type" in query
+    assert _params["entity_type"] == "tool"
+
+
+async def test_find_entity_dedup_keeps_highest_tier(adapter: Neo4jQueryAdapter) -> None:
+    """SCEN-FIND-06: duplicate ids collapse to one entry with the highest tier score."""
+    node = _entity_node("agent-pattern", "Agent", "pattern")
+    session = _TieredFakeSession(
+        responses=[
+            ("MATCH (n:Entity {name: $name})", []),
+            (
+                "toLower(n.name) = toLower($name)",
+                [
+                    _tier_record(node, 0.8, 1, "book-a"),
+                    _tier_record(node, 0.8, 4, "book-b"),
+                ],
+            ),
+        ]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_entity("agent", None)
+
+    assert len(result) == 1
+    assert result[0].confidence == 0.8
+
+
+async def test_find_entity_graceful_degradation_without_fulltext_index(
+    adapter: Neo4jQueryAdapter,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """AC-FIND-03: missing fulltext index logs a warning and returns Tiers 1-3."""
+    session = _TieredFakeSession(
+        responses=[
+            ("MATCH (n:Entity {name: $name})", []),
+            ("toLower(n.name) = toLower($name)", []),
+            ("n.name CONTAINS $name", []),
+        ],
+        raise_on="CALL db.index.fulltext.queryNodes",
+    )
+    adapter._driver = _FakeDriver(session)
+
+    with caplog.at_level("WARNING", logger="book_graph_rag.infrastructure.neo4j_query_adapter"):
+        result = await adapter.find_entity("Ag", None)
+
+    assert result == []
+    assert len(session.queries) == 4
+    assert any("Fulltext index entity_name_aliases_index unavailable" in r.message for r in caplog.records)
 
 
 async def test_find_entities_batch_with_200_ids(adapter: Neo4jQueryAdapter) -> None:
@@ -305,6 +530,24 @@ async def test_find_entities_batch_returns_entity_with_context(adapter: Neo4jQue
     assert result[0].status is None
     assert result[0].confidence is None
     assert result[0].source is None
+
+
+async def test_find_entities_batch_populates_source(adapter: Neo4jQueryAdapter) -> None:
+    """Batch lookup extracts chunk provenance via OPTIONAL MATCH MENTIONS."""
+    node = _FakeRecord(
+        {"id": "e1", "name": "MCP", "type": "mcp", "description": "desc", "source_page": 5}
+    )
+    session = _make_session(
+        [_FakeRecord({"n": node, "chunk_index": 9, "book_id": "agentic-patterns"})]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.find_entities_batch(["e1"])
+
+    assert len(result) == 1
+    assert result[0].source == "book_id=agentic-patterns,chunk_index=9"
+    query, _ = session.queries[0]
+    assert "OPTIONAL MATCH (c:Chunk)-[:MENTIONS]->(n)" in query
 
 
 async def test_node_to_entity_mapping(adapter: Neo4jQueryAdapter) -> None:
@@ -619,14 +862,14 @@ async def test_list_entities_second_page(adapter: Neo4jQueryAdapter) -> None:
 # ── T-06.9: ensure_indexes ───────────────────────────────────────────────────
 
 
-async def test_ensure_indexes_executes_five_create_statements(adapter: Neo4jQueryAdapter) -> None:
+async def test_ensure_indexes_executes_six_create_statements(adapter: Neo4jQueryAdapter) -> None:
     """ensure_indexes runs one CREATE statement per index."""
     session = _make_session([])
     adapter._driver = _FakeDriver(session)
 
     await adapter.ensure_indexes()
 
-    assert len(session.queries) == 5
+    assert len(session.queries) == 6
 
 
 async def test_ensure_indexes_is_idempotent(adapter: Neo4jQueryAdapter) -> None:
@@ -641,7 +884,7 @@ async def test_ensure_indexes_is_idempotent(adapter: Neo4jQueryAdapter) -> None:
 
 
 async def test_ensure_indexes_creates_expected_indexes(adapter: Neo4jQueryAdapter) -> None:
-    """The five expected indexes are created with correct names."""
+    """The six expected indexes are created with correct names."""
     session = _make_session([])
     adapter._driver = _FakeDriver(session)
 
@@ -653,6 +896,7 @@ async def test_ensure_indexes_creates_expected_indexes(adapter: Neo4jQueryAdapte
     assert any("entity_id" in q for q in queries)
     assert any("rel_type" in q for q in queries)
     assert any("chunk_text_index" in q for q in queries)
+    assert any("entity_name_aliases_index" in q for q in queries)
 
 
 async def test_ensure_indexes_fulltext_uses_on_each(adapter: Neo4jQueryAdapter) -> None:
@@ -662,10 +906,14 @@ async def test_ensure_indexes_fulltext_uses_on_each(adapter: Neo4jQueryAdapter) 
 
     await adapter.ensure_indexes()
 
-    fulltext_query = next(
+    chunk_fulltext_query = next(
         q for q, _ in session.queries if "FULLTEXT INDEX chunk_text_index" in q
     )
-    assert "ON EACH [n.text]" in fulltext_query
+    assert "ON EACH [n.text]" in chunk_fulltext_query
+    entity_fulltext_query = next(
+        q for q, _ in session.queries if "FULLTEXT INDEX entity_name_aliases_index" in q
+    )
+    assert "ON EACH [n.name, n.canonical_name, n.aliases]" in entity_fulltext_query
 
 
 # ── T-GR.4: text2cypher read helpers ─────────────────────────────────────────

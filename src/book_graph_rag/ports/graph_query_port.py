@@ -25,7 +25,13 @@ class GraphQueryPort(abc.ABC):
     async def find_entity(
         self, name: str, entity_type: EntityType | None
     ) -> list[EntityWithContext]:
-        """Return entities matching ``name`` and optional ``entity_type``."""
+        """Return entities matching ``name`` and optional ``entity_type``.
+
+        Implementations SHOULD cascade through exact, case-insensitive,
+        substring, and fulltext index tiers, stopping at the first tier that
+        yields matches. Results are deduplicated by entity id and annotated
+        with a tier confidence score and chunk provenance in ``source``.
+        """
         ...
 
     @abc.abstractmethod
@@ -69,5 +75,9 @@ class GraphQueryPort(abc.ABC):
 
     @abc.abstractmethod
     async def ensure_indexes(self) -> None:
-        """Create read-side indexes idempotently."""
+        """Create read-side indexes idempotently.
+
+        Includes the fulltext index over entity names, canonical names and
+        aliases required by the tiered entity lookup fallback.
+        """
         ...
