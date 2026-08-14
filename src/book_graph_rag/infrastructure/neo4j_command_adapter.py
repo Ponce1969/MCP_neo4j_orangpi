@@ -19,19 +19,29 @@ from book_graph_rag.domain.models import (
     Relationship,
     Section,
 )
+from book_graph_rag.infrastructure.dead_letter import JSONLDeadLetter
+from book_graph_rag.ports.dead_letter_port import DeadLetterPort
 from book_graph_rag.ports.graph_db_port import GraphDatabasePort
 
 
 class Neo4jCommandAdapter(GraphDatabasePort):
     """Async Neo4j implementation of ``GraphDatabasePort`` for write commands."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self, settings: Settings, dead_letter_port: DeadLetterPort | None = None
+    ) -> None:
         self._settings = settings
         # Deserialize the SecretStr once at construction time. The password is
         # passed to the driver and never logged or printed by this adapter.
         self._driver: Any = AsyncGraphDatabase.driver(
             settings.neo4j_uri,
             auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value()),
+        )
+        self._orphan_policy: str = settings.relationship_orphan_policy
+        self._dead_letter: DeadLetterPort = (
+            dead_letter_port
+            if dead_letter_port is not None
+            else JSONLDeadLetter(settings.dead_letter_path_orphans)
         )
 
     async def close(self) -> None:
@@ -74,19 +84,93 @@ class Neo4jCommandAdapter(GraphDatabasePort):
             )
 
     async def upsert_relationships(self, relationships: list[Relationship]) -> None:
-        """Idempotently persist relationships (MERGE by endpoints + type)."""
+        """Idempotently persist relationships with endpoint validation.
+
+        Runs one batched set-membership query to detect missing endpoints, then
+        either raises (``fail_loud``) or writes orphans to the dead-letter log
+        and persists the valid subset (``log_orphan``). The zero-silent-drop
+        invariant is ``input == persisted + dead_lettered_orphans``.
+        """
+        if not relationships:
+            return
+
+        source_ids = [rel.source_entity_id for rel in relationships]
+        target_ids = [rel.target_entity_id for rel in relationships]
+
         async with self._driver.session() as session:
-            await session.run(
+            result = await session.run(
                 """
-                UNWIND $rels AS r
-                MATCH (src:Entity {id: r.source_entity_id}),
-                      (dst:Entity {id: r.target_entity_id})
-                MERGE (src)-[rel:RELATED {type: r.type}]->(dst)
-                SET rel.description = r.description,
-                    rel.source_page = r.source_page
+                WITH $source_ids AS src_ids, $target_ids AS dst_ids
+                UNWIND (src_ids + dst_ids) AS id
+                WITH DISTINCT id
+                OPTIONAL MATCH (n:Entity {id: id})
+                RETURN collect(DISTINCT id) AS requested,
+                       collect(DISTINCT n.id) AS found_ids
                 """,
-                {"rels": [rel.model_dump() for rel in relationships]},
+                {"source_ids": source_ids, "target_ids": target_ids},
             )
+            record = await result.single()
+
+        missing_ids: set[str] = set()
+        if record is not None:
+            requested: set[str] = set(record["requested"])
+            found_ids: set[str] = set(record["found_ids"])
+            missing_ids = requested - found_ids
+
+        valid_relationships: list[Relationship] = []
+        orphans: list[dict[str, Any]] = []
+        for rel in relationships:
+            src_missing = rel.source_entity_id in missing_ids
+            dst_missing = rel.target_entity_id in missing_ids
+            if src_missing or dst_missing:
+                missing_endpoint = (
+                    "both"
+                    if src_missing and dst_missing
+                    else ("source" if src_missing else "target")
+                )
+                orphans.append(
+                    {
+                        "reason": "orphan_endpoint",
+                        "type": rel.type,
+                        "source_entity_id": rel.source_entity_id,
+                        "target_entity_id": rel.target_entity_id,
+                        "description": rel.description,
+                        "source_page": rel.source_page,
+                        "chunk_index": rel.chunk_index,
+                        "missing_endpoint": missing_endpoint,
+                    }
+                )
+            else:
+                valid_relationships.append(rel)
+
+        if orphans and self._orphan_policy == "fail_loud":
+            missing = sorted(
+                {
+                    oid
+                    for o in orphans
+                    for oid in (o["source_entity_id"], o["target_entity_id"])
+                }
+            )
+            raise ValueError(
+                f"Relationship batch aborted: missing endpoints {missing}"
+            )
+
+        for orphan in orphans:
+            await self._dead_letter.write_orphan_relationship(orphan)
+
+        if valid_relationships:
+            async with self._driver.session() as session:
+                await session.run(
+                    """
+                    UNWIND $rels AS r
+                    MATCH (src:Entity {id: r.source_entity_id}),
+                          (dst:Entity {id: r.target_entity_id})
+                    MERGE (src)-[rel:RELATED {type: r.type}]->(dst)
+                    SET rel.description = r.description,
+                        rel.source_page = r.source_page
+                    """,
+                    {"rels": [rel.model_dump() for rel in valid_relationships]},
+                )
 
     async def upsert_mentions(
         self, chunk_index: int, book_id: str | None, entity_ids: list[str]

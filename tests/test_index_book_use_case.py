@@ -384,3 +384,25 @@ async def test_use_case_dead_lettered_chunks_do_not_produce_mentions(
     assert 3 not in mentioned_indices
     assert 7 not in mentioned_indices
     assert len(graph.mention_calls) == 8
+
+
+async def test_use_case_records_chunk_index_on_relationships(tmp_path: Path) -> None:
+    """REQ-REL-03: every relationship carries the chunk index for orphan logging."""
+    chunks = _make_chunks(3, book=_make_book())
+    pdf = _FakePDFPort(chunks)
+    llm = _FakeLLMPort()
+    graph = _FakeGraphDBPort()
+    use_case = IndexBookUseCase(
+        pdf_port=pdf,
+        llm_port=llm,
+        graph_db_port=graph,
+        max_concurrency=3,
+        batch_size=5,
+        dead_letter_path=tmp_path / "dl.log",
+    )
+
+    await use_case.execute("dummy.pdf")
+
+    for batch in graph.relationship_batches_upserted:
+        for rel in batch:
+            assert rel.chunk_index is not None

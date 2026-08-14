@@ -108,6 +108,7 @@ class Relationship(BaseModel):
     type: RelationshipType
     description: str = ""
     source_page: int | None = None
+    chunk_index: int | None = None
 
 
 class KnowledgeGraphChunk(BaseModel):

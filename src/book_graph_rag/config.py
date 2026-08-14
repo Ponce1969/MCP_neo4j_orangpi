@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +25,8 @@ class Settings(BaseSettings):
     llm_max_concurrency: int = 3  # tope de llamadas LLM concurrentes
     processing_batch_size: int = 5  # tamaño de lote del caso de uso
     dead_letter_path: Path = Path("data/dead_letter.log")  # chunks fallidos
+    relationship_orphan_policy: Literal["fail_loud", "log_orphan"] = "log_orphan"
+    dead_letter_path_orphans: Path = Path("data/dead_letter_orphans.jsonl")
 
     # ── Reintentos (consumidos por LLMAdapter — backoff EXPONENCIAL) ───
     llm_max_retries: int = 5

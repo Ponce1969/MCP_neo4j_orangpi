@@ -89,6 +89,8 @@ def test_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.mcp_log_retention_days == 7
     assert settings.summary_max_concurrency == 3
     assert settings.community_max_calls == 150
+    assert settings.relationship_orphan_policy == "log_orphan"
+    assert settings.dead_letter_path_orphans == Path("data/dead_letter_orphans.jsonl")
 
 
 def test_settings_mcp_values_can_be_overridden(
@@ -151,6 +153,26 @@ def test_settings_mcp_retention_must_be_positive(
         Settings.model_validate(data)
 
     assert "mcp_log_retention_days" in str(exc_info.value)
+
+
+def test_settings_orphan_policy_rejects_invalid_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """relationship_orphan_policy must be 'fail_loud' or 'log_orphan'."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "relationship_orphan_policy": "ignore",
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "relationship_orphan_policy" in str(exc_info.value)
 
 
 def test_settings_community_model_name_defaults_to_llm_model_name(

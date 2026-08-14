@@ -66,6 +66,7 @@ def test_cli_index_composition_correct_order(
             self.llm_max_concurrency = 7
             self.processing_batch_size = 11
             self.dead_letter_path = Path("data/dead_letter.log")
+            self.relationship_orphan_policy = "log_orphan"
 
     class FakePDFAdapter:
         def __init__(self, settings: object) -> None:

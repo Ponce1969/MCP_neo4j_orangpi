@@ -138,6 +138,8 @@ class IndexBookUseCase:
             chunk_provenance.append((chunk.chunk_index, book_id, entity_ids))
 
             all_entities.extend(chunk.entities)
+            for rel in chunk.relationships:
+                rel.chunk_index = chunk.chunk_index
             all_relationships.extend(chunk.relationships)
 
         await self._graph_db_port.upsert_entities(all_entities)
