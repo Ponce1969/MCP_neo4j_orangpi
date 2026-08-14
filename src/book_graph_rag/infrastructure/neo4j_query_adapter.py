@@ -368,15 +368,22 @@ class Neo4jQueryAdapter(GraphQueryPort):
             next_cursor = records[-1]["internal_id"] if records else cursor
             return entities, next_cursor
 
-    async def explain(self, cypher: str) -> None:
+    async def explain(
+        self, cypher: str, parameters: dict[str, Any] | None = None
+    ) -> None:
         """Run ``EXPLAIN`` on ``cypher`` to validate it without executing it.
+
+        Args:
+            cypher: The Cypher statement to explain.
+            parameters: Optional bound parameters for the statement.
 
         Raises:
             QueryTimeoutError: If the EXPLAIN exceeds the 3-second internal limit.
         """
         async with self._driver.session() as session:
             await self._run_with_timeout(
-                session.run(f"EXPLAIN {cypher}"), timeout=3.0
+                session.run(f"EXPLAIN {cypher}", parameters or {}),
+                timeout=3.0,
             )
 
     async def execute_read(self, cypher: str) -> list[dict[str, Any]]:

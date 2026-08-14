@@ -486,7 +486,10 @@ async def test_find_entity_graceful_degradation_without_fulltext_index(
 
     assert result == []
     assert len(session.queries) == 4
-    assert any("Fulltext index entity_name_aliases_index unavailable" in r.message for r in caplog.records)
+    assert any(
+        "Fulltext index entity_name_aliases_index unavailable" in r.message
+        for r in caplog.records
+    )
 
 
 async def test_find_entities_batch_with_200_ids(adapter: Neo4jQueryAdapter) -> None:

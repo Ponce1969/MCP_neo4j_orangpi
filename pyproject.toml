@@ -94,6 +94,9 @@ disallow_any_unimported = false
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 asyncio_mode = "auto"
+markers = [
+    "neo4j_integration: tests that require a live Neo4j container",
+]
 
 # ── Uv ──────────────────────────────────────────────────────────────────
 [tool.uv]
