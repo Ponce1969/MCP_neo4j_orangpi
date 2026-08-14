@@ -447,6 +447,32 @@ def test_resolve_entity_id_deduplicates_aliases_case_insensitive() -> None:
     assert aliases == ["MCP"]
 
 
+def test_resolve_entity_id_fuzzy_mode_uses_canonical_when_similar() -> None:
+    """Fuzzy mode adopts canonical_name when it is highly similar to name."""
+    entity_id, _ = LLMAdapter._resolve_entity_id(
+        name="Model Context Protocol",
+        canonical_name="Model Context Protocol",
+        aliases=[],
+        entity_type="concept",
+        match_mode="fuzzy",
+        threshold=0.92,
+    )
+    assert entity_id == "model-context-protocol-concept"
+
+
+def test_resolve_entity_id_fuzzy_mode_falls_back_when_dissimilar() -> None:
+    """Fuzzy mode ignores low-confidence canonical_name to avoid false merge."""
+    entity_id, _ = LLMAdapter._resolve_entity_id(
+        name="MCP",
+        canonical_name="Multi-Agent Coordination Protocol",
+        aliases=[],
+        entity_type="concept",
+        match_mode="fuzzy",
+        threshold=0.92,
+    )
+    assert entity_id == "mcp"
+
+
 _EXTRACTION_CANONICAL_JSON = json.dumps(
     {
         "entities": [
@@ -486,6 +512,48 @@ async def test_extract_graph_populates_aliases_and_canonical_name(
     assert entity.name == "MCP"
     assert entity.canonical_name == "Model Context Protocol"
     assert entity.aliases == ["MCP", "Model Context Protocol"]
+
+
+_EXTRACTION_WITH_STOPLIST_JSON = json.dumps(
+    {
+        "entities": [
+            {
+                "name": "Model Context Protocol",
+                "type": "concept",
+                "description": "A protocol for model context.",
+                "source_page": 10,
+                "aliases": ["MCP", "protocol", "model"],
+                "canonical_name": None,
+            }
+        ],
+        "relationships": [],
+    }
+)
+
+
+async def test_extract_graph_applies_settings_stoplist(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Settings canonical_stoplist is applied to aliases during extraction."""
+    settings = _make_settings(
+        tmp_path,
+        monkeypatch,
+        canonical_stoplist=["protocol", "model"],
+    )
+    factory = _FakeAsyncOpenAIFactory(extraction_json=_EXTRACTION_WITH_STOPLIST_JSON)
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.llm_adapter.AsyncOpenAI",
+        factory,
+    )
+
+    adapter = LLMAdapter(settings)
+    chunk = _make_chunk()
+    result = await adapter.extract_graph(chunk)
+
+    assert len(result.entities) == 1
+    entity = result.entities[0]
+    assert entity.aliases == ["MCP"]
 
 
 async def test_llm_adapter_generate_cypher_returns_cypher_string(

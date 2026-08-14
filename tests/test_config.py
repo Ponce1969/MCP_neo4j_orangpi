@@ -175,6 +175,83 @@ def test_settings_orphan_policy_rejects_invalid_value(
     assert "relationship_orphan_policy" in str(exc_info.value)
 
 
+def test_settings_canonical_defaults_are_safe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Canonicalization defaults to deterministic slug mode with empty stoplist."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.canonical_match_mode == "slug"
+    assert settings.canonical_fuzzy_threshold == 0.92
+    assert settings.canonical_stoplist == []
+
+
+def test_settings_canonical_fuzzy_threshold_rejects_too_low(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """canonical_fuzzy_threshold must be >= 0.5."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "canonical_fuzzy_threshold": 0.4,
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "canonical_fuzzy_threshold" in str(exc_info.value)
+
+
+def test_settings_canonical_fuzzy_threshold_rejects_too_high(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """canonical_fuzzy_threshold must be <= 1.0."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "canonical_fuzzy_threshold": 1.1,
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "canonical_fuzzy_threshold" in str(exc_info.value)
+
+
+def test_settings_canonical_stoplist_can_be_overridden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """canonical_stoplist accepts a list of domain stopwords."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "canonical_stoplist": ["protocol", "model"],
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.canonical_stoplist == ["protocol", "model"]
+
+
 def test_settings_community_model_name_defaults_to_llm_model_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

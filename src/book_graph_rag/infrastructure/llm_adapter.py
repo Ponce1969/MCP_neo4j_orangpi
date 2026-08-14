@@ -7,10 +7,11 @@ OpenAI-compatible LLM and populates the chunk's ``entities`` and
 
 from __future__ import annotations
 
+import difflib
 import logging
 import re
 from collections.abc import Callable, Collection, Iterable
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import instructor
 from openai import AsyncOpenAI
@@ -307,6 +308,13 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         # error so instructor can recover instead of raising immediately.
         self._instructor_retries = settings.llm_instructor_max_retries
 
+        # Canonicalization config (REQ-CANON-04). Default slug mode is
+        # deterministic and avoids false-positive merges; fuzzy mode gates
+        # canonical_name adoption by a high similarity threshold.
+        self._canonical_match_mode = settings.canonical_match_mode
+        self._canonical_fuzzy_threshold = settings.canonical_fuzzy_threshold
+        self._canonical_stoplist = settings.canonical_stoplist
+
         # Retry policy captured at construction time.
         self._retrying = AsyncRetrying(
             stop=stop_after_attempt(settings.llm_max_retries),
@@ -376,7 +384,13 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         chunk.entities = []
         for dto in extraction.entities:
             entity_id, filtered_aliases = self._resolve_entity_id(
-                dto.name, dto.canonical_name, dto.aliases, dto.type
+                dto.name,
+                dto.canonical_name,
+                dto.aliases,
+                dto.type,
+                stoplist=self._canonical_stoplist,
+                match_mode=self._canonical_match_mode,
+                threshold=self._canonical_fuzzy_threshold,
             )
             chunk.entities.append(
                 Entity(
@@ -457,12 +471,19 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         return normalized.strip("-")
 
     @staticmethod
+    def _fuzzy_similarity(a: str, b: str) -> float:
+        """Return a 0..1 similarity ratio for two strings."""
+        return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+    @staticmethod
     def _resolve_entity_id(
         name: str,
         canonical_name: str | None,
         aliases: Iterable[str],
         entity_type: EntityType,
         stoplist: Collection[str] | None = None,
+        match_mode: Literal["slug", "fuzzy"] = "slug",
+        threshold: float = 0.92,
     ) -> tuple[str, list[str]]:
         """Return a deterministic entity id and filtered alias list.
 
@@ -472,6 +493,11 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
 
         Aliases are normalized (case-insensitive deduplication) and filtered
         against ``stoplist`` so domain stopwords cannot become aliases.
+
+        In ``fuzzy`` mode, ``canonical_name`` is only adopted when its fuzzy
+        similarity to ``name`` is at least ``threshold``. This gates the fuzzy
+        path so low-confidence canonical matches fall back to the legacy id,
+        avoiding false-positive merges (REQ-CANON-04, AC-CANON-03).
         """
         stoplist_set = {term.lower() for term in (stoplist or ())}
         filtered: list[str] = []
@@ -483,8 +509,25 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             seen.add(lower)
             filtered.append(alias)
 
-        if canonical_name:
-            return f"{LLMAdapter._slugify(canonical_name)}-{entity_type}", filtered
+        effective_canonical = canonical_name
+        if effective_canonical and match_mode == "fuzzy":
+            similarity = LLMAdapter._fuzzy_similarity(name, effective_canonical)
+            if similarity < threshold:
+                logger.info(
+                    "Ignoring low-confidence canonical_name '%s' for '%s' "
+                    "(similarity %.2f < threshold %.2f)",
+                    effective_canonical,
+                    name,
+                    similarity,
+                    threshold,
+                )
+                effective_canonical = None
+
+        if effective_canonical:
+            return (
+                f"{LLMAdapter._slugify(effective_canonical)}-{entity_type}",
+                filtered,
+            )
         return LLMAdapter._slugify(name), filtered
 
     async def generate_community_summary(

@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     dead_letter_path: Path = Path("data/dead_letter.log")  # chunks fallidos
     relationship_orphan_policy: Literal["fail_loud", "log_orphan"] = "log_orphan"
     dead_letter_path_orphans: Path = Path("data/dead_letter_orphans.jsonl")
+
+    # ── Canonicalización de entidades (REQ-CANON-04) ─────────────────────
+    canonical_match_mode: Literal["slug", "fuzzy"] = "slug"
+    canonical_fuzzy_threshold: float = 0.92
+    canonical_stoplist: list[str] = Field(default_factory=list)
 
     # ── Reintentos (consumidos por LLMAdapter — backoff EXPONENCIAL) ───
     llm_max_retries: int = 5
@@ -123,6 +128,15 @@ class Settings(BaseSettings):
         if not 0 <= value <= 10:
             raise ValueError(
                 f"llm_instructor_max_retries ({value}) debe estar entre 0 y 10"
+            )
+        return value
+
+    @field_validator("canonical_fuzzy_threshold")
+    @classmethod
+    def _validate_canonical_fuzzy_threshold(cls, value: float) -> float:
+        if not 0.5 <= value <= 1.0:
+            raise ValueError(
+                f"canonical_fuzzy_threshold ({value}) debe estar entre 0.5 y 1.0"
             )
         return value
 
