@@ -95,6 +95,8 @@ class Entity(BaseModel):
     type: EntityType
     description: str = ""
     source_page: int | None = None  # page where this entity was first mentioned
+    aliases: list[str] = Field(default_factory=list)
+    canonical_name: str | None = None
 
 
 class Relationship(BaseModel):
@@ -237,7 +239,13 @@ class QueryMetadata(BaseModel):
 
 
 class EntityWithContext(BaseModel):
-    """Entity enriched with optional provenance fields reserved for Fase 08."""
+    """Entity enriched with optional provenance fields.
+
+    ``source`` carries the originating chunk provenance as a structured string
+    containing ``chunk_index`` and ``book_id`` when available, for example
+    ``"book_id=agentic-patterns,chunk_index=5"``. This supports citation in
+    retrieval evidence and RAGAS debugging.
+    """
 
     model_config = ConfigDict()
     entity: Entity

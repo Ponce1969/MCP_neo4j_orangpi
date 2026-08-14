@@ -126,15 +126,18 @@ def _make_completion(content: str) -> ChatCompletion:
 class _FakeCompletions:
     """Records calls and supports fail-then-succeed behaviour."""
 
-    def __init__(self, fail_count: int = 0) -> None:
+    def __init__(
+        self, fail_count: int = 0, extraction_json: str | None = None
+    ) -> None:
         self.fail_count = fail_count
+        self.extraction_json = extraction_json or _EXTRACTION_JSON
         self.calls: list[dict[str, Any]] = []
 
     async def create(self, **kwargs: Any) -> ChatCompletion:
         self.calls.append(kwargs)
         if len(self.calls) <= self.fail_count:
             raise RuntimeError(f"failure {len(self.calls)}")
-        return _make_completion(_EXTRACTION_JSON)
+        return _make_completion(self.extraction_json)
 
 
 class _FakeChat:
@@ -153,19 +156,27 @@ class _FakeAsyncOpenAI(AsyncOpenAI):
         timeout: float = 60.0,
         max_retries: int = 0,
         fail_count: int = 0,
+        extraction_json: str | None = None,
     ) -> None:
         self.base_url = base_url
         self.api_key = api_key
         self.timeout = timeout
         self.max_retries = max_retries
-        self.chat = _FakeChat(_FakeCompletions(fail_count=fail_count))
+        self.chat = _FakeChat(
+            _FakeCompletions(
+                fail_count=fail_count, extraction_json=extraction_json
+            )
+        )
 
 
 class _FakeAsyncOpenAIFactory:
     """Callable that produces configured _FakeAsyncOpenAI instances."""
 
-    def __init__(self, fail_count: int = 0) -> None:
+    def __init__(
+        self, fail_count: int = 0, extraction_json: str | None = None
+    ) -> None:
         self.fail_count = fail_count
+        self.extraction_json = extraction_json
         self.last_kwargs: dict[str, Any] | None = None
         self._last_instance: _FakeAsyncOpenAI | None = None
         self._instances: list[_FakeAsyncOpenAI] = []
@@ -190,6 +201,7 @@ class _FakeAsyncOpenAIFactory:
             timeout=timeout,
             max_retries=max_retries,
             fail_count=self.fail_count,
+            extraction_json=self.extraction_json,
         )
         self._instances.append(self._last_instance)
         return self._last_instance
@@ -351,6 +363,129 @@ async def test_llm_adapter_computes_relationship_ids_from_entity_names(
     relationship = result.relationships[0]
     assert relationship.source_entity_id == "agent-pattern"
     assert relationship.target_entity_id == "multi-agent-system"
+
+
+# ── Canonicalization (REQ-CANON-01/02/05, AC-CANON-01/04) ───────────────────
+
+
+def test_resolve_entity_id_legacy_path_no_canonical() -> None:
+    """AC-CANON-01: entities without canonical_name keep id == slugify(name)."""
+    entity_id, aliases = LLMAdapter._resolve_entity_id(
+        name="Agent Pattern",
+        canonical_name=None,
+        aliases=[],
+        entity_type="pattern",
+    )
+    assert entity_id == "agent-pattern"
+    assert aliases == []
+
+
+def test_resolve_entity_id_legacy_path_ignores_aliases() -> None:
+    """AC-CANON-01: aliases alone do not change the legacy slugify(name) id."""
+    entity_id, aliases = LLMAdapter._resolve_entity_id(
+        name="Model Context Protocol",
+        canonical_name=None,
+        aliases=["MCP"],
+        entity_type="concept",
+    )
+    assert entity_id == "model-context-protocol"
+    assert aliases == ["MCP"]
+
+
+def test_resolve_entity_id_canonical_appends_type() -> None:
+    """AC-CANON-01: canonical_name produces type-aware id."""
+    entity_id, aliases = LLMAdapter._resolve_entity_id(
+        name="MCP",
+        canonical_name="Model Context Protocol",
+        aliases=["MCP"],
+        entity_type="concept",
+    )
+    assert entity_id == "model-context-protocol-concept"
+    assert aliases == ["MCP"]
+
+
+def test_resolve_entity_id_type_aware_distinct_nodes() -> None:
+    """REQ-CANON-05: same canonical name with different types stays distinct."""
+    tool_id, _ = LLMAdapter._resolve_entity_id(
+        name="MCP",
+        canonical_name="Model Context Protocol",
+        aliases=[],
+        entity_type="tool",
+    )
+    concept_id, _ = LLMAdapter._resolve_entity_id(
+        name="MCP",
+        canonical_name="Model Context Protocol",
+        aliases=[],
+        entity_type="concept",
+    )
+    assert tool_id == "model-context-protocol-tool"
+    assert concept_id == "model-context-protocol-concept"
+    assert tool_id != concept_id
+
+
+def test_resolve_entity_id_filters_stoplist() -> None:
+    """AC-CANON-04: stoplisted aliases are removed before persistence."""
+    entity_id, aliases = LLMAdapter._resolve_entity_id(
+        name="Model Context Protocol",
+        canonical_name=None,
+        aliases=["MCP", "protocol", "model"],
+        entity_type="concept",
+        stoplist=["protocol", "MODEL"],
+    )
+    assert entity_id == "model-context-protocol"
+    assert aliases == ["MCP"]
+
+
+def test_resolve_entity_id_deduplicates_aliases_case_insensitive() -> None:
+    """Aliases are deduplicated case-insensitively while preserving first form."""
+    _, aliases = LLMAdapter._resolve_entity_id(
+        name="Model Context Protocol",
+        canonical_name=None,
+        aliases=["MCP", "mcp", "MCP"],
+        entity_type="concept",
+    )
+    assert aliases == ["MCP"]
+
+
+_EXTRACTION_CANONICAL_JSON = json.dumps(
+    {
+        "entities": [
+            {
+                "name": "MCP",
+                "type": "concept",
+                "description": "A protocol for model context.",
+                "source_page": 10,
+                "aliases": ["MCP", "Model Context Protocol"],
+                "canonical_name": "Model Context Protocol",
+            }
+        ],
+        "relationships": [],
+    }
+)
+
+
+async def test_extract_graph_populates_aliases_and_canonical_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """REQ-CANON-02: extracted entities carry aliases and canonical_name."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    factory = _FakeAsyncOpenAIFactory(extraction_json=_EXTRACTION_CANONICAL_JSON)
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.llm_adapter.AsyncOpenAI",
+        factory,
+    )
+
+    adapter = LLMAdapter(settings)
+    chunk = _make_chunk()
+    result = await adapter.extract_graph(chunk)
+
+    assert len(result.entities) == 1
+    entity = result.entities[0]
+    assert entity.id == "model-context-protocol-concept"
+    assert entity.name == "MCP"
+    assert entity.canonical_name == "Model Context Protocol"
+    assert entity.aliases == ["MCP", "Model Context Protocol"]
 
 
 async def test_llm_adapter_generate_cypher_returns_cypher_string(

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Iterable
 from typing import Any, cast
 
 import instructor
@@ -89,10 +89,15 @@ _SYSTEM_PROMPT = (
     "Allowed relationship types: requires, alternative_to, composes, extends, "
     "enables, depends_on, contrasts_with, evolves_to.\n\n"
     "Output format:\n"
-    "- Return entities with fields: name, type, description, source_page.\n"
+    "- Return entities with fields: name, type, description, source_page, "
+    "aliases, canonical_name.\n"
     "- Return relationships with fields: source_entity_name, target_entity_name, "
     "type, description, source_page.\n"
-    "- source_entity_name and target_entity_name must match entity names exactly.\n\n"
+    "- source_entity_name and target_entity_name must match entity names exactly.\n"
+    "- aliases: list of alternative names or abbreviations for the entity "
+    "(e.g. [\"MCP\"] for \"Model Context Protocol\"). Omit when none.\n"
+    "- canonical_name: the canonical or long-form name when it differs from "
+    "the extracted name. Omit when it is the same as name.\n\n"
     "Rules:\n"
     "- Use ONLY the allowed types; do not invent new ones.\n"
     "- Set source_page to the chunk's starting page when the entity/relationship "
@@ -212,6 +217,8 @@ class _LLMEntityDTO(BaseModel):
     type: EntityType
     description: str = ""
     source_page: int | None = None
+    aliases: list[str] = Field(default_factory=list)
+    canonical_name: str | None = None
 
 
 class _LLMRelationshipDTO(BaseModel):
@@ -366,16 +373,22 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         if extraction is None:  # pragma: no cover
             raise RuntimeError("LLM extraction failed without raising")
 
-        chunk.entities = [
-            Entity(
-                id=self._slugify(dto.name),
-                name=dto.name,
-                type=dto.type,
-                description=dto.description,
-                source_page=dto.source_page,
+        chunk.entities = []
+        for dto in extraction.entities:
+            entity_id, filtered_aliases = self._resolve_entity_id(
+                dto.name, dto.canonical_name, dto.aliases, dto.type
             )
-            for dto in extraction.entities
-        ]
+            chunk.entities.append(
+                Entity(
+                    id=entity_id,
+                    name=dto.name,
+                    type=dto.type,
+                    description=dto.description,
+                    source_page=dto.source_page,
+                    aliases=filtered_aliases,
+                    canonical_name=dto.canonical_name,
+                )
+            )
         chunk.relationships = [
             Relationship(
                 source_entity_id=self._slugify(dto.source_entity_name),
@@ -442,6 +455,37 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         """Normalize a name into a stable URL-friendly identifier."""
         normalized = re.sub(r"[^a-z0-9]+", "-", text.lower().strip())
         return normalized.strip("-")
+
+    @staticmethod
+    def _resolve_entity_id(
+        name: str,
+        canonical_name: str | None,
+        aliases: Iterable[str],
+        entity_type: EntityType,
+        stoplist: Collection[str] | None = None,
+    ) -> tuple[str, list[str]]:
+        """Return a deterministic entity id and filtered alias list.
+
+        Compatibility rule (REQ-CANON-01):
+        - If ``canonical_name`` is present, the id is ``slugify(canonical_name)-type``.
+        - Otherwise the id is ``slugify(name)`` (legacy behavior, no type suffix).
+
+        Aliases are normalized (case-insensitive deduplication) and filtered
+        against ``stoplist`` so domain stopwords cannot become aliases.
+        """
+        stoplist_set = {term.lower() for term in (stoplist or ())}
+        filtered: list[str] = []
+        seen: set[str] = set()
+        for alias in aliases:
+            lower = alias.lower()
+            if lower in stoplist_set or lower in seen:
+                continue
+            seen.add(lower)
+            filtered.append(alias)
+
+        if canonical_name:
+            return f"{LLMAdapter._slugify(canonical_name)}-{entity_type}", filtered
+        return LLMAdapter._slugify(name), filtered
 
     async def generate_community_summary(
         self,
