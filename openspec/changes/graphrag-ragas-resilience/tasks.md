@@ -32,11 +32,11 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: PR3 — Endpoint detection + dead-letter
 
-- [ ] 3.1 `ports/dead_letter_port.py` (NEW): `DeadLetterPort.write_orphan_relationship(record)`.
-- [ ] 3.2 `infrastructure/dead_letter.py` (NEW): `JSONLDeadLetter` writing required fields (`type`, src/dst ids, description, source_page, chunk_index, timestamp, missing_endpoint, `reason="orphan_endpoint"`).
-- [ ] 3.3 `infrastructure/neo4j_command_adapter.py`: in `upsert_relationships`, run batched endpoint query first. `fail_loud` raises with missing ids; `log_orphan` writes JSONL + persists valid subset. Track invariant.
-- [ ] 3.4 `application/index_book_use_case.py`: pass `orphan_policy` from Settings; record `chunk_index` on orphans.
-- [ ] 3.5 Tests: one batched endpoint query; `fail_loud` raises; `log_orphan` JSONL fields + valid-only persistence; invariant `input == persisted + deadletter` (SCEN-REL-01..05, AC-REL-01..03).
+- [x] 3.1 `ports/dead_letter_port.py` (NEW): `DeadLetterPort.write_orphan_relationship(record)`.
+- [x] 3.2 `infrastructure/dead_letter.py` (NEW): `JSONLDeadLetter` writing required fields (`type`, src/dst ids, description, source_page, chunk_index, timestamp, missing_endpoint, `reason="orphan_endpoint"`).
+- [x] 3.3 `infrastructure/neo4j_command_adapter.py`: in `upsert_relationships`, run batched endpoint query first. `fail_loud` raises with missing ids; `log_orphan` writes JSONL + persists valid subset. Track invariant.
+- [x] 3.4 `application/index_book_use_case.py`: pass `orphan_policy` from Settings; record `chunk_index` on orphans.
+- [x] 3.5 Tests: one batched endpoint query; `fail_loud` raises; `log_orphan` JSONL fields + valid-only persistence; invariant `input == persisted + deadletter` (SCEN-REL-01..05, AC-REL-01..03).
 
 ## Phase 4: PR4 — Tiered `find_entity` + fulltext
 
