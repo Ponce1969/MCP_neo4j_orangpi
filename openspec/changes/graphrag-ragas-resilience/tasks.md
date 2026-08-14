@@ -25,10 +25,10 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: PR2 — `:MENTIONS` + `_flush_batch`
 
-- [ ] 2.1 `ports/graph_db_port.py`: ADD abstract `async def upsert_mentions(chunk_index, book_id, entity_ids)`.
-- [ ] 2.2 `infrastructure/neo4j_command_adapter.py`: implement with `WHERE ($book_id IS NULL AND c.book_id IS NULL) OR c.book_id = $book_id` guard, `MERGE (c)-[:MENTIONS]->(e)`, `coalesce(m.source_page, e.source_page)`.
-- [ ] 2.3 `application/index_book_use_case.py`: collect per-chunk `(chunk_index, book_id, [e.id])` in `_flush_batch`; call `upsert_mentions` after rels. Add `orphan_policy` constructor arg.
-- [ ] 2.4 Tests: idempotency, `book_id IS NULL`, source_page coalesce, mention call per chunk, dead-lettered chunks produce none (SCEN-PROV-01..04, AC-PROV-02).
+- [x] 2.1 `ports/graph_db_port.py`: ADD abstract `async def upsert_mentions(chunk_index, book_id, entity_ids)`.
+- [x] 2.2 `infrastructure/neo4j_command_adapter.py`: implement with `WHERE ($book_id IS NULL AND c.book_id IS NULL) OR c.book_id = $book_id` guard, `MERGE (c)-[:MENTIONS]->(e)`, `coalesce(m.source_page, e.source_page)`.
+- [x] 2.3 `application/index_book_use_case.py`: collect per-chunk `(chunk_index, book_id, [e.id])` in `_flush_batch`; call `upsert_mentions` after rels. Add `orphan_policy` constructor arg.
+- [x] 2.4 Tests: idempotency, `book_id IS NULL`, source_page coalesce, mention call per chunk, dead-lettered chunks produce none (SCEN-PROV-01..04, AC-PROV-02).
 
 ## Phase 3: PR3 — Endpoint detection + dead-letter
 
