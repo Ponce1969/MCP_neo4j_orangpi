@@ -56,6 +56,7 @@ _DEFAULT_DATASET = "evaluation_dataset.jsonl"
 _RESULTS_OUTPUT = "evaluation_results.jsonl"
 _BENCHMARK_DIR = Path("docs") / "benchmarks"
 _BASELINE_OUTPUT = _BENCHMARK_DIR / "gr3_baseline.json"
+_AFTER_OUTPUT = _BENCHMARK_DIR / "gr3_after.json"
 
 # Local embedding model for AnswerRelevancy: DeepSeek offers no embeddings
 # API, and a remote embedder would add rate-limit flakiness to a baseline we
@@ -75,6 +76,38 @@ def _load_dataset(path: str) -> list[dict[str, str]]:
             if line:
                 samples.append(json.loads(line))
     return samples
+
+
+def _load_baseline(path: Path) -> dict[str, Any]:
+    """Load the GR.3 baseline metrics from a previous run."""
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Baseline not found: {path}. Run with --no-compare to skip comparison, "
+            "or generate a baseline first with scripts/run_ragas_evaluation.py."
+        )
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _compute_deltas(
+    current: dict[str, Any], baseline: dict[str, Any]
+) -> dict[str, float | None]:
+    """Compute per-metric deltas between current and baseline scores.
+
+    RAGAS metric values are floats in [0, 1]. Returns None for metrics that
+    exist only in one of the two runs.
+    """
+    current_metrics = current.get("metrics", {}) or {}
+    baseline_metrics = baseline.get("metrics", {}) or {}
+    deltas: dict[str, float | None] = {}
+    for metric_name in current_metrics:
+        current_value = current_metrics.get(metric_name)
+        baseline_value = baseline_metrics.get(metric_name)
+        if isinstance(current_value, (int, float)) and isinstance(baseline_value, (int, float)):
+            deltas[metric_name] = round(float(current_value) - float(baseline_value), 4)
+        else:
+            deltas[metric_name] = None
+    return deltas
 
 
 async def _proxy_compose(llm_adapter: LLMAdapter, question: str, contexts: list[str]) -> str:
@@ -313,7 +346,12 @@ def _run_ragas(
     is_flag=True,
     help="Skip RAGAS metric computation (only generate result tuples)",
 )
-def main(dataset: str, detail_level: int, no_ragas: bool) -> None:
+@click.option(
+    "--no-compare",
+    is_flag=True,
+    help="Skip baseline comparison and do not emit gr3_after.json deltas",
+)
+def main(dataset: str, detail_level: int, no_ragas: bool, no_compare: bool) -> None:
     """Run the RAGAS evaluation pipeline."""
     settings = Settings()  # type: ignore[call-arg]
 
@@ -401,7 +439,7 @@ def main(dataset: str, detail_level: int, no_ragas: bool) -> None:
     failed_rows = [r for r in results if r.get("error")]
 
     _BENCHMARK_DIR.mkdir(parents=True, exist_ok=True)
-    baseline: dict[str, Any] = {
+    after: dict[str, Any] = {
         "dataset": dataset,
         "detail_level": detail_level,
         "total_questions": len(results),
@@ -410,14 +448,26 @@ def main(dataset: str, detail_level: int, no_ragas: bool) -> None:
         "failed_questions": [{"question": r["question"], "error": r["error"]} for r in failed_rows],
         "metrics": score,
     }
-    with open(_BASELINE_OUTPUT, "w", encoding="utf-8") as f:
-        json.dump(baseline, f, ensure_ascii=False, indent=2)
-    click.echo(f"Baseline saved: {_BASELINE_OUTPUT}")
+
+    if no_compare:
+        after["baseline"] = None
+        after["delta"] = None
+    else:
+        baseline = _load_baseline(_BASELINE_OUTPUT)
+        after["baseline"] = baseline.get("metrics")
+        after["delta"] = _compute_deltas(after, baseline)
+        click.echo(f"Loaded baseline: {_BASELINE_OUTPUT}")
+
+    with open(_AFTER_OUTPUT, "w", encoding="utf-8") as f:
+        json.dump(after, f, ensure_ascii=False, indent=2)
+    click.echo(f"After-metrics saved: {_AFTER_OUTPUT}")
 
     # Print quick summary.
-    click.echo("\n── RAGAS Baseline ──")
-    for metric_name, value in baseline["metrics"].items():
-        click.echo(f"  {metric_name}: {value}")
+    click.echo("\n── RAGAS After ──")
+    for metric_name, value in after["metrics"].items():
+        delta = after.get("delta", {}).get(metric_name) if after.get("delta") else None
+        delta_str = f" (Δ {delta:+.4f})" if isinstance(delta, float) else ""
+        click.echo(f"  {metric_name}: {value}{delta_str}")
 
 
 if __name__ == "__main__":
