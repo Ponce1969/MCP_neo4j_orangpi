@@ -2,11 +2,11 @@
 
 ## PR Boundary
 
-- **Current PR**: PR3 — Endpoint detection + dead-letter
+- **Current PR**: PR4 — Tiered `find_entity` + fulltext
 - **Chain strategy**: feature-branch-chain
-- **Branch**: `feature/graphrag-ragas-resilience/pr3-endpoint-deadletter`
-- **Work-unit commit**: TBD
-- **Changed lines (code + tests)**: ~411 insertions, ~15 deletions (slightly over 400-line budget; scope is the minimum needed for the invariant and policy tests)
+- **Branch**: `feature/graphrag-ragas-resilience/pr4-tiered-find-entity`
+- **Work-unit commit**: `30548ef`
+- **Changed lines (code + tests)**: 398 insertions, 27 deletions (425 total; slightly over 400-line budget due to required tier + graceful-degradation test coverage)
 
 ## PRs Completed
 
@@ -25,7 +25,7 @@
   - `ports/dead_letter_port.py` (NEW): `DeadLetterPort.write_orphan_relationship(record)`.
   - `infrastructure/dead_letter.py` (NEW): `JSONLDeadLetter` writing required fields + timestamp.
   - `infrastructure/neo4j_command_adapter.py`: batched endpoint query before relationship writes; `fail_loud` raises with missing ids; `log_orphan` writes JSONL + persists valid subset; invariant tracked.
-  - `application/index_book_use_case.py`: sets `chunk_index` on every relationship before flushing; `orphan_policy` is passed from `Settings`.
+  - `application/index_book_use_case.py`: sets `chunk_index` on relationships; `orphan_policy` is passed from `Settings`.
   - `domain/models.py`: added `chunk_index: int | None = None` to `Relationship` so the use case can propagate provenance to the adapter without changing the `upsert_relationships` signature.
   - `config.py`: added `relationship_orphan_policy` (Literal["fail_loud", "log_orphan"], default "log_orphan") and `dead_letter_path_orphans`.
   - `main.py`: passes `settings.relationship_orphan_policy` to `IndexBookUseCase`.
@@ -34,10 +34,16 @@
   - `tests/test_ports.py`: `DeadLetterPort` abstract/instantiation tests; `JSONLDeadLetter` field test.
   - `tests/test_config.py`: default and validation tests for `relationship_orphan_policy`.
   - `tests/test_cli_main.py`: updated `FakeSettings` with `relationship_orphan_policy`.
+- [x] PR4 — Tiered `find_entity` + fulltext
+  - `ports/graph_query_port.py`: updated docstrings for `find_entity` and `ensure_indexes` to describe tiered cascade and fulltext index.
+  - `infrastructure/neo4j_query_adapter.py`: rewrote `find_entity` with Tier 1→4 cascade (scores 1.0/0.8/0.6/ft*0.4), early stop, dedup by `n.id`, and `source` from `(:Chunk)-[:MENTIONS]->(n)`.
+  - `infrastructure/neo4j_query_adapter.py`: wrapped Tier 4 fulltext call in try/except; logs warning and returns Tiers 1-3 when the index is unavailable.
+  - `infrastructure/neo4j_query_adapter.py`: extended `find_entities_batch` with `OPTIONAL MATCH (:Chunk)-[:MENTIONS]->(n)` source extraction.
+  - `infrastructure/neo4j_query_adapter.py`: added `entity_name_aliases_index` fulltext index to `ensure_indexes`.
+  - `tests/test_neo4j_query_adapter.py`: tier order, early-stop, `find_entity("mcp")` via alias, type-filter across tiers, dedup, graceful degradation, and batch source extraction tests.
 
 ## PRs Pending
 
-- [ ] PR4 — Tiered `find_entity` + fulltext
 - [ ] PR5 — Backfill + settings + RAGAS compare
 
 ## Current PR Status and Evidence
@@ -48,35 +54,28 @@
 |------|---------|--------|
 | Lint | `uv run ruff check .` | All checks passed |
 | Type check | `uv run mypy` | Success: no issues found in 35 source files |
-| Tests | `uv run pytest tests -q` | 359 passed, 2 warnings |
+| Tests | `uv run pytest tests -q` | 367 passed, 2 warnings |
 | Architecture | `uv run python scripts/validate_architecture.py` | ✅ Arquitectura Hexagonal validada correctamente |
 
 ### Test Evidence
 
-- `test_upsert_relationships_runs_batched_endpoint_query_first` — one `OPTIONAL MATCH (n:Entity {id: id})` query per batch with all source/target ids (REQ-REL-01).
-- `test_upsert_relationships_fail_loud_raises_with_missing_ids` — `fail_loud` raises `ValueError` with missing endpoint ids and aborts before any relationship write (SCEN-REL-02, AC-REL-02).
-- `test_upsert_relationships_log_orphan_writes_jsonl_and_persists_valid` — orphan JSONL contains `type`, src/dst ids, `description`, `source_page`, `chunk_index`, `missing_endpoint`, `reason="orphan_endpoint"` and `timestamp`; valid subset is persisted (SCEN-REL-01, AC-REL-01).
-- `test_upsert_relationships_log_orphan_invariant` — `input count == persisted + dead_lettered_orphans` (SCEN-REL-06, AC-REL-01).
-- `test_use_case_records_chunk_index_on_relationships` — every relationship carries its source `chunk_index` (REQ-REL-03).
-- `test_jsonl_dead_letter_appends_structured_record` — `JSONLDeadLetter` writes all required fields and appends a timestamp.
-- `test_settings_orphan_policy_rejects_invalid_value` — `relationship_orphan_policy` is constrained to `"fail_loud"` / `"log_orphan"`.
+- `test_find_entity_tier1_short_circuits` — exact match returns Tier 1 results and only one query is executed; Tier 4 fulltext is not reached (AC-FIND-02, SCEN-FIND-04).
+- `test_find_entity_tier2_case_insensitive` — Tier 2 matches when exact match is absent; confidence is 0.8 (REQ-FIND-01).
+- `test_find_entity_tier3_partial` — Tier 3 `CONTAINS` runs only when Tiers 1-2 are empty; confidence is 0.6 (REQ-FIND-01).
+- `test_find_entity_tier4_alias_returns_canonical_entity` — `find_entity("mcp")` resolves to the canonical "Model Context Protocol" entity via alias fulltext hit (AC-FIND-01, SCEN-FIND-02).
+- `test_find_entity_type_filter_applied_to_all_tiers` — `entity_type` filter appears in every tier query (REQ-FIND-02, SCEN-FIND-03).
+- `test_find_entity_dedup_keeps_highest_tier` — duplicate ids within a tier collapse to one entry with the highest-tier score (SCEN-FIND-06).
+- `test_find_entity_graceful_degradation_without_fulltext_index` — missing fulltext index logs a warning and returns Tiers 1-3 results without raising to the caller (AC-FIND-03, SCEN-FIND-05).
+- `test_find_entities_batch_populates_source` — batch lookup extracts `chunk_index`/`book_id` via `OPTIONAL MATCH (:Chunk)-[:MENTIONS]->(n)` (REQ-PROV-04).
+- `test_ensure_indexes_creates_expected_indexes` / `test_ensure_indexes_fulltext_uses_on_each` — `entity_name_aliases_index` fulltext index is created over `n.name`, `n.canonical_name`, `n.aliases` (REQ-FIND-04).
 
 ### Files Changed
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/book_graph_rag/ports/dead_letter_port.py` | Created | Abstract dead-letter port for orphan relationship records |
-| `src/book_graph_rag/infrastructure/dead_letter.py` | Created | JSONL append-only dead-letter writer with timestamp |
-| `src/book_graph_rag/infrastructure/neo4j_command_adapter.py` | Modified | Batched endpoint detection; `fail_loud`/`log_orphan` policy; invariant logging |
-| `src/book_graph_rag/application/index_book_use_case.py` | Modified | Sets `chunk_index` on relationships; `orphan_policy` wired from Settings |
-| `src/book_graph_rag/domain/models.py` | Modified | Added `chunk_index` to `Relationship` for provenance propagation |
-| `src/book_graph_rag/config.py` | Modified | Added `relationship_orphan_policy` and `dead_letter_path_orphans` |
-| `src/book_graph_rag/main.py` | Modified | Passes `relationship_orphan_policy` to `IndexBookUseCase` |
-| `tests/test_neo4j_command_adapter.py` | Modified | Endpoint query, fail-loud, log-orphan, invariant tests |
-| `tests/test_index_book_use_case.py` | Modified | `chunk_index` provenance test |
-| `tests/test_ports.py` | Modified | `DeadLetterPort` and `JSONLDeadLetter` tests |
-| `tests/test_config.py` | Modified | `relationship_orphan_policy` default/validation tests |
-| `tests/test_cli_main.py` | Modified | `FakeSettings` exposes `relationship_orphan_policy` |
+| `src/book_graph_rag/ports/graph_query_port.py` | Modified | Updated docstrings for tiered `find_entity` and fulltext `ensure_indexes` |
+| `src/book_graph_rag/infrastructure/neo4j_query_adapter.py` | Modified | Tiered `find_entity` cascade, source extraction, graceful fulltext degradation, `find_entities_batch` source extraction, new fulltext index |
+| `tests/test_neo4j_query_adapter.py` | Modified | Tier order, early-stop, alias lookup, type filter, dedup, graceful degradation, batch source, and updated ensure_indexes tests |
 
 ## Blockers
 
@@ -86,7 +85,8 @@ None.
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
-| PR3 diff slightly exceeds 400-line budget | Low | Scope is the minimum required for policy/invariant coverage; PR4/PR5 should stay smaller |
-| `Relationship.chunk_index` was not in PR1/PR2 scope | Low | Field is additive with default `None`; documented as a PR3 deviation driven by REQ-REL-03 |
+| PR4 diff is 425 changed lines, slightly above 400-line budget | Low | Driven by required tier + graceful-degradation test coverage; PR5 should be smaller |
+| Tiered `find_entity` changes query behavior for existing exact-match callers | Low | Tier 1 is identical to the previous query when an exact match exists; backward-compat test covers this |
+| Fulltext index may be unavailable on some Neo4j deployments | Low | Tier 4 is wrapped in try/except and degrades to Tiers 1-3 with a warning |
+| `LIMIT $limit` applies to rows before dedup, so highly-mentioned entities can consume the cap | Medium | Documented limitation; acceptable for current retrieval use cases |
 | Cross-batch entity references remain dead-lettered | Medium | Documented as SCEN-REL-05 limitation; dead-letter growth target ≤5% |
-| `fail_loud` aborts the whole batch including valid relationships | Low | Matches spec intent: fail-fast at indexing time |
