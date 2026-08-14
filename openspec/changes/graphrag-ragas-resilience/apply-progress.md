@@ -2,11 +2,11 @@
 
 ## PR Boundary
 
-- **Current PR**: PR4 — Tiered `find_entity` + fulltext + EXPLAIN remediation
+- **Current PR**: PR5 — Backfill + settings + RAGAS compare
 - **Chain strategy**: feature-branch-chain
-- **Branch**: `feature/graphrag-ragas-resilience/pr4-tiered-find-entity`
-- **Work-unit commit**: `30548ef` (original PR4) + remediation commit
-- **Changed lines (code + tests)**: 398 insertions, 27 deletions (425 total; slightly over 400-line budget due to required tier + graceful-degradation test coverage)
+- **Branch**: `feature/graphrag-ragas-resilience/pr4-tiered-find-entity` (PR5 commits added on top of PR4)
+- **Work-unit commits**: `b68a1f0` (config + llm wiring), `f0df975` (backfill + docs), `65ad944` (RAGAS compare)
+- **Changed lines (code + tests)**: ~360 insertions, ~13 deletions across PR5 (keeps the feature-branch-chain PR under the 400-line budget)
 
 ## PRs Completed
 
@@ -44,10 +44,20 @@
   - `tests/test_neo4j_query_adapter.py`: tier order, early-stop, `find_entity("mcp")` via alias, type-filter across tiers, dedup, graceful degradation, batch source extraction, and updated ensure_indexes tests.
   - `tests/integration/test_neo4j_query_adapter_explain.py` (NEW): container-gated EXPLAIN validation for all 4 tier queries, the `find_entities_batch` source query, and the `entity_name_aliases_index` DDL (REQ-NFR-03, verify-report F-2).
   - `pyproject.toml`: registered `neo4j_integration` pytest marker for container-gated tests.
+- [x] PR5 — Backfill + settings + RAGAS compare
+  - `config.py`: added `canonical_match_mode` (Literal["slug", "fuzzy"], default "slug"), `canonical_fuzzy_threshold` (0.5..1.0 validator, default 0.92), and `canonical_stoplist` (default []). `relationship_orphan_policy` and `dead_letter_path_orphans` were already added in PR3.
+  - `infrastructure/llm_adapter.py`: loads `canonical_stoplist`, `canonical_match_mode`, and `canonical_fuzzy_threshold` from Settings; passes them to `_resolve_entity_id`; fuzzy mode gates `canonical_name` adoption by similarity threshold (REQ-CANON-04, AC-CANON-03).
+  - `scripts/backfill_resilience.py` (NEW): `uv run python scripts/backfill_resilience.py all` sets `n.aliases = coalesce(n.aliases, [])`, `n.canonical_name = coalesce(n.canonical_name, n.name)`, creates the `entity_name_aliases_index` fulltext index; supports `--dry-run`.
+  - `docs/ops/backfill_resilience.md` (NEW): operational guide with full rebuild command, `:MENTIONS` non-reconstructibility warning, and rollback steps.
+  - `scripts/run_ragas_evaluation.py`: loads `gr3_baseline.json`, computes per-metric `delta`, and writes `gr3_after.json`; adds `--no-compare` flag.
+  - `tests/test_config.py`: validator tests for `canonical_fuzzy_threshold` rejecting 0.4/1.1 and default-safe canonical settings.
+  - `tests/test_llm_adapter.py`: tests that fuzzy mode uses canonical when similar, falls back when dissimilar, and that settings stoplist is applied during extraction.
+  - `tests/unit/test_backfill_resilience.py` (NEW): backfill idempotency, `--dry-run` does not write, no-record handling.
+  - `tests/unit/test_run_ragas_evaluation.py` (NEW): baseline loading and delta computation helpers.
 
 ## PRs Pending
 
-- [ ] PR5 — Backfill + settings + RAGAS compare
+None.
 
 ## Current PR Status and Evidence
 
@@ -57,21 +67,21 @@
 |------|---------|--------|
 | Lint | `uv run ruff check .` | All checks passed |
 | Type check | `uv run mypy` | Success: no issues found in 35 source files |
-| Tests | `uv run pytest tests -q` | 367 passed, 1 skipped, 2 warnings |
+| Tests | `uv run pytest tests -q` | 381 passed, 1 skipped, 2 warnings |
 | Architecture | `uv run python scripts/validate_architecture.py` | ✅ Arquitectura Hexagonal validada correctamente |
 
 ### Test Evidence
 
-- `test_find_entity_tier1_short_circuits` — exact match returns Tier 1 results and only one query is executed; Tier 4 fulltext is not reached (AC-FIND-02, SCEN-FIND-04).
-- `test_find_entity_tier2_case_insensitive` — Tier 2 matches when exact match is absent; confidence is 0.8 (REQ-FIND-01).
-- `test_find_entity_tier3_partial` — Tier 3 `CONTAINS` runs only when Tiers 1-2 are empty; confidence is 0.6 (REQ-FIND-01).
-- `test_find_entity_tier4_alias_returns_canonical_entity` — `find_entity("mcp")` resolves to the canonical "Model Context Protocol" entity via alias fulltext hit (AC-FIND-01, SCEN-FIND-02).
-- `test_find_entity_type_filter_applied_to_all_tiers` — `entity_type` filter appears in every tier query (REQ-FIND-02, SCEN-FIND-03).
-- `test_find_entity_dedup_keeps_highest_tier` — duplicate ids within a tier collapse to one entry with the highest-tier score (SCEN-FIND-06).
-- `test_find_entity_graceful_degradation_without_fulltext_index` — missing fulltext index logs a warning and returns Tiers 1-3 results without raising to the caller (AC-FIND-03, SCEN-FIND-05).
-- `test_find_entities_batch_populates_source` — batch lookup extracts `chunk_index`/`book_id` via `OPTIONAL MATCH (:Chunk)-[:MENTIONS]->(n)` (REQ-PROV-04).
-- `test_ensure_indexes_creates_expected_indexes` / `test_ensure_indexes_fulltext_uses_on_each` — `entity_name_aliases_index` fulltext index is created over `n.name`, `n.canonical_name`, `n.aliases` (REQ-FIND-04).
-- `tests/integration/test_neo4j_query_adapter_explain.py::test_explain_pr4_tiered_find_entity_queries` — container-gated EXPLAIN validation for the 6 PR4 Cypher statements; skipped when `NEO4J_PASSWORD` is unset or the container is unreachable (REQ-NFR-03, F-2).
+PR4 evidence remains valid (see prior apply-progress). PR5 additions:
+
+- `test_settings_canonical_defaults_are_safe` — default `canonical_match_mode="slug"`, `canonical_fuzzy_threshold=0.92`, empty stoplist.
+- `test_settings_canonical_fuzzy_threshold_rejects_too_low` / `test_settings_canonical_fuzzy_threshold_rejects_too_high` — validator rejects 0.4 and 1.1 (task 5.6).
+- `test_settings_canonical_stoplist_can_be_overridden` — stoplist parsed from settings.
+- `test_resolve_entity_id_fuzzy_mode_uses_canonical_when_similar` / `test_resolve_entity_id_fuzzy_mode_falls_back_when_dissimilar` — fuzzy path gated by threshold.
+- `test_extract_graph_applies_settings_stoplist` — extraction filters aliases using `Settings.canonical_stoplist`.
+- `test_run_backfill_is_idempotent` — second run executes the same Cypher and reports the same counts.
+- `test_run_backfill_dry_run_does_not_write` — `--dry-run` produces zero updates and no `session.run` calls.
+- `test_load_baseline_*` / `test_compute_deltas_*` — RAGAS baseline loading and per-metric delta math.
 
 ### Files Changed
 
@@ -83,6 +93,15 @@
 | `tests/integration/test_neo4j_query_adapter_explain.py` | Created | Container-gated EXPLAIN validation for PR4 Cypher |
 | `pyproject.toml` | Modified | Registered `neo4j_integration` marker |
 | `openspec/changes/graphrag-ragas-resilience/verify-report.md` | Created | PR4 verification report including F-1/F-2 findings |
+| `src/book_graph_rag/config.py` | Modified | Added `canonical_match_mode`, `canonical_fuzzy_threshold` (validated 0.5..1.0), `canonical_stoplist` |
+| `src/book_graph_rag/infrastructure/llm_adapter.py` | Modified | Loads canonical settings; gates fuzzy canonicalization by similarity threshold |
+| `scripts/backfill_resilience.py` | Created | Idempotent alias/canonical backfill + fulltext index; `--dry-run` |
+| `docs/ops/backfill_resilience.md` | Created | Operational guide, full rebuild command, `:MENTIONS` non-reconstructibility, rollback |
+| `scripts/run_ragas_evaluation.py` | Modified | Compares to `gr3_baseline.json`, emits `gr3_after.json` with `delta`, `--no-compare` |
+| `tests/test_config.py` | Modified | Canonical settings defaults and validator tests |
+| `tests/test_llm_adapter.py` | Modified | Fuzzy gating and settings-stoplist tests |
+| `tests/unit/test_backfill_resilience.py` | Created | Backfill idempotency and dry-run tests |
+| `tests/unit/test_run_ragas_evaluation.py` | Created | Baseline loading and delta helper tests |
 
 ## Blockers
 
@@ -98,6 +117,8 @@ None.
 | `LIMIT $limit` applies to rows before dedup, so highly-mentioned entities can consume the cap | Medium | Documented limitation; acceptable for current retrieval use cases |
 | Cross-batch entity references remain dead-lettered | Medium | Documented as SCEN-REL-05 limitation; dead-letter growth target ≤5% |
 | Container-gated EXPLAIN test only runs when a live Neo4j is configured | Low | Test auto-skips with clear message; CI can enable it by setting `NEO4J_PASSWORD` and starting the container |
+| PR5 RAGAS comparison requires an existing `gr3_baseline.json` | Low | `--no-compare` skips comparison when no baseline exists; baseline should be generated before applying the resilience changes |
+| Backfill script does not reconstruct `:MENTIONS` edges | Low | Documented in `docs/ops/backfill_resilience.md`; full re-index is required for provenance |
 
 ## PR4 Remediation Notes
 
