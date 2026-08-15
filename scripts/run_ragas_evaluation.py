@@ -28,7 +28,7 @@ import json
 import sys
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import click
 from pydantic import BaseModel
@@ -86,7 +86,7 @@ def _load_baseline(path: Path) -> dict[str, Any]:
             "or generate a baseline first with scripts/run_ragas_evaluation.py."
         )
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        return cast(dict[str, Any], json.load(f))
 
 
 def _compute_deltas(
@@ -312,9 +312,7 @@ def _run_ragas(
         _LLMContextPrecisionWithoutReference(llm=eval_llm),
     ]
 
-    # ragas's own typing: v2 collections metrics are BaseMetric while evaluate()
-    # annotates Sequence[Metric]; the classes it accepts are exactly these.
-    return evaluate(
+    raw_result: Any = evaluate(
         dataset,
         metrics=metrics,
         # Slow-but-successful deepseek responses must not be killed by the
@@ -322,6 +320,10 @@ def _run_ragas(
         # saturate the API from a home connection.
         run_config=RunConfig(timeout=600, max_retries=3, max_wait=90, max_workers=4),
     )
+    # ragas 0.4+ returns EvaluationResult/Result objects instead of a plain
+    # dict, and metric values may be numpy floats. Convert to a JSON-safe
+    # mapping of native floats so callers can serialize the score directly.
+    return {str(k): float(v) for k, v in raw_result.items()}
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
