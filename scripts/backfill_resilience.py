@@ -42,26 +42,30 @@ MATCH (old:Entity {id: $old_id})
 MERGE (new:Entity {id: $new_id})
 SET new += properties(old), new.id = $new_id
 WITH old, new
-OPTIONAL MATCH (c:Chunk)-[m:MENTIONS]->(old)
-FOREACH (_ IN CASE WHEN m IS NULL THEN [] ELSE [1] END |
-    MERGE (c)-[new_m:MENTIONS]->(new)
-    SET new_m += properties(m)
-    DELETE m
-)
-WITH old, new
-OPTIONAL MATCH (old)-[r:RELATED]->(target)
-FOREACH (_ IN CASE WHEN r IS NULL THEN [] ELSE [1] END |
-    MERGE (new)-[new_r:RELATED {type: r.type}]->(target)
-    SET new_r += properties(r)
-    DELETE r
-)
-WITH old, new
-OPTIONAL MATCH (source)-[r:RELATED]->(old)
-FOREACH (_ IN CASE WHEN r IS NULL THEN [] ELSE [1] END |
-    MERGE (source)-[new_r:RELATED {type: r.type}]->(new)
-    SET new_r += properties(r)
-    DELETE r
-)
+CALL (old, new) {
+    OPTIONAL MATCH (c:Chunk)-[m:MENTIONS]->(old)
+    FOREACH (_ IN CASE WHEN m IS NULL THEN [] ELSE [1] END |
+        MERGE (c)-[new_m:MENTIONS]->(new)
+        SET new_m += properties(m)
+        DELETE m
+    )
+}
+CALL (old, new) {
+    OPTIONAL MATCH (old)-[r:RELATED]->(target)
+    FOREACH (_ IN CASE WHEN r IS NULL THEN [] ELSE [1] END |
+        MERGE (new)-[new_r:RELATED {type: r.type}]->(target)
+        SET new_r += properties(r)
+        DELETE r
+    )
+}
+CALL (old, new) {
+    OPTIONAL MATCH (source)-[r:RELATED]->(old)
+    FOREACH (_ IN CASE WHEN r IS NULL THEN [] ELSE [1] END |
+        MERGE (source)-[new_r:RELATED {type: r.type}]->(new)
+        SET new_r += properties(r)
+        DELETE r
+    )
+}
 DETACH DELETE old
 RETURN $old_id AS old_id, $new_id AS new_id
 """

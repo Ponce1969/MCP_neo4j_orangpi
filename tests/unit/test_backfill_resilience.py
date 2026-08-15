@@ -218,3 +218,16 @@ async def test_run_backfill_migrates_clean_entity_and_backfills_aliases() -> Non
     assert summary["entity_id_collisions"] == 0
     assert session.migrations == [{"old_id": "react", "new_id": "react-pattern"}]
     assert _BACKFILL_ALIASES_CYPHER.strip() in session.runs
+
+
+def test_migration_cypher_uses_isolated_call_subqueries() -> None:
+    """Parallel :RELATED edges must not crash the migration (regression guard).
+
+    Deleting relationships inside a FOREACH over an OPTIONAL MATCH in the same
+    statement re-visits the deleted edge and raises
+    ``Neo.ClientError.Statement.EntityNotFound`` when an entity has duplicate
+    parallel edges to the same target. Each re-pointing block must run in its
+    own ``CALL (old, new) { ... }`` subquery so row scopes stay isolated.
+    """
+    assert _MIGRATE_ENTITY_CYPHER.count("CALL (old, new) {") == 3
+    assert "DETACH DELETE old" in _MIGRATE_ENTITY_CYPHER
