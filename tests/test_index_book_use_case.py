@@ -406,3 +406,8 @@ async def test_use_case_records_chunk_index_on_relationships(tmp_path: Path) -> 
     for batch in graph.relationship_batches_upserted:
         for rel in batch:
             assert rel.chunk_index is not None
+    assert all(
+        rel.chunk_index is None
+        for chunk in chunks
+        for rel in chunk.relationships
+    )

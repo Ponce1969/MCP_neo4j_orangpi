@@ -20,8 +20,8 @@ Chain strategy: feature-branch-chain
 
 - [x] 1.1 `domain/models.py`: ADD `aliases: list[str]` + `canonical_name: str | None` on `Entity`. Update `EntityWithContext.source` docstring.
 - [x] 1.2 `infrastructure/llm_adapter.py`: ADD `aliases`, `canonical_name` to `_LLMEntityDTO`; extend `_SYSTEM_PROMPT`.
-- [x] 1.3 `infrastructure/llm_adapter.py`: add `_resolve_entity_id(name, canonical_name, aliases, type)` → `f"{_slugify(canonical_name)}-{type}"` if canonical, else `_slugify(name)`; populate `Entity` in `extract_graph`.
-- [x] 1.4 Tests: legacy `id == _slugify(name)`; canonical appends type; stoplist filter (REQ-CANON-01/02/05, AC-CANON-01/04).
+- [x] 1.3 `infrastructure/llm_adapter.py`: add `_resolve_entity_id(name, canonical_name, aliases, type)` → `f"{_slugify(canonical_name)}-{type}"` if canonical, else `f"{_slugify(name)}-{type}"`; populate `Entity` in `extract_graph`.
+- [x] 1.4 Tests: both id paths include the type suffix; same name and type remain stable with or without canonical metadata; stoplist filter (REQ-CANON-01/02/05, AC-CANON-01/04).
 
 ## Phase 2: PR2 — `:MENTIONS` + `_flush_batch`
 
@@ -51,7 +51,7 @@ Chain strategy: feature-branch-chain
 
 - [x] 5.1 `config.py`: ADD `canonical_match_mode` (Literal["slug","fuzzy"], default "slug"), `canonical_fuzzy_threshold` (0.5..1.0 validator, default 0.92), `relationship_orphan_policy` ("fail_loud"|"log_orphan", default "log_orphan"), `canonical_stoplist` (list, default []), `dead_letter_path_orphans` (Path).
 - [x] 5.2 `infrastructure/llm_adapter.py`: load stoplist + match mode/threshold from Settings; gate fuzzy path (REQ-CANON-04, AC-CANON-03).
-- [x] 5.3 `scripts/backfill_resilience.py` (NEW): `python scripts/backfill_resilience.py all` — `SET n.aliases = coalesce(n.aliases, [])`, `SET n.canonical_name = coalesce(n.canonical_name, n.name)`, create fulltext index. Idempotent; `--dry-run`.
+- [x] 5.3 `scripts/backfill_resilience.py`: `python scripts/backfill_resilience.py all` — migrate legacy ids without type suffix, re-point `:MENTIONS`/`:RELATED`, set alias/canonical defaults, create fulltext index. Idempotent; `--dry-run`.
 - [x] 5.4 `docs/ops/backfill_resilience.md` (NEW): full rebuild command, `:MENTIONS` non-reconstructibility, rollback steps.
 - [x] 5.5 `scripts/run_ragas_evaluation.py`: compare to `gr3_baseline.json`, emit `gr3_after.json` with `delta` per metric. Add `--no-compare`.
 - [x] 5.6 Tests: `canonical_fuzzy_threshold` validator rejects `0.4`/`1.1`; defaults safe; backfill idempotent on second run; `--dry-run` does not write.

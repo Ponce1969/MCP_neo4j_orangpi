@@ -37,7 +37,6 @@ class IndexBookUseCase:
         max_concurrency: int,
         batch_size: int,
         dead_letter_path: Path,
-        orphan_policy: str = "log_orphan",
     ) -> None:
         self._pdf_port = pdf_port
         self._llm_port = llm_port
@@ -45,7 +44,6 @@ class IndexBookUseCase:
         self._max_concurrency = max_concurrency
         self._batch_size = batch_size
         self._dead_letter_path = dead_letter_path
-        self._orphan_policy = orphan_policy
 
     async def execute(self, pdf_path: str) -> None:
         """Index ``pdf_path`` into the graph database.
@@ -138,9 +136,10 @@ class IndexBookUseCase:
             chunk_provenance.append((chunk.chunk_index, book_id, entity_ids))
 
             all_entities.extend(chunk.entities)
-            for rel in chunk.relationships:
-                rel.chunk_index = chunk.chunk_index
-            all_relationships.extend(chunk.relationships)
+            all_relationships.extend(
+                rel.model_copy(update={"chunk_index": chunk.chunk_index})
+                for rel in chunk.relationships
+            )
 
         await self._graph_db_port.upsert_entities(all_entities)
         await self._graph_db_port.upsert_relationships(all_relationships)

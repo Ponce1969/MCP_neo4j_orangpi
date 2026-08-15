@@ -24,6 +24,9 @@ class _FakeResult:
     async def single(self) -> dict[str, Any] | None:
         return self._record
 
+    async def data(self) -> list[dict[str, Any]]:
+        return []
+
 
 class _FakeSession:
     """Records Cypher runs for assertions."""

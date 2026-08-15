@@ -56,7 +56,7 @@ Capabilities addressed (proposal mapping): **new** = `chunk-entity-provenance`, 
 
 ### 2.2 Capability: entity-canonicalization (NEW)
 
-**REQ-CANON-01 — Canonical id computation.** The `LLMAdapter` SHALL compute each entity's `id` deterministically. For an entity with `canonical_name`, the canonical id MUST equal `_slugify(canonical_name)`. For an entity without `canonical_name` or `aliases`, the id MUST equal `_slugify(name)` — preserving backward compatibility with existing graph ids (no mass id migration).
+**REQ-CANON-01 — Canonical id computation.** The `LLMAdapter` SHALL compute each entity's `id` deterministically and always include its type. For an entity with `canonical_name`, the canonical id MUST equal `f"{_slugify(canonical_name)}-{type}"`. For an entity without `canonical_name`, the id MUST equal `f"{_slugify(name)}-{type}"`.
 
 **REQ-CANON-02 — Alias capture.** The `_LLMEntityDTO` SHALL carry an `aliases: list[str]` field (default `[]`) populated by the LLM extraction prompt. The persistent `Entity` SHALL store `aliases` and `canonical_name`.
 
@@ -70,14 +70,14 @@ Capabilities addressed (proposal mapping): **new** = `chunk-entity-provenance`, 
 
 | ID | GIVEN | WHEN | THEN |
 |----|-------|------|------|
-| SCEN-CANON-01 | LLM returns entity name "Model Context Protocol" with alias "MCP" | Extraction completes | One `Entity` node created with `id = slugify("Model Context Protocol")`; alias "MCP" persisted and queryable |
-| SCEN-CANON-02 | An entity has no aliases and no canonical_name | Id computed | `id == _slugify(name)` (unchanged behavior; existing ids stay stable) |
+| SCEN-CANON-01 | LLM returns entity name "Model Context Protocol" with alias "MCP" | Extraction completes | One `Entity` node created with `id = f"{_slugify('Model Context Protocol')}-concept"`; alias "MCP" persisted and queryable |
+| SCEN-CANON-02 | An entity has no aliases and no canonical_name | Id computed | `id == f"{_slugify(name)}-{type}"`; the same name and type resolve identically with or without canonical metadata |
 | SCEN-CANON-03 | Two entities share canonical name "Agent" but differing types `pattern` and `agent` | Both flush | Two distinct `Entity` nodes (type-aware ids); both queryable |
-| SCEN-CANON-04 | A legacy graph node has `id = _slugify(name)`, no alias fields | Backfill runs on it | The legacy node is preserved; alias fields default to `[]`; no destructive merge |
+| SCEN-CANON-04 | A legacy graph node has `id = _slugify(name)`, no alias fields | Backfill runs on it | The node is migrated idempotently to `id = f"{_slugify(name)}-{type}"`; existing `:MENTIONS` and `:RELATED` edges are re-pointed |
 | SCEN-CANON-05 | "MCP" also names an unrelated concept in another book domain | `find_entity("MCP")` invoked | Results are disambiguated by `EntityType` filter and/or a configurable domain stoplist; both are returned, ranked, not merged |
 
 **Acceptance criteria (REQ-CANON)**
-- AC-CANON-01: Unit test asserts `slugify(canonical_name)` id path and stable legacy `slugify(name)` path.
+- AC-CANON-01: Unit test asserts both canonical and name-only paths include the type suffix and produce the same id when name equals canonical_name.
 - AC-CANON-02: `find_entity("Model Context Protocol")` and `find_entity("MCP")` return the same canonical `Entity.id`.
 - AC-CANON-03: A configurable merge threshold value is read from `Settings`; no hard-coded magic number in the adapter.
 - AC-CANON-04: A false-positive merge scenario is represented by a test asserting the two nodes remain distinct.
@@ -193,7 +193,7 @@ Capabilities addressed (proposal mapping): **new** = `chunk-entity-provenance`, 
 |---------|--------|
 | `Neo4jCommandAdapter` | Implement endpoint detection; implement `upsert_mentions`; orphan dead-letter writing |
 | `Neo4jQueryAdapter` | Implement tiered `find_entity` with early-stop + dedup + score; graceful fulltext degradation; extend `ensure_indexes` |
-| `LLMAdapter` | Extend extraction prompt to request `aliases`/`canonical_name`; compute canonical id (`_slugify(canonical_name)` if present else `_slugify(name)`); keep `_slugify` stable |
+| `LLMAdapter` | Extend extraction prompt to request `aliases`/`canonical_name`; compute type-aware ids (`_slugify(canonical_name)-type` if present else `_slugify(name)-type`); keep `_slugify` stable |
 | `IndexBookUseCase` | Call `upsert_mentions` per chunk in `_flush_batch`; pass new config; honor orphan policy |
 
 ## 5. Data Model Changes (Neo4j schema)
@@ -206,8 +206,8 @@ Capabilities addressed (proposal mapping): **new** = `chunk-entity-provenance`, 
 | `Entity.canonical_name` | NEW property | `string?` (non-null when canonicalization applied). |
 | `entity_name_aliases_index` | NEW index | `CREATE FULLTEXT INDEX entity_name_aliases_index IF NOT EXISTS FOR (n:Entity) ON EACH [n.name, n.canonical_name, n.aliases]` (aliased fields queryable). Gated by APOC/schema helpers; mocked in unit tests. |
 | Existing indexes | UNCHANGED | `entity_name`, `entity_type`, `entity_id`, `rel_type`, `chunk_text_index` remain. |
-| Backfill | NEW migration script | Legacy graphs: default missing alias/canonical fields, reconstruct `:MENTIONS` where chunk→entity linkage recoverable, create fulltext index. Document full rebuild. |
-| Rollback | migration | Drop `entity_name_aliases_index`; delete `:MENTIONS` and `:ALIAS_OF`; revert `find_entity` to exact; revert canonical id to `_slugify(name)` only. |
+| Backfill | NEW migration script | Legacy graphs: migrate ids missing the type suffix, re-point `:MENTIONS` and `:RELATED`, default missing alias/canonical fields, and create the fulltext index. Document full rebuild and rollback. |
+| Rollback | migration | Drop `entity_name_aliases_index`; restore migrated legacy ids from backup; delete `:MENTIONS` and `:ALIAS_OF`; revert `find_entity` to exact. |
 
 ## 6. Open Questions / Assumptions
 

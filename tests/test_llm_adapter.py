@@ -284,11 +284,11 @@ async def test_llm_adapter_retries_with_exponential_backoff(
 
     assert result is chunk
     assert len(result.entities) == 2
-    assert result.entities[0].id == "agent-pattern"
-    assert result.entities[1].id == "multi-agent-system"
+    assert result.entities[0].id == "agent-pattern-pattern"
+    assert result.entities[1].id == "multi-agent-system-concept"
     assert len(result.relationships) == 1
-    assert result.relationships[0].source_entity_id == "agent-pattern"
-    assert result.relationships[0].target_entity_id == "multi-agent-system"
+    assert result.relationships[0].source_entity_id == "agent-pattern-pattern"
+    assert result.relationships[0].target_entity_id == "multi-agent-system-concept"
     assert factory._instances
     assert len(factory._instances[0].chat.completions.calls) == 3
     assert sleep_delays == [1.0, 2.0]
@@ -341,7 +341,7 @@ async def test_llm_adapter_computes_entity_id_from_name_slug(
     adapter = LLMAdapter(settings)
     result = await adapter.extract_graph(_make_chunk())
 
-    assert result.entities[0].id == "agent-pattern"
+    assert result.entities[0].id == "agent-pattern-pattern"
     assert result.entities[0].name == "Agent Pattern"
 
 
@@ -361,34 +361,34 @@ async def test_llm_adapter_computes_relationship_ids_from_entity_names(
     result = await adapter.extract_graph(_make_chunk())
 
     relationship = result.relationships[0]
-    assert relationship.source_entity_id == "agent-pattern"
-    assert relationship.target_entity_id == "multi-agent-system"
+    assert relationship.source_entity_id == "agent-pattern-pattern"
+    assert relationship.target_entity_id == "multi-agent-system-concept"
 
 
 # ── Canonicalization (REQ-CANON-01/02/05, AC-CANON-01/04) ───────────────────
 
 
 def test_resolve_entity_id_legacy_path_no_canonical() -> None:
-    """AC-CANON-01: entities without canonical_name keep id == slugify(name)."""
+    """AC-CANON-01: entities without canonical_name retain the type suffix."""
     entity_id, aliases = LLMAdapter._resolve_entity_id(
         name="Agent Pattern",
         canonical_name=None,
         aliases=[],
         entity_type="pattern",
     )
-    assert entity_id == "agent-pattern"
+    assert entity_id == "agent-pattern-pattern"
     assert aliases == []
 
 
 def test_resolve_entity_id_legacy_path_ignores_aliases() -> None:
-    """AC-CANON-01: aliases alone do not change the legacy slugify(name) id."""
+    """AC-CANON-01: aliases alone do not change the name-based id."""
     entity_id, aliases = LLMAdapter._resolve_entity_id(
         name="Model Context Protocol",
         canonical_name=None,
         aliases=["MCP"],
         entity_type="concept",
     )
-    assert entity_id == "model-context-protocol"
+    assert entity_id == "model-context-protocol-concept"
     assert aliases == ["MCP"]
 
 
@@ -432,7 +432,7 @@ def test_resolve_entity_id_filters_stoplist() -> None:
         entity_type="concept",
         stoplist=["protocol", "MODEL"],
     )
-    assert entity_id == "model-context-protocol"
+    assert entity_id == "model-context-protocol-concept"
     assert aliases == ["MCP"]
 
 
@@ -470,7 +470,18 @@ def test_resolve_entity_id_fuzzy_mode_falls_back_when_dissimilar() -> None:
         match_mode="fuzzy",
         threshold=0.92,
     )
-    assert entity_id == "mcp"
+    assert entity_id == "mcp-concept"
+
+
+def test_resolve_entity_id_is_stable_when_name_equals_canonical_name() -> None:
+    """The same name and type produce one id with or without canonical metadata."""
+    without_canonical, _ = LLMAdapter._resolve_entity_id(
+        "Agent Pattern", None, [], "pattern"
+    )
+    with_canonical, _ = LLMAdapter._resolve_entity_id(
+        "Agent Pattern", "Agent Pattern", [], "pattern"
+    )
+    assert without_canonical == with_canonical == "agent-pattern-pattern"
 
 
 _EXTRACTION_CANONICAL_JSON = json.dumps(
@@ -485,7 +496,15 @@ _EXTRACTION_CANONICAL_JSON = json.dumps(
                 "canonical_name": "Model Context Protocol",
             }
         ],
-        "relationships": [],
+        "relationships": [
+            {
+                "source_entity_name": "MCP",
+                "target_entity_name": "Model Context Protocol",
+                "type": "depends_on",
+                "description": "Alias resolution uses the canonical entity id.",
+                "source_page": 10,
+            }
+        ],
     }
 )
 
@@ -512,6 +531,8 @@ async def test_extract_graph_populates_aliases_and_canonical_name(
     assert entity.name == "MCP"
     assert entity.canonical_name == "Model Context Protocol"
     assert entity.aliases == ["MCP", "Model Context Protocol"]
+    assert result.relationships[0].source_entity_id == entity.id
+    assert result.relationships[0].target_entity_id == entity.id
 
 
 _EXTRACTION_WITH_STOPLIST_JSON = json.dumps(
@@ -572,6 +593,24 @@ async def test_llm_adapter_generate_cypher_returns_cypher_string(
     cypher = await adapter.generate_cypher("schema", "question", None)
 
     assert cypher == "MATCH (n:Entity) RETURN n LIMIT 100"
+
+
+async def test_generate_cypher_omits_empty_failure_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A first attempt has exactly system and question messages."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+    captured: dict[str, Any] = {}
+
+    async def fake_create(**kwargs: Any) -> _CypherResponse:
+        captured.update(kwargs)
+        return _CypherResponse(cypher="MATCH (n) RETURN n LIMIT 100")
+
+    monkeypatch.setattr(adapter._client, "create", fake_create)
+    await adapter.generate_cypher("schema", "question", None)
+    assert len(captured["messages"]) == 2
 
 
 async def test_llm_adapter_generate_cypher_prompt_includes_schema_and_question(

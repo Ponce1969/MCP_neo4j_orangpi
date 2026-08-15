@@ -156,6 +156,36 @@ async def test_neo4j_adapter_upsert_entities_idempotent_on_repeats(
     assert first_call == second_call
     query, _ = first_call
     assert "MERGE (n:Entity {id: e.id})" in query
+    assert "n.aliases = e.aliases" in query
+    assert "n.canonical_name = e.canonical_name" in query
+
+
+async def test_neo4j_adapter_upsert_entities_persists_aliases_and_canonical_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Entity metadata needed by the fulltext index is persisted."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    fake_db = _FakeGraphDatabase()
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.neo4j_command_adapter.AsyncGraphDatabase",
+        fake_db,
+    )
+    adapter = Neo4jCommandAdapter(settings)
+    entity = Entity(
+        id="mcp-concept",
+        name="MCP",
+        type="concept",
+        aliases=["Model Context Protocol"],
+        canonical_name="Model Context Protocol",
+    )
+    await adapter.upsert_entities([entity])
+    query, params = adapter._driver.session().calls[-1]
+    assert "n.aliases = e.aliases" in query
+    assert "n.canonical_name = e.canonical_name" in query
+    assert params is not None
+    assert params["entities"][0]["aliases"]
+    assert params["entities"][0]["canonical_name"]
 
 
 async def test_neo4j_adapter_upsert_book_merges_by_id(
@@ -420,7 +450,7 @@ async def test_upsert_relationships_fail_loud_raises_with_missing_ids(
     adapter._driver = _FakeDriver(session)
 
     valid, orphan = _relationships_with_missing()
-    with pytest.raises(ValueError, match="missing endpoints"):
+    with pytest.raises(ValueError, match=r"missing endpoints \['missing'\]"):
         await adapter.upsert_relationships([valid, orphan])
 
     queries = [call[0] for call in session.calls]

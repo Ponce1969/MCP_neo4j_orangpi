@@ -403,10 +403,31 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                     canonical_name=dto.canonical_name,
                 )
             )
+        entity_ids_by_name: dict[str, str] = {}
+        for entity in chunk.entities:
+            names = [entity.name, *entity.aliases]
+            if entity.canonical_name is not None:
+                names.append(entity.canonical_name)
+            for name in names:
+                entity_ids_by_name[name.casefold()] = entity.id
+
+        def resolve_endpoint(name: str) -> str:
+            """Resolve relationship names to the chunk's canonical entity ids.
+
+            Extraction DTOs refer to entities by their displayed name, alias, or
+            canonical name. Prefer that chunk-local resolution so canonicalized
+            ids match the persisted entities; only unresolved names use the
+            deterministic type-aware fallback id.
+            """
+            resolved = entity_ids_by_name.get(name.casefold())
+            if resolved is not None:
+                return resolved
+            return self._resolve_entity_id(name, None, (), "concept")[0]
+
         chunk.relationships = [
             Relationship(
-                source_entity_id=self._slugify(dto.source_entity_name),
-                target_entity_id=self._slugify(dto.target_entity_name),
+                source_entity_id=resolve_endpoint(dto.source_entity_name),
+                target_entity_id=resolve_endpoint(dto.target_entity_name),
                 type=dto.type,
                 description=dto.description,
                 source_page=dto.source_page,
@@ -436,24 +457,24 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             schema=schema, terminology_mapping=_TERMINOLOGY_MAPPING
         )
         user_prompt = f"Question: {question}"
-        failure_prompt = ""
+        messages: list[Any] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
         if failure is not None:
             failure_prompt = (
                 f"The previous query failed:\n{failure.failed_cypher}\n\n"
                 f"Error: {failure.error_message}\n\n"
                 "Please fix it."
             )
+            messages.append({"role": "user", "content": failure_prompt})
 
         response: _CypherResponse | None = None
         async for attempt in self._retrying:
             with attempt:
                 response = await self._client.create(
                     response_model=_CypherResponse,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                        {"role": "user", "content": failure_prompt},
-                    ],
+                    messages=messages,
                     model=self._settings.llm_model_name,
                     # Instructor internal retries disabled; tenacity owns the
                     # retry policy (stop_after_attempt in self._retrying).
@@ -487,16 +508,17 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
     ) -> tuple[str, list[str]]:
         """Return a deterministic entity id and filtered alias list.
 
-        Compatibility rule (REQ-CANON-01):
-        - If ``canonical_name`` is present, the id is ``slugify(canonical_name)-type``.
-        - Otherwise the id is ``slugify(name)`` (legacy behavior, no type suffix).
+        Canonical ids always include the entity type (REQ-CANON-01):
+        - If ``canonical_name`` is present, the id is
+          ``slugify(canonical_name)-type``.
+        - Otherwise the id is ``slugify(name)-type``.
 
         Aliases are normalized (case-insensitive deduplication) and filtered
         against ``stoplist`` so domain stopwords cannot become aliases.
 
         In ``fuzzy`` mode, ``canonical_name`` is only adopted when its fuzzy
         similarity to ``name`` is at least ``threshold``. This gates the fuzzy
-        path so low-confidence canonical matches fall back to the legacy id,
+        path so low-confidence canonical matches fall back to the name-based id,
         avoiding false-positive merges (REQ-CANON-04, AC-CANON-03).
         """
         stoplist_set = {term.lower() for term in (stoplist or ())}
@@ -528,7 +550,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                 f"{LLMAdapter._slugify(effective_canonical)}-{entity_type}",
                 filtered,
             )
-        return LLMAdapter._slugify(name), filtered
+        return f"{LLMAdapter._slugify(name)}-{entity_type}", filtered
 
     async def generate_community_summary(
         self,

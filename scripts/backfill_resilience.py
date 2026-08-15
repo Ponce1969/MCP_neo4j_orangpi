@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sys
 from typing import Any
 
@@ -23,6 +24,40 @@ from neo4j import AsyncDriver, AsyncGraphDatabase
 from book_graph_rag.config import Settings
 
 logger = logging.getLogger(__name__)
+
+_LEGACY_ENTITIES_CYPHER = """
+MATCH (n:Entity)
+RETURN n.id AS id, n.name AS name, n.type AS type
+"""
+
+_MIGRATE_ENTITY_CYPHER = """
+MATCH (old:Entity {id: $old_id})
+MERGE (new:Entity {id: $new_id})
+SET new += properties(old), new.id = $new_id
+WITH old, new
+OPTIONAL MATCH (c:Chunk)-[m:MENTIONS]->(old)
+FOREACH (_ IN CASE WHEN m IS NULL THEN [] ELSE [1] END |
+    MERGE (c)-[new_m:MENTIONS]->(new)
+    SET new_m += properties(m)
+    DELETE m
+)
+WITH old, new
+OPTIONAL MATCH (old)-[r:RELATED]->(target)
+FOREACH (_ IN CASE WHEN r IS NULL THEN [] ELSE [1] END |
+    MERGE (new)-[new_r:RELATED {type: r.type}]->(target)
+    SET new_r += properties(r)
+    DELETE r
+)
+WITH old, new
+OPTIONAL MATCH (source)-[r:RELATED]->(old)
+FOREACH (_ IN CASE WHEN r IS NULL THEN [] ELSE [1] END |
+    MERGE (source)-[new_r:RELATED {type: r.type}]->(new)
+    SET new_r += properties(r)
+    DELETE r
+)
+DETACH DELETE old
+RETURN $old_id AS old_id, $new_id AS new_id
+"""
 
 _BACKFILL_ALIASES_CYPHER = """
 MATCH (n:Entity)
@@ -55,15 +90,40 @@ def _build_driver(settings: Settings) -> AsyncDriver:
 
 
 async def _backfill_entities(session: Any, dry_run: bool) -> int:
-    """Set aliases=[] and canonical_name=name defaults on all Entity nodes."""
+    """Migrate legacy ids and set alias/canonical defaults."""
     if dry_run:
+        click.echo("[dry-run] Would migrate legacy entity ids:")
+        click.echo(_LEGACY_ENTITIES_CYPHER)
+        click.echo(_MIGRATE_ENTITY_CYPHER)
         click.echo("[dry-run] Would execute entity alias/canonical backfill:")
         click.echo(_BACKFILL_ALIASES_CYPHER)
         return 0
 
+    result = await session.run(_LEGACY_ENTITIES_CYPHER)
+    records = await result.data()
+    migrated = 0
+    for record in records:
+        name = str(record["name"])
+        entity_type = str(record["type"])
+        new_id = f"{_slugify(name)}-{entity_type}"
+        if record["id"] == new_id:
+            continue
+        await session.run(
+            _MIGRATE_ENTITY_CYPHER,
+            {"old_id": record["id"], "new_id": new_id},
+        )
+        migrated += 1
+
     result = await session.run(_BACKFILL_ALIASES_CYPHER)
     record = await result.single()
-    return int(record["updated"]) if record is not None else 0
+    updated = int(record["updated"]) if record is not None else 0
+    return migrated + updated
+
+
+def _slugify(text: str) -> str:
+    """Match the adapter's deterministic slugification semantics."""
+    normalized = re.sub(r"[^a-z0-9]+", "-", text.lower().strip())
+    return normalized.strip("-")
 
 
 async def _create_fulltext_index(session: Any, dry_run: bool) -> None:
@@ -106,7 +166,7 @@ def cli() -> None:
     help="Print the Cypher that would run without writing to the database.",
 )
 def all_command(dry_run: bool) -> None:
-    """Backfill alias/canonical defaults and create the fulltext index."""
+    """Migrate legacy ids, backfill metadata, and create the fulltext index."""
     settings = _get_settings()
     driver = _build_driver(settings)
 

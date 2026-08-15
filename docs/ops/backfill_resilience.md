@@ -2,8 +2,7 @@
 
 This document describes the offline backfill for graphs created before the
 `graphrag-ragas-resilience` change. It makes legacy `:Entity` nodes compatible
-with the new alias/canonical fields and fulltext index without rewriting entity
-ids.
+with the new type-aware ids, alias/canonical fields, and fulltext index.
 
 ## What the backfill does
 
@@ -11,9 +10,15 @@ ids.
 uv run python scripts/backfill_resilience.py all
 ```
 
-The script performs two idempotent operations:
+The script performs three idempotent operations:
 
-1. **Alias / canonical defaults**
+1. **Legacy id migration**
+   Nodes whose id is exactly the slugified name (without the type suffix) are
+   migrated to `slugify(name)-type`. The new node copies all properties, and
+   existing `:MENTIONS` and `:RELATED` relationships are re-pointed before the
+   old node is deleted. Nodes already using a type-aware id are unchanged.
+
+2. **Alias / canonical defaults**
    ```cypher
    MATCH (n:Entity)
    SET n.aliases = coalesce(n.aliases, []),
@@ -23,7 +28,7 @@ The script performs two idempotent operations:
    - Fills missing `aliases` with an empty list.
    - Fills missing `canonical_name` with the current `n.name`.
 
-2. **Fulltext index**
+3. **Fulltext index**
    ```cypher
    CREATE FULLTEXT INDEX entity_name_aliases_index IF NOT EXISTS
    FOR (n:Entity) ON EACH [n.name, n.canonical_name, n.aliases]
@@ -31,7 +36,11 @@ The script performs two idempotent operations:
    - Required by the Tier 4 fallback in `find_entity`.
    - Idempotent via `IF NOT EXISTS`.
 
-## What the backfill does NOT do
+## Provenance and rollback
+
+During id migration, existing `:MENTIONS` and `:RELATED` relationships are
+re-pointed to the new type-aware entity id before the old node is deleted.
+Entities without recoverable chunk provenance still require a full re-index.
 
 `:MENTIONS` edges — `(:Chunk)-[:MENTIONS]->(:Entity)` — **cannot** be
 reconstructed from a legacy graph. The backfill script only has access to the
@@ -67,6 +76,10 @@ REMOVE n.aliases, n.canonical_name;
 > ```cypher
 > MATCH (:Chunk)-[m:MENTIONS]->(:Entity) DELETE m;
 > ```
+
+The id migration is forward-only and deletes old nodes after relationship
+repointing. Take a Neo4j backup before production use. Roll back by restoring
+that backup, or by running a reverse migration from recorded old/new id pairs.
 
 ## Full rebuild command
 

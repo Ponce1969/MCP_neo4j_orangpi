@@ -78,7 +78,9 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                 SET n.name = e.name,
                     n.type = e.type,
                     n.description = e.description,
-                    n.source_page = e.source_page
+                    n.source_page = e.source_page,
+                    n.aliases = e.aliases,
+                    n.canonical_name = e.canonical_name
                 """,
                 {"entities": [entity.model_dump() for entity in entities]},
             )
@@ -144,13 +146,7 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                 valid_relationships.append(rel)
 
         if orphans and self._orphan_policy == "fail_loud":
-            missing = sorted(
-                {
-                    oid
-                    for o in orphans
-                    for oid in (o["source_entity_id"], o["target_entity_id"])
-                }
-            )
+            missing = sorted(missing_ids)
             raise ValueError(
                 f"Relationship batch aborted: missing endpoints {missing}"
             )

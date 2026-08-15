@@ -11,7 +11,16 @@ import importlib.util
 
 import networkx as nx
 
-from book_graph_rag.domain.models import Entity, Relationship
+from book_graph_rag.domain.models import Entity, Relationship, _community_summary_id
+
+__all__ = [
+    "CommunityDetectionError",
+    "build_entity_graph",
+    "select_leiden_backend",
+    "run_leiden",
+    "assign_parent_ids",
+    "_community_summary_id",
+]
 
 
 class CommunityDetectionError(Exception):
@@ -119,11 +128,3 @@ def assign_parent_ids(
             _community_summary_id(level, community) for community in communities
         ]
     return result
-
-
-def _community_summary_id(level: int, entity_ids: list[str]) -> str:
-    """Stable 16-char hex id mirroring the domain model."""
-    import hashlib
-
-    key = f"{level}:{','.join(sorted(entity_ids))}"
-    return hashlib.sha1(key.encode()).hexdigest()[:16]

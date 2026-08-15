@@ -58,7 +58,6 @@ def index(pdf_path: Path) -> None:
         max_concurrency=settings.llm_max_concurrency,
         batch_size=settings.processing_batch_size,
         dead_letter_path=settings.dead_letter_path,
-        orphan_policy=settings.relationship_orphan_policy,
     )
 
     asyncio.run(use_case.execute(str(pdf_path)))
