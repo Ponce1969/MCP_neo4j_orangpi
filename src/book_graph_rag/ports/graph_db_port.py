@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import abc
+from dataclasses import dataclass
 
 from book_graph_rag.domain.models import (
     Book,
@@ -12,6 +13,15 @@ from book_graph_rag.domain.models import (
     Relationship,
     Section,
 )
+
+
+@dataclass(frozen=True)
+class CountTolerancePolicy:
+    """Tolerance rules for post-run index verification."""
+
+    chunk_tolerance_pct: float = 1.0
+    chunk_tolerance_abs: int = 1
+    entity_must_not_decrease: bool = True
 
 
 class GraphDatabasePort(abc.ABC):
@@ -53,4 +63,35 @@ class GraphDatabasePort(abc.ABC):
         """Persist the book's hierarchical editorial structure (chapter →
         section → chunk) with their page references. Idempotent via MERGE.
         """
+        ...
+
+    @abc.abstractmethod
+    async def clear_index(self) -> None:
+        """Delete every index-created node and edge.
+
+        Removes the following edge types: ``MENTIONS``, ``RELATED``,
+        ``HAS_SUMMARY``, ``CONTAINS``, ``HAS_SECTION``, ``HAS_SUBSECTION``,
+        ``HAS_CHUNK``.
+
+        Removes the following node labels: ``Chunk``, ``Entity``,
+        ``CommunitySummary``, ``Section``, ``Chapter``, ``Book``.
+
+        ``:User`` and ``:Config`` nodes (and any edges incident to them) are
+        left untouched because they are never referenced by the indexer.
+        """
+        ...
+
+    @abc.abstractmethod
+    async def count_chunks(self) -> int:
+        """Return the number of ``:Chunk`` nodes in the graph."""
+        ...
+
+    @abc.abstractmethod
+    async def count_entities(self) -> int:
+        """Return the number of ``:Entity`` nodes in the graph."""
+        ...
+
+    @abc.abstractmethod
+    async def count_mentions(self) -> int:
+        """Return the number of ``(:Chunk)-[:MENTIONS]->(:Entity)`` edges."""
         ...

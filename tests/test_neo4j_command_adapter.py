@@ -539,3 +539,113 @@ async def test_upsert_relationships_log_orphan_invariant(
     rel_params = rel_call[1] or {}
     persisted_count = len(rel_params.get("rels", []))
     assert persisted_count + len(orphan_lines) == 2
+
+
+# ── Index lifecycle (REQ-IP, REQ-PV) ──────────────────────────────────────────
+
+
+async def test_clear_index_deletes_edges_before_nodes_and_preserves_user_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Edges are removed first, then nodes; :User and :Config are untouched."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    fake_db = _FakeGraphDatabase()
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.neo4j_command_adapter.AsyncGraphDatabase",
+        fake_db,
+    )
+    adapter = Neo4jCommandAdapter(settings)
+
+    await adapter.clear_index()
+
+    queries = [call[0] for call in adapter._driver.session().calls]
+    edge_indices = [i for i, q in enumerate(queries) if "DELETE r" in q]
+    node_indices = [i for i, q in enumerate(queries) if "DETACH DELETE n" in q]
+
+    assert len(edge_indices) == 7
+    assert len(node_indices) == 6
+    assert max(edge_indices) < min(node_indices)
+
+    edge_types = (
+        "MENTIONS",
+        "RELATED",
+        "HAS_SUMMARY",
+        "CONTAINS",
+        "HAS_SECTION",
+        "HAS_SUBSECTION",
+        "HAS_CHUNK",
+    )
+    node_labels = (
+        "Chunk",
+        "Entity",
+        "CommunitySummary",
+        "Section",
+        "Chapter",
+        "Book",
+    )
+    for edge_type in edge_types:
+        assert any(f"-[r:{edge_type}]->" in q for q in queries)
+    for label in node_labels:
+        assert any(f"(n:{label})" in q for q in queries)
+
+    all_cypher = " ".join(queries)
+    assert ":User" not in all_cypher
+    assert ":Config" not in all_cypher
+
+
+async def test_count_chunks_returns_record_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """count_chunks issues a single MATCH-COUNT and returns the 'c' value."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = Neo4jCommandAdapter(settings)
+    session = _FakeSession(records=[_FakeRecord({"c": 42})])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.count_chunks()
+
+    assert result == 42
+    assert len(session.calls) == 1
+    query = session.calls[0][0]
+    assert "MATCH (n:Chunk)" in query
+    assert "RETURN count(n)" in query
+
+
+async def test_count_entities_returns_record_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """count_entities issues a single MATCH-COUNT and returns the 'c' value."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = Neo4jCommandAdapter(settings)
+    session = _FakeSession(records=[_FakeRecord({"c": 2479})])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.count_entities()
+
+    assert result == 2479
+    assert len(session.calls) == 1
+    query = session.calls[0][0]
+    assert "MATCH (n:Entity)" in query
+    assert "RETURN count(n)" in query
+
+
+async def test_count_mentions_returns_record_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """count_mentions counts :MENTIONS relationships, not nodes."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = Neo4jCommandAdapter(settings)
+    session = _FakeSession(records=[_FakeRecord({"c": 123})])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.count_mentions()
+
+    assert result == 123
+    assert len(session.calls) == 1
+    query = session.calls[0][0]
+    assert "MATCH ()-[r:MENTIONS]->()" in query
+    assert "RETURN count(r)" in query
