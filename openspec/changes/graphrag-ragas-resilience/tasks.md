@@ -40,21 +40,21 @@ Chain strategy: feature-branch-chain
 
 ## Phase 4: PR4 — Tiered `find_entity` + fulltext
 
-- [ ] 4.1 `ports/graph_query_port.py`: docstring update on `find_entity` (behavior modified) and `ensure_indexes`.
-- [ ] 4.2 `infrastructure/neo4j_query_adapter.py`: rewrite `find_entity` cascade Tier1→4 with early stop. Scores 1.0/0.8/0.6/`ft*0.4`. Dedup by `n.id` keeping highest tier. `source` = `"book_id={b},chunk_index={i}"`.
-- [ ] 4.3 `infrastructure/neo4j_query_adapter.py`: Tier 4 wrapped in try/except — on fulltext missing log warning, return Tiers 1-3 (SCEN-FIND-05, AC-FIND-03).
-- [ ] 4.4 `infrastructure/neo4j_query_adapter.py`: extend `find_entities_batch` with `OPTIONAL MATCH (:Chunk)-[:MENTIONS]->(n)` source extraction.
-- [ ] 4.5 `infrastructure/neo4j_query_adapter.py`: add `CREATE FULLTEXT INDEX entity_name_aliases_index IF NOT EXISTS FOR (n:Entity) ON EACH [n.name, n.canonical_name, n.aliases]` to `ensure_indexes`.
-- [ ] 4.6 Tests: tier order, early-stop (Tier 4 counter == 0), `find_entity("mcp")` via alias, type filter, dedup, graceful degradation (SCEN-FIND-01..06, AC-FIND-01..04).
+- [x] 4.1 `ports/graph_query_port.py`: docstring update on `find_entity` (behavior modified) and `ensure_indexes`.
+- [x] 4.2 `infrastructure/neo4j_query_adapter.py`: rewrite `find_entity` cascade Tier1→4 with early stop. Scores 1.0/0.8/0.6/`ft*0.4`. Dedup by `n.id` keeping highest tier. `source` = `"book_id={b},chunk_index={i}"`.
+- [x] 4.3 `infrastructure/neo4j_query_adapter.py`: Tier 4 wrapped in try/except — on fulltext missing log warning, return Tiers 1-3 (SCEN-FIND-05, AC-FIND-03).
+- [x] 4.4 `infrastructure/neo4j_query_adapter.py`: extend `find_entities_batch` with `OPTIONAL MATCH (:Chunk)-[:MENTIONS]->(n)` source extraction.
+- [x] 4.5 `infrastructure/neo4j_query_adapter.py`: add `CREATE FULLTEXT INDEX entity_name_aliases_index IF NOT EXISTS FOR (n:Entity) ON EACH [n.name, n.canonical_name, n.aliases]` to `ensure_indexes`.
+- [x] 4.6 Tests: tier order, early-stop (Tier 4 counter == 0), `find_entity("mcp")` via alias, type filter, dedup, graceful degradation (SCEN-FIND-01..06, AC-FIND-01..04).
 
 ## Phase 5: PR5 — Backfill + settings + RAGAS compare
 
-- [ ] 5.1 `config.py`: ADD `canonical_match_mode` (Literal["slug","fuzzy"], default "slug"), `canonical_fuzzy_threshold` (0.5..1.0 validator, default 0.92), `relationship_orphan_policy` ("fail_loud"|"log_orphan", default "log_orphan"), `canonical_stoplist` (list, default []), `dead_letter_path_orphans` (Path).
-- [ ] 5.2 `infrastructure/llm_adapter.py`: load stoplist + match mode/threshold from Settings; gate fuzzy path (REQ-CANON-04, AC-CANON-03).
-- [ ] 5.3 `scripts/backfill_resilience.py` (NEW): `python scripts/backfill_resilience.py all` — `SET n.aliases = coalesce(n.aliases, [])`, `SET n.canonical_name = coalesce(n.canonical_name, n.name)`, create fulltext index. Idempotent; `--dry-run`.
-- [ ] 5.4 `docs/ops/backfill_resilience.md` (NEW): full rebuild command, `:MENTIONS` non-reconstructibility, rollback steps.
-- [ ] 5.5 `scripts/run_ragas_evaluation.py`: compare to `gr3_baseline.json`, emit `gr3_after.json` with `delta` per metric. Add `--no-compare`.
-- [ ] 5.6 Tests: `canonical_fuzzy_threshold` validator rejects `0.4`/`1.1`; defaults safe; backfill idempotent on second run; `--dry-run` does not write.
+- [x] 5.1 `config.py`: ADD `canonical_match_mode` (Literal["slug","fuzzy"], default "slug"), `canonical_fuzzy_threshold` (0.5..1.0 validator, default 0.92), `relationship_orphan_policy` ("fail_loud"|"log_orphan", default "log_orphan"), `canonical_stoplist` (list, default []), `dead_letter_path_orphans` (Path).
+- [x] 5.2 `infrastructure/llm_adapter.py`: load stoplist + match mode/threshold from Settings; gate fuzzy path (REQ-CANON-04, AC-CANON-03).
+- [x] 5.3 `scripts/backfill_resilience.py` (NEW): `python scripts/backfill_resilience.py all` — `SET n.aliases = coalesce(n.aliases, [])`, `SET n.canonical_name = coalesce(n.canonical_name, n.name)`, create fulltext index. Idempotent; `--dry-run`.
+- [x] 5.4 `docs/ops/backfill_resilience.md` (NEW): full rebuild command, `:MENTIONS` non-reconstructibility, rollback steps.
+- [x] 5.5 `scripts/run_ragas_evaluation.py`: compare to `gr3_baseline.json`, emit `gr3_after.json` with `delta` per metric. Add `--no-compare`.
+- [x] 5.6 Tests: `canonical_fuzzy_threshold` validator rejects `0.4`/`1.1`; defaults safe; backfill idempotent on second run; `--dry-run` does not write.
 
 ## Dependencies
 
