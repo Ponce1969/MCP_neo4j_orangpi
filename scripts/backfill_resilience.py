@@ -100,8 +100,22 @@ def _build_driver(settings: Settings) -> AsyncDriver:
     )
 
 
+_MAX_MIGRATION_PASSES = 10
+
+
 async def _backfill_entities(session: Any, dry_run: bool) -> tuple[int, int]:
-    """Migrate legacy ids and set alias/canonical defaults."""
+    """Migrate legacy ids and set alias/canonical defaults.
+
+    Legacy ids are ``slugify(name)`` without the type suffix, so a new
+    type-aware id can collide with ANOTHER legacy entity that is still waiting
+    to migrate (for example ``auditor`` -> ``auditor-agent`` while the entity
+    named "Auditor Agent" still owns ``auditor-agent``). Such collisions are
+    transient: once the blocking entity migrates, the target id is free. The
+    migration therefore repeats in passes until a pass migrates nothing; only
+    collisions that survive a no-progress pass are permanent (duplicate
+    entities sharing the same name+type) and are reported for manual
+    resolution.
+    """
     if dry_run:
         click.echo("[dry-run] Would migrate legacy entity ids:")
         click.echo(_LEGACY_ENTITIES_CYPHER)
@@ -112,38 +126,52 @@ async def _backfill_entities(session: Any, dry_run: bool) -> tuple[int, int]:
         click.echo(_BACKFILL_ALIASES_CYPHER)
         return 0, 0
 
-    result = await session.run(_LEGACY_ENTITIES_CYPHER)
-    records = await result.data()
     migrated = 0
-    collisions = 0
-    for record in records:
-        name = str(record["name"])
-        entity_type = str(record["type"])
-        new_id = f"{_slugify(name)}-{entity_type}"
-        old_id = str(record["id"])
-        if old_id == new_id:
-            continue
-        guard_result = await session.run(
-            _ENTITY_ID_COLLISION_GUARD_CYPHER,
-            {"old_id": old_id, "new_id": new_id},
-        )
-        guard_record = await guard_result.single()
-        if guard_record is not None and bool(guard_record["collision"]):
-            collisions += 1
-            message = f"Entity id collision: {old_id} -> {new_id}; migration skipped"
-            logger.warning(message)
-            click.echo(f"WARNING: {message}", err=True)
-            continue
-        await session.run(
-            _MIGRATE_ENTITY_CYPHER,
-            {"old_id": old_id, "new_id": new_id},
-        )
-        migrated += 1
+    collision_messages: list[str] = []
+    for _ in range(_MAX_MIGRATION_PASSES):
+        result = await session.run(_LEGACY_ENTITIES_CYPHER)
+        records = await result.data()
+        if not records:
+            break
+        pass_migrated = 0
+        pass_collision_messages: list[str] = []
+        for record in records:
+            name = str(record["name"])
+            entity_type = str(record["type"])
+            new_id = f"{_slugify(name)}-{entity_type}"
+            old_id = str(record["id"])
+            if old_id == new_id:
+                continue
+            guard_result = await session.run(
+                _ENTITY_ID_COLLISION_GUARD_CYPHER,
+                {"old_id": old_id, "new_id": new_id},
+            )
+            guard_record = await guard_result.single()
+            if guard_record is not None and bool(guard_record["collision"]):
+                pass_collision_messages.append(
+                    f"Entity id collision: {old_id} -> {new_id}; migration skipped"
+                )
+                continue
+            await session.run(
+                _MIGRATE_ENTITY_CYPHER,
+                {"old_id": old_id, "new_id": new_id},
+            )
+            pass_migrated += 1
+        migrated += pass_migrated
+        if pass_migrated == 0:
+            # No progress: every remaining collision is permanent and needs a
+            # human decision (duplicate entities share the same name+type).
+            collision_messages = pass_collision_messages
+            break
+
+    for message in collision_messages:
+        logger.warning(message)
+        click.echo(f"WARNING: {message}", err=True)
 
     result = await session.run(_BACKFILL_ALIASES_CYPHER)
     record = await result.single()
     updated = int(record["updated"]) if record is not None else 0
-    return migrated + updated, collisions
+    return migrated + updated, len(collision_messages)
 
 
 def _slugify(text: str) -> str:

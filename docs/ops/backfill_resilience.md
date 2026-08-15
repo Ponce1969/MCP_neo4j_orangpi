@@ -19,9 +19,18 @@ The script performs three idempotent operations:
    old node is deleted. Nodes already using a type-aware id are unchanged. If
    the target id already belongs to a different entity, the backfill skips that
    migration without copying properties, changing relationships, or deleting
-   either node. Each collision is listed as `old_id -> new_id` in the command
-   output, along with the final collision count. Resolve every collision
-   manually before re-running the backfill; each re-run remains idempotent.
+   either node.
+
+   A target id can be temporarily owned by **another legacy entity** that is
+   still waiting to migrate (for example `auditor` -> `auditor-agent` while the
+   entity named "Auditor Agent" still owns `auditor-agent`). Those collisions
+   are transient: the backfill repeats the migration in passes (up to 10) until
+   a pass migrates nothing, so each blocked entity migrates as soon as its
+   blocker moves. Only collisions that survive a no-progress pass are
+   permanent — duplicate entities sharing the same name and type — and are
+   listed as `old_id -> new_id` in the command output, along with the final
+   collision count. Resolve every permanent collision manually before
+   re-running the backfill; each re-run remains idempotent.
 
 2. **Alias / canonical defaults**
    ```cypher

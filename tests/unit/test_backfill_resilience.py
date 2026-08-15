@@ -14,6 +14,7 @@ from backfill_resilience import (  # noqa: E402
     _ENTITY_ID_COLLISION_GUARD_CYPHER,
     _LEGACY_ENTITIES_CYPHER,
     _MIGRATE_ENTITY_CYPHER,
+    _slugify,
     run_backfill,
 )
 
@@ -149,7 +150,13 @@ class _MigrationResult(_FakeResult):
 
 
 class _MigrationSession(_FakeSession):
-    """Fake session that models legacy entities and target-id collisions."""
+    """Fake session that models legacy entities and target-id collisions.
+
+    The fake models the real database state across migration passes: only
+    records whose id is still ``slugify(name)`` are returned as legacy, and a
+    successful migration mutates the record's id so later passes see the new
+    state.
+    """
 
     def __init__(self, records: list[dict[str, Any]], existing_ids: set[str]) -> None:
         super().__init__()
@@ -162,17 +169,26 @@ class _MigrationSession(_FakeSession):
     ) -> _MigrationResult:
         self.runs.append(cypher.strip())
         if cypher == _LEGACY_ENTITIES_CYPHER:
-            return _MigrationResult(records=self.records)
+            legacy = [
+                record
+                for record in self.records
+                if record["id"] == _slugify(str(record["name"]))
+            ]
+            return _MigrationResult(records=legacy)
         if cypher == _ENTITY_ID_COLLISION_GUARD_CYPHER:
             assert parameters is not None
+            occupied = {record["id"] for record in self.records} | self.existing_ids
             collision = (
-                parameters["new_id"] in self.existing_ids
+                parameters["new_id"] in occupied
                 and parameters["new_id"] != parameters["old_id"]
             )
             return _MigrationResult(collision=collision, is_guard=True)
         if cypher == _MIGRATE_ENTITY_CYPHER:
             assert parameters is not None
             self.migrations.append(parameters)
+            for record in self.records:
+                if record["id"] == parameters["old_id"]:
+                    record["id"] = parameters["new_id"]
             return _MigrationResult()
         return _MigrationResult(updated=0)
 
@@ -189,13 +205,43 @@ class _MigrationDriver(_FakeDriver):
         return self._migration_session
 
 
-async def test_run_backfill_skips_collisions_and_migrates_clean_entities(
+async def test_run_backfill_resolves_transient_collisions_across_passes(
     capsys: Any,
 ) -> None:
-    """A collision is skipped while an unrelated legacy entity still migrates."""
+    """An id blocked by another legacy entity migrates once that entity moves.
+
+    ``react`` wants ``react-pattern``, but the legacy entity "ReAct" with id
+    ``react-pattern`` owns it in the first pass. Once that entity migrates to
+    ``react-pattern-pattern``, the target is free and ``react`` migrates in a
+    later pass. Only the final converged state matters: zero collisions.
+    """
     records = [
         {"id": "react", "name": "ReAct", "type": "pattern"},
-        {"id": "react-pattern", "name": "ReAct", "type": "pattern"},
+        {"id": "react-pattern", "name": "ReAct Pattern", "type": "pattern"},
+        {"id": "other", "name": "Other", "type": "pattern"},
+    ]
+    session = _MigrationSession(records, set())
+
+    summary = await run_backfill(_MigrationDriver(session), dry_run=False)
+
+    assert summary["entity_id_collisions"] == 0
+    assert session.migrations == [
+        {"old_id": "react-pattern", "new_id": "react-pattern-pattern"},
+        {"old_id": "other", "new_id": "other-pattern"},
+        {"old_id": "react", "new_id": "react-pattern"},
+    ]
+    assert "react -> react-pattern" not in capsys.readouterr().err
+
+
+async def test_run_backfill_reports_permanent_collisions_only(capsys: Any) -> None:
+    """A target occupied by a pre-existing node never frees and is reported.
+
+    A duplicate entity with the target id already present (for example from an
+    earlier partial migration) cannot be migrated; after a no-progress pass the
+    backfill stops and reports exactly that collision.
+    """
+    records = [
+        {"id": "react", "name": "ReAct", "type": "pattern"},
         {"id": "other", "name": "Other", "type": "pattern"},
     ]
     session = _MigrationSession(records, {"react-pattern"})
