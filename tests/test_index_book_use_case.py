@@ -122,6 +122,18 @@ class _FakeGraphDBPort(GraphDatabasePort):
     ) -> None:
         self.editorial_calls.append((chapter, list(sections), chunk))
 
+    async def clear_index(self) -> None:
+        return None
+
+    async def count_chunks(self) -> int:
+        return 0
+
+    async def count_entities(self) -> int:
+        return 0
+
+    async def count_mentions(self) -> int:
+        return 0
+
 
 def _make_book() -> Book:
     return Book(

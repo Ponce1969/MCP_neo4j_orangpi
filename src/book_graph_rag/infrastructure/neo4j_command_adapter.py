@@ -303,3 +303,78 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                         "book_id": book_id,
                     },
                 )
+
+    async def clear_index(self) -> None:
+        """Delete every index-created node and edge while preserving :User/:Config.
+
+        Edges are deleted first to avoid leaving orphaned relationships, then
+        nodes are detached and removed in a fixed order.
+        """
+        edge_types = (
+            "MENTIONS",
+            "RELATED",
+            "HAS_SUMMARY",
+            "CONTAINS",
+            "HAS_SECTION",
+            "HAS_SUBSECTION",
+            "HAS_CHUNK",
+        )
+        node_labels = (
+            "Chunk",
+            "Entity",
+            "CommunitySummary",
+            "Section",
+            "Chapter",
+            "Book",
+        )
+        async with self._driver.session() as session:
+            for edge_type in edge_types:
+                await session.run(
+                    f"""
+                    MATCH ()-[r:{edge_type}]->()
+                    DELETE r
+                    """
+                )
+            for label in node_labels:
+                await session.run(
+                    f"""
+                    MATCH (n:{label})
+                    DETACH DELETE n
+                    """
+                )
+
+    async def _count_label(self, label: str) -> int:
+        """Return the number of nodes with the given label."""
+        async with self._driver.session() as session:
+            result = await session.run(
+                f"""
+                MATCH (n:{label})
+                RETURN count(n) AS c
+                """
+            )
+            record = await result.single()
+            if record is None:
+                return 0
+            return int(record["c"])
+
+    async def count_chunks(self) -> int:
+        """Return the number of :Chunk nodes."""
+        return await self._count_label("Chunk")
+
+    async def count_entities(self) -> int:
+        """Return the number of :Entity nodes."""
+        return await self._count_label("Entity")
+
+    async def count_mentions(self) -> int:
+        """Return the number of (:Chunk)-[:MENTIONS]->(:Entity) edges."""
+        async with self._driver.session() as session:
+            result = await session.run(
+                """
+                MATCH ()-[r:MENTIONS]->()
+                RETURN count(r) AS c
+                """
+            )
+            record = await result.single()
+            if record is None:
+                return 0
+            return int(record["c"])

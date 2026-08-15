@@ -19,7 +19,7 @@ from book_graph_rag.domain.models import (
 )
 from book_graph_rag.infrastructure.dead_letter import JSONLDeadLetter
 from book_graph_rag.ports.dead_letter_port import DeadLetterPort
-from book_graph_rag.ports.graph_db_port import GraphDatabasePort
+from book_graph_rag.ports.graph_db_port import CountTolerancePolicy, GraphDatabasePort
 from book_graph_rag.ports.llm_port import LLMProviderPort
 from book_graph_rag.ports.pdf_port import PDFReaderPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
@@ -65,6 +65,18 @@ class _DummyGraphDB(GraphDatabasePort):
     ) -> None:
         return None
 
+    async def clear_index(self) -> None:
+        return None
+
+    async def count_chunks(self) -> int:
+        return 0
+
+    async def count_entities(self) -> int:
+        return 0
+
+    async def count_mentions(self) -> int:
+        return 0
+
 
 class _DummyPDF(PDFReaderPort):
     def extract_chunks(self, file_path: str) -> Iterator[KnowledgeGraphChunk]:
@@ -98,6 +110,18 @@ class _DummyGraphDBMissingBook(GraphDatabasePort):
     ) -> None:
         return None
 
+    async def clear_index(self) -> None:
+        return None
+
+    async def count_chunks(self) -> int:
+        return 0
+
+    async def count_entities(self) -> int:
+        return 0
+
+    async def count_mentions(self) -> int:
+        return 0
+
 
 def test_graph_db_port_missing_upsert_book_raises() -> None:
     with pytest.raises(TypeError):
@@ -125,8 +149,27 @@ def test_graph_db_port_complete_subclass_can_be_instantiated() -> None:
         ) -> None:
             return None
 
+        async def clear_index(self) -> None:
+            return None
+
+        async def count_chunks(self) -> int:
+            return 0
+
+        async def count_entities(self) -> int:
+            return 0
+
+        async def count_mentions(self) -> int:
+            return 0
+
     db = CompleteGraphDB()
     assert db is not None
+
+
+def test_count_tolerance_policy_defaults() -> None:
+    policy = CountTolerancePolicy()
+    assert policy.chunk_tolerance_pct == 1.0
+    assert policy.chunk_tolerance_abs == 1
+    assert policy.entity_must_not_decrease is True
 
 
 def test_pdf_port_can_be_implemented() -> None:
@@ -141,6 +184,10 @@ def test_llm_and_graph_methods_are_async() -> None:
     assert inspect.iscoroutinefunction(GraphDatabasePort.upsert_relationships)
     assert inspect.iscoroutinefunction(GraphDatabasePort.upsert_mentions)
     assert inspect.iscoroutinefunction(GraphDatabasePort.upsert_editorial_structure)
+    assert inspect.iscoroutinefunction(GraphDatabasePort.clear_index)
+    assert inspect.iscoroutinefunction(GraphDatabasePort.count_chunks)
+    assert inspect.iscoroutinefunction(GraphDatabasePort.count_entities)
+    assert inspect.iscoroutinefunction(GraphDatabasePort.count_mentions)
 
 
 def test_pdf_method_is_sync_and_returns_iterator() -> None:
