@@ -16,7 +16,12 @@ The script performs three idempotent operations:
    Nodes whose id is exactly the slugified name (without the type suffix) are
    migrated to `slugify(name)-type`. The new node copies all properties, and
    existing `:MENTIONS` and `:RELATED` relationships are re-pointed before the
-   old node is deleted. Nodes already using a type-aware id are unchanged.
+   old node is deleted. Nodes already using a type-aware id are unchanged. If
+   the target id already belongs to a different entity, the backfill skips that
+   migration without copying properties, changing relationships, or deleting
+   either node. Each collision is listed as `old_id -> new_id` in the command
+   output, along with the final collision count. Resolve every collision
+   manually before re-running the backfill; each re-run remains idempotent.
 
 2. **Alias / canonical defaults**
    ```cypher

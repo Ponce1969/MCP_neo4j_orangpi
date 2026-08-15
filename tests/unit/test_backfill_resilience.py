@@ -11,6 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts"
 from backfill_resilience import (  # noqa: E402
     _BACKFILL_ALIASES_CYPHER,
     _CREATE_FULLTEXT_INDEX_CYPHER,
+    _ENTITY_ID_COLLISION_GUARD_CYPHER,
+    _LEGACY_ENTITIES_CYPHER,
+    _MIGRATE_ENTITY_CYPHER,
     run_backfill,
 )
 
@@ -118,3 +121,100 @@ async def test_run_backfill_reports_zero_entities_when_no_records() -> None:
     summary = await run_backfill(driver, dry_run=False)
 
     assert summary["entities_updated"] == 0
+
+
+class _MigrationResult(_FakeResult):
+    """Fake result for migration-path records and collision checks."""
+
+    def __init__(
+        self,
+        records: list[dict[str, Any]] | None = None,
+        collision: bool = False,
+        updated: int = 0,
+        is_guard: bool = False,
+    ) -> None:
+        super().__init__({"updated": updated})
+        self._records = records or []
+        self._collision = collision
+        self._updated = updated
+        self._is_guard = is_guard
+
+    async def data(self) -> list[dict[str, Any]]:
+        return self._records
+
+    async def single(self) -> dict[str, Any] | None:
+        if self._is_guard:
+            return {"collision": self._collision}
+        return {"updated": self._updated}
+
+
+class _MigrationSession(_FakeSession):
+    """Fake session that models legacy entities and target-id collisions."""
+
+    def __init__(self, records: list[dict[str, Any]], existing_ids: set[str]) -> None:
+        super().__init__()
+        self.records = records
+        self.existing_ids = existing_ids
+        self.migrations: list[dict[str, Any]] = []
+
+    async def run(
+        self, cypher: str, parameters: dict[str, Any] | None = None
+    ) -> _MigrationResult:
+        self.runs.append(cypher.strip())
+        if cypher == _LEGACY_ENTITIES_CYPHER:
+            return _MigrationResult(records=self.records)
+        if cypher == _ENTITY_ID_COLLISION_GUARD_CYPHER:
+            assert parameters is not None
+            collision = (
+                parameters["new_id"] in self.existing_ids
+                and parameters["new_id"] != parameters["old_id"]
+            )
+            return _MigrationResult(collision=collision, is_guard=True)
+        if cypher == _MIGRATE_ENTITY_CYPHER:
+            assert parameters is not None
+            self.migrations.append(parameters)
+            return _MigrationResult()
+        return _MigrationResult(updated=0)
+
+
+class _MigrationDriver(_FakeDriver):
+    """Fake driver for migration-path tests."""
+
+    def __init__(self, session: _MigrationSession) -> None:
+        super().__init__()
+        self._migration_session = session
+
+    def session(self) -> _MigrationSession:
+        self.sessions.append(self._migration_session)
+        return self._migration_session
+
+
+async def test_run_backfill_skips_collisions_and_migrates_clean_entities(
+    capsys: Any,
+) -> None:
+    """A collision is skipped while an unrelated legacy entity still migrates."""
+    records = [
+        {"id": "react", "name": "ReAct", "type": "pattern"},
+        {"id": "react-pattern", "name": "ReAct", "type": "pattern"},
+        {"id": "other", "name": "Other", "type": "pattern"},
+    ]
+    session = _MigrationSession(records, {"react-pattern"})
+
+    summary = await run_backfill(_MigrationDriver(session), dry_run=False)
+
+    assert summary["entity_id_collisions"] == 1
+    assert session.migrations == [{"old_id": "other", "new_id": "other-pattern"}]
+    output = capsys.readouterr()
+    assert "react -> react-pattern" in output.err
+
+
+async def test_run_backfill_migrates_clean_entity_and_backfills_aliases() -> None:
+    """A free target id executes migration and alias backfill normally."""
+    records = [{"id": "react", "name": "ReAct", "type": "pattern"}]
+    session = _MigrationSession(records, set())
+
+    summary = await run_backfill(_MigrationDriver(session), dry_run=False)
+
+    assert summary["entity_id_collisions"] == 0
+    assert session.migrations == [{"old_id": "react", "new_id": "react-pattern"}]
+    assert _BACKFILL_ALIASES_CYPHER.strip() in session.runs

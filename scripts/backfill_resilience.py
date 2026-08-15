@@ -28,6 +28,13 @@ logger = logging.getLogger(__name__)
 _LEGACY_ENTITIES_CYPHER = """
 MATCH (n:Entity)
 RETURN n.id AS id, n.name AS name, n.type AS type
+ORDER BY n.id
+"""
+
+_ENTITY_ID_COLLISION_GUARD_CYPHER = """
+MATCH (existing:Entity {id: $new_id})
+WHERE existing.id <> $old_id
+RETURN count(existing) > 0 AS collision
 """
 
 _MIGRATE_ENTITY_CYPHER = """
@@ -89,35 +96,50 @@ def _build_driver(settings: Settings) -> AsyncDriver:
     )
 
 
-async def _backfill_entities(session: Any, dry_run: bool) -> int:
+async def _backfill_entities(session: Any, dry_run: bool) -> tuple[int, int]:
     """Migrate legacy ids and set alias/canonical defaults."""
     if dry_run:
         click.echo("[dry-run] Would migrate legacy entity ids:")
         click.echo(_LEGACY_ENTITIES_CYPHER)
+        click.echo("[dry-run] Would execute the entity id collision guard:")
+        click.echo(_ENTITY_ID_COLLISION_GUARD_CYPHER)
         click.echo(_MIGRATE_ENTITY_CYPHER)
         click.echo("[dry-run] Would execute entity alias/canonical backfill:")
         click.echo(_BACKFILL_ALIASES_CYPHER)
-        return 0
+        return 0, 0
 
     result = await session.run(_LEGACY_ENTITIES_CYPHER)
     records = await result.data()
     migrated = 0
+    collisions = 0
     for record in records:
         name = str(record["name"])
         entity_type = str(record["type"])
         new_id = f"{_slugify(name)}-{entity_type}"
-        if record["id"] == new_id:
+        old_id = str(record["id"])
+        if old_id == new_id:
+            continue
+        guard_result = await session.run(
+            _ENTITY_ID_COLLISION_GUARD_CYPHER,
+            {"old_id": old_id, "new_id": new_id},
+        )
+        guard_record = await guard_result.single()
+        if guard_record is not None and bool(guard_record["collision"]):
+            collisions += 1
+            message = f"Entity id collision: {old_id} -> {new_id}; migration skipped"
+            logger.warning(message)
+            click.echo(f"WARNING: {message}", err=True)
             continue
         await session.run(
             _MIGRATE_ENTITY_CYPHER,
-            {"old_id": record["id"], "new_id": new_id},
+            {"old_id": old_id, "new_id": new_id},
         )
         migrated += 1
 
     result = await session.run(_BACKFILL_ALIASES_CYPHER)
     record = await result.single()
     updated = int(record["updated"]) if record is not None else 0
-    return migrated + updated
+    return migrated + updated, collisions
 
 
 def _slugify(text: str) -> str:
@@ -143,13 +165,15 @@ async def run_backfill(driver: AsyncDriver, dry_run: bool) -> dict[str, Any]:
     Neo4j driver without touching the network.
     """
     updated = 0
+    collisions = 0
     async with driver.session() as session:
-        updated = await _backfill_entities(session, dry_run)
+        updated, collisions = await _backfill_entities(session, dry_run)
         await _create_fulltext_index(session, dry_run)
 
     return {
         "dry_run": dry_run,
         "entities_updated": updated,
+        "entity_id_collisions": collisions,
         "mentions_reconstructible": False,
     }
 
@@ -181,6 +205,7 @@ def all_command(dry_run: bool) -> None:
     click.echo("\nBackfill summary:")
     click.echo(f"  dry_run: {summary['dry_run']}")
     click.echo(f"  entities_updated: {summary['entities_updated']}")
+    click.echo(f"  entity_id_collisions: {summary['entity_id_collisions']}")
     click.echo(
         "  :MENTIONS edges are NOT reconstructible from a legacy graph; "
         "run a full re-index for provenance."
