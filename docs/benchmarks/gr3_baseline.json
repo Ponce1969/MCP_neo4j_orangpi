@@ -1,0 +1,15 @@
+{
+  "dataset": "evaluation_dataset_dedup.jsonl",
+  "detail_level": 1,
+  "total_questions": 67,
+  "global_questions": 45,
+  "local_questions": 22,
+  "failed_questions": [],
+  "metrics": {
+    "faithfulness": 0.6825,
+    "answer_relevancy": 0.5953,
+    "llm_context_precision_without_reference": 0.474
+  },
+  "baseline": null,
+  "delta": null
+}
