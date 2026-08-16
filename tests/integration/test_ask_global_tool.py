@@ -5,11 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from mcp.types import TextContent
 
+from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.infrastructure.mcp.mcp_server_adapter import McpServerAdapter
 from book_graph_rag.ports.community_read_port import CommunityReadPort
+from book_graph_rag.ports.graph_query_port import GraphQueryPort
 from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
+from book_graph_rag.ports.text2cypher_port import Text2CypherPort
 
 
 class _FakeCommunityReadPort(CommunityReadPort):
@@ -39,10 +43,14 @@ class _FakeLLMSummaryPort(LLMSummaryPort):
         return "summary"
 
 
-class _FakeGlobalQueryUseCase:
+class _FakeGlobalQueryUseCase(GlobalQueryUseCase):
     """Configurable GlobalQueryUseCase stand-in for the MCP adapter."""
 
     def __init__(self) -> None:
+        super().__init__(
+            read_port=_FakeCommunityReadPort(),
+            llm_port=_FakeLLMSummaryPort(),
+        )
         self.calls: list[tuple[str, int]] = []
         self.response: dict[str, Any] = {
             "answer": "MCP is a protocol.",
@@ -62,29 +70,29 @@ class _FakeQueryLoggerPort(QueryLoggerPort):
         pass
 
 
-class _FakeGraphQueryPort:
-    async def find_entity(self, name: str, entity_type: Any | None) -> list[Any]:
+class _FakeGraphQueryPort(GraphQueryPort):
+    async def find_entity(self, name: str, entity_type: Any | None = None) -> list[Any]:
         return []
 
     async def find_entities_batch(self, ids: list[str]) -> list[Any]:
         return []
 
     async def traverse_relationships(
-        self, source_id: str, rel_type: Any | None, depth: int
+        self, source_id: str, rel_type: Any | None = None, depth: int = 1
     ) -> tuple[list[Any], list[Any]]:
         return [], []
 
-    async def find_path(self, start_id: str, end_id: str, max_depth: int) -> list[Any]:
+    async def find_path(self, start_id: str, end_id: str, max_depth: int = 3) -> list[Any]:
         return []
 
-    async def search_chunks(self, query: str, limit: int) -> list[Any]:
+    async def search_chunks(self, query: str, limit: int = 10) -> list[Any]:
         return []
 
-    async def count_entities(self, entity_type: str | None) -> int:
+    async def count_entities(self, entity_type: str | None = None) -> int:
         return 0
 
     async def list_entities(
-        self, cursor: int, page_size: int
+        self, cursor: int = 0, page_size: int = 50
     ) -> tuple[list[Any], int]:
         return [], 0
 
@@ -92,7 +100,7 @@ class _FakeGraphQueryPort:
         pass
 
 
-class _FakeText2CypherPort:
+class _FakeText2CypherPort(Text2CypherPort):
     async def generate_and_run(self, question: str) -> Any:
         return None
 
@@ -146,8 +154,11 @@ async def test_ask_global_returns_answer_with_citations(
         "ask_global", {"question": "what is MCP?", "detail_level": 2}
     )
 
+    assert isinstance(result, tuple)
     content = result[0]
+    assert isinstance(content, list)
     assert len(content) == 1
+    assert isinstance(content[0], TextContent)
     assert content[0].type == "text"
     assert "MCP is a protocol" in content[0].text
     assert "a1b2c3d4e5f6a7b8" in content[0].text
@@ -178,4 +189,9 @@ async def test_ask_global_returns_error_when_no_summaries(
 
     result = await server.call_tool("ask_global", {"question": "what?", "detail_level": 0})
 
-    assert "Run scripts/run_communities.py first" in result[0][0].text
+    assert isinstance(result, tuple)
+    content = result[0]
+    assert isinstance(content, list)
+    assert len(content) == 1
+    assert isinstance(content[0], TextContent)
+    assert "Run scripts/run_communities.py first" in content[0].text

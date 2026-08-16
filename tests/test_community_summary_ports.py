@@ -16,7 +16,7 @@ from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
 def test_llm_summary_port_is_abstract() -> None:
     """LLMSummaryPort cannot be instantiated directly."""
     with pytest.raises(TypeError):
-        LLMSummaryPort()
+        LLMSummaryPort()  # type: ignore[abstract]
 
 
 def test_llm_summary_port_methods_are_async() -> None:
@@ -104,13 +104,13 @@ class _IncompleteLLMSummaryPort(LLMSummaryPort):
 def test_llm_summary_port_missing_method_cannot_be_instantiated() -> None:
     """A subclass missing a method is still abstract."""
     with pytest.raises(TypeError):
-        _IncompleteLLMSummaryPort()
+        _IncompleteLLMSummaryPort()  # type: ignore[abstract]
 
 
 def test_community_read_port_is_abstract() -> None:
     """CommunityReadPort cannot be instantiated directly."""
     with pytest.raises(TypeError):
-        CommunityReadPort()
+        CommunityReadPort()  # type: ignore[abstract]
 
 
 def test_community_read_port_methods_are_async() -> None:
@@ -181,13 +181,13 @@ class _IncompleteCommunityReadPort(CommunityReadPort):
 def test_community_read_port_missing_method_cannot_be_instantiated() -> None:
     """A subclass missing any method is still abstract."""
     with pytest.raises(TypeError):
-        _IncompleteCommunityReadPort()
+        _IncompleteCommunityReadPort()  # type: ignore[abstract]
 
 
 def test_community_write_port_is_abstract() -> None:
     """CommunityWritePort cannot be instantiated directly."""
     with pytest.raises(TypeError):
-        CommunityWritePort()
+        CommunityWritePort()  # type: ignore[abstract]
 
 
 def test_community_write_port_methods_are_async() -> None:
@@ -238,7 +238,7 @@ class _IncompleteCommunityWritePort(CommunityWritePort):
 def test_community_write_port_missing_method_cannot_be_instantiated() -> None:
     """A subclass missing one method is still abstract."""
     with pytest.raises(TypeError):
-        _IncompleteCommunityWritePort()
+        _IncompleteCommunityWritePort()  # type: ignore[abstract]
 
 
 def test_community_ports_are_exported_from_package() -> None:

@@ -91,7 +91,7 @@ class _IncompleteQueryAdapter(GraphQueryPort):
 def test_graph_query_port_is_abstract() -> None:
     """GraphQueryPort cannot be instantiated directly."""
     with pytest.raises(TypeError):
-        GraphQueryPort()
+        GraphQueryPort()  # type: ignore[abstract]
 
 
 def test_graph_query_port_complete_subclass_can_be_instantiated() -> None:
@@ -104,7 +104,7 @@ def test_graph_query_port_complete_subclass_can_be_instantiated() -> None:
 def test_graph_query_port_missing_method_cannot_be_instantiated() -> None:
     """A subclass missing a method is still abstract."""
     with pytest.raises(TypeError):
-        _IncompleteQueryAdapter()
+        _IncompleteQueryAdapter()  # type: ignore[abstract]
 
 
 @pytest.mark.parametrize(

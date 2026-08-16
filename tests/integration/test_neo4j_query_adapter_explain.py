@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncGenerator
 
 import pytest
+from pydantic import SecretStr
+from testcontainers.community.neo4j import Neo4jContainer
 
 from book_graph_rag.config import Settings
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
@@ -37,21 +40,43 @@ async def _is_reachable(adapter: Neo4jQueryAdapter) -> bool:
 
 
 @pytest.fixture
-async def live_adapter() -> Neo4jQueryAdapter:
-    """Real Neo4j adapter; skips when no live container is available."""
-    settings = _live_settings()
-    if settings is None:
-        pytest.skip(
-            "NEO4J_PASSWORD not set; no live Neo4j container configured"
-        )
-    adapter = Neo4jQueryAdapter(settings)
-    if not await _is_reachable(adapter):
+async def live_adapter() -> AsyncGenerator[Neo4jQueryAdapter, None]:
+    """Real Neo4j adapter; uses live env if reachable, or spins up an ephemeral Testcontainer."""
+    live_sett = _live_settings()
+    if live_sett is not None:
+        adapter = Neo4jQueryAdapter(live_sett)
+        if await _is_reachable(adapter):
+            try:
+                yield adapter
+            finally:
+                await adapter.close()
+            return
         await adapter.close()
-        pytest.skip("Live Neo4j container is not reachable")
+
+    # Fallback to Testcontainers
+    container: Neo4jContainer | None = None
     try:
-        yield adapter
+        container = Neo4jContainer("neo4j:5.23")
+        container.start()
+    except Exception as exc:
+        pytest.skip(f"Live Neo4j container / Testcontainers not available: {exc}")
+
+    try:
+        assert container is not None
+        conn_url = container.get_connection_url()
+        settings = Settings(
+            neo4j_uri=conn_url,
+            neo4j_user=container.username or "neo4j",
+            neo4j_password=SecretStr(container.password or "password"),
+        )
+        adapter = Neo4jQueryAdapter(settings)
+        try:
+            yield adapter
+        finally:
+            await adapter.close()
     finally:
-        await adapter.close()
+        if container is not None:
+            container.stop()
 
 
 async def test_explain_pr4_tiered_find_entity_queries(

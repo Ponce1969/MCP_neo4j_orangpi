@@ -36,6 +36,8 @@ dev = [
     "langchain-openai>=0.3",
     "sentence-transformers>=3.0",  # embeddings locales para AnswerRelevancy (ragas 0.4)
     "langchain-huggingface>=0.3",
+    "hypothesis>=6.165.9",
+    "testcontainers[neo4j]>=4.15.0",
 ]
 
 [project.scripts]

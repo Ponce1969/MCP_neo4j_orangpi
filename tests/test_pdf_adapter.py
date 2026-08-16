@@ -214,4 +214,5 @@ def test_extract_chunks_merges_number_and_title_l1_entries(
 
     assert len(chunks) == 2
     assert all(chunk.chapter is not None and chunk.chapter.number == 1 for chunk in chunks)
+    assert chunks[0].chapter is not None
     assert chunks[0].chapter.title == "1 GenAI in the Enterprise"

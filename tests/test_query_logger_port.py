@@ -36,7 +36,7 @@ class _IncompleteQueryLoggerPort(QueryLoggerPort):
 def test_query_logger_port_is_abstract() -> None:
     """QueryLoggerPort cannot be instantiated directly."""
     with pytest.raises(TypeError):
-        QueryLoggerPort()
+        QueryLoggerPort()  # type: ignore[abstract]
 
 
 def test_query_logger_port_complete_subclass_can_be_instantiated() -> None:
@@ -49,7 +49,7 @@ def test_query_logger_port_complete_subclass_can_be_instantiated() -> None:
 def test_query_logger_port_missing_method_cannot_be_instantiated() -> None:
     """A subclass missing a method is still abstract."""
     with pytest.raises(TypeError):
-        _IncompleteQueryLoggerPort()
+        _IncompleteQueryLoggerPort()  # type: ignore[abstract]
 
 
 @pytest.mark.parametrize("method_name", ["log_query", "close"])

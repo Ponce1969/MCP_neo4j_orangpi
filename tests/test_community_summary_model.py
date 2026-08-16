@@ -20,6 +20,7 @@ def test_community_summary_can_be_created() -> None:
     """Minimal construction produces the expected id."""
     entity_ids = ["pattern-a", "agent-b"]
     summary = CommunitySummary(
+        id="",
         level=0,
         summary="A root community summary.",
         entity_ids=entity_ids,
@@ -35,6 +36,7 @@ def test_community_summary_can_be_created() -> None:
 def test_community_summary_id_is_stable() -> None:
     """Same membership and level produce the same id regardless of input order."""
     summary = CommunitySummary(
+        id="",
         level=1,
         summary="Themes around agents.",
         entity_ids=["c", "a", "b"],
@@ -48,6 +50,7 @@ def test_community_summary_id_is_stable() -> None:
 def test_community_summary_is_frozen() -> None:
     """CommunitySummary is immutable after construction."""
     summary = CommunitySummary(
+        id="",
         level=0,
         summary="Root.",
         entity_ids=["a"],
@@ -60,16 +63,17 @@ def test_community_summary_is_frozen() -> None:
 def test_community_summary_level_bounds() -> None:
     """Level must be between 0 and 3 inclusive."""
     with pytest.raises(ValidationError):
-        CommunitySummary(level=-1, summary="Invalid.", entity_ids=["a"])
+        CommunitySummary(id="", level=-1, summary="Invalid.", entity_ids=["a"])
 
     with pytest.raises(ValidationError):
-        CommunitySummary(level=4, summary="Invalid.", entity_ids=["a"])
+        CommunitySummary(id="", level=4, summary="Invalid.", entity_ids=["a"])
 
 
 def test_community_summary_level_zero_has_no_parent() -> None:
     """Level 0 must have parent_id=None."""
     with pytest.raises(ValidationError):
         CommunitySummary(
+            id="",
             level=0,
             summary="Invalid.",
             entity_ids=["a"],
@@ -81,6 +85,7 @@ def test_community_summary_non_zero_requires_parent() -> None:
     """Levels 1-3 must have a parent_id."""
     with pytest.raises(ValidationError):
         CommunitySummary(
+            id="",
             level=1,
             summary="Invalid.",
             entity_ids=["a"],
@@ -91,6 +96,7 @@ def test_community_summary_entity_ids_must_be_non_empty() -> None:
     """A community must contain at least one entity."""
     with pytest.raises(ValidationError):
         CommunitySummary(
+            id="",
             level=0,
             summary="Invalid.",
             entity_ids=[],
@@ -99,9 +105,11 @@ def test_community_summary_entity_ids_must_be_non_empty() -> None:
 
 def test_community_summary_includes_level_and_entities_in_id() -> None:
     """Different levels or entity sets produce different ids."""
-    s0 = CommunitySummary(level=0, summary="Root.", entity_ids=["a"])
-    s1 = CommunitySummary(level=1, summary="Child.", entity_ids=["a"], parent_id=s0.id)
-    s2 = CommunitySummary(level=1, summary="Sibling.", entity_ids=["a", "b"], parent_id=s0.id)
+    s0 = CommunitySummary(id="", level=0, summary="Root.", entity_ids=["a"])
+    s1 = CommunitySummary(id="", level=1, summary="Child.", entity_ids=["a"], parent_id=s0.id)
+    s2 = CommunitySummary(
+        id="", level=1, summary="Sibling.", entity_ids=["a", "b"], parent_id=s0.id
+    )
 
     assert s0.id != s1.id
     assert s1.id != s2.id

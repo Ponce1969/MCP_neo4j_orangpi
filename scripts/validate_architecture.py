@@ -6,15 +6,24 @@ ni librerías externas prohibidas (neo4j, openai, fitz, instructor, etc.).
 """
 
 import ast
+import io
 import sys
 from pathlib import Path
 
 # Windows: por defecto stdout/stderr usan cp1252 que no soporta emojis (✅❌🚨).
-# Reconfiguramos a UTF-8 en arranque paraqr que el script sea multiplataforma.
+# Reconfiguramos a UTF-8 en arranque para que el script sea multiplataforma.
 # `sys.stdout.reconfigure` está disponible desde Python 3.7.
-if sys.stdout.encoding is not None and sys.stdout.encoding.lower() != "utf-8":
+if (
+    isinstance(sys.stdout, io.TextIOWrapper)
+    and sys.stdout.encoding is not None
+    and sys.stdout.encoding.lower() != "utf-8"
+):
     sys.stdout.reconfigure(encoding="utf-8")
-if sys.stderr.encoding is not None and sys.stderr.encoding.lower() != "utf-8":
+if (
+    isinstance(sys.stderr, io.TextIOWrapper)
+    and sys.stderr.encoding is not None
+    and sys.stderr.encoding.lower() != "utf-8"
+):
     sys.stderr.reconfigure(encoding="utf-8")
 
 # Módulos prohibidos en domain y application (librerías de infra + el propio pkg infra)

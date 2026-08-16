@@ -64,7 +64,7 @@ class _FakeGraphQueryPort(GraphQueryPort):
 
         self.ensure_indexes_raises: Exception | None = None
 
-        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.calls: list[dict[str, Any]] = []
 
     async def find_entity(
         self, name: str, entity_type: EntityType | None
@@ -260,7 +260,7 @@ async def test_unknown_query_type_raises_domain_error(
         type = "unknown_type"
 
     with pytest.raises(UnsupportedQueryTypeError) as exc_info:
-        await use_case.execute(UnknownQuery())
+        await use_case.execute(UnknownQuery())  # type: ignore[arg-type]
 
     assert exc_info.value.query_type == "unknown_type"
 

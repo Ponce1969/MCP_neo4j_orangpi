@@ -133,8 +133,8 @@ async def test_ask_scores_all_summaries_at_level(
     use_case: Any,
 ) -> None:
     """MAP calls score_community for every summary at the requested level."""
-    s1 = CommunitySummary(level=1, summary="A", entity_ids=["e1"], parent_id="p1")
-    s2 = CommunitySummary(level=1, summary="B", entity_ids=["e2"], parent_id="p1")
+    s1 = CommunitySummary(id="", level=1, summary="A", entity_ids=["e1"], parent_id="p1")
+    s2 = CommunitySummary(id="", level=1, summary="B", entity_ids=["e2"], parent_id="p1")
     read_port.summaries[1] = [s1, s2]
     llm_port.scores = {s1.id: 80, s2.id: 60}
 
@@ -149,9 +149,9 @@ async def test_ask_composes_answer_with_top_n_summaries(
     use_case: Any,
 ) -> None:
     """REDUCE keeps only top-N summaries and passes them to compose_answer."""
-    s1 = CommunitySummary(level=1, summary="A", entity_ids=["e1"], parent_id="p1")
-    s2 = CommunitySummary(level=1, summary="B", entity_ids=["e2"], parent_id="p1")
-    s3 = CommunitySummary(level=1, summary="C", entity_ids=["e3"], parent_id="p1")
+    s1 = CommunitySummary(id="", level=1, summary="A", entity_ids=["e1"], parent_id="p1")
+    s2 = CommunitySummary(id="", level=1, summary="B", entity_ids=["e2"], parent_id="p1")
+    s3 = CommunitySummary(id="", level=1, summary="C", entity_ids=["e3"], parent_id="p1")
     read_port.summaries[1] = [s1, s2, s3]
     llm_port.scores = {s1.id: 80, s2.id: 90, s3.id: 50}
 

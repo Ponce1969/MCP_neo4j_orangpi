@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -71,7 +72,7 @@ class _FakeResult:
     def __init__(self, records: list[_FakeRecord]) -> None:
         self._records = records
 
-    async def __aiter__(self):
+    async def __aiter__(self) -> AsyncIterator[_FakeRecord]:
         for record in self._records:
             yield record
 

@@ -231,8 +231,8 @@ async def _run_communities(
             )
 
     summaries = list(summaries_by_id.values())
-    for level, communities in communities_by_level.items():
-        click.echo(f"Level {level}: {len(communities)} communities")
+    for level, level_comms in communities_by_level.items():
+        click.echo(f"Level {level}: {len(level_comms)} communities")
     click.echo(
         f"Done: {len(summaries)} summaries available "
         f"({skipped_count} skipped from checkpoint, {failed_count} failed)"
@@ -241,7 +241,7 @@ async def _run_communities(
 
 async def _run_main(fresh: bool = False) -> None:
     """Single-entry coroutine so the event loop stays open for cleanup."""
-    settings = Settings()
+    settings = Settings()  # type: ignore[call-arg]
     adapter = Neo4jCommunityAdapter(settings)
     llm_port: LLMSummaryPort = LLMAdapter(settings)
     try:

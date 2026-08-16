@@ -19,7 +19,7 @@ from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapte
 
 
 async def _main() -> None:
-    settings = Settings()
+    settings = Settings()  # type: ignore[call-arg]
     adapter = Neo4jCommunityAdapter(settings)
     try:
         orphans = await adapter.get_isolated_entities(limit=20)

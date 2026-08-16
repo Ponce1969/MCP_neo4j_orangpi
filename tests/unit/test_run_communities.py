@@ -12,6 +12,7 @@ from click.testing import CliRunner
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import CommunitySummary, Entity, Relationship
+from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
 
 _SCRIPT_PATH = Path("scripts/run_communities.py")
 
@@ -153,7 +154,7 @@ async def test_run_communities_aborts_when_max_calls_exceeded(
 ) -> None:
     """If the total community count exceeds ``community_max_calls``, abort."""
     entities = [Entity(id=f"e{i}", name=f"E{i}", type="agent") for i in range(50)]
-    relationships = []
+    relationships: list[Relationship] = []
     read_port = _FakeReadPort(entities, relationships)
     write_port = _FakeWritePort()
     llm_port = _FakeLLMPort()
@@ -258,26 +259,25 @@ def test_cli_run_invokes_orchestration(
         async def close(self) -> None:
             calls.append("close")
 
-    async def fake_load(self) -> tuple[list[Entity], list[Relationship]]:
-        return entities, relationships
+        async def load_entity_graph(self) -> tuple[list[Entity], list[Relationship]]:
+            return entities, relationships
 
-    async def fake_clear(self) -> None:
-        calls.append("clear")
+        async def clear_summaries(self) -> None:
+            calls.append("clear")
 
-    async def fake_upsert(self, summaries: list[CommunitySummary]) -> None:
-        calls.append("upsert")
+        async def upsert_summaries(self, summaries: list[CommunitySummary]) -> None:
+            calls.append("upsert")
 
-    async def fake_upsert_summary(self, summary: CommunitySummary) -> None:
-        calls.append("upsert_summary")
+        async def upsert_summary(self, summary: CommunitySummary) -> None:
+            calls.append("upsert_summary")
 
-    FakeAdapter.load_entity_graph = fake_load
-    FakeAdapter.clear_summaries = fake_clear
-    FakeAdapter.upsert_summaries = fake_upsert
-    FakeAdapter.upsert_summary = fake_upsert_summary
-    FakeAdapter.get_summaries_by_level = lambda self, level: []
-    FakeAdapter.count_summaries = lambda self: 0
+        async def get_summaries_by_level(self, level: int) -> list[CommunitySummary]:
+            return []
 
-    class FakeLLM(run_communities.LLMSummaryPort):
+        async def count_summaries(self) -> int:
+            return 0
+
+    class FakeLLM(LLMSummaryPort):
         def __init__(self, settings: Settings) -> None:
             self._settings = settings
 

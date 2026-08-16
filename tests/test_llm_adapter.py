@@ -10,7 +10,6 @@ from typing import Any
 
 import pytest
 from instructor.v2.core.errors import InstructorRetryException
-from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
 
@@ -108,18 +107,20 @@ def _make_chunk() -> KnowledgeGraphChunk:
 
 def _make_completion(content: str) -> ChatCompletion:
     """Build a minimal ChatCompletion carrying ``content`` as the assistant message."""
-    return ChatCompletion(
-        id="fake",
-        object="chat.completion",
-        created=0,
-        model="fake",
-        choices=[
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": content},
-                "finish_reason": "stop",
-            }
-        ],
+    return ChatCompletion.model_validate(
+        {
+            "id": "fake",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "fake",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
     )
 
 
@@ -145,7 +146,7 @@ class _FakeChat:
         self.completions = completions
 
 
-class _FakeAsyncOpenAI(AsyncOpenAI):
+class _FakeAsyncOpenAI:
     """AsyncOpenAI stand-in that bypasses network setup and returns fake completions."""
 
     def __init__(
@@ -784,7 +785,9 @@ async def test_score_community_returns_parsed_score(
 
     monkeypatch.setattr(adapter._summary_client, "create", fake_create)
 
-    summary = CommunitySummary(level=1, summary="A summary", entity_ids=["e1"], parent_id="p1")
+    summary = CommunitySummary(
+        level=1, summary="A summary", entity_ids=["e1"], parent_id="p1"
+    )
     score = await adapter.score_community("what is MCP?", summary)
 
     assert score == 85
@@ -812,7 +815,9 @@ async def test_compose_answer_prompt_requires_citation_format(
         adapter._summary_raw_client.chat.completions, "create", fake_create
     )
 
-    summary = CommunitySummary(level=1, summary="A summary", entity_ids=["e1"], parent_id="p1")
+    summary = CommunitySummary(
+        level=1, summary="A summary", entity_ids=["e1"], parent_id="p1"
+    )
     ranked = [(summary, 85)]
     result = await adapter.compose_answer("what is MCP?", ranked)
 
@@ -839,7 +844,7 @@ async def test_plain_text_preserves_raw_newlines(
         adapter._summary_raw_client.chat.completions, "create", fake_create
     )
 
-    summary = CommunitySummary(level=1, summary="s", entity_ids=["e1"], parent_id="p1")
+    summary = CommunitySummary(id="", level=1, summary="s", entity_ids=["e1"], parent_id="p1")
     result = await adapter.compose_answer("q?", [(summary, 85)])
 
     assert result == "line 1\n\nline 2"
@@ -860,7 +865,7 @@ async def test_plain_text_strips_stale_markdown_fence(
         adapter._summary_raw_client.chat.completions, "create", fake_create
     )
 
-    summary = CommunitySummary(level=1, summary="s", entity_ids=["e1"], parent_id="p1")
+    summary = CommunitySummary(id="", level=1, summary="s", entity_ids=["e1"], parent_id="p1")
     result = await adapter.compose_answer("q?", [(summary, 85)])
 
     assert result == "MCP is a protocol."

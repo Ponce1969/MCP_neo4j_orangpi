@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from click.testing import CliRunner
+from pydantic import SecretStr
 
 from book_graph_rag.config import Settings
 from book_graph_rag.mcp_server_main import main, mcp_cli
@@ -80,7 +81,7 @@ def fake_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
     settings = Settings(
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
-        neo4j_password="fake-password",  # pragma: allowlist secret
+        neo4j_password=SecretStr("fake-password"),  # pragma: allowlist secret
     )
     monkeypatch.setattr("book_graph_rag.mcp_server_main.Settings", lambda: settings)
     return settings

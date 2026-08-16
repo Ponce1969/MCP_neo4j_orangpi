@@ -47,7 +47,7 @@ def test_compute_deltas_returns_per_metric_diff() -> None:
 def test_compute_deltas_returns_none_for_missing_baseline_metric() -> None:
     """_compute_deltas returns None when a metric has no baseline value."""
     current = {"metrics": {"new_metric": 0.8}}
-    baseline = {"metrics": {}}
+    baseline: dict[str, dict[str, float]] = {"metrics": {}}
 
     deltas = _compute_deltas(current, baseline)
 

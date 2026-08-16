@@ -27,17 +27,17 @@ from book_graph_rag.ports.query_logger_port import QueryLoggerPort
 
 def test_llm_port_abstract_cannot_instantiate() -> None:
     with pytest.raises(TypeError):
-        LLMProviderPort()
+        LLMProviderPort()  # type: ignore[abstract]
 
 
 def test_graph_db_port_abstract_cannot_instantiate() -> None:
     with pytest.raises(TypeError):
-        GraphDatabasePort()
+        GraphDatabasePort()  # type: ignore[abstract]
 
 
 def test_pdf_port_abstract_cannot_instantiate() -> None:
     with pytest.raises(TypeError):
-        PDFReaderPort()
+        PDFReaderPort()  # type: ignore[abstract]
 
 
 class _DummyLLM(LLMProviderPort):
@@ -125,7 +125,7 @@ class _DummyGraphDBMissingBook(GraphDatabasePort):
 
 def test_graph_db_port_missing_upsert_book_raises() -> None:
     with pytest.raises(TypeError):
-        _DummyGraphDBMissingBook()
+        _DummyGraphDBMissingBook()  # type: ignore[abstract]
 
 
 def test_graph_db_port_complete_subclass_can_be_instantiated() -> None:
@@ -206,7 +206,7 @@ def test_query_logger_port_is_exported_from_package() -> None:
 
 def test_dead_letter_port_abstract_cannot_instantiate() -> None:
     with pytest.raises(TypeError):
-        DeadLetterPort()
+        DeadLetterPort()  # type: ignore[abstract]
 
 
 class _DummyDeadLetter(DeadLetterPort):

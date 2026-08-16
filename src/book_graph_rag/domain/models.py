@@ -313,7 +313,7 @@ class CommunitySummary(BaseModel):
     """
 
     model_config = ConfigDict(frozen=True)
-    id: str
+    id: str = ""
     level: int = Field(ge=0, le=3)
     summary: str
     entity_ids: list[str] = Field(min_length=1)
@@ -329,7 +329,7 @@ class CommunitySummary(BaseModel):
             if level is not None and entity_ids is not None:
                 computed = _community_summary_id(level, entity_ids)
                 provided_id = data.get("id")
-                if provided_id is not None and provided_id != computed:
+                if provided_id and provided_id != computed:
                     raise ValueError(
                         "id must be the stable hash of level and sorted entity_ids"
                     )

@@ -6,6 +6,7 @@ import asyncio
 from typing import Any
 
 import pytest
+from pydantic import SecretStr
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import (
@@ -104,7 +105,7 @@ def test_settings_text2cypher_timeout_default_is_10() -> None:
     settings = Settings(
         neo4j_uri="bolt://localhost",
         neo4j_user="neo4j",
-        neo4j_password="secret",
+        neo4j_password=SecretStr("secret"),
     )
     assert settings.text2cypher_timeout == 10
 
@@ -114,7 +115,7 @@ def test_settings_text2cypher_timeout_must_be_within_range() -> None:
         Settings(
             neo4j_uri="bolt://localhost",
             neo4j_user="neo4j",
-            neo4j_password="secret",
+            neo4j_password=SecretStr("secret"),
             text2cypher_timeout=0,
         )
 
@@ -122,7 +123,7 @@ def test_settings_text2cypher_timeout_must_be_within_range() -> None:
         Settings(
             neo4j_uri="bolt://localhost",
             neo4j_user="neo4j",
-            neo4j_password="secret",
+            neo4j_password=SecretStr("secret"),
             text2cypher_timeout=61,
         )
 

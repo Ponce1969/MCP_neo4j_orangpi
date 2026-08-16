@@ -33,14 +33,14 @@ class _FakeGraphQueryPort(GraphQueryPort):
         search_chunks_result: list[dict[str, Any]] | None = None,
         count_result: int = 0,
         list_entities_result: tuple[list[EntityWithContext], int] | None = None,
-        raise_on: str | None = None,
+        raise_on: str | set[str] | None = None,
     ) -> None:
         self.find_entity_result = find_entity_result or []
         self.traverse_result = traverse_result or ([], [])
         self.search_chunks_result = search_chunks_result or []
         self.count_result = count_result
         self.list_entities_result = list_entities_result or ([], 0)
-        self.raise_on = raise_on
+        self.raise_on: str | set[str] | None = raise_on
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     async def find_entity(
