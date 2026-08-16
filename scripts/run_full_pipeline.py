@@ -25,7 +25,14 @@ from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdapter
 from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter
 from book_graph_rag.ports.graph_db_port import CountTolerancePolicy, GraphDatabasePort
-from scripts import run_communities
+
+# Allow importing sibling scripts when invoked directly.
+_script_dir = Path(__file__).resolve().parent
+_project_root = _script_dir.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+from scripts import run_communities  # noqa: E402
 
 _BACKUP_DIR = Path.home() / "backups_neo4j"
 _INDEX_NODE_LABELS = (
