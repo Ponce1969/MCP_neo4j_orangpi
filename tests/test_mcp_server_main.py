@@ -83,7 +83,12 @@ def fake_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
         neo4j_user="neo4j",
         neo4j_password=SecretStr("fake-password"),  # pragma: allowlist secret
     )
-    monkeypatch.setattr("book_graph_rag.mcp_server_main.Settings", lambda: settings)
+    class _FakeSettingsType:
+        @classmethod
+        def model_validate(cls, data: object) -> Settings:
+            return settings
+
+    monkeypatch.setattr("book_graph_rag.mcp_server_main.Settings", _FakeSettingsType)
     return settings
 
 
@@ -220,7 +225,12 @@ def test_serve_uses_custom_mcp_port(
 ) -> None:
     """Custom MCP_PORT is passed to the SSE server."""
     fake_settings.mcp_port = 9000
-    monkeypatch.setattr("book_graph_rag.mcp_server_main.Settings", lambda: fake_settings)
+    class _FakeSettingsType:
+        @classmethod
+        def model_validate(cls, data: object) -> Settings:
+            return fake_settings
+
+    monkeypatch.setattr("book_graph_rag.mcp_server_main.Settings", _FakeSettingsType)
 
     runner = CliRunner()
     result = runner.invoke(mcp_cli, ["serve"])

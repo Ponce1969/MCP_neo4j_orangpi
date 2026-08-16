@@ -355,7 +355,7 @@ def _run_ragas(
 )
 def main(dataset: str, detail_level: int, no_ragas: bool, no_compare: bool) -> None:
     """Run the RAGAS evaluation pipeline."""
-    settings = Settings()  # type: ignore[call-arg]
+    settings = Settings.model_validate({})
 
     click.echo(f"Loading dataset: {dataset}")
     samples = _load_dataset(dataset)

@@ -193,7 +193,7 @@ async def _generate_all(
 )
 def main(output: str) -> None:
     """Generate the RAGAS evaluation dataset."""
-    settings = Settings()  # type: ignore[call-arg]
+    settings = Settings.model_validate({})
     api_key: str = (
         settings.llm_api_key.get_secret_value()
         if settings.llm_api_key is not None

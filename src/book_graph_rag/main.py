@@ -42,7 +42,7 @@ def index(pdf_path: Path) -> None:
     PDF_PATH is the book PDF to process.
     """
     try:
-        settings = Settings()  # type: ignore[call-arg]
+        settings = Settings.model_validate({})
     except Exception as exc:  # noqa: BLE003
         click.echo(f"Configuration error: {exc}", err=True)
         sys.exit(1)
@@ -101,7 +101,7 @@ def _build_graph_query(query_type: str, params: dict[str, Any]) -> GraphQueryUni
 def query(query_type: str, query_json: str) -> None:
     """Query the knowledge graph. Output is pure JSON."""
     try:
-        settings = Settings()  # type: ignore[call-arg]
+        settings = Settings.model_validate({})
     except Exception as exc:  # noqa: BLE001
         click.echo(f"Configuration error: {exc}", err=True)
         sys.exit(1)

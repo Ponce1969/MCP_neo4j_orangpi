@@ -12,6 +12,10 @@ from click.testing import CliRunner
 
 def _make_fake_settings_class(calls: list[Any]) -> type:
     class FakeSettings:
+        @classmethod
+        def model_validate(cls, data: object) -> FakeSettings:
+            return cls()
+
         def __init__(self) -> None:
             calls.append("settings")
             self.llm_max_concurrency = 2

@@ -43,7 +43,7 @@ from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter
 def main(pdf: Path, clear: bool, dry_run: bool, fresh: bool) -> None:
     """Index a PDF book into the knowledge graph."""
     try:
-        settings = Settings()  # type: ignore[call-arg]
+        settings = Settings.model_validate({})
     except Exception as exc:  # noqa: BLE003
         click.echo(f"Configuration error: {exc}", err=True)
         sys.exit(1)

@@ -16,7 +16,7 @@ from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 
 async def main() -> int:
     """Create all read-side indexes and exit cleanly."""
-    settings = Settings()  # type: ignore[call-arg]
+    settings = Settings.model_validate({})
     adapter = Neo4jQueryAdapter(settings)
     try:
         await adapter.ensure_indexes()

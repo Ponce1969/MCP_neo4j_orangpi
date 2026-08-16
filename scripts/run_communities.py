@@ -241,7 +241,7 @@ async def _run_communities(
 
 async def _run_main(fresh: bool = False) -> None:
     """Single-entry coroutine so the event loop stays open for cleanup."""
-    settings = Settings()  # type: ignore[call-arg]
+    settings = Settings.model_validate({})
     adapter = Neo4jCommunityAdapter(settings)
     llm_port: LLMSummaryPort = LLMAdapter(settings)
     try:

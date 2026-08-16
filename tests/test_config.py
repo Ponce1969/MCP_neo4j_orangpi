@@ -20,7 +20,7 @@ def test_settings_fails_fast_without_env(tmp_path: Path, monkeypatch: pytest.Mon
     _clear_required_env(monkeypatch)
 
     with pytest.raises(ValidationError):
-        Settings()  # type: ignore[call-arg]
+        Settings.model_validate({})
 
 
 def test_settings_loads_secret_securely(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -61,6 +61,10 @@ def test_cli_index_composition_correct_order(
     """AC-05.3: Settings -> adapters -> use case -> asyncio.run, in that order."""
 
     class FakeSettings:
+        @classmethod
+        def model_validate(cls, data: object) -> FakeSettings:
+            return cls()
+
         def __init__(self) -> None:
             calls.append("settings")
             self.llm_max_concurrency = 7

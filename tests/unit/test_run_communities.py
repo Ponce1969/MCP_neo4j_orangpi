@@ -236,7 +236,12 @@ def test_cli_run_invokes_orchestration(
     monkeypatch.chdir(tmp_path)
     for var in ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD"):
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setattr(run_communities, "Settings", lambda: settings)
+    class _FakeSettingsType:
+        @classmethod
+        def model_validate(cls, data: object) -> Settings:
+            return settings
+
+    monkeypatch.setattr(run_communities, "Settings", _FakeSettingsType)
 
     entities = [
         Entity(id="a", name="A", type="agent"),

@@ -62,7 +62,7 @@ async def _run_server(settings: Settings) -> None:
 def serve() -> None:
     """Start the MCP SSE server."""
     try:
-        settings = Settings()  # type: ignore[call-arg]
+        settings = Settings.model_validate({})
     except Exception as exc:  # noqa: BLE001
         click.echo(f"Configuration error: {exc}", err=True)
         sys.exit(1)

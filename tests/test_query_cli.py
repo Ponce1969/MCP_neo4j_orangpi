@@ -23,6 +23,10 @@ from book_graph_rag.main import cli
 
 
 class _FakeSettings:
+    @classmethod
+    def model_validate(cls, data: object) -> _FakeSettings:
+        return cls()
+
     def __init__(self) -> None:
         self.neo4j_uri = "bolt://localhost:7687"
         self.neo4j_user = "neo4j"

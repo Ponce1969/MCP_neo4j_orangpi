@@ -104,7 +104,7 @@ async def _dedup(
               help="Path for the deduplicated dataset (JSONL)")
 def main(dataset: str, output: str) -> None:
     """Deduplicate the evaluation dataset via a single LLM call."""
-    settings = Settings()  # type: ignore[call-arg]
+    settings = Settings.model_validate({})
     api_key: str = (
         settings.llm_api_key.get_secret_value()
         if settings.llm_api_key is not None

@@ -241,7 +241,7 @@ async def _run_pipeline(
 ) -> None:
     """Core pipeline: extract, optionally clear/backup, index, verify."""
     try:
-        settings = Settings()  # type: ignore[call-arg]
+        settings = Settings.model_validate({})
     except Exception as exc:  # noqa: BLE003
         click.echo(f"Configuration error: {exc}", err=True)
         sys.exit(1)
@@ -360,7 +360,7 @@ def cli(
 def _run_restore(backup_path: Path) -> None:
     """Restore the graph from a JSON backup produced by --fresh."""
     try:
-        settings = Settings()  # type: ignore[call-arg]
+        settings = Settings.model_validate({})
     except Exception as exc:  # noqa: BLE003
         click.echo(f"Configuration error: {exc}", err=True)
         sys.exit(1)

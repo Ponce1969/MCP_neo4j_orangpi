@@ -86,7 +86,7 @@ FOR (n:Entity) ON EACH [n.name, n.canonical_name, n.aliases]
 def _get_settings() -> Settings:
     """Load settings, failing fast if required Neo4j credentials are missing."""
     try:
-        return Settings()  # type: ignore[call-arg]
+        return Settings.model_validate({})
     except Exception as exc:  # noqa: BLE001
         click.echo(f"Configuration error: {exc}", err=True)
         sys.exit(1)
