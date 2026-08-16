@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import scripts.run_communities as run_communities
 import scripts.run_full_pipeline as run_full_pipeline
 from click.testing import CliRunner
 
@@ -270,11 +271,11 @@ def fake_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[list[Any]
         run_full_pipeline, "Neo4jCommandAdapter", _make_fake_neo4j_adapter(calls)
     )
     monkeypatch.setattr(run_full_pipeline, "IndexBookUseCase", _make_fake_use_case(calls))
-    monkeypatch.setattr(
-        run_full_pipeline,
-        "_run_communities",
-        lambda fresh=False: calls.append(("communities", fresh)),
-    )
+
+    async def _fake_communities(fresh: bool = False) -> None:
+        calls.append(("communities", fresh))
+
+    monkeypatch.setattr(run_full_pipeline, "_run_communities", _fake_communities)
     monkeypatch.setattr(
         run_full_pipeline,
         "AsyncGraphDatabase",
@@ -388,6 +389,23 @@ def test_with_communities_runs_communities_fresh(
     assert result.exit_code == 0, result.output
     assert ("communities", True) in calls
     assert calls.count(("communities", True)) == 1
+
+
+async def test_run_communities_delegates_without_nested_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression (Py3.13): real _run_communities must await on the active loop,
+    never call asyncio.run() from inside a running event loop."""
+    calls: list[Any] = []
+
+    async def _fake_run_main(fresh: bool = False) -> None:
+        calls.append(("run_main", fresh))
+
+    monkeypatch.setattr(run_communities, "_run_main", _fake_run_main)
+
+    await run_full_pipeline._run_communities(fresh=True)
+
+    assert calls == [("run_main", True)]
 
 
 # ── RED tests for verification warnings (tasks 3.3, 3.12) ─────────────────────

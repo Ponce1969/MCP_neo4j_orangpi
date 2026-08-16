@@ -171,9 +171,9 @@ async def _restore(driver: Any, path: Path) -> None:
             await session.run(query, parameters)
 
 
-def _run_communities(fresh: bool = False) -> None:
-    """Chain the community-summary pipeline with a fresh event loop."""
-    asyncio.run(run_communities._run_main(fresh=fresh))
+async def _run_communities(fresh: bool = False) -> None:
+    """Chain the community-summary pipeline on the current event loop."""
+    await run_communities._run_main(fresh=fresh)
 
 
 async def _has_community_summaries(driver: Any) -> bool:
@@ -287,7 +287,7 @@ async def _run_pipeline(
     await use_case.execute(str(pdf_path))
 
     if with_communities:
-        _run_communities(fresh=True)
+        await _run_communities(fresh=True)
     else:
         backup_driver = _make_driver(settings)
         try:
