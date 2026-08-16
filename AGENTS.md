@@ -62,3 +62,21 @@ MCP **`agentic-patterns`** (remote SSE, hosteado en el OrangePi via Tailscale).
   empezar; el agente no lo prende solo.
 - Este criterio aplica también tras la fase 07: el MCP server se expone, pero
   el consumo es opt-in por sesión, no permanente.
+
+## 7. REGLA DE ORO: Servidor OrangePi en PRODUCCIÓN (obligatorio)
+
+Este proyecto corre en el OrangePi `100.106.85.109` (Tailscale; no hay puertos
+abiertos). SSH directo: `ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes gonzalo@100.106.85.109`
+
+**En ese servidor hay 23 contenedores Docker en producción, todos de proyectos
+distintos (incluyendo Postgres de otros proyectos). NO tocar nada que no sea
+del proyecto `bookgraph` (contenedor `bookgraph-neo4j`).**
+
+- **NUNCA borrar nada sin consentimiento explícito del humano:** no `docker
+  prune`, no `docker rmi`, no `docker volume rm`, no `DROP DATABASE`, no borrar
+  archivos arbitrarios. Preguntar SIEMPRE antes de cualquier borrado.
+- **NUNCA** reiniciar, parar o reconstruir contenedores de otros proyectos.
+- Operaciones sobre el grafo del proyecto: solo vía `scripts/run_full_pipeline.py`
+  (que hace auto-backup a `~/backups_neo4j/` antes de un `--fresh`) o comandos
+  explícitos aprobados por el humano.
+- Copiar esta regla a cualquier subagente que vaya a tocar el servidor.
