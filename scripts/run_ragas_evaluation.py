@@ -308,7 +308,7 @@ def _run_ragas(
     # alone and is the honest baseline while no human reference set exists.
     metrics = [
         _Faithfulness(llm=eval_llm),
-        _AnswerRelevancy(llm=eval_llm, embeddings=embeddings),
+        _AnswerRelevancy(llm=eval_llm, embeddings=embeddings, strictness=1),
         _LLMContextPrecisionWithoutReference(llm=eval_llm),
     ]
 
