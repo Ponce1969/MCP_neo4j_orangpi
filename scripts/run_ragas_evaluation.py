@@ -182,6 +182,32 @@ async def _evaluate_local(
 # ── RAGAS integration ──────────────────────────────────────────────────────
 
 
+def _serialize_ragas_result(raw_result: Any) -> dict[str, float]:
+    """Convert RAGAS EvaluationResult/dict into a JSON-safe metric mapping.
+
+    ragas 0.4+ returns ``EvaluationResult`` objects instead of plain dicts.
+    We normalize both shapes so downstream code always sees ``{metric: score}``.
+    """
+    if hasattr(raw_result, "items"):
+        return {str(k): float(v) for k, v in raw_result.items()}
+    if hasattr(raw_result, "to_pandas"):
+        df = raw_result.to_pandas()
+        return {
+            str(col): float(df[col].mean())
+            for col in df.columns
+            if df[col].dtype.kind in "fc"
+        }
+    if hasattr(raw_result, "scores"):
+        scores = raw_result.scores
+        if scores:
+            keys = scores[0].keys()
+            return {
+                str(k): float(sum(row[k] for row in scores) / len(scores))
+                for k in keys
+            }
+    raise TypeError(f"Unsupported RAGAS result type: {type(raw_result)}")
+
+
 def _run_ragas(
     results: list[dict[str, Any]],
     settings: Settings,
@@ -324,7 +350,7 @@ def _run_ragas(
     # ragas 0.4+ returns EvaluationResult/Result objects instead of a plain
     # dict, and metric values may be numpy floats. Convert to a JSON-safe
     # mapping of native floats so callers can serialize the score directly.
-    return {str(k): float(v) for k, v in raw_result.items()}
+    return _serialize_ragas_result(raw_result)
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
