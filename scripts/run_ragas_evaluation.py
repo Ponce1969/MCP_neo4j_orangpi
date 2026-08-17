@@ -267,6 +267,7 @@ def _run_ragas(
             temperature=0,
             timeout=300.0,
             max_retries=2,
+            model_kwargs={"max_tokens": 4096},
         )
     )
 
