@@ -9,7 +9,7 @@ import fitz
 import pytest
 
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.models import PageRef
+from book_graph_rag.domain.models import PageRef, Section
 from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter, chunk_text
 
 
@@ -108,8 +108,68 @@ def test_extract_chunks_with_toc_yields_chunks_with_metadata(
         assert chunk.chapter.number in {1, 2, 3}
         assert chunk.section is not None
         assert chunk.section.level in (2, 3)
+        assert chunk.section_ancestors == ()
         assert chunk.page_ref is not None
         assert chunk.page_ref.start <= chunk.page_ref.end
+
+
+def test_extract_chunks_builds_nested_section_ancestors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nested TOC leaves retain their complete, truthful section ancestry."""
+    settings = _make_settings(tmp_path, monkeypatch, pdf_max_chunk_size=2000)
+    page_texts = [f"Page {i + 1} " + "x" * 200 for i in range(12)]
+    toc = [
+        (1, "1", 1),
+        (2, "Root Section", 2),
+        (3, "Parent Section", 3),
+        (4, "Leaf A", 4),
+        (4, "Leaf B", 6),
+        (3, "Sibling Parent", 8),
+        (4, "Leaf C", 9),
+    ]
+    pdf_path = _make_pdf(tmp_path, toc, page_texts)
+
+    chunks = list(PDFAdapter(settings).extract_chunks(str(pdf_path)))
+
+    assert [chunk.section.title for chunk in chunks if chunk.section] == [
+        "Leaf A",
+        "Leaf B",
+        "Leaf C",
+    ]
+    first, second, third = chunks
+    assert first.section_ancestors == (
+        Section(
+            chapter_number=1,
+            level=2,
+            title="Root Section",
+            page_start=2,
+            parent_section_title=None,
+        ),
+        Section(
+            chapter_number=1,
+            level=3,
+            title="Parent Section",
+            page_start=3,
+            parent_section_title="Root Section",
+        ),
+    )
+    assert first.section is not None
+    assert first.section.page_start == 4
+    assert second.section_ancestors == first.section_ancestors
+    assert second.section is not None
+    assert second.section.page_start == 6
+    assert third.section_ancestors == (
+        first.section_ancestors[0],
+        Section(
+            chapter_number=1,
+            level=3,
+            title="Sibling Parent",
+            page_start=8,
+            parent_section_title="Root Section",
+        ),
+    )
 
 
 def test_extract_chunks_without_toc_fallback_to_char_chunking(
@@ -133,6 +193,7 @@ def test_extract_chunks_without_toc_fallback_to_char_chunking(
     for chunk in chunks:
         assert chunk.chapter is None
         assert chunk.section is None
+        assert chunk.section_ancestors == ()
         assert chunk.page_ref == PageRef(start=1, end=5)
 
 

@@ -126,7 +126,9 @@ class IndexBookUseCase:
                 seen_book_ids.add(chunk.book.id)
 
             if chunk.chapter is not None:
-                sections = [chunk.section] if chunk.section is not None else []
+                sections = [*chunk.section_ancestors]
+                if chunk.section is not None:
+                    sections.append(chunk.section)
                 await self._graph_db_port.upsert_editorial_structure(
                     chunk.chapter, sections, chunk
                 )

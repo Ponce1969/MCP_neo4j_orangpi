@@ -159,7 +159,9 @@ class PDFAdapter(PDFReaderPort):
                 title=chapter_title,
                 page_start=chapter_node.page_number,
             )
-            section = self._build_section(leaf, chapter_number)
+            section_chain = self._build_section_chain(leaf, chapter_number)
+            section = section_chain[-1] if section_chain else None
+            section_ancestors = section_chain[:-1]
 
             page_start_idx = page_start - 1
             page_end_idx = page_end - 1
@@ -185,6 +187,7 @@ class PDFAdapter(PDFReaderPort):
                     book=book,
                     chapter=chapter,
                     section=section,
+                    section_ancestors=section_ancestors,
                     page_ref=page_ref,
                 )
                 chunk_index += 1
@@ -323,20 +326,34 @@ class PDFAdapter(PDFReaderPort):
                 break
         return chapter
 
-    @classmethod
-    def _build_section(cls, leaf: _TocNode, chapter_number: int | None) -> Section | None:
-        """Build the deepest ``Section`` for a leaf, or ``None`` if the leaf is the chapter."""
-        if leaf.level <= 1:
-            return None
+    @staticmethod
+    def _build_section_chain(
+        leaf: _TocNode, chapter_number: int | None
+    ) -> tuple[Section, ...]:
+        """Build the root-to-leaf section chain for a TOC leaf.
 
+        Chapter nodes (level 1) are represented by ``Chapter`` and therefore do
+        not appear in this chain. Each section keeps its own TOC page and points
+        to the immediately preceding section as its parent.
+        """
+        section_nodes: list[_TocNode] = []
+        current: _TocNode | None = leaf
+        while current is not None and current.level > 1:
+            section_nodes.append(current)
+            current = current.parent
+        section_nodes.reverse()
+
+        sections: list[Section] = []
         parent_section_title: str | None = None
-        if leaf.parent is not None and leaf.parent.level > 1:
-            parent_section_title = leaf.parent.title
-
-        return Section(
-            chapter_number=chapter_number,
-            level=leaf.level,
-            title=leaf.title,
-            page_start=leaf.page_number,
-            parent_section_title=parent_section_title,
-        )
+        for node in section_nodes:
+            sections.append(
+                Section(
+                    chapter_number=chapter_number,
+                    level=node.level,
+                    title=node.title,
+                    page_start=node.page_number,
+                    parent_section_title=parent_section_title,
+                )
+            )
+            parent_section_title = node.title
+        return tuple(sections)

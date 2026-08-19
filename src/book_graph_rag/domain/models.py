@@ -127,6 +127,7 @@ class KnowledgeGraphChunk(BaseModel):
     book: Book | None = None  # None only when the chunk has no parent book
     chapter: Chapter | None = None
     section: Section | None = None
+    section_ancestors: tuple[Section, ...] = ()
     page_ref: PageRef
     # LLM-extracted content (filled by LLMAdapter) — starts empty
     entities: list[Entity] = Field(default_factory=list)

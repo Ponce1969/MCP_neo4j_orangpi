@@ -253,6 +253,52 @@ async def test_use_case_end_to_end_with_mocks(tmp_path: Path) -> None:
     assert len(graph.entity_batches_upserted) >= 1
     assert len(graph.relationship_batches_upserted) >= 1
     assert len(graph.editorial_calls) == 5
+    assert all(len(sections) == 1 for _, sections, _ in graph.editorial_calls)
+
+
+async def test_use_case_passes_section_ancestors_before_leaf(
+    tmp_path: Path,
+) -> None:
+    """Editorial persistence receives nested sections in root-to-leaf order."""
+    book = _make_book()
+    parent = Section(
+        chapter_number=1,
+        level=2,
+        title="Parent",
+        page_start=2,
+        parent_section_title=None,
+    )
+    leaf = Section(
+        chapter_number=1,
+        level=3,
+        title="Leaf",
+        page_start=5,
+        parent_section_title="Parent",
+    )
+    chunk = KnowledgeGraphChunk(
+        text="nested chunk",
+        chunk_index=0,
+        book=book,
+        chapter=Chapter(number=1, title="Chapter 1", page_start=1),
+        section=leaf,
+        section_ancestors=(parent,),
+        page_ref=PageRef(start=5, end=6),
+    )
+    graph = _FakeGraphDBPort()
+    use_case = IndexBookUseCase(
+        pdf_port=_FakePDFPort([chunk]),
+        llm_port=_FakeLLMPort(delay=0),
+        graph_db_port=graph,
+        max_concurrency=1,
+        batch_size=1,
+        dead_letter_path=tmp_path / "dl.log",
+    )
+
+    await use_case.execute("dummy.pdf")
+
+    assert len(graph.editorial_calls) == 1
+    _chapter, sections, _chunk = graph.editorial_calls[0]
+    assert sections == [parent, leaf]
 
 
 async def test_use_case_skips_failed_chunks_to_dead_letter(tmp_path: Path) -> None:

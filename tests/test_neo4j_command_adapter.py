@@ -295,6 +295,79 @@ async def test_neo4j_adapter_upsert_editorial_structure_links_chunk(
     assert any("HAS_CHUNK" in q for q in queries)
 
 
+async def test_neo4j_adapter_persists_ordered_nested_sections_with_page_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ordered sections create the parent, child, and leaf-to-chunk path."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    fake_db = _FakeGraphDatabase()
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.neo4j_command_adapter.AsyncGraphDatabase",
+        fake_db,
+    )
+    adapter = Neo4jCommandAdapter(settings)
+
+    book = Book(
+        id="agentic-patterns",
+        title="Agentic Architectural Patterns",
+        author="",
+        pdf_path="/tmp/book.pdf",
+        page_count=100,
+    )
+    chapter = Chapter(number=1, title="Introduction", page_start=1)
+    parent = Section(
+        chapter_number=1,
+        level=2,
+        title="Parent",
+        page_start=2,
+        parent_section_title=None,
+    )
+    leaf = Section(
+        chapter_number=1,
+        level=3,
+        title="Leaf",
+        page_start=5,
+        parent_section_title="Parent",
+    )
+    chunk = KnowledgeGraphChunk(
+        text="nested chunk",
+        chunk_index=0,
+        book=book,
+        chapter=chapter,
+        section=leaf,
+        section_ancestors=(parent,),
+        page_ref=PageRef(start=5, end=6),
+    )
+
+    await adapter.upsert_editorial_structure(chapter, [parent, leaf], chunk)
+
+    calls = adapter._driver.session().calls
+    assert len(calls) == 5
+    assert "HAS_SECTION" in calls[1][0]
+    assert "HAS_SUBSECTION" in calls[2][0]
+    assert "HAS_CHUNK" in calls[4][0]
+    parent_params = calls[1][1]
+    leaf_params = calls[2][1]
+    chunk_params = calls[3][1]
+    link_params = calls[4][1]
+    assert parent_params is not None
+    assert parent_params["section_title"] == "Parent"
+    assert parent_params["section_level"] == 2
+    assert parent_params["section_page_start"] == 2
+    assert leaf_params is not None
+    assert leaf_params["section_title"] == "Leaf"
+    assert leaf_params["parent_section_title"] == "Parent"
+    assert leaf_params["section_level"] == 3
+    assert leaf_params["section_page_start"] == 5
+    assert chunk_params is not None
+    assert chunk_params["page_start"] == 5
+    assert chunk_params["page_end"] == 6
+    assert link_params is not None
+    assert link_params["section_title"] == "Leaf"
+    assert link_params["chunk_index"] == 0
+
+
 # ── :MENTIONS provenance (REQ-PROV, SCEN-PROV-01..04, AC-PROV-02) ─────────────
 
 
