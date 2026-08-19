@@ -102,7 +102,6 @@ def audit(target: str, sample_limit: int, output: Path | None) -> None:
         settings = Settings.model_validate({})
         audit_target = build_audit_target(target, settings.neo4j_uri, settings.neo4j_database)
         adapter = Neo4jAuditAdapter(settings)
-        report = asyncio.run(AuditGraphUseCase(adapter).execute(audit_target, sample_limit))
     except Exception:
         payload = json.dumps(
             {
@@ -113,27 +112,44 @@ def audit(target: str, sample_limit: int, output: Path | None) -> None:
         )
         click.echo(payload)
         raise click.exceptions.Exit(13) from None
+
+    async def _run_audit() -> Any:
+        try:
+            return await AuditGraphUseCase(adapter).execute(audit_target, sample_limit)
+        finally:
+            if hasattr(adapter, "close"):
+                await adapter.close()
+
     try:
-        payload = report.model_dump_json(indent=2)
-        click.echo(payload)
-        if output is not None:
-            output.write_text(payload + "\n", encoding="utf-8")
-        execution = getattr(report, "execution", None)
-        code = (
-            execution.exit_code
-            if execution
-            else {
-                "passed": 0,
-                "violations": 10,
-                "incomplete": 11,
-                "unreachable": 12,
-                "failed": 13,
-            }.get(str(report.state), 13)
+        report = asyncio.run(_run_audit())
+    except Exception:
+        payload = json.dumps(
+            {
+                "report_schema_version": "1.0",
+                "state": "failed",
+                "reason": "configuration_or_audit_failure",
+            }
         )
-        raise click.exceptions.Exit(code)
-    finally:
-        if "adapter" in locals() and hasattr(adapter, "close"):
-            asyncio.run(adapter.close())
+        click.echo(payload)
+        raise click.exceptions.Exit(13) from None
+
+    payload = report.model_dump_json(indent=2)
+    click.echo(payload)
+    if output is not None:
+        output.write_text(payload + "\n", encoding="utf-8")
+    execution = getattr(report, "execution", None)
+    code = (
+        execution.exit_code
+        if execution
+        else {
+            "passed": 0,
+            "violations": 10,
+            "incomplete": 11,
+            "unreachable": 12,
+            "failed": 13,
+        }.get(str(report.state), 13)
+    )
+    raise click.exceptions.Exit(code)
 
 
 @cli.command("query")
