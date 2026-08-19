@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     neo4j_uri: str
     neo4j_user: str
     neo4j_password: SecretStr
+    neo4j_database: str = "neo4j"
     llm_api_key: SecretStr | None = None  # None si usamos Ollama local
     llm_base_url: str = "http://localhost:11434/v1"
     llm_model_name: str = "llama3:70b"
