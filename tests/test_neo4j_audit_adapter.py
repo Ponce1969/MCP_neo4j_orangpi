@@ -24,6 +24,8 @@ class Transaction:
         self.session = session
     async def run(self, query: str, params: dict[str, Any]) -> Result:
         self.session.queries.append((query, params))
+        if query in self.session.rule_rows:
+            return Result([self.session.rule_rows[query]])
         if "dbms.components" in query:
             return Result([{"version": "5.23", "edition": "community"}])
         if "UNWIND ['BOOK'" in query.upper():
@@ -43,9 +45,10 @@ class Transaction:
 
 
 class Session:
-    def __init__(self) -> None:
+    def __init__(self, rule_rows: dict[str, dict[str, Any]] | None = None) -> None:
         self.queries: list[tuple[str, dict[str, Any]]] = []
         self.read_transactions = 0
+        self.rule_rows = rule_rows or {}
     async def execute_read(self, callback: Any, *args: Any) -> Any:
         self.read_transactions += 1
         return await callback(Transaction(self), *args)
@@ -122,6 +125,104 @@ def test_query_plan_is_named_and_does_not_accept_raw_cypher() -> None:
         for name, query in queries.items()
         if name not in {"runtime_metadata", "inventory_nodes", "inventory_relationships"}
     )
+
+
+
+def _rule_rows(**totals: int) -> dict[str, dict[str, Any]]:
+    queries = dict(QUERY_PLAN)
+    return {
+        queries[name]: {"total": total, "samples": []}
+        for name, total in totals.items()
+    }
+
+
+
+def _finding_total(snapshot: Any, rule_id: str) -> int:
+    return int(next(finding.total for finding in snapshot.findings if finding.rule_id == rule_id))
+
+
+@pytest.mark.asyncio
+async def test_schema_identities_accept_valid_composite_editorial_rows(
+    monkeypatch: Any,
+) -> None:
+    """Valid writer-shaped endpoints and chunk provenance produce no false findings."""
+    session = Session(rule_rows=_rule_rows(
+        endpoints_hierarchy=0,
+        endpoints_mentions=0,
+        provenance_chunk=0,
+    ))
+    _patch_driver(monkeypatch, Driver(session))
+
+    snapshot = await Neo4jAuditAdapter(_settings()).collect_snapshot(_target(), 3)
+
+    assert _finding_total(snapshot, "ENDPOINT_HIERARCHY_INVALID") == 0
+    assert _finding_total(snapshot, "ENDPOINT_MENTIONS_INVALID") == 0
+    assert _finding_total(snapshot, "PROVENANCE_CHUNK_MISSING") == 0
+    queries = dict(QUERY_PLAN)
+    assert "a.id IS NULL" not in queries["endpoints_hierarchy"]
+    assert "a.id IS NULL" not in queries["endpoints_mentions"]
+    assert "n.id IS NULL" not in queries["provenance_chunk"]
+
+
+@pytest.mark.asyncio
+async def test_schema_identity_gaps_are_reported_for_composites(
+    monkeypatch: Any,
+) -> None:
+    """Missing chapter/chunk composite properties remain observable as findings."""
+    session = Session(rule_rows=_rule_rows(
+        endpoints_hierarchy=1,
+        endpoints_mentions=1,
+        provenance_chunk=1,
+    ))
+    _patch_driver(monkeypatch, Driver(session))
+
+    snapshot = await Neo4jAuditAdapter(_settings()).collect_snapshot(_target(), 3)
+
+    assert _finding_total(snapshot, "ENDPOINT_HIERARCHY_INVALID") == 1
+    assert _finding_total(snapshot, "ENDPOINT_MENTIONS_INVALID") == 1
+    assert _finding_total(snapshot, "PROVENANCE_CHUNK_MISSING") == 1
+
+
+@pytest.mark.asyncio
+async def test_valid_page_values_are_not_inventory_sized_false_positives(
+    monkeypatch: Any,
+) -> None:
+    """Valid page rows, including rows without a matched Book, are accepted."""
+    session = Session(rule_rows=_rule_rows(
+        pages_chapter=0,
+        pages_section=0,
+        pages_chunk=0,
+    ))
+    _patch_driver(monkeypatch, Driver(session))
+
+    snapshot = await Neo4jAuditAdapter(_settings()).collect_snapshot(_target(), 3)
+
+    assert _finding_total(snapshot, "PAGE_CHAPTER_INVALID_START") == 0
+    assert _finding_total(snapshot, "PAGE_SECTION_INVALID_START") == 0
+    assert _finding_total(snapshot, "PAGE_CHUNK_INVALID_RANGE") == 0
+    queries = dict(QUERY_PLAN)
+    assert all("WITH n,b WHERE" in queries[name] for name in (
+        "pages_chapter", "pages_section", "pages_chunk"
+    ))
+
+
+@pytest.mark.asyncio
+async def test_invalid_page_values_are_still_reported(
+    monkeypatch: Any,
+) -> None:
+    """Invalid and out-of-range page rows remain visible to the audit."""
+    session = Session(rule_rows=_rule_rows(
+        pages_chapter=1,
+        pages_section=1,
+        pages_chunk=1,
+    ))
+    _patch_driver(monkeypatch, Driver(session))
+
+    snapshot = await Neo4jAuditAdapter(_settings()).collect_snapshot(_target(), 3)
+
+    assert _finding_total(snapshot, "PAGE_CHAPTER_INVALID_START") == 1
+    assert _finding_total(snapshot, "PAGE_SECTION_INVALID_START") == 1
+    assert _finding_total(snapshot, "PAGE_CHUNK_INVALID_RANGE") == 1
 
 
 @pytest.mark.asyncio
