@@ -258,13 +258,28 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        if (
+            not settings.graph_llm_base_url
+            or not settings.graph_llm_model_name
+            or not settings.query_llm_base_url
+            or not settings.query_llm_model_name
+        ):
+            raise ValueError(
+                "Graph and query LLM base URLs and model names must be configured"
+            )
 
-        # Handle None llm_api_key for local Ollama: the SDK requires a
-        # non-None string, but Ollama ignores the value.
-        api_key: str = (
-            settings.llm_api_key.get_secret_value()
-            if settings.llm_api_key is not None
-            else "ollama"
+        # The OpenAI-compatible SDK requires a string even for local providers
+        # that ignore authentication. An empty value avoids embedding a
+        # provider-specific credential or placeholder.
+        graph_api_key = (
+            settings.graph_llm_api_key.get_secret_value()
+            if settings.graph_llm_api_key is not None
+            else ""
+        )
+        query_api_key = (
+            settings.query_llm_api_key.get_secret_value()
+            if settings.query_llm_api_key is not None
+            else ""
         )
 
         # Hard network deadline: without it a stalled API response hangs forever
@@ -274,33 +289,33 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         # producing a burst of calls that worsens 503/429 saturation. Tenacity
         # (self._retrying) is the sole authority for transport retries, with
         # exponential backoff.
-        raw_client = AsyncOpenAI(
-            base_url=settings.llm_base_url,
-            api_key=api_key,
+        self._graph_raw_client = AsyncOpenAI(
+            base_url=settings.graph_llm_base_url,
+            api_key=graph_api_key,
             timeout=60.0,
             max_retries=0,
         )
-        self._client = _build_instructor_client(raw_client, instructor.Mode.MD_JSON)
+        self._query_raw_client = AsyncOpenAI(
+            base_url=settings.query_llm_base_url,
+            api_key=query_api_key,
+            timeout=60.0,
+            max_retries=0,
+        )
+        self._client = _build_instructor_client(
+            self._graph_raw_client, instructor.Mode.MD_JSON
+        )
+        self._query_client = _build_instructor_client(
+            self._query_raw_client, instructor.Mode.MD_JSON
+        )
 
-        # Separate client for community-summary tasks, bound to the cheaper
-        # community_model_name (which defaults to llm_model_name when unset).
-        summary_model_name = settings.community_model_name or settings.llm_model_name
-        self._summary_raw_client = AsyncOpenAI(
-            base_url=settings.llm_base_url,
-            api_key=api_key,
-            timeout=60.0,
-            max_retries=0,
-        )
-        # JSON-mode instructor client, used ONLY for structured outputs
-        # (community scoring). Prose outputs (summaries, composed answers) go
-        # through _plain_text on the same raw client: they need no JSON
-        # envelope, and plain text is immune to the raw-control-character
-        # failures (see the note above _escape_json_string_control_chars).
+        # Community summaries use the graph provider as part of graph
+        # construction. Scoring and answer composition are query operations and
+        # therefore use the query provider below.
         self._summary_client = _build_instructor_client(
-            self._summary_raw_client,
-            instructor.Mode.JSON,
+            self._graph_raw_client, instructor.Mode.JSON
         )
-        self._summary_model_name = summary_model_name
+        self._graph_model_name = settings.graph_llm_model_name
+        self._query_model_name = settings.query_llm_model_name
         # Max input tokens per summary call; larger communities are chunked.
         self._summary_chunk_tokens = settings.summary_chunk_tokens
         # Instructor internal retries for JSON self-healing. A malformed JSON
@@ -326,7 +341,9 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             reraise=True,
         )
 
-    async def _plain_text(self, *, messages: list[Any], model: str) -> str:
+    async def _plain_text(
+        self, *, messages: list[Any], model: str, client: AsyncOpenAI
+    ) -> str:
         """Run one plain-text completion, then normalize the response.
 
         Prose outputs (composed answers, community summaries) do not need a
@@ -339,7 +356,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         content: str | None = None
         async for attempt in self._retrying:
             with attempt:
-                completion = await self._summary_raw_client.chat.completions.create(
+                completion = await client.chat.completions.create(
                     model=model,
                     messages=messages,
                 )
@@ -371,7 +388,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                         {"role": "system", "content": _SYSTEM_PROMPT},
                         {"role": "user", "content": prompt_content},
                     ],
-                    model=self._settings.llm_model_name,
+                    model=self._graph_model_name,
                     # Disable instructor's internal retries; tenacity owns retry policy.
                     # Instructor internal retries disabled; tenacity owns the
                     # retry policy (stop_after_attempt in self._retrying).
@@ -472,10 +489,10 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         response: _CypherResponse | None = None
         async for attempt in self._retrying:
             with attempt:
-                response = await self._client.create(
+                response = await self._query_client.create(
                     response_model=_CypherResponse,
                     messages=messages,
-                    model=self._settings.llm_model_name,
+                    model=self._query_model_name,
                     # Instructor internal retries disabled; tenacity owns the
                     # retry policy (stop_after_attempt in self._retrying).
                     max_retries=self._instructor_retries,
@@ -620,7 +637,8 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         )
         return await self._plain_text(
             messages=_plain_text_messages(_SUMMARY_SYSTEM_PROMPT, prompt),
-            model=self._summary_model_name,
+            model=self._graph_model_name,
+            client=self._graph_raw_client,
         )
 
     async def generate_summary_from_children(
@@ -648,13 +666,13 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         response: _CommunityScore | None = None
         async for attempt in self._retrying:
             with attempt:
-                response = await self._summary_client.create(
+                response = await self._query_client.create(
                     response_model=_CommunityScore,
                     messages=[
                         {"role": "system", "content": _SCORE_SYSTEM_PROMPT},
                         {"role": "user", "content": prompt},
                     ],
-                    model=self._summary_model_name,
+                    model=self._query_model_name,
                     # Instructor internal retries disabled; tenacity owns the
                     # retry policy (stop_after_attempt in self._retrying).
                     max_retries=self._instructor_retries,
@@ -683,5 +701,6 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         )
         return await self._plain_text(
             messages=_plain_text_messages(_COMPOSE_SYSTEM_PROMPT, prompt),
-            model=self._summary_model_name,
+            model=self._query_model_name,
+            client=self._query_raw_client,
         )

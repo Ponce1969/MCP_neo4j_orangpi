@@ -11,9 +11,13 @@ class Settings(BaseSettings):
     neo4j_user: str
     neo4j_password: SecretStr
     neo4j_database: str = "neo4j"
-    llm_api_key: SecretStr | None = None  # None si usamos Ollama local
-    llm_base_url: str = "http://localhost:11434/v1"
-    llm_model_name: str = "llama3:70b"
+    graph_llm_api_key: SecretStr | None = None  # None for local providers
+    graph_llm_base_url: str = ""
+    graph_llm_model_name: str = ""
+    # Text-to-Cypher, relevance scoring, and answer composition use this provider.
+    query_llm_api_key: SecretStr | None = None  # None for local providers
+    query_llm_base_url: str = ""
+    query_llm_model_name: str = ""
 
     # ── Procesamiento de PDF (consumidos por PDFAdapter) ────────────────
     # Chunking semántico TORO: el driver principal es el TOC del PDF.
@@ -49,7 +53,7 @@ class Settings(BaseSettings):
     text2cypher_timeout: int = 10  # seconds, whole pipeline budget
 
     # ── Community summaries (REQ-GR.1) ────────────────────────────────────
-    community_model_name: str | None = None  # defaults to llm_model_name
+
     max_cluster_size: int = 10
     summary_max_concurrency: int = 3  # max concurrent LLM calls for summarization
     community_max_calls: int = 150  # hard guard on total community summaries per run
@@ -148,8 +152,6 @@ class Settings(BaseSettings):
         # orden de definición, lo que vuelve frágil info.data.get(...).
         # model_validator(mode="after") se ejecuta cuando todos los campos
         # ya tienen su valor final — robusto ante reordenamientos de Settings.
-        if self.community_model_name is None:
-            self.community_model_name = self.llm_model_name
         if self.pdf_chunk_overlap >= self.pdf_max_chunk_size:
             raise ValueError(
                 f"pdf_chunk_overlap ({self.pdf_chunk_overlap}) debe ser "

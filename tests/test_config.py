@@ -81,9 +81,12 @@ def test_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.llm_max_retries == 5
     assert settings.llm_retry_wait_multiplier == 1.0
     assert settings.llm_retry_wait_max == 30.0
-    assert settings.llm_base_url == "http://localhost:11434/v1"
-    assert settings.llm_model_name == "llama3:70b"
-    assert settings.llm_api_key is None
+    assert settings.graph_llm_base_url == ""
+    assert settings.graph_llm_model_name == ""
+    assert settings.graph_llm_api_key is None
+    assert settings.query_llm_base_url == ""
+    assert settings.query_llm_model_name == ""
+    assert settings.query_llm_api_key is None
     assert settings.mcp_port == 8003
     assert settings.mcp_log_path == Path("logs/mcp_queries.jsonl")
     assert settings.mcp_log_retention_days == 7
@@ -252,10 +255,10 @@ def test_settings_canonical_stoplist_can_be_overridden(
     assert settings.canonical_stoplist == ["protocol", "model"]
 
 
-def test_settings_community_model_name_defaults_to_llm_model_name(
+def test_settings_supports_independent_graph_and_query_llm_roles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """community_model_name inherits llm_model_name when not provided."""
+    """Graph extraction and query operations accept separate provider settings."""
     monkeypatch.chdir(tmp_path)
     _clear_required_env(monkeypatch)
 
@@ -263,30 +266,23 @@ def test_settings_community_model_name_defaults_to_llm_model_name(
         "neo4j_uri": "bolt://localhost:7687",
         "neo4j_user": "neo4j",
         "neo4j_password": "secret",
+        "graph_llm_api_key": "graph-secret",
+        "graph_llm_base_url": "https://graph.example/v1",
+        "graph_llm_model_name": "deepseek-chat",
+        "query_llm_api_key": "query-secret",
+        "query_llm_base_url": "https://query.example/v1",
+        "query_llm_model_name": "query-model",
     }
     settings = Settings.model_validate(data)
 
-    assert settings.community_model_name == settings.llm_model_name
-    assert settings.community_model_name == "llama3:70b"
-
-
-def test_settings_community_model_name_can_be_overridden(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """community_model_name can be set explicitly."""
-    monkeypatch.chdir(tmp_path)
-    _clear_required_env(monkeypatch)
-
-    data = {
-        "neo4j_uri": "bolt://localhost:7687",
-        "neo4j_user": "neo4j",
-        "neo4j_password": "secret",
-        "community_model_name": "gpt-4.1-mini",
-    }
-    settings = Settings.model_validate(data)
-
-    assert settings.community_model_name == "gpt-4.1-mini"
-
+    assert settings.graph_llm_api_key is not None
+    assert settings.graph_llm_api_key.get_secret_value() == "graph-secret"
+    assert settings.graph_llm_base_url == "https://graph.example/v1"
+    assert settings.graph_llm_model_name == "deepseek-chat"
+    assert settings.query_llm_api_key is not None
+    assert settings.query_llm_api_key.get_secret_value() == "query-secret"
+    assert settings.query_llm_base_url == "https://query.example/v1"
+    assert settings.query_llm_model_name == "query-model"
 
 def test_settings_max_cluster_size_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,

@@ -106,12 +106,12 @@ def main(dataset: str, output: str) -> None:
     """Deduplicate the evaluation dataset via a single LLM call."""
     settings = Settings.model_validate({})
     api_key: str = (
-        settings.llm_api_key.get_secret_value()
-        if settings.llm_api_key is not None
-        else "ollama"
+        settings.query_llm_api_key.get_secret_value()
+        if settings.query_llm_api_key is not None
+        else ""
     )
     raw_client = AsyncOpenAI(
-        base_url=settings.llm_base_url,
+        base_url=settings.query_llm_base_url,
         api_key=api_key,
         timeout=120.0,
         max_retries=0,
@@ -124,7 +124,7 @@ def main(dataset: str, output: str) -> None:
 
     click.echo("Calling LLM to select a diverse subset…")
     deduped = asyncio.run(
-        _dedup(all_questions, client, settings.llm_model_name)
+        _dedup(all_questions, client, settings.query_llm_model_name)
     )
 
     out_path = Path(output)

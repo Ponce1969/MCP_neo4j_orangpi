@@ -123,8 +123,8 @@ async def _proxy_compose(llm_adapter: LLMAdapter, question: str, contexts: list[
         "Answer the question concisely based ONLY on the contexts above. "
         "If the answer cannot be found, say so."
     )
-    response = await llm_adapter._client.chat.completions.create(  # noqa: SLF001
-        model=llm_adapter._settings.llm_model_name,  # noqa: SLF001
+    response = await llm_adapter._query_client.chat.completions.create(  # noqa: SLF001
+        model=llm_adapter._settings.query_llm_model_name,  # noqa: SLF001
         response_model=_ProxyAnswer,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -239,7 +239,9 @@ def _run_ragas(
         sys.exit(1)
 
     api_key: str = (
-        settings.llm_api_key.get_secret_value() if settings.llm_api_key is not None else "ollama"
+        settings.query_llm_api_key.get_secret_value()
+        if settings.query_llm_api_key is not None
+        else ""
     )
 
     class _SanitizingChatOpenAI(ChatOpenAI):
@@ -287,8 +289,8 @@ def _run_ragas(
 
     eval_llm = LangchainLLMWrapper(
         _SanitizingChatOpenAI(
-            model=settings.llm_model_name,
-            base_url=settings.llm_base_url,
+            model=settings.query_llm_model_name,
+            base_url=settings.query_llm_base_url,
             api_key=api_key,  # type: ignore[arg-type]
             temperature=0,
             timeout=300.0,

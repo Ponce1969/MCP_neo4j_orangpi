@@ -195,12 +195,12 @@ def main(output: str) -> None:
     """Generate the RAGAS evaluation dataset."""
     settings = Settings.model_validate({})
     api_key: str = (
-        settings.llm_api_key.get_secret_value()
-        if settings.llm_api_key is not None
-        else "ollama"
+        settings.query_llm_api_key.get_secret_value()
+        if settings.query_llm_api_key is not None
+        else ""
     )
     raw_client = AsyncOpenAI(
-        base_url=settings.llm_base_url,
+        base_url=settings.query_llm_base_url,
         api_key=api_key,
         timeout=60.0,
         max_retries=0,
@@ -208,7 +208,7 @@ def main(output: str) -> None:
     client = instructor.from_openai(raw_client)
 
     records = asyncio.run(
-        _generate_all(client, settings.llm_model_name)
+        _generate_all(client, settings.query_llm_model_name)
     )
 
     output_path = Path(output)
