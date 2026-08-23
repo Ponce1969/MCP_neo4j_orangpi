@@ -139,7 +139,16 @@ class IndexBookUseCase:
 
             all_entities.extend(chunk.entities)
             all_relationships.extend(
-                rel.model_copy(update={"chunk_index": chunk.chunk_index})
+                rel.model_copy(
+                    update={
+                        "chunk_index": chunk.chunk_index,
+                        "source_page": (
+                            rel.source_page
+                            if rel.source_page is not None
+                            else chunk.page_ref.start
+                        ),
+                    }
+                )
                 for rel in chunk.relationships
             )
 

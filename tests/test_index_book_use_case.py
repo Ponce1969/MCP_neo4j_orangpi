@@ -93,6 +93,13 @@ class _FakeLLMPort(LLMProviderPort):
         return chunk
 
 
+class _PassthroughLLMPort(LLMProviderPort):
+    """LLM fake that returns pre-populated extraction results unchanged."""
+
+    async def extract_graph(self, chunk: KnowledgeGraphChunk) -> KnowledgeGraphChunk:
+        return chunk
+
+
 class _FakeGraphDBPort(GraphDatabasePort):
     """Fake graph DB that records every upsert call for inspection."""
 
@@ -469,3 +476,47 @@ async def test_use_case_records_chunk_index_on_relationships(tmp_path: Path) -> 
         for chunk in chunks
         for rel in chunk.relationships
     )
+
+
+async def test_use_case_adds_chunk_provenance_without_overwriting_source_page(
+    tmp_path: Path,
+) -> None:
+    """Relationships receive chunk provenance while explicit pages remain intact."""
+    chunks = _make_chunks(2, book=_make_book())
+    chunks[0].relationships = [
+        Relationship(
+            source_entity_id="source-0",
+            target_entity_id="target-0",
+            type="requires",
+        )
+    ]
+    chunks[1].relationships = [
+        Relationship(
+            source_entity_id="source-1",
+            target_entity_id="target-1",
+            type="requires",
+            source_page=0,
+        )
+    ]
+    graph = _FakeGraphDBPort()
+    use_case = IndexBookUseCase(
+        pdf_port=_FakePDFPort(chunks),
+        llm_port=_PassthroughLLMPort(),
+        graph_db_port=graph,
+        max_concurrency=2,
+        batch_size=2,
+        dead_letter_path=tmp_path / "dl.log",
+    )
+
+    await use_case.execute("dummy.pdf")
+
+    relationships = [
+        relationship
+        for batch in graph.relationship_batches_upserted
+        for relationship in batch
+    ]
+    assert [(rel.chunk_index, rel.source_page) for rel in relationships] == [(0, 1), (1, 0)]
+    assert chunks[0].relationships[0].chunk_index is None
+    assert chunks[0].relationships[0].source_page is None
+    assert chunks[1].relationships[0].chunk_index is None
+    assert chunks[1].relationships[0].source_page == 0

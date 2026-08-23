@@ -212,6 +212,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
             type=rel["type"],
             description=rel.get("description", ""),
             source_page=rel.get("source_page"),
+            chunk_index=rel.get("chunk_index"),
         )
 
     async def traverse_relationships(

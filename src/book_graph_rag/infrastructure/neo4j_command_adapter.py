@@ -163,7 +163,8 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                           (dst:Entity {id: r.target_entity_id})
                     MERGE (src)-[rel:RELATED {type: r.type}]->(dst)
                     SET rel.description = r.description,
-                        rel.source_page = r.source_page
+                        rel.source_page = r.source_page,
+                        rel.chunk_index = r.chunk_index
                     """,
                     {"rels": [rel.model_dump() for rel in valid_relationships]},
                 )

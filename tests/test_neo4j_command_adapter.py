@@ -30,6 +30,10 @@ def _make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **overrides:
         "neo4j_uri": "bolt://localhost:7687",
         "neo4j_user": "neo4j",
         "neo4j_password": "secret",
+        "graph_llm_base_url": "https://graph.example.test/v1",
+        "graph_llm_model_name": "graph-model",
+        "query_llm_base_url": "https://query.example.test/v1",
+        "query_llm_model_name": "query-model",
     }
     data.update(overrides)
     return Settings.model_validate(data)
@@ -234,6 +238,8 @@ async def test_neo4j_adapter_upsert_relationships_uses_merges_and_matches_entiti
         target_entity_id="e2",
         type="requires",
         description="e1 requires e2",
+        source_page=8,
+        chunk_index=3,
     )
     await adapter.upsert_relationships([relationship])
 
@@ -245,8 +251,11 @@ async def test_neo4j_adapter_upsert_relationships_uses_merges_and_matches_entiti
     assert params is not None
     assert "MATCH (src:Entity" in query
     assert "MERGE (src)-[rel:RELATED" in query
+    assert "rel.chunk_index = r.chunk_index" in query
     assert params["rels"][0]["source_entity_id"] == "e1"
     assert params["rels"][0]["target_entity_id"] == "e2"
+    assert params["rels"][0]["source_page"] == 8
+    assert params["rels"][0]["chunk_index"] == 3
 
 
 async def test_neo4j_adapter_upsert_editorial_structure_links_chunk(

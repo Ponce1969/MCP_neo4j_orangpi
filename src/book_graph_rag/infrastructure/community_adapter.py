@@ -79,6 +79,7 @@ class Neo4jCommunityAdapter(CommunityReadPort, CommunityWritePort):
                 MATCH (src:Entity)-[r:RELATED]->(dst:Entity)
                 RETURN r.type AS type, r.description AS description,
                        r.source_page AS source_page,
+                       r.chunk_index AS chunk_index,
                        src.id AS source_entity_id, dst.id AS target_entity_id
                 """,
                 {},
@@ -92,6 +93,7 @@ class Neo4jCommunityAdapter(CommunityReadPort, CommunityWritePort):
                         type=record["type"],
                         description=record["description"],
                         source_page=record["source_page"],
+                        chunk_index=record["chunk_index"],
                     )
                 )
 

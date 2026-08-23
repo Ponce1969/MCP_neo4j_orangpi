@@ -217,6 +217,7 @@ async def test_load_entity_graph_returns_entities_and_relationships(
                         "type": "requires",
                         "description": "",
                         "source_page": None,
+                        "chunk_index": 4,
                         "source_entity_id": "e1",
                         "target_entity_id": "e2",
                     }
@@ -243,11 +244,13 @@ async def test_load_entity_graph_returns_entities_and_relationships(
         type="requires",
         description="",
         source_page=None,
+        chunk_index=4,
     )
 
     queries = [q for q, _ in session.queries]
     assert any("MATCH (e:Entity)" in q for q in queries)
     assert any("MATCH (src:Entity)-[r:RELATED]->(dst:Entity)" in q for q in queries)
+    assert any("r.chunk_index AS chunk_index" in q for q in queries)
 
 
 async def test_get_summaries_by_level_maps_community_nodes(
