@@ -59,6 +59,7 @@ class _FakeRelationship:
         rel_type: str,
         description: str = "",
         source_page: int | None = None,
+        chunk_index: int | None = None,
     ) -> None:
         self.start_node = start_node
         self.end_node = end_node
@@ -67,6 +68,7 @@ class _FakeRelationship:
             "type": rel_type,  # semantic type in property
             "description": description,
             "source_page": source_page,
+            "chunk_index": chunk_index,
         }
 
     def __getitem__(self, key: str) -> Any:
@@ -88,9 +90,7 @@ class _FakeSession:
         self._raise = raise_exc
         self.queries: list[tuple[str, dict[str, Any]]] = []
 
-    async def run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         self.queries.append((query, parameters or {}))
         if self._raise is not None:
             raise self._raise
@@ -115,9 +115,7 @@ class _TieredFakeSession(_FakeSession):
         self._responses = responses
         self._raise_on = raise_on
 
-    async def run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         self.queries.append((query, parameters or {}))
         if self._raise_on is not None and self._raise_on in query:
             raise RuntimeError(f"fulltext index missing: {query}")
@@ -488,8 +486,7 @@ async def test_find_entity_graceful_degradation_without_fulltext_index(
     assert result == []
     assert len(session.queries) == 4
     assert any(
-        "Fulltext index entity_name_aliases_index unavailable" in r.message
-        for r in caplog.records
+        "Fulltext index entity_name_aliases_index unavailable" in r.message for r in caplog.records
     )
 
 
@@ -582,7 +579,7 @@ async def test_traverse_depth_one_returns_connected_entities(adapter: Neo4jQuery
     """Depth 1 traversal returns start and target entities plus the relationship."""
     start = _node({"id": "s", "name": "Source", "type": "concept"})
     end = _node({"id": "t", "name": "Target", "type": "concept"})
-    rel = _FakeRelationship(start, end, "requires")
+    rel = _FakeRelationship(start, end, "requires", chunk_index=6)
     session = _make_session([_FakeRecord({"start": start, "end": end, "rels": [rel]})])
     adapter._driver = _FakeDriver(session)
 
@@ -594,6 +591,7 @@ async def test_traverse_depth_one_returns_connected_entities(adapter: Neo4jQuery
     assert relationships[0].source_entity_id == "s"
     assert relationships[0].target_entity_id == "t"
     assert relationships[0].type == "requires"
+    assert relationships[0].chunk_index == 6
 
 
 async def test_traverse_depth_two(adapter: Neo4jQueryAdapter) -> None:

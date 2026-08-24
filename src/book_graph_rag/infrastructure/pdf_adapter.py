@@ -275,12 +275,12 @@ class PDFAdapter(PDFReaderPort):
     def _iter_leaf_ranges(node: _TocNode, parent_end: int) -> Iterator[tuple[_TocNode, int, int]]:
         """Yield ``(leaf, page_start, page_end)`` for every leaf under ``node``."""
         if not node.children:
-            yield node, node.page_number, parent_end
+            yield node, node.page_number, max(node.page_number, parent_end)
             return
 
         for idx, child in enumerate(node.children):
             child_end = (
-                node.children[idx + 1].page_number - 1
+                max(child.page_number, node.children[idx + 1].page_number - 1)
                 if idx + 1 < len(node.children)
                 else parent_end
             )
@@ -327,9 +327,7 @@ class PDFAdapter(PDFReaderPort):
         return chapter
 
     @staticmethod
-    def _build_section_chain(
-        leaf: _TocNode, chapter_number: int | None
-    ) -> tuple[Section, ...]:
+    def _build_section_chain(leaf: _TocNode, chapter_number: int | None) -> tuple[Section, ...]:
         """Build the root-to-leaf section chain for a TOC leaf.
 
         Chapter nodes (level 1) are represented by ``Chapter`` and therefore do

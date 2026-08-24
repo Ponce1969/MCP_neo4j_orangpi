@@ -98,7 +98,7 @@ uv sync
 # 3. Configure environment (copy template and edit values)
 Copy-Item .env.example .env      # Windows
 # cp .env.example .env          # Linux/macOS
-# Edit .env: at minimum set NEO4J_PASSWORD and LLM_API_KEY (Groq)
+# Edit .env: at minimum set NEO4J_PASSWORD and the GRAPH_LLM_* / QUERY_LLM_* role settings
 
 # 4. Start Neo4j
 docker compose up -d
@@ -146,7 +146,8 @@ cp .env.example .env
 # Edit .env on the Pi:
 #   - NEO4J_BOLT_ADVERTISED_ADDRESS=<pi-tailscale-ip>:7687
 #   - NEO4J_HTTP_ADVERTISED_ADDRESS=<pi-tailscale-ip>:7474
-#   - LLM_API_KEY=<your Groq key>
+#   - GRAPH_LLM_API_KEY=<your graph-provider key> (optional for local providers)
+#   - QUERY_LLM_API_KEY=<your query-provider key> (optional for local providers)
 docker compose up -d
 uv run book-graph-rag index data/your-book.pdf
 ```
@@ -171,9 +172,12 @@ process refuses to start. `SecretStr` fields are never logged in plain text.
 | `NEO4J_BOLT_ADVERTISED_ADDRESS` | yes | — | `host:port` reported to Bolt clients |
 | `NEO4J_HTTP_ADVERTISED_ADDRESS` | yes | — | `host:port` reported to Browser |
 | `NEO4J_PLUGINS` | yes | — | JSON array, e.g. `["apoc"]` |
-| `LLM_API_KEY` | no | `None` | Groq/OpenAI key (`SecretStr`); empty for Ollama |
-| `LLM_BASE_URL` | no | `https://api.groq.com/openai/v1` | OpenAI-compatible endpoint |
-| `LLM_MODEL_NAME` | no | `llama-3.3-70b-versatile` | Model name (Groq; was llama-3.1-70b-versatile, decommissioned Jan 2025) |
+| `GRAPH_LLM_API_KEY` | no | `None` | Graph construction and community-summary key (`SecretStr`); optional for local providers |
+| `GRAPH_LLM_BASE_URL` | runtime | — | OpenAI-compatible endpoint for graph construction and community summaries |
+| `GRAPH_LLM_MODEL_NAME` | runtime | — | Model used for graph extraction and community summaries |
+| `QUERY_LLM_API_KEY` | no | `None` | Query, scoring, and answer-composition key (`SecretStr`); optional for local providers |
+| `QUERY_LLM_BASE_URL` | runtime | — | OpenAI-compatible endpoint for Text-to-Cypher, scoring, and answer composition |
+| `QUERY_LLM_MODEL_NAME` | runtime | — | Model used for Text-to-Cypher, scoring, and answer composition |
 | `PDF_MAX_CHUNK_SIZE` | no | `1500` | Safety ceiling for chunk size (chars) |
 | `PDF_CHUNK_OVERLAP` | no | `150` | Overlap when sub-dividing oversized chunks |
 | `LLM_MAX_CONCURRENCY` | no | `3` | Max simultaneous LLM calls (`Semaphore`) |

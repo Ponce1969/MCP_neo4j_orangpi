@@ -15,7 +15,7 @@ from book_graph_rag.application.index_book_use_case import IndexBookUseCase
 from book_graph_rag.application.query_knowledge_graph_use_case import (
     QueryKnowledgeGraphUseCase,
 )
-from book_graph_rag.config import Settings
+from book_graph_rag.config import Settings, validate_llm_provider_settings
 from book_graph_rag.domain.models import (
     BatchEntityQuery,
     EntityQuery,
@@ -45,6 +45,7 @@ def index(pdf_path: Path) -> None:
     """
     try:
         settings = Settings.model_validate({})
+        validate_llm_provider_settings(settings)
     except Exception as exc:  # noqa: BLE003
         click.echo(f"Configuration error: {exc}", err=True)
         sys.exit(1)

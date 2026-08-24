@@ -22,6 +22,10 @@ def _make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **overrides:
         "neo4j_uri": "bolt://localhost:7687",
         "neo4j_user": "neo4j",
         "neo4j_password": "secret",
+        "graph_llm_base_url": "https://graph.example.test/v1",
+        "graph_llm_model_name": "graph-model",
+        "query_llm_base_url": "https://query.example.test/v1",
+        "query_llm_model_name": "query-model",
     }
     data.update(overrides)
     return Settings.model_validate(data)
@@ -170,6 +174,59 @@ def test_extract_chunks_builds_nested_section_ancestors(
             parent_section_title="Root Section",
         ),
     )
+
+
+def test_extract_chunks_clamps_consecutive_same_page_leaf_ranges(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Consecutive same-page TOC leaves never produce an invalid page range."""
+    settings = _make_settings(tmp_path, monkeypatch, pdf_max_chunk_size=2000)
+    page_texts = [f"Page {i + 1} " + "x" * 200 for i in range(5)]
+    toc = [
+        (1, "1", 1),
+        (2, "Same-page leaf A", 2),
+        (2, "Same-page leaf B", 2),
+        (2, "Later leaf", 4),
+    ]
+    pdf_path = _make_pdf(tmp_path, toc, page_texts)
+
+    chunks = list(PDFAdapter(settings).extract_chunks(str(pdf_path)))
+
+    assert all(
+        chunk.page_ref is not None and chunk.page_ref.end >= chunk.page_ref.start
+        for chunk in chunks
+    )
+    assert [
+        (chunk.page_ref.start, chunk.page_ref.end) for chunk in chunks if chunk.page_ref is not None
+    ] == [(2, 2), (2, 3), (4, 5)]
+
+
+def test_extract_chunks_clamps_final_nested_leaf_to_its_start_page(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A nested final leaf never inherits an earlier ancestor end page."""
+    settings = _make_settings(tmp_path, monkeypatch, pdf_max_chunk_size=2000)
+    page_texts = [f"Page {i + 1} " + "x" * 200 for i in range(5)]
+    toc = [
+        (1, "1", 1),
+        (2, "Parent Section", 2),
+        (3, "Nested final leaf", 3),
+        (2, "Same-page sibling", 2),
+    ]
+    pdf_path = _make_pdf(tmp_path, toc, page_texts)
+
+    chunks = list(PDFAdapter(settings).extract_chunks(str(pdf_path)))
+
+    assert [
+        (chunk.section.title, chunk.page_ref.start, chunk.page_ref.end)
+        for chunk in chunks
+        if chunk.section is not None
+    ] == [
+        ("Nested final leaf", 3, 3),
+        ("Same-page sibling", 2, 5),
+    ]
 
 
 def test_extract_chunks_without_toc_fallback_to_char_chunking(

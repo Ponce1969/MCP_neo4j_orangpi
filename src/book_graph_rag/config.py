@@ -4,6 +4,29 @@ from typing import Literal
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+LLMRole = Literal["graph", "query"]
+
+
+def validate_llm_provider_settings(
+    settings: "Settings", *, roles: tuple[LLMRole, ...] = ("graph", "query")
+) -> None:
+    """Ensure each selected LLM role has a provider URL and model name.
+
+    API keys intentionally are not required because local OpenAI-compatible
+    providers may not authenticate requests.
+    """
+    missing: list[str] = []
+    for role in roles:
+        prefix = role.upper()
+        if not getattr(settings, f"{role}_llm_base_url").strip():
+            missing.append(f"{prefix}_LLM_BASE_URL")
+        if not getattr(settings, f"{role}_llm_model_name").strip():
+            missing.append(f"{prefix}_LLM_MODEL_NAME")
+
+    if missing:
+        missing_settings = ", ".join(missing)
+        raise ValueError(f"Missing required LLM settings: {missing_settings}")
+
 
 class Settings(BaseSettings):
     # ── Infraestructura externa ────────────────────────────────────────
@@ -11,9 +34,14 @@ class Settings(BaseSettings):
     neo4j_user: str
     neo4j_password: SecretStr
     neo4j_database: str = "neo4j"
-    llm_api_key: SecretStr | None = None  # None si usamos Ollama local
-    llm_base_url: str = "http://localhost:11434/v1"
-    llm_model_name: str = "llama3:70b"
+    # Graph construction and community summaries use this independent provider.
+    graph_llm_api_key: SecretStr | None = None  # None for local providers
+    graph_llm_base_url: str = ""
+    graph_llm_model_name: str = ""
+    # Text-to-Cypher, relevance scoring, and answer composition use this provider.
+    query_llm_api_key: SecretStr | None = None  # None for local providers
+    query_llm_base_url: str = ""
+    query_llm_model_name: str = ""
 
     # ── Procesamiento de PDF (consumidos por PDFAdapter) ────────────────
     # Chunking semántico TORO: el driver principal es el TOC del PDF.
@@ -49,7 +77,6 @@ class Settings(BaseSettings):
     text2cypher_timeout: int = 10  # seconds, whole pipeline budget
 
     # ── Community summaries (REQ-GR.1) ────────────────────────────────────
-    community_model_name: str | None = None  # defaults to llm_model_name
     max_cluster_size: int = 10
     summary_max_concurrency: int = 3  # max concurrent LLM calls for summarization
     community_max_calls: int = 150  # hard guard on total community summaries per run
@@ -82,63 +109,49 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_text2cypher_timeout(cls, value: int) -> int:
         if not 1 <= value <= 60:
-            raise ValueError(
-                f"text2cypher_timeout ({value}) debe estar entre 1 y 60"
-            )
+            raise ValueError(f"text2cypher_timeout ({value}) debe estar entre 1 y 60")
         return value
 
     @field_validator("max_cluster_size")
     @classmethod
     def _validate_max_cluster_size(cls, value: int) -> int:
         if value < 1:
-            raise ValueError(
-                f"max_cluster_size ({value}) debe ser mayor o igual a 1"
-            )
+            raise ValueError(f"max_cluster_size ({value}) debe ser mayor o igual a 1")
         return value
 
     @field_validator("summary_max_concurrency")
     @classmethod
     def _validate_summary_max_concurrency(cls, value: int) -> int:
         if value < 1:
-            raise ValueError(
-                f"summary_max_concurrency ({value}) debe ser mayor o igual a 1"
-            )
+            raise ValueError(f"summary_max_concurrency ({value}) debe ser mayor o igual a 1")
         return value
 
     @field_validator("community_max_calls")
     @classmethod
     def _validate_community_max_calls(cls, value: int) -> int:
         if value < 1:
-            raise ValueError(
-                f"community_max_calls ({value}) debe ser mayor o igual a 1"
-            )
+            raise ValueError(f"community_max_calls ({value}) debe ser mayor o igual a 1")
         return value
 
     @field_validator("summary_chunk_tokens")
     @classmethod
     def _validate_summary_chunk_tokens(cls, value: int) -> int:
         if not 1000 <= value <= 60000:
-            raise ValueError(
-                f"summary_chunk_tokens ({value}) debe estar entre 1000 y 60000"
-            )
+            raise ValueError(f"summary_chunk_tokens ({value}) debe estar entre 1000 y 60000")
         return value
 
     @field_validator("llm_instructor_max_retries")
     @classmethod
     def _validate_llm_instructor_max_retries(cls, value: int) -> int:
         if not 0 <= value <= 10:
-            raise ValueError(
-                f"llm_instructor_max_retries ({value}) debe estar entre 0 y 10"
-            )
+            raise ValueError(f"llm_instructor_max_retries ({value}) debe estar entre 0 y 10")
         return value
 
     @field_validator("canonical_fuzzy_threshold")
     @classmethod
     def _validate_canonical_fuzzy_threshold(cls, value: float) -> float:
         if not 0.5 <= value <= 1.0:
-            raise ValueError(
-                f"canonical_fuzzy_threshold ({value}) debe estar entre 0.5 y 1.0"
-            )
+            raise ValueError(f"canonical_fuzzy_threshold ({value}) debe estar entre 0.5 y 1.0")
         return value
 
     @model_validator(mode="after")
@@ -148,8 +161,6 @@ class Settings(BaseSettings):
         # orden de definición, lo que vuelve frágil info.data.get(...).
         # model_validator(mode="after") se ejecuta cuando todos los campos
         # ya tienen su valor final — robusto ante reordenamientos de Settings.
-        if self.community_model_name is None:
-            self.community_model_name = self.llm_model_name
         if self.pdf_chunk_overlap >= self.pdf_max_chunk_size:
             raise ValueError(
                 f"pdf_chunk_overlap ({self.pdf_chunk_overlap}) debe ser "
@@ -157,12 +168,9 @@ class Settings(BaseSettings):
                 f"({self.pdf_max_chunk_size})"
             )
         if not 1 <= self.mcp_port <= 65535:
-            raise ValueError(
-                f"mcp_port ({self.mcp_port}) debe ser entre 1 y 65535"
-            )
+            raise ValueError(f"mcp_port ({self.mcp_port}) debe ser entre 1 y 65535")
         if self.mcp_log_retention_days < 1:
             raise ValueError(
-                f"mcp_log_retention_days ({self.mcp_log_retention_days}) "
-                f"debe ser mayor o igual a 1"
+                f"mcp_log_retention_days ({self.mcp_log_retention_days}) debe ser mayor o igual a 1"
             )
         return self

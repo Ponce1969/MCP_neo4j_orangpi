@@ -55,6 +55,36 @@ def test_cli_index_failfast_on_missing_env(tmp_path: Path, monkeypatch: pytest.M
     assert "Traceback" not in result.output
 
 
+def test_cli_index_fails_before_adapter_construction_when_llm_settings_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The index composition root reports missing LLM settings before network setup."""
+
+    class IncompleteSettings:
+        @classmethod
+        def model_validate(cls, data: object) -> IncompleteSettings:
+            return cls()
+
+        llm_max_concurrency = 3
+        processing_batch_size = 5
+        dead_letter_path = Path("data/dead_letter.log")
+        graph_llm_base_url = ""
+        graph_llm_model_name = ""
+        query_llm_base_url = ""
+        query_llm_model_name = ""
+
+    monkeypatch.setattr("book_graph_rag.main.Settings", IncompleteSettings)
+    pdf = tmp_path / "book.pdf"
+    pdf.write_text("fake pdf")
+
+    result = CliRunner().invoke(cli, ["index", str(pdf)])
+
+    assert result.exit_code == 1
+    assert "Configuration error:" in result.output
+    assert "GRAPH_LLM_BASE_URL" in result.output
+    assert "QUERY_LLM_BASE_URL" in result.output
+
+
 def test_cli_index_composition_correct_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -71,6 +101,10 @@ def test_cli_index_composition_correct_order(
             self.processing_batch_size = 11
             self.dead_letter_path = Path("data/dead_letter.log")
             self.relationship_orphan_policy = "log_orphan"
+            self.graph_llm_base_url = "https://graph-provider.test/v1"
+            self.graph_llm_model_name = "graph-model"
+            self.query_llm_base_url = "https://query-provider.test/v1"
+            self.query_llm_model_name = "query-model"
 
     class FakePDFAdapter:
         def __init__(self, settings: object) -> None:

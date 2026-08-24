@@ -129,9 +129,7 @@ class IndexBookUseCase:
                 sections = [*chunk.section_ancestors]
                 if chunk.section is not None:
                     sections.append(chunk.section)
-                await self._graph_db_port.upsert_editorial_structure(
-                    chunk.chapter, sections, chunk
-                )
+                await self._graph_db_port.upsert_editorial_structure(chunk.chapter, sections, chunk)
 
             book_id = chunk.book.id if chunk.book is not None else None
             entity_ids = [entity.id for entity in chunk.entities]
@@ -139,7 +137,14 @@ class IndexBookUseCase:
 
             all_entities.extend(chunk.entities)
             all_relationships.extend(
-                rel.model_copy(update={"chunk_index": chunk.chunk_index})
+                rel.model_copy(
+                    update={
+                        "chunk_index": chunk.chunk_index,
+                        "source_page": (
+                            rel.source_page if rel.source_page is not None else chunk.page_ref.start
+                        ),
+                    }
+                )
                 for rel in chunk.relationships
             )
 

@@ -1,0 +1,33 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: Ruff check
+        entry: uv run ruff check .
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: mypy
+        name: Mypy
+        entry: uv run mypy .
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: architecture
+        name: Architecture validation
+        entry: uv run python scripts/validate_architecture.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # Scope formatting to committed Python files; legacy files outside a commit
+      # should not block the commit until they are touched.
+      - id: ruff-format-check
+        name: Ruff format check
+        entry: uv run ruff format --check
+        language: system
+        types: [python]
+
+      # Tests remain an explicit pre-commit gate because they are not a commit hook.
