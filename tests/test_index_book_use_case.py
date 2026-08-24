@@ -471,11 +471,7 @@ async def test_use_case_records_chunk_index_on_relationships(tmp_path: Path) -> 
     for batch in graph.relationship_batches_upserted:
         for rel in batch:
             assert rel.chunk_index is not None
-    assert all(
-        rel.chunk_index is None
-        for chunk in chunks
-        for rel in chunk.relationships
-    )
+    assert all(rel.chunk_index is None for chunk in chunks for rel in chunk.relationships)
 
 
 async def test_use_case_adds_chunk_provenance_without_overwriting_source_page(
@@ -511,9 +507,7 @@ async def test_use_case_adds_chunk_provenance_without_overwriting_source_page(
     await use_case.execute("dummy.pdf")
 
     relationships = [
-        relationship
-        for batch in graph.relationship_batches_upserted
-        for relationship in batch
+        relationship for batch in graph.relationship_batches_upserted for relationship in batch
     ]
     assert [(rel.chunk_index, rel.source_page) for rel in relationships] == [(0, 1), (1, 0)]
     assert chunks[0].relationships[0].chunk_index is None

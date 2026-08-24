@@ -194,14 +194,11 @@ def test_extract_chunks_clamps_consecutive_same_page_leaf_ranges(
     chunks = list(PDFAdapter(settings).extract_chunks(str(pdf_path)))
 
     assert all(
-        chunk.page_ref is not None
-        and chunk.page_ref.end >= chunk.page_ref.start
+        chunk.page_ref is not None and chunk.page_ref.end >= chunk.page_ref.start
         for chunk in chunks
     )
     assert [
-        (chunk.page_ref.start, chunk.page_ref.end)
-        for chunk in chunks
-        if chunk.page_ref is not None
+        (chunk.page_ref.start, chunk.page_ref.end) for chunk in chunks if chunk.page_ref is not None
     ] == [(2, 2), (2, 3), (4, 5)]
 
 

@@ -90,9 +90,7 @@ class _FakeSession:
         self._raise = raise_exc
         self.queries: list[tuple[str, dict[str, Any]]] = []
 
-    async def run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         self.queries.append((query, parameters or {}))
         if self._raise is not None:
             raise self._raise
@@ -117,9 +115,7 @@ class _TieredFakeSession(_FakeSession):
         self._responses = responses
         self._raise_on = raise_on
 
-    async def run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         self.queries.append((query, parameters or {}))
         if self._raise_on is not None and self._raise_on in query:
             raise RuntimeError(f"fulltext index missing: {query}")
@@ -490,8 +486,7 @@ async def test_find_entity_graceful_degradation_without_fulltext_index(
     assert result == []
     assert len(session.queries) == 4
     assert any(
-        "Fulltext index entity_name_aliases_index unavailable" in r.message
-        for r in caplog.records
+        "Fulltext index entity_name_aliases_index unavailable" in r.message for r in caplog.records
     )
 
 

@@ -21,7 +21,7 @@ import instructor
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
-from book_graph_rag.config import Settings
+from book_graph_rag.config import Settings, validate_llm_provider_settings
 
 _DEFAULT_INPUT = "evaluation_dataset.jsonl"
 _DEFAULT_OUTPUT = "evaluation_dataset_dedup.jsonl"
@@ -60,9 +60,7 @@ def _load(path: str) -> list[dict[str, Any]]:
 
 
 def _format_questions(questions: list[dict[str, Any]]) -> str:
-    return "\n".join(
-        f"[{i}] ({q['type']}) {q['question']}" for i, q in enumerate(questions)
-    )
+    return "\n".join(f"[{i}] ({q['type']}) {q['question']}" for i, q in enumerate(questions))
 
 
 async def _dedup(
@@ -98,13 +96,23 @@ async def _dedup(
 
 
 @click.command()
-@click.option("--input", "-i", "dataset", default=_DEFAULT_INPUT,
-              help="Path to the full evaluation dataset (JSONL)")
-@click.option("--output", "-o", default=_DEFAULT_OUTPUT,
-              help="Path for the deduplicated dataset (JSONL)")
+@click.option(
+    "--input",
+    "-i",
+    "dataset",
+    default=_DEFAULT_INPUT,
+    help="Path to the full evaluation dataset (JSONL)",
+)
+@click.option(
+    "--output", "-o", default=_DEFAULT_OUTPUT, help="Path for the deduplicated dataset (JSONL)"
+)
 def main(dataset: str, output: str) -> None:
     """Deduplicate the evaluation dataset via a single LLM call."""
     settings = Settings.model_validate({})
+    try:
+        validate_llm_provider_settings(settings, roles=("query",))
+    except ValueError as exc:
+        raise click.ClickException(f"Configuration error: {exc}") from exc
     api_key: str = (
         settings.query_llm_api_key.get_secret_value()
         if settings.query_llm_api_key is not None
@@ -123,9 +131,7 @@ def main(dataset: str, output: str) -> None:
     click.echo(f"  {len(all_questions)} questions")
 
     click.echo("Calling LLM to select a diverse subset…")
-    deduped = asyncio.run(
-        _dedup(all_questions, client, settings.query_llm_model_name)
-    )
+    deduped = asyncio.run(_dedup(all_questions, client, settings.query_llm_model_name))
 
     out_path = Path(output)
     with open(out_path, "w", encoding="utf-8") as f:

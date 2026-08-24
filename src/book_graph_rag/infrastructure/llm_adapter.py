@@ -18,7 +18,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from tenacity import AsyncRetrying, before_sleep_log, stop_after_attempt, wait_exponential
 
-from book_graph_rag.config import Settings
+from book_graph_rag.config import Settings, validate_llm_provider_settings
 from book_graph_rag.domain.models import (
     CommunitySummary,
     Entity,
@@ -38,30 +38,30 @@ logger = logging.getLogger(__name__)
 
 _TERMINOLOGY_MAPPING = (
     "Terminology mapping (natural language → schema):\n"
-    "- \"agente\" / \"agent\" → :Entity {type: 'agent'}\n"
-    "- \"patrón\" / \"pattern\" → :Entity {type: 'pattern'}\n"
-    "- \"componente\" / \"component\" → :Entity {type: 'component'}\n"
-    "- \"concepto\" / \"concept\" → :Entity {type: 'concept'}\n"
-    "- \"herramienta\" / \"tool\" → :Entity {type: 'tool'}\n"
+    '- "agente" / "agent" → :Entity {type: \'agent\'}\n'
+    '- "patrón" / "pattern" → :Entity {type: \'pattern\'}\n'
+    '- "componente" / "component" → :Entity {type: \'component\'}\n'
+    '- "concepto" / "concept" → :Entity {type: \'concept\'}\n'
+    '- "herramienta" / "tool" → :Entity {type: \'tool\'}\n'
     "- \"framework\" → :Entity {type: 'framework'}\n"
     "- \"MCP\" → :Entity {type: 'mcp'}\n"
-    "- \"LLMOps\" / \"MLOps\" → :Entity {type: 'llmops'}\n"
-    "- \"riesgo\" / \"risk\" / \"vulnerability\" → :Entity {type: 'risk'}\n"
-    "- \"usa\" / \"needs\" / \"requires\" → "
+    '- "LLMOps" / "MLOps" → :Entity {type: \'llmops\'}\n'
+    '- "riesgo" / "risk" / "vulnerability" → :Entity {type: \'risk\'}\n'
+    '- "usa" / "needs" / "requires" → '
     "[:RELATED {type: 'requires'}]\n"
-    "- \"alternativa a\" / \"vs\" / \"alternative to\" → "
+    '- "alternativa a" / "vs" / "alternative to" → '
     "[:RELATED {type: 'alternative_to'}]\n"
-    "- \"compone\" / \"part of\" / \"composes\" → "
+    '- "compone" / "part of" / "composes" → '
     "[:RELATED {type: 'composes'}]\n"
-    "- \"extiende\" / \"inherits\" / \"extends\" → "
+    '- "extiende" / "inherits" / "extends" → '
     "[:RELATED {type: 'extends'}]\n"
-    "- \"habilita\" / \"enables\" / \"allows\" → "
+    '- "habilita" / "enables" / "allows" → '
     "[:RELATED {type: 'enables'}]\n"
-    "- \"depende de\" / \"depends on\" → "
+    '- "depende de" / "depends on" → '
     "[:RELATED {type: 'depends_on'}]\n"
-    "- \"contrasta con\" / \"differs from\" / \"contrasts with\" → "
+    '- "contrasta con" / "differs from" / "contrasts with" → '
     "[:RELATED {type: 'contrasts_with'}]\n"
-    "- \"evoluciona a\" / \"evolves to\" → "
+    '- "evoluciona a" / "evolves to" → '
     "[:RELATED {type: 'evolves_to'}]\n"
 )
 
@@ -96,7 +96,7 @@ _SYSTEM_PROMPT = (
     "type, description, source_page.\n"
     "- source_entity_name and target_entity_name must match entity names exactly.\n"
     "- aliases: list of alternative names or abbreviations for the entity "
-    "(e.g. [\"MCP\"] for \"Model Context Protocol\"). Omit when none.\n"
+    '(e.g. ["MCP"] for "Model Context Protocol"). Omit when none.\n'
     "- canonical_name: the canonical or long-form name when it differs from "
     "the extracted name. Omit when it is the same as name.\n\n"
     "Rules:\n"
@@ -165,9 +165,7 @@ def _escape_json_string_control_chars(content: str) -> str:
     """
 
     def _escape(match: re.Match[str]) -> str:
-        return _JSON_CONTROL_CHAR_RE.sub(
-            lambda m: f"\\u{ord(m.group()):04x}", match.group()
-        )
+        return _JSON_CONTROL_CHAR_RE.sub(lambda m: f"\\u{ord(m.group()):04x}", match.group())
 
     return _JSON_STRING_RE.sub(_escape, content)
 
@@ -201,9 +199,7 @@ def _build_instructor_client(
     )
 
 
-def _plain_text_messages(
-    system: str, user: str
-) -> list[dict[str, str]]:
+def _plain_text_messages(system: str, user: str) -> list[dict[str, str]]:
     """Build the standard system/user message pair for plain-text calls."""
     return [
         {"role": "system", "content": system},
@@ -258,15 +254,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        if (
-            not settings.graph_llm_base_url
-            or not settings.graph_llm_model_name
-            or not settings.query_llm_base_url
-            or not settings.query_llm_model_name
-        ):
-            raise ValueError(
-                "Graph and query LLM base URLs and model names must be configured"
-            )
+        validate_llm_provider_settings(settings)
 
         # The OpenAI-compatible SDK requires a string even for local providers
         # that ignore authentication. An empty value avoids embedding a
@@ -301,9 +289,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             timeout=60.0,
             max_retries=0,
         )
-        self._client = _build_instructor_client(
-            self._graph_raw_client, instructor.Mode.MD_JSON
-        )
+        self._client = _build_instructor_client(self._graph_raw_client, instructor.Mode.MD_JSON)
         self._query_client = _build_instructor_client(
             self._query_raw_client, instructor.Mode.MD_JSON
         )
@@ -312,7 +298,8 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         # construction. Scoring and answer composition are query operations and
         # therefore use the query provider below.
         self._summary_client = _build_instructor_client(
-            self._graph_raw_client, instructor.Mode.JSON
+            self._graph_raw_client,
+            instructor.Mode.JSON,
         )
         self._graph_model_name = settings.graph_llm_model_name
         self._query_model_name = settings.query_llm_model_name
@@ -341,9 +328,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             reraise=True,
         )
 
-    async def _plain_text(
-        self, *, messages: list[Any], model: str, client: AsyncOpenAI
-    ) -> str:
+    async def _plain_text(self, *, messages: list[Any], model: str, client: AsyncOpenAI) -> str:
         """Run one plain-text completion, then normalize the response.
 
         Prose outputs (composed answers, community summaries) do not need a
@@ -584,9 +569,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         one call.  This is the map-reduce pattern: no single LLM call ever
         exceeds ``summary_chunk_tokens``.
         """
-        entity_lines = [
-            f"- {entity.name} ({entity.type})" for entity in entities
-        ]
+        entity_lines = [f"- {entity.name} ({entity.type})" for entity in entities]
         relationship_lines = [
             f"- {relationship.source_entity_id} --[{relationship.type}]--> "
             f"{relationship.target_entity_id}"
@@ -619,9 +602,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         if current:
             chunks.append(current)
 
-        chunk_summaries = [
-            await self._summarize_one(chunk, level) for chunk in chunks
-        ]
+        chunk_summaries = [await self._summarize_one(chunk, level) for chunk in chunks]
         # Combine the chunk summaries; recurse in case they still overflow.
         combined_blocks = [
             f"Sub-summary {i + 1}:\n{summary}" for i, summary in enumerate(chunk_summaries)
@@ -641,9 +622,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             client=self._graph_raw_client,
         )
 
-    async def generate_summary_from_children(
-        self, child_summaries: list[str], level: int
-    ) -> str:
+    async def generate_summary_from_children(self, child_summaries: list[str], level: int) -> str:
         """Summarize a parent community from its children's summaries.
 
         Bottom-up map-reduce: the input is already-synthesized child texts, never

@@ -3,9 +3,9 @@
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
-from book_graph_rag.config import Settings
+from book_graph_rag.config import Settings, validate_llm_provider_settings
 
 
 def _clear_required_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -159,7 +159,8 @@ def test_settings_mcp_retention_must_be_positive(
 
 
 def test_settings_orphan_policy_rejects_invalid_value(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """relationship_orphan_policy must be 'fail_loud' or 'log_orphan'."""
     monkeypatch.chdir(tmp_path)
@@ -179,7 +180,8 @@ def test_settings_orphan_policy_rejects_invalid_value(
 
 
 def test_settings_canonical_defaults_are_safe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Canonicalization defaults to deterministic slug mode with empty stoplist."""
     monkeypatch.chdir(tmp_path)
@@ -198,7 +200,8 @@ def test_settings_canonical_defaults_are_safe(
 
 
 def test_settings_canonical_fuzzy_threshold_rejects_too_low(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """canonical_fuzzy_threshold must be >= 0.5."""
     monkeypatch.chdir(tmp_path)
@@ -218,7 +221,8 @@ def test_settings_canonical_fuzzy_threshold_rejects_too_low(
 
 
 def test_settings_canonical_fuzzy_threshold_rejects_too_high(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """canonical_fuzzy_threshold must be <= 1.0."""
     monkeypatch.chdir(tmp_path)
@@ -238,7 +242,8 @@ def test_settings_canonical_fuzzy_threshold_rejects_too_high(
 
 
 def test_settings_canonical_stoplist_can_be_overridden(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """canonical_stoplist accepts a list of domain stopwords."""
     monkeypatch.chdir(tmp_path)
@@ -255,10 +260,11 @@ def test_settings_canonical_stoplist_can_be_overridden(
     assert settings.canonical_stoplist == ["protocol", "model"]
 
 
-def test_settings_supports_independent_graph_and_query_llm_roles(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+def test_settings_role_specific_llm_values_are_preserved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Graph extraction and query operations accept separate provider settings."""
+    """Graph and query LLM settings remain independently configurable."""
     monkeypatch.chdir(tmp_path)
     _clear_required_env(monkeypatch)
 
@@ -267,25 +273,106 @@ def test_settings_supports_independent_graph_and_query_llm_roles(
         "neo4j_user": "neo4j",
         "neo4j_password": "secret",
         "graph_llm_api_key": "graph-secret",
-        "graph_llm_base_url": "https://graph.example/v1",
-        "graph_llm_model_name": "deepseek-chat",
+        "graph_llm_base_url": "https://graph-provider.test/v1",
+        "graph_llm_model_name": "graph-model",
         "query_llm_api_key": "query-secret",
-        "query_llm_base_url": "https://query.example/v1",
+        "query_llm_base_url": "https://query-provider.test/v1",
         "query_llm_model_name": "query-model",
     }
     settings = Settings.model_validate(data)
 
     assert settings.graph_llm_api_key is not None
     assert settings.graph_llm_api_key.get_secret_value() == "graph-secret"
-    assert settings.graph_llm_base_url == "https://graph.example/v1"
-    assert settings.graph_llm_model_name == "deepseek-chat"
+    assert settings.graph_llm_base_url == "https://graph-provider.test/v1"
+    assert settings.graph_llm_model_name == "graph-model"
     assert settings.query_llm_api_key is not None
     assert settings.query_llm_api_key.get_secret_value() == "query-secret"
-    assert settings.query_llm_base_url == "https://query.example/v1"
+    assert settings.query_llm_base_url == "https://query-provider.test/v1"
     assert settings.query_llm_model_name == "query-model"
 
+
+def test_settings_loads_role_llm_values_from_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Role-specific settings map to their exact environment variable names."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+    monkeypatch.setenv("NEO4J_URI", "bolt://localhost:7687")
+    monkeypatch.setenv("NEO4J_USER", "neo4j")
+    monkeypatch.setenv("NEO4J_PASSWORD", "secret")
+    monkeypatch.setenv("GRAPH_LLM_API_KEY", "graph-secret")
+    monkeypatch.setenv("GRAPH_LLM_BASE_URL", "https://graph-provider.test/v1")
+    monkeypatch.setenv("GRAPH_LLM_MODEL_NAME", "graph-model")
+    monkeypatch.setenv("QUERY_LLM_API_KEY", "query-secret")
+    monkeypatch.setenv("QUERY_LLM_BASE_URL", "https://query-provider.test/v1")
+    monkeypatch.setenv("QUERY_LLM_MODEL_NAME", "query-model")
+
+    settings = Settings(
+        neo4j_uri="bolt://localhost:7687",
+        neo4j_user="neo4j",
+        neo4j_password=SecretStr("secret"),
+    )
+
+    assert settings.graph_llm_api_key is not None
+    assert settings.graph_llm_api_key.get_secret_value() == "graph-secret"
+    assert settings.graph_llm_base_url == "https://graph-provider.test/v1"
+    assert settings.graph_llm_model_name == "graph-model"
+    assert settings.query_llm_api_key is not None
+    assert settings.query_llm_api_key.get_secret_value() == "query-secret"
+    assert settings.query_llm_base_url == "https://query-provider.test/v1"
+    assert settings.query_llm_model_name == "query-model"
+
+
+def test_validate_llm_provider_settings_requires_selected_role(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Provider URL and model are required per selected role, not API key."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+            "query_llm_base_url": "https://query-provider.test/v1",
+            "query_llm_model_name": "query-model",
+        }
+    )
+
+    validate_llm_provider_settings(settings, roles=("query",))
+
+    with pytest.raises(ValueError, match="GRAPH_LLM_BASE_URL.*GRAPH_LLM_MODEL_NAME"):
+        validate_llm_provider_settings(settings, roles=("graph",))
+
+
+def test_settings_role_llm_values_can_be_configured_independently(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Graph and query roles can use different providers and models."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "graph_llm_base_url": "https://graph-provider.test/v1",
+        "graph_llm_model_name": "graph-model",
+        "query_llm_base_url": "https://query-provider.test/v1",
+        "query_llm_model_name": "query-model",
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.graph_llm_model_name != settings.query_llm_model_name
+    assert settings.graph_llm_base_url != settings.query_llm_base_url
+
+
 def test_settings_max_cluster_size_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """max_cluster_size defaults to 10."""
     monkeypatch.chdir(tmp_path)
@@ -322,7 +409,8 @@ def test_settings_max_cluster_size_must_be_positive(
 
 
 def test_settings_summary_max_concurrency_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """summary_max_concurrency defaults to 3."""
     monkeypatch.chdir(tmp_path)
@@ -339,7 +427,8 @@ def test_settings_summary_max_concurrency_default(
 
 
 def test_settings_summary_max_concurrency_can_be_overridden(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """summary_max_concurrency can be customized."""
     monkeypatch.chdir(tmp_path)
@@ -357,7 +446,8 @@ def test_settings_summary_max_concurrency_can_be_overridden(
 
 
 def test_settings_summary_max_concurrency_must_be_positive(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """summary_max_concurrency must be greater than 0."""
     monkeypatch.chdir(tmp_path)
@@ -377,7 +467,8 @@ def test_settings_summary_max_concurrency_must_be_positive(
 
 
 def test_settings_community_max_calls_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """community_max_calls defaults to 150."""
     monkeypatch.chdir(tmp_path)
@@ -394,7 +485,8 @@ def test_settings_community_max_calls_default(
 
 
 def test_settings_community_max_calls_can_be_overridden(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """community_max_calls can be customized."""
     monkeypatch.chdir(tmp_path)
@@ -412,7 +504,8 @@ def test_settings_community_max_calls_can_be_overridden(
 
 
 def test_settings_community_max_calls_must_be_positive(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """community_max_calls must be greater than 0."""
     monkeypatch.chdir(tmp_path)
@@ -429,4 +522,3 @@ def test_settings_community_max_calls_must_be_positive(
         Settings.model_validate(data)
 
     assert "community_max_calls" in str(exc_info.value)
-

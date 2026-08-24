@@ -91,9 +91,7 @@ class _FakeSession:
         self._raise = raise_exc
         self.queries: list[tuple[str, dict[str, Any]]] = []
 
-    async def run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         self.queries.append((query, parameters or {}))
         if self._raise is not None:
             raise self._raise

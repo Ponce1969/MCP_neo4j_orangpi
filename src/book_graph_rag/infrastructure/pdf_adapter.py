@@ -327,9 +327,7 @@ class PDFAdapter(PDFReaderPort):
         return chapter
 
     @staticmethod
-    def _build_section_chain(
-        leaf: _TocNode, chapter_number: int | None
-    ) -> tuple[Section, ...]:
+    def _build_section_chain(leaf: _TocNode, chapter_number: int | None) -> tuple[Section, ...]:
         """Build the root-to-leaf section chain for a TOC leaf.
 
         Chapter nodes (level 1) are represented by ``Chapter`` and therefore do

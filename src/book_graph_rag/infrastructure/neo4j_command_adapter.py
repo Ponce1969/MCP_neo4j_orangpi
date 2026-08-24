@@ -27,9 +27,7 @@ from book_graph_rag.ports.graph_db_port import GraphDatabasePort
 class Neo4jCommandAdapter(GraphDatabasePort):
     """Async Neo4j implementation of ``GraphDatabasePort`` for write commands."""
 
-    def __init__(
-        self, settings: Settings, dead_letter_port: DeadLetterPort | None = None
-    ) -> None:
+    def __init__(self, settings: Settings, dead_letter_port: DeadLetterPort | None = None) -> None:
         self._settings = settings
         # Deserialize the SecretStr once at construction time. The password is
         # passed to the driver and never logged or printed by this adapter.
@@ -147,9 +145,7 @@ class Neo4jCommandAdapter(GraphDatabasePort):
 
         if orphans and self._orphan_policy == "fail_loud":
             missing = sorted(missing_ids)
-            raise ValueError(
-                f"Relationship batch aborted: missing endpoints {missing}"
-            )
+            raise ValueError(f"Relationship batch aborted: missing endpoints {missing}")
 
         for orphan in orphans:
             await self._dead_letter.write_orphan_relationship(orphan)

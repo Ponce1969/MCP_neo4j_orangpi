@@ -26,7 +26,7 @@ import instructor
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
-from book_graph_rag.config import Settings
+from book_graph_rag.config import Settings, validate_llm_provider_settings
 from book_graph_rag.infrastructure.llm_adapter import _TERMINOLOGY_MAPPING
 
 # ── Personas and their tasks (curated) ──────────────────────────────────────
@@ -92,7 +92,8 @@ class TaskQuestions(BaseModel):
 
     tarea: str = Field(description="The original task description (verbatim)")
     preguntas: list[EvaluationQuestion] = Field(
-        min_length=5, max_length=5,
+        min_length=5,
+        max_length=5,
         description="Exactly 5 evaluation questions for this task",
     )
 
@@ -109,7 +110,7 @@ class PersonaQuestions(BaseModel):
 _SYSTEM_PROMPT = (
     "You are generating an evaluation dataset for a GraphRAG system that "
     "queries a Neo4j knowledge graph. The graph was built from the book "
-    "\"Agentic Architectural Patterns for Building Multi-Agent Systems.\"\n\n"
+    '"Agentic Architectural Patterns for Building Multi-Agent Systems."\n\n'
     "The graph has these entity types: pattern, agent, component, concept, "
     "tool, framework, mcp, llmops, risk.\n"
     "It has hierarchical community summaries at levels 0-3 (Leiden clusters).\n\n"
@@ -142,9 +143,7 @@ def _format_tareas(tareas: list[str]) -> str:
 
 
 def _build_user_prompt(persona: str, tareas: list[str]) -> str:
-    return _USER_PROMPT.format(
-        persona=persona, tareas=_format_tareas(tareas)
-    )
+    return _USER_PROMPT.format(persona=persona, tareas=_format_tareas(tareas))
 
 
 async def _generate_for_persona(
@@ -187,13 +186,18 @@ async def _generate_all(
 
 @click.command()
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     default="evaluation_dataset.jsonl",
     help="Output path (default: evaluation_dataset.jsonl)",
 )
 def main(output: str) -> None:
     """Generate the RAGAS evaluation dataset."""
     settings = Settings.model_validate({})
+    try:
+        validate_llm_provider_settings(settings, roles=("query",))
+    except ValueError as exc:
+        raise click.ClickException(f"Configuration error: {exc}") from exc
     api_key: str = (
         settings.query_llm_api_key.get_secret_value()
         if settings.query_llm_api_key is not None
@@ -207,9 +211,7 @@ def main(output: str) -> None:
     )
     client = instructor.from_openai(raw_client)
 
-    records = asyncio.run(
-        _generate_all(client, settings.query_llm_model_name)
-    )
+    records = asyncio.run(_generate_all(client, settings.query_llm_model_name))
 
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)

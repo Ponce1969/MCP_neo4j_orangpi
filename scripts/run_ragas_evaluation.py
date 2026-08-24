@@ -34,7 +34,7 @@ import click
 from pydantic import BaseModel
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
-from book_graph_rag.config import Settings
+from book_graph_rag.config import Settings, validate_llm_provider_settings
 from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
 from book_graph_rag.infrastructure.llm_adapter import (
     LLMAdapter,
@@ -89,9 +89,7 @@ def _load_baseline(path: Path) -> dict[str, Any]:
         return cast(dict[str, Any], json.load(f))
 
 
-def _compute_deltas(
-    current: dict[str, Any], baseline: dict[str, Any]
-) -> dict[str, float | None]:
+def _compute_deltas(current: dict[str, Any], baseline: dict[str, Any]) -> dict[str, float | None]:
     """Compute per-metric deltas between current and baseline scores.
 
     RAGAS metric values are floats in [0, 1]. Returns None for metrics that
@@ -192,19 +190,12 @@ def _serialize_ragas_result(raw_result: Any) -> dict[str, float]:
         return {str(k): float(v) for k, v in raw_result.items()}
     if hasattr(raw_result, "to_pandas"):
         df = raw_result.to_pandas()
-        return {
-            str(col): float(df[col].mean())
-            for col in df.columns
-            if df[col].dtype.kind in "fc"
-        }
+        return {str(col): float(df[col].mean()) for col in df.columns if df[col].dtype.kind in "fc"}
     if hasattr(raw_result, "scores"):
         scores = raw_result.scores
         if scores:
             keys = scores[0].keys()
-            return {
-                str(k): float(sum(row[k] for row in scores) / len(scores))
-                for k in keys
-            }
+            return {str(k): float(sum(row[k] for row in scores) / len(scores)) for k in keys}
     raise TypeError(f"Unsupported RAGAS result type: {type(raw_result)}")
 
 
@@ -385,6 +376,10 @@ def _run_ragas(
 def main(dataset: str, detail_level: int, no_ragas: bool, no_compare: bool) -> None:
     """Run the RAGAS evaluation pipeline."""
     settings = Settings.model_validate({})
+    try:
+        validate_llm_provider_settings(settings)
+    except ValueError as exc:
+        raise click.ClickException(f"Configuration error: {exc}") from exc
 
     click.echo(f"Loading dataset: {dataset}")
     samples = _load_dataset(dataset)

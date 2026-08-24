@@ -516,9 +516,7 @@ async def test_upsert_relationships_fail_loud_raises_with_missing_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """SCEN-REL-02/AC-REL-02: fail_loud raises and aborts the batch."""
-    settings = _make_settings(
-        tmp_path, monkeypatch, relationship_orphan_policy="fail_loud"
-    )
+    settings = _make_settings(tmp_path, monkeypatch, relationship_orphan_policy="fail_loud")
     fake_db = _FakeGraphDatabase()
     monkeypatch.setattr(
         "book_graph_rag.infrastructure.neo4j_command_adapter.AsyncGraphDatabase",

@@ -73,11 +73,11 @@ def _make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **overrides:
         "neo4j_uri": "bolt://localhost:7687",
         "neo4j_user": "neo4j",
         "neo4j_password": "secret",
-        "graph_llm_api_key": "test-graph-key",
-        "graph_llm_base_url": "https://graph.example/v1",
-        "graph_llm_model_name": "deepseek-chat",
-        "query_llm_api_key": "test-query-key",
-        "query_llm_base_url": "https://query.example/v1",
+        "graph_llm_api_key": "graph-test-key",
+        "graph_llm_base_url": "https://graph.example.test/v1",
+        "graph_llm_model_name": "graph-model",
+        "query_llm_api_key": "query-test-key",
+        "query_llm_base_url": "https://query.example.test/v1",
         "query_llm_model_name": "query-model",
     }
     data.update(overrides)
@@ -133,9 +133,7 @@ def _make_completion(content: str) -> ChatCompletion:
 class _FakeCompletions:
     """Records calls and supports fail-then-succeed behaviour."""
 
-    def __init__(
-        self, fail_count: int = 0, extraction_json: str | None = None
-    ) -> None:
+    def __init__(self, fail_count: int = 0, extraction_json: str | None = None) -> None:
         self.fail_count = fail_count
         self.extraction_json = extraction_json or _EXTRACTION_JSON
         self.calls: list[dict[str, Any]] = []
@@ -170,18 +168,14 @@ class _FakeAsyncOpenAI:
         self.timeout = timeout
         self.max_retries = max_retries
         self.chat = _FakeChat(
-            _FakeCompletions(
-                fail_count=fail_count, extraction_json=extraction_json
-            )
+            _FakeCompletions(fail_count=fail_count, extraction_json=extraction_json)
         )
 
 
 class _FakeAsyncOpenAIFactory:
     """Callable that produces configured _FakeAsyncOpenAI instances."""
 
-    def __init__(
-        self, fail_count: int = 0, extraction_json: str | None = None
-    ) -> None:
+    def __init__(self, fail_count: int = 0, extraction_json: str | None = None) -> None:
         self.fail_count = fail_count
         self.extraction_json = extraction_json
         self.last_kwargs: dict[str, Any] | None = None
@@ -236,16 +230,33 @@ def test_llm_adapter_requires_settings() -> None:
         LLMAdapter()  # type: ignore[call-arg]
 
 
-def test_llm_adapter_builds_role_specific_clients(
+def test_llm_adapter_fails_fast_when_role_provider_settings_are_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Graph and query roles use independent endpoints, models, and API keys."""
+    """The adapter rejects incomplete graph/query provider configuration."""
     settings = _make_settings(
         tmp_path,
         monkeypatch,
-        graph_llm_api_key="graph-secret",
-        query_llm_api_key="query-secret",
+        query_llm_model_name="",
+    )
+
+    with pytest.raises(ValueError, match="QUERY_LLM_MODEL_NAME"):
+        LLMAdapter(settings)
+
+
+def test_llm_adapter_api_key_placeholder_when_none(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing role keys are passed as empty SDK credentials for local providers."""
+    settings = _make_settings(
+        tmp_path,
+        monkeypatch,
+        graph_llm_api_key=None,
+        graph_llm_base_url="https://graph.example.test/v1",
+        query_llm_api_key=None,
+        query_llm_base_url="https://query.example.test/v1",
     )
     factory = _FakeAsyncOpenAIFactory()
     monkeypatch.setattr(
@@ -257,33 +268,10 @@ def test_llm_adapter_builds_role_specific_clients(
 
     assert len(factory._instances) == 2
     graph_client, query_client = factory._instances
+    assert graph_client.api_key == ""
     assert graph_client.base_url == settings.graph_llm_base_url
-    assert graph_client.api_key == "graph-secret"
+    assert query_client.api_key == ""
     assert query_client.base_url == settings.query_llm_base_url
-    assert query_client.api_key == "query-secret"
-
-
-def test_llm_adapter_uses_empty_api_keys_for_local_roles(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Missing role API keys are passed as empty strings to the SDK."""
-    settings = _make_settings(
-        tmp_path,
-        monkeypatch,
-        graph_llm_api_key=None,
-        query_llm_api_key=None,
-    )
-    factory = _FakeAsyncOpenAIFactory()
-    monkeypatch.setattr(
-        "book_graph_rag.infrastructure.llm_adapter.AsyncOpenAI",
-        factory,
-    )
-
-    LLMAdapter(settings)
-
-    assert len(factory._instances) == 2
-    assert all(instance.api_key == "" for instance in factory._instances)
 
 
 async def test_llm_adapter_retries_with_exponential_backoff(
@@ -323,9 +311,11 @@ async def test_llm_adapter_retries_with_exponential_backoff(
     assert result.relationships[0].source_entity_id == "agent-pattern-pattern"
     assert result.relationships[0].target_entity_id == "multi-agent-system-concept"
     assert factory._instances
-    calls = factory._instances[0].chat.completions.calls
-    assert len(calls) == 3
-    assert all(call["model"] == settings.graph_llm_model_name for call in calls)
+    assert len(factory._instances[0].chat.completions.calls) == 3
+    assert all(
+        call["model"] == settings.graph_llm_model_name
+        for call in factory._instances[0].chat.completions.calls
+    )
     assert sleep_delays == [1.0, 2.0]
 
 
@@ -510,9 +500,7 @@ def test_resolve_entity_id_fuzzy_mode_falls_back_when_dissimilar() -> None:
 
 def test_resolve_entity_id_is_stable_when_name_equals_canonical_name() -> None:
     """The same name and type produce one id with or without canonical metadata."""
-    without_canonical, _ = LLMAdapter._resolve_entity_id(
-        "Agent Pattern", None, [], "pattern"
-    )
+    without_canonical, _ = LLMAdapter._resolve_entity_id("Agent Pattern", None, [], "pattern")
     with_canonical, _ = LLMAdapter._resolve_entity_id(
         "Agent Pattern", "Agent Pattern", [], "pattern"
     )
@@ -646,7 +634,6 @@ async def test_generate_cypher_omits_empty_failure_message(
     monkeypatch.setattr(adapter._query_client, "create", fake_create)
     await adapter.generate_cypher("schema", "question", None)
     assert len(captured["messages"]) == 2
-    assert captured["model"] == settings.query_llm_model_name
 
 
 async def test_llm_adapter_generate_cypher_prompt_includes_schema_and_question(
@@ -669,6 +656,7 @@ async def test_llm_adapter_generate_cypher_prompt_includes_schema_and_question(
     messages = captured["messages"]
     assert any("(:Entity)-[:RELATED]->(:Entity)" in msg["content"] for msg in messages)
     assert any("find patterns" in msg["content"] for msg in messages)
+    assert captured["model"] == settings.query_llm_model_name
 
 
 async def test_llm_adapter_generate_cypher_includes_failure_context_on_retry(
@@ -740,19 +728,35 @@ def test_llm_adapter_implements_llm_summary_port(
     assert isinstance(adapter, LLMSummaryPort)
 
 
-def test_llm_adapter_requires_both_role_endpoints_and_models(
+async def test_llm_adapter_graph_and_query_clients_use_distinct_settings(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Construction fails when either graph or query routing is incomplete."""
+    """Each provider client is built from its role-specific settings."""
     settings = _make_settings(
         tmp_path,
         monkeypatch,
-        query_llm_model_name="",
+        graph_llm_api_key="graph-secret",
+        graph_llm_base_url="https://graph-provider.test/v1",
+        graph_llm_model_name="graph-model-v2",
+        query_llm_api_key="query-secret",
+        query_llm_base_url="https://query-provider.test/v1",
+        query_llm_model_name="query-model-v2",
+    )
+    factory = _FakeAsyncOpenAIFactory()
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.llm_adapter.AsyncOpenAI",
+        factory,
     )
 
-    with pytest.raises(ValueError, match="Graph and query LLM"):
-        LLMAdapter(settings)
+    LLMAdapter(settings)
+
+    assert len(factory._instances) == 2
+    graph_client, query_client = factory._instances
+    assert graph_client.base_url == settings.graph_llm_base_url
+    assert graph_client.api_key == "graph-secret"
+    assert query_client.base_url == settings.query_llm_base_url
+    assert query_client.api_key == "query-secret"
 
 
 async def test_generate_community_summary_prompt_includes_entities_and_level(
@@ -768,9 +772,7 @@ async def test_generate_community_summary_prompt_includes_entities_and_level(
         captured.update(kwargs)
         return _make_completion("Generated summary.")
 
-    monkeypatch.setattr(
-        adapter._graph_raw_client.chat.completions, "create", fake_create
-    )
+    monkeypatch.setattr(adapter._graph_raw_client.chat.completions, "create", fake_create)
 
     entities = [
         Entity(id="e1", name="Agent Pattern", type="pattern"),
@@ -813,9 +815,7 @@ async def test_score_community_returns_parsed_score(
 
     monkeypatch.setattr(adapter._query_client, "create", fake_create)
 
-    summary = CommunitySummary(
-        level=1, summary="A summary", entity_ids=["e1"], parent_id="p1"
-    )
+    summary = CommunitySummary(level=1, summary="A summary", entity_ids=["e1"], parent_id="p1")
     score = await adapter.score_community("what is MCP?", summary)
 
     assert score == 85
@@ -839,13 +839,9 @@ async def test_compose_answer_prompt_requires_citation_format(
         captured.update(kwargs)
         return _make_completion("MCP is a protocol.")
 
-    monkeypatch.setattr(
-        adapter._query_raw_client.chat.completions, "create", fake_create
-    )
+    monkeypatch.setattr(adapter._query_raw_client.chat.completions, "create", fake_create)
 
-    summary = CommunitySummary(
-        level=1, summary="A summary", entity_ids=["e1"], parent_id="p1"
-    )
+    summary = CommunitySummary(level=1, summary="A summary", entity_ids=["e1"], parent_id="p1")
     ranked = [(summary, 85)]
     result = await adapter.compose_answer("what is MCP?", ranked)
 
@@ -868,9 +864,7 @@ async def test_plain_text_preserves_raw_newlines(
     async def fake_create(**kwargs: Any) -> ChatCompletion:
         return _make_completion("line 1\n\nline 2")
 
-    monkeypatch.setattr(
-        adapter._query_raw_client.chat.completions, "create", fake_create
-    )
+    monkeypatch.setattr(adapter._query_raw_client.chat.completions, "create", fake_create)
 
     summary = CommunitySummary(id="", level=1, summary="s", entity_ids=["e1"], parent_id="p1")
     result = await adapter.compose_answer("q?", [(summary, 85)])
@@ -889,9 +883,7 @@ async def test_plain_text_strips_stale_markdown_fence(
     async def fake_create(**kwargs: Any) -> ChatCompletion:
         return _make_completion("```markdown\nMCP is a protocol.\n```")
 
-    monkeypatch.setattr(
-        adapter._query_raw_client.chat.completions, "create", fake_create
-    )
+    monkeypatch.setattr(adapter._query_raw_client.chat.completions, "create", fake_create)
 
     summary = CommunitySummary(id="", level=1, summary="s", entity_ids=["e1"], parent_id="p1")
     result = await adapter.compose_answer("q?", [(summary, 85)])
@@ -904,10 +896,7 @@ async def test_plain_text_strips_stale_markdown_fence(
 
 def test_escape_json_string_control_chars_escapes_raw_control_chars() -> None:
     """Raw newlines/tabs inside JSON strings are rewritten to \\uXXXX escapes."""
-    raw = (
-        '{"answer": "line 1\nline 2\tok [Data: CommunitySummary(4edef17af58d735f)]", '
-        '"n": 1}'
-    )
+    raw = '{"answer": "line 1\nline 2\tok [Data: CommunitySummary(4edef17af58d735f)]", "n": 1}'
     sanitized = _escape_json_string_control_chars(raw)
 
     assert "line 1" in sanitized

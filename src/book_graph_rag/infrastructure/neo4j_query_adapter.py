@@ -273,9 +273,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
 
             return list(entity_by_id.values()), relationships
 
-    async def find_path(
-        self, start_id: str, end_id: str, max_depth: int
-    ) -> list[GraphPath]:
+    async def find_path(self, start_id: str, end_id: str, max_depth: int) -> list[GraphPath]:
         """Return shortest paths between two entities within ``max_depth``."""
         clamped_depth = max(1, min(max_depth, 3))
         query = f"""
@@ -301,9 +299,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
                 return []
             path = record["p"]
             nodes = [self._node_to_entity(node).entity for node in path.nodes]
-            relationships = [
-                self._relationship_to_domain(rel) for rel in path.relationships
-            ]
+            relationships = [self._relationship_to_domain(rel) for rel in path.relationships]
             return [GraphPath(nodes=nodes, relationships=relationships)]
 
     async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
@@ -369,9 +365,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
             next_cursor = records[-1]["internal_id"] if records else cursor
             return entities, next_cursor
 
-    async def explain(
-        self, cypher: str, parameters: dict[str, Any] | None = None
-    ) -> None:
+    async def explain(self, cypher: str, parameters: dict[str, Any] | None = None) -> None:
         """Run ``EXPLAIN`` on ``cypher`` to validate it without executing it.
 
         Args:
@@ -394,9 +388,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
             QueryTimeoutError: If the query exceeds the 3-second internal limit.
         """
         async with self._driver.session() as session:
-            result = await self._run_with_timeout(
-                session.run(cypher), timeout=3.0
-            )
+            result = await self._run_with_timeout(session.run(cypher), timeout=3.0)
             return [record.data() async for record in result]
 
     async def ensure_indexes(self) -> None:
