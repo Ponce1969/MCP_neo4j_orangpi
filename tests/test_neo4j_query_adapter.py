@@ -794,12 +794,79 @@ async def test_search_chunks_returns_scored_results(adapter: Neo4jQueryAdapter) 
 
     assert result == [
         {
-            "text": "dependency injection example",
+            "chunk_id": None,
+            "chunk_index": None,
+            "book_id": None,
+            "chapter_id": None,
+            "section_id": None,
             "page_start": 10,
             "page_end": 11,
+            "text": "dependency injection example",
             "score": 0.95,
         }
     ]
+
+
+async def test_search_chunks_includes_identity_and_provenance(
+    adapter: Neo4jQueryAdapter,
+) -> None:
+    """search_chunks returns chunk id and parent-derived chapter/section ids."""
+    node = _node(
+        {
+            "text": "x",
+            "page_start": 10,
+            "page_end": 11,
+            "chunk_index": 5,
+            "book_id": "book-1",
+        }
+    )
+    chapter = _node({"number": 1, "title": "Intro"})
+    section = _node({"chapter_number": 1, "title": "Sec"})
+    record = _FakeRecord(
+        {
+            "node": node,
+            "score": 0.9,
+            "chapter": chapter,
+            "section": section,
+            "chapterAncestor": None,
+        }
+    )
+    session = _make_session([record])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.search_chunks("x", 5)
+
+    assert result[0]["chunk_id"] == "book-1:5"
+    assert result[0]["chunk_index"] == 5
+    assert result[0]["book_id"] == "book-1"
+    assert result[0]["chapter_id"] == "1:Intro"
+    assert result[0]["section_id"] == "1:Sec"
+
+
+async def test_search_chunks_toc_less_nulls(
+    adapter: Neo4jQueryAdapter,
+) -> None:
+    """TOC-less chunks without a parent still carry identity, null chapter/section."""
+    node = _node(
+        {
+            "text": "x",
+            "page_start": 1,
+            "page_end": 2,
+            "chunk_index": 3,
+            "book_id": "book-1",
+        }
+    )
+    record = _FakeRecord(
+        {"node": node, "score": 0.5, "chapter": None, "section": None, "chapterAncestor": None}
+    )
+    session = _make_session([record])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.search_chunks("x", 5)
+
+    assert result[0]["chunk_id"] == "book-1:3"
+    assert result[0]["chapter_id"] is None
+    assert result[0]["section_id"] is None
 
 
 async def test_count_entities_without_type_filter(adapter: Neo4jQueryAdapter) -> None:

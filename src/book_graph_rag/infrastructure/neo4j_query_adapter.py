@@ -303,29 +303,67 @@ class Neo4jQueryAdapter(GraphQueryPort):
             return [GraphPath(nodes=nodes, relationships=relationships)]
 
     async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
-        """Full-text search over chunk nodes."""
+        """Full-text search over chunk nodes with identity and provenance."""
         async with self._driver.session() as session:
             result = await self._run_with_timeout(
                 session.run(
                     """
                     CALL db.index.fulltext.queryNodes("chunk_text_index", $query)
                     YIELD node, score
-                    RETURN node, score
+                    OPTIONAL MATCH (parent)-[:HAS_CHUNK]->(node)
+                    WHERE parent:Chapter OR parent:Section
+                    WITH node, score, parent,
+                         CASE WHEN parent:Chapter THEN parent ELSE null END AS chapter,
+                         CASE WHEN parent:Section THEN parent ELSE null END AS section
+                    OPTIONAL MATCH (chapterAncestor:Chapter)
+                        -[:HAS_SECTION|HAS_SUBSECTION*1..]->(section)
+                    RETURN node, score, chapter, section, chapterAncestor
                     ORDER BY score DESC
                     LIMIT $limit
                     """,
                     {"query": query, "limit": limit},
                 )
             )
-            return [
-                {
-                    "text": record["node"].get("text", ""),
-                    "page_start": record["node"].get("page_start"),
-                    "page_end": record["node"].get("page_end"),
-                    "score": record["score"],
-                }
-                async for record in result
-            ]
+            return [self._chunk_payload(record) async for record in result]
+
+    @staticmethod
+    def _chunk_payload(record: Any) -> dict[str, Any]:
+        node = record["node"]
+        chunk_index = node.get("chunk_index")
+        book_id = node.get("book_id")
+        chapter = record.get("chapter")
+        section = record.get("section")
+        chapter_ancestor = record.get("chapterAncestor")
+        effective_chapter = chapter if chapter is not None else chapter_ancestor
+        return {
+            "chunk_id": (
+                f"{book_id}:{chunk_index}"
+                if book_id is not None and chunk_index is not None
+                else None
+            ),
+            "chunk_index": chunk_index,
+            "book_id": book_id,
+            "chapter_id": Neo4jQueryAdapter._editorial_id(
+                effective_chapter, "number", "title"
+            ),
+            "section_id": Neo4jQueryAdapter._editorial_id(
+                section, "chapter_number", "title"
+            ),
+            "page_start": node.get("page_start"),
+            "page_end": node.get("page_end"),
+            "text": node.get("text", ""),
+            "score": record["score"],
+        }
+
+    @staticmethod
+    def _editorial_id(node: Any, number_field: str, title_field: str) -> str | None:
+        if node is None:
+            return None
+        number = node.get(number_field)
+        title = node.get(title_field)
+        if number is None or title is None:
+            return None
+        return f"{number}:{title}"
 
     async def count_entities(self, entity_type: str | None) -> int:
         """Return the number of entities, optionally filtered by type."""
