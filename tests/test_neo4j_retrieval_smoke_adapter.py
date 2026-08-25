@@ -27,10 +27,12 @@ class _FakeQueryPort(GraphQueryPort):
         entities: list[EntityWithContext] | None = None,
         relationships: list[Relationship] | None = None,
         paths: list[GraphPath] | None = None,
+        chunks: list[dict[str, Any]] | None = None,
     ) -> None:
         self._entities = entities or []
         self._relationships = relationships or []
         self._paths = paths or []
+        self._chunks = chunks or []
 
     async def find_entity(self, name: str, entity_type: Any) -> list[EntityWithContext]:
         return self._entities
@@ -47,7 +49,7 @@ class _FakeQueryPort(GraphQueryPort):
         return self._paths
 
     async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
-        return []
+        return self._chunks
 
     async def count_entities(self, entity_type: str | None) -> int:
         return 0
@@ -113,12 +115,38 @@ async def test_two_hop_path_maps_paths() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chunk_search_fails_closed_to_unknown() -> None:
-    adapter = Neo4jRetrievalSmokeAdapter(_FakeQueryPort())
+async def test_chunk_search_maps_matched_chunks() -> None:
+    chunks = [
+        {
+            "chunk_id": "book-1:1",
+            "book_id": "book-1",
+            "chapter_id": "1:Intro",
+            "section_id": None,
+            "page_start": 1,
+            "page_end": 2,
+            "text": "x",
+            "score": 0.9,
+        }
+    ]
+    adapter = Neo4jRetrievalSmokeAdapter(_FakeQueryPort(chunks=chunks))
+    case = _case(
+        "chunk_search",
+        {"query": "definition"},
+        {"expected_chunk_ids": ["book-1:1"]},
+    )
+    result = await adapter.run_case(case)
+    assert result.status == SmokeOutcome.PASS
+    assert result.matched_chunks[0].chunk_id == "book-1:1"
+    assert result.matched_chunks[0].chapter_id == "1:Intro"
+
+
+@pytest.mark.asyncio
+async def test_chunk_search_without_identity_fails_closed() -> None:
+    adapter = Neo4jRetrievalSmokeAdapter(_FakeQueryPort(chunks=[]))
     case = _case(
         "chunk_search",
         {"query": "definition"},
         {"expected_chunk_ids": ["chunk-1"]},
     )
     result = await adapter.run_case(case)
-    assert result.status == SmokeOutcome.UNKNOWN
+    assert result.status == SmokeOutcome.FAIL

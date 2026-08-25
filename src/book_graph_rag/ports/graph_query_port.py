@@ -55,7 +55,14 @@ class GraphQueryPort(abc.ABC):
 
     @abc.abstractmethod
     async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
-        """Full-text search over chunk nodes."""
+        """Full-text search over chunk nodes.
+
+        Each result dict is additive and carries stable identity and
+        provenance alongside the legacy text/page/score fields:
+        ``chunk_id``, ``chunk_index``, ``book_id``, ``chapter_id``,
+        ``section_id``, ``page_start``, ``page_end``, ``text``, ``score``.
+        Identity/provenance fields are ``None`` when unavailable.
+        """
         ...
 
     @abc.abstractmethod

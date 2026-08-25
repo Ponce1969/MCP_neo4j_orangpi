@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from book_graph_rag.domain.validation_models import (
+    MatchedChunk,
     SmokeCase,
     SmokeOutcome,
     SmokeResult,
@@ -31,6 +32,8 @@ class Neo4jRetrievalSmokeAdapter(RetrievalSmokePort):
             return await self._relationship_lookup(case)
         if case.kind == "two_hop_path":
             return await self._two_hop_path(case)
+        if case.kind == "chunk_search":
+            return await self._chunk_search(case)
         return self._unknown(case)
 
     async def _entity_lookup(self, case: SmokeCase) -> SmokeResult:
@@ -94,6 +97,32 @@ class Neo4jRetrievalSmokeAdapter(RetrievalSmokePort):
             matched_entity_ids=(),
             matched_paths=matched_paths,
             matched_chunks=(),
+            evidence_ref="smoke://" + case.case_id,
+        )
+
+    async def _chunk_search(self, case: SmokeCase) -> SmokeResult:
+        query = str(case.request.get("query") or "")
+        chunks = await self._query.search_chunks(query, 20)
+        matched = tuple(
+            MatchedChunk(
+                chunk_id=chunk["chunk_id"],
+                book_id=chunk["book_id"],
+                chapter_id=chunk.get("chapter_id"),
+                section_id=chunk.get("section_id"),
+                page_start=chunk.get("page_start"),
+                page_end=chunk.get("page_end"),
+            )
+            for chunk in chunks
+            if chunk.get("chunk_id") is not None
+        )
+        status = SmokeOutcome.PASS if matched else SmokeOutcome.FAIL
+        return SmokeResult(
+            case_id=case.case_id,
+            status=status,
+            request_fingerprint=fingerprint_request(case.request),
+            query_port="chunk_search",
+            matched_entity_ids=(),
+            matched_chunks=matched,
             evidence_ref="smoke://" + case.case_id,
         )
 
