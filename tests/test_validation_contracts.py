@@ -19,6 +19,7 @@ def context() -> v.ValidationContext:
         audit_version="audit-1",
         smoke_manifest=v.ManifestIdentity(id="manifest-1", version="1.0.0", sha256="c" * 64),
         evidence_bundle_id="bundle-1",
+        historical_evidence_references=(),
     )
 
 
@@ -74,8 +75,16 @@ def test_rule_smoke_coverage_and_bundle_contracts_are_bounded() -> None:
         status=v.SmokeOutcome.PASS,
         request_fingerprint="sha256:" + "d" * 64,
         query_port="entity_lookup",
+        matched_entity_ids=(),
         matched_chunks=(
-            v.MatchedChunk(chunk_id="chunk-1", book_id="book-1", page_start=1, page_end=2),
+            v.MatchedChunk(
+                chunk_id="chunk-1",
+                book_id="book-1",
+                chapter_id=None,
+                section_id=None,
+                page_start=1,
+                page_end=2,
+            ),
         ),
         evidence_ref="smoke://entity-1",
     )
@@ -87,7 +96,14 @@ def test_rule_smoke_coverage_and_bundle_contracts_are_bounded() -> None:
         == v.AuditRuleOutcome.FAIL
     )
     with pytest.raises(ValidationError):
-        v.MatchedChunk(chunk_id="chunk-1", book_id="book-1", page_start=3, page_end=2)
+        v.MatchedChunk(
+            chunk_id="chunk-1",
+            book_id="book-1",
+            chapter_id=None,
+            section_id=None,
+            page_start=3,
+            page_end=2,
+        )
 
 
 def test_bundle_requires_explicit_passing_status_and_keeps_approval_separate() -> None:
@@ -96,11 +112,21 @@ def test_bundle_requires_explicit_passing_status_and_keeps_approval_separate() -
         status=v.ValidationStatus.PASSED,
         exit_code=0,
         decision=v.ValidationDecision.REINDEX,
+        evidence_bundle_id=None,
+        decision_basis=(),
         audit=(),
         smoke=(),
         coverage=(),
-        approval=v.ApprovalEvidence(),
-        read_only_assertion=v.ReadOnlyAssertion(),
+        blocking_findings=(),
+        evidence_references=(),
+        approval=v.ApprovalEvidence(
+            approval_id=None,
+            validation_run_id=None,
+            evidence_bundle_sha256=None,
+            backup_plan_ref=None,
+            runner_ref=None,
+        ),
+        read_only_assertion=v.ReadOnlyAssertion(forbidden_operations=()),
     )
     assert bundle.approval.status == v.ApprovalState.NOT_GRANTED
     assert bundle.read_only_assertion.graph_writes_attempted is False
@@ -108,9 +134,19 @@ def test_bundle_requires_explicit_passing_status_and_keeps_approval_separate() -
         v.EvidenceBundle(
             context=context(),
             status=v.ValidationStatus.PASSED,
+            evidence_bundle_id=None,
+            decision_basis=(),
             audit=(),
             smoke=(),
             coverage=(),
-            approval=v.ApprovalEvidence(),
-            read_only_assertion=v.ReadOnlyAssertion(),
+            blocking_findings=(),
+            evidence_references=(),
+            approval=v.ApprovalEvidence(
+                approval_id=None,
+                validation_run_id=None,
+                evidence_bundle_sha256=None,
+                backup_plan_ref=None,
+                runner_ref=None,
+            ),
+            read_only_assertion=v.ReadOnlyAssertion(forbidden_operations=()),
         )

@@ -39,6 +39,7 @@ def _context() -> ValidationContext:
             id="manifest-1", version="1.0.0", sha256="c" * 64
         ),
         evidence_bundle_id="bundle-1",
+        historical_evidence_references=(),
     )
 
 
@@ -48,11 +49,21 @@ def _bundle() -> EvidenceBundle:
         status=ValidationStatus.PASSED,
         exit_code=0,
         decision=ValidationDecision.REINDEX,
+        evidence_bundle_id=None,
+        decision_basis=(),
         audit=(),
         smoke=(),
         coverage=(),
-        approval=ApprovalEvidence(),
-        read_only_assertion=ReadOnlyAssertion(),
+        blocking_findings=(),
+        evidence_references=(),
+        approval=ApprovalEvidence(
+            approval_id=None,
+            validation_run_id=None,
+            evidence_bundle_sha256=None,
+            backup_plan_ref=None,
+            runner_ref=None,
+        ),
+        read_only_assertion=ReadOnlyAssertion(forbidden_operations=()),
     )
 
 

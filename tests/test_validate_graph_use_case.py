@@ -121,6 +121,7 @@ def _pass_smoke_result(case: SmokeCase) -> SmokeResult:
         status=SmokeOutcome.PASS,
         request_fingerprint="sha256:" + "b" * 64,
         query_port="entity_lookup",
+        matched_entity_ids=(),
         matched_chunks=(),
         evidence_ref="smoke://" + case.case_id,
     )
@@ -141,7 +142,11 @@ def _build_use_case(
     return use_case, writer
 
 
-async def _run(evidence, coverage, result):
+async def _run(
+    evidence: tuple[RuleEvidence, ...],
+    coverage: tuple[CoverageEvidence, ...],
+    result: SmokeResult,
+) -> tuple[EvidenceBundle, PolicyResult, _FakeEvidenceWriter]:
     use_case, writer = _build_use_case(evidence, coverage, result)
     bundle, policy = await use_case.execute(
         run_id="run-1",

@@ -19,6 +19,7 @@ def context() -> v.ValidationContext:
         audit_version="audit-1",
         smoke_manifest=v.ManifestIdentity(id="manifest-1", version="1.0.0", sha256="c" * 64),
         evidence_bundle_id="bundle-1",
+        historical_evidence_references=(),
     )
 
 
@@ -40,8 +41,16 @@ def smoke(status: v.SmokeOutcome = v.SmokeOutcome.PASS, book_id: str = "book-1")
         status=status,
         request_fingerprint="sha256:" + "d" * 64,
         query_port="entity_lookup",
+        matched_entity_ids=(),
         matched_chunks=(
-            v.MatchedChunk(chunk_id="chunk-1", book_id=book_id, page_start=1, page_end=2),
+            v.MatchedChunk(
+                chunk_id="chunk-1",
+                book_id=book_id,
+                chapter_id=None,
+                section_id=None,
+                page_start=1,
+                page_end=2,
+            ),
         ),
         evidence_ref="smoke://entity-1",
     )
@@ -56,8 +65,14 @@ def bundle(**changes: Any) -> v.EvidenceBundle:
             v.CoverageEvidence(scope=name, valid=1, total=1, percentage=100.0)
             for name in ("chunks", "mentions", "related_occurrences")
         ),
-        "approval": v.ApprovalEvidence(),
-        "read_only_assertion": v.ReadOnlyAssertion(),
+        "approval": v.ApprovalEvidence(
+            approval_id=None,
+            validation_run_id=None,
+            evidence_bundle_sha256=None,
+            backup_plan_ref=None,
+            runner_ref=None,
+        ),
+        "read_only_assertion": v.ReadOnlyAssertion(forbidden_operations=()),
     }
     values.update(changes)
     return v.EvidenceBundle(**values)
@@ -114,7 +129,11 @@ def test_unreachable_smoke_leakage_warning_and_write_are_fail_closed() -> None:
         == v.ValidationStatus.VIOLATIONS
     )
     warning = v.WarningEvidence(
-        rule_id="warning-1", observed_total=1, impact="bounded", acceptance_rationale="reviewed"
+        rule_id="warning-1",
+        observed_total=1,
+        impact="bounded",
+        acceptance_rationale="reviewed",
+        acceptance_reference=None,
     )
     assert (
         v.evaluate_policy(bundle(warnings=(warning,))).decision
@@ -124,7 +143,11 @@ def test_unreachable_smoke_leakage_warning_and_write_are_fail_closed() -> None:
     assert v.evaluate_policy(bundle(warnings=(accepted,))).decision == v.ValidationDecision.REINDEX
     assert (
         v.evaluate_policy(
-            bundle(read_only_assertion=v.ReadOnlyAssertion(graph_writes_attempted=True))
+            bundle(
+                read_only_assertion=v.ReadOnlyAssertion(
+                    graph_writes_attempted=True, forbidden_operations=()
+                )
+            )
         ).decision
         == v.ValidationDecision.FIX_GRAPH_CODE_BEFORE_REINDEX
     )
