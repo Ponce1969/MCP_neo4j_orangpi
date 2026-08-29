@@ -32,7 +32,10 @@ _project_root = _script_dir.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from scripts import run_communities  # noqa: E402
+from scripts import (  # noqa: E402
+    resolve_entities,
+    run_communities,
+)
 
 _BACKUP_DIR = Path.home() / "backups_neo4j"
 _INDEX_NODE_LABELS = (
@@ -193,8 +196,14 @@ async def _verify_counts(
     expected_chunk_count: int,
     pre_entity_count: int,
     dry_run: bool,
+    expected_entity_decrease: int = 0,
 ) -> tuple[int, int, int]:
-    """Compare post-run counts against expectations and emit warnings."""
+    """Compare post-run counts against expectations and emit warnings.
+
+    ``expected_entity_decrease`` accounts for deliberate reductions caused
+    by post-hoc entity resolution (merging near-duplicates), so the
+    must-not-decrease invariant only warns about *unexpected* losses.
+    """
     if dry_run:
         return 0, 0, 0
 
@@ -212,7 +221,7 @@ async def _verify_counts(
             f"WARNING: chunk count drift: expected {expected_chunk_count}, got {chunks}",
             err=True,
         )
-    if policy.entity_must_not_decrease and entities < pre_entity_count:
+    if policy.entity_must_not_decrease and entities < pre_entity_count - expected_entity_decrease:
         click.echo(
             f"WARNING: entity count decreased from {pre_entity_count} to {entities}",
             err=True,
@@ -238,6 +247,8 @@ async def _run_pipeline(
     dry_run: bool,
     fresh: bool,
     with_communities: bool,
+    resolve_entities_flag: bool = False,
+    resolve_threshold: float = 0.9,
 ) -> None:
     """Core pipeline: extract, optionally clear/backup, index, verify."""
     try:
@@ -286,6 +297,21 @@ async def _run_pipeline(
     )
     await use_case.execute(str(pdf_path))
 
+    merged_entities = 0
+    if resolve_entities_flag:
+        resolve_driver = _make_driver(settings)
+        try:
+            resolution = await resolve_entities.run_resolution(
+                resolve_driver, threshold=resolve_threshold
+            )
+            merged_entities = resolution.duplicate_count
+            click.echo(
+                f"Entity resolution: merged {merged_entities} duplicates into "
+                f"{resolution.group_count} groups."
+            )
+        finally:
+            await resolve_driver.close()
+
     if with_communities:
         await _run_communities(fresh=True)
     else:
@@ -305,6 +331,7 @@ async def _run_pipeline(
         expected_chunk_count,
         pre_entity_count,
         dry_run=False,
+        expected_entity_decrease=merged_entities,
     )
     dead_lettered = await _count_dead_letters(settings.dead_letter_path)
     dead_letter_delta = dead_lettered - dead_letter_start
@@ -336,6 +363,19 @@ async def _run_pipeline(
     help="Regenerate community summaries after indexing.",
 )
 @click.option(
+    "--resolve-entities",
+    "resolve_entities_flag",
+    is_flag=True,
+    help="Merge near-duplicate entities after indexing.",
+)
+@click.option(
+    "--resolve-threshold",
+    type=click.FloatRange(0.5, 1.0),
+    default=0.9,
+    show_default=True,
+    help="Name-similarity threshold for entity resolution.",
+)
+@click.option(
     "--restore",
     "restore_path",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
@@ -346,6 +386,8 @@ def cli(
     dry_run: bool,
     fresh: bool,
     with_communities: bool,
+    resolve_entities_flag: bool,
+    resolve_threshold: float,
     restore_path: Path | None,
 ) -> None:
     """Run the full indexing pipeline for a PDF or restore from a backup."""
@@ -354,7 +396,16 @@ def cli(
         return
     if pdf_path is None:
         raise click.UsageError("Missing argument 'PDF_PATH'.")
-    asyncio.run(_run_pipeline(pdf_path, dry_run, fresh, with_communities))
+    asyncio.run(
+        _run_pipeline(
+            pdf_path,
+            dry_run,
+            fresh,
+            with_communities,
+            resolve_entities_flag,
+            resolve_threshold,
+        )
+    )
 
 
 def _run_restore(backup_path: Path) -> None:
