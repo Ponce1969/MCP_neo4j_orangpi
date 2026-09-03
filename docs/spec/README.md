@@ -80,7 +80,7 @@ prove the target is met.
 | 04 Audit | `domain/audit_models.py`, `infrastructure/neo4j_audit_adapter.py`, `application/audit_graph_use_case.py` | Topic-scoped audit report; readiness-gate pass/fail exit code |
 | 05 MCP | `infrastructure/mcp/mcp_server_adapter.py`, `mcp_server_main.py`, `infrastructure/text2cypher_adapter.py` | Tool contract tests; topic-filter test; provenance-in-response test |
 | 06 Evaluation | `evaluation_dataset*.jsonl`, `evaluation_results.jsonl`, `docs/benchmarks/*.json`, `scripts/run_ragas_evaluation.py` | Committed baseline + threshold config; CI regression gate |
-| 07 Security | `mcp_server_main.py` (`run_sse 0.0.0.0`), `config.py` (shared creds), `text2cypher_adapter.py` (`_WRITE_KEYWORDS_RE`, `_HARDCODED_SCHEMA`), `json_query_logger_adapter.py`, `deploy/mcp-server.service` | Risk register with mitigations marked done; pre-production checklist |
+| 07 Security | `mcp_server_main.py` (`run_sse 0.0.0.0`), `config.py` (shared creds), `text2cypher_adapter.py` (`_WRITE_KEYWORDS_RE`, `_HARDCODED_SCHEMA`), `infrastructure/logging/json_query_logger_adapter.py`, `deploy/mcp-server.service` | Risk register with mitigations marked done; pre-production checklist |
 
 ## Relationship to historical notes (`docs/spec/archive/`)
 
