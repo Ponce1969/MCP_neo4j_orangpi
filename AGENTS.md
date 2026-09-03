@@ -18,7 +18,7 @@
 - Si falta una variable en `.env`, la app debe fallar en el arranque (Fail-Fast).
 
 ## 4. Flujo de Trabajo SDD
-1. Lee el `Spec.md` correspondiente en `docs/specs/`.
+1. Lee el `Spec.md` correspondiente en `docs/spec/` (normativo; histórico por fase en `docs/spec/archive/`).
 2. Si necesitas crear un script de ayuda, ponlo en `scripts/`.
 3. Escribe el código en `src/`.
 4. Ejecuta los validadores (`uv run ruff check .`, `uv run mypy .`, `uv run python scripts/validate_architecture.py`).

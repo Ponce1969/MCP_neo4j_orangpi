@@ -233,8 +233,9 @@ scripts/
 ├── setup_env.py
 └── run_indexer.py            # placeholder
 
-docs/specs/                   # one spec per phase (01..05 done, 06..07 pending)
-tests/                        # 56 tests, all green
+docs/spec/                    # normative target specs (00..07) + README + roadmap
+    └── archive/                  # historical phase notes (former docs/specs/)
+tests/                        # 532 tests, all green
 docker-compose.yml            # Neo4j 5.23 with APOC, 8 vars interpolated from .env
 ```
 

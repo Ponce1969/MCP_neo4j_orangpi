@@ -20,7 +20,7 @@
     Crea IndexBookUseCase.
     Este caso de uso debe recibir los Puertos (Interfaces) en su constructor, NUNCA las implementaciones concretas (Inyección de Dependencias).
     Además recibe dos PRIMITIVOS: `max_concurrency: int` y `batch_size: int`.
-    NUNCA recibe `Settings` (ver Política de inyección en `docs/specs/01_foundation.md`).
+    NUNCA recibe `Settings` (ver Política de inyección en `docs/spec/archive/01_foundation.md`).
     El método execute(pdf_path: str) debe:
         Usar el PDFReaderPort para obtener los chunks (sync iterator — for chunk in pdf_port.extract_chunks(path)).
         Usar asyncio.Semaphore(self.max_concurrency) para limitar concurrencia LLM.
