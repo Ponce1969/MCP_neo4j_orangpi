@@ -1,0 +1,9 @@
+version: 1
+corpora:
+  knowledge:
+    label: "Knowledge Library"
+    sources:
+      agentic-architectural-patterns:
+        label: "Agentic Architectural Patterns"
+        file: "data/libro_Agentic_Architectural_Patterns.pdf"
+        status: active

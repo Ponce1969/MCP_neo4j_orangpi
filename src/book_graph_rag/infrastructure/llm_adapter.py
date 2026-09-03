@@ -27,6 +27,7 @@ from book_graph_rag.domain.models import (
     Relationship,
     RelationshipType,
 )
+from book_graph_rag.domain.namespaces import SEPARATOR, SourceNamespace
 from book_graph_rag.ports.cypher_generator_port import (
     CypherFailureContext,
     CypherGeneratorPort,
@@ -252,8 +253,9 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
     ``CypherGeneratorPort`` and ``LLMSummaryPort``.
     """
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, namespace: SourceNamespace | None = None) -> None:
         self._settings = settings
+        self._namespace = namespace
         validate_llm_provider_settings(settings)
 
         # The OpenAI-compatible SDK requires a string even for local providers
@@ -396,7 +398,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             )
             chunk.entities.append(
                 Entity(
-                    id=entity_id,
+                    id=self._namespace_entity_id(entity_id),
                     name=dto.name,
                     type=dto.type,
                     description=dto.description,
@@ -424,7 +426,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             resolved = entity_ids_by_name.get(name.casefold())
             if resolved is not None:
                 return resolved
-            return self._resolve_entity_id(name, None, (), "concept")[0]
+            return self._namespace_entity_id(self._resolve_entity_id(name, None, (), "concept")[0])
 
         chunk.relationships = [
             Relationship(
@@ -450,6 +452,16 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         context_parts.append(f"Page range: {chunk.page_ref.start}-{chunk.page_ref.end}")
 
         return "\n".join(context_parts) + f"\n\nText:\n{chunk.text}"
+
+    def _namespace_entity_id(self, local_id: str) -> str:
+        """Prefix ``local_id`` with the source id when a namespace is set.
+
+        Without a namespace (legacy adapters), the local ``slug-type`` id is
+        returned unchanged so non-namespaced scripts keep their existing ids.
+        """
+        if self._namespace is None:
+            return local_id
+        return f"{self._namespace.source_id}{SEPARATOR}{local_id}"
 
     async def generate_cypher(
         self, schema: str, question: str, failure: CypherFailureContext | None

@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     relationship_orphan_policy: Literal["fail_loud", "log_orphan"] = "log_orphan"
     dead_letter_path_orphans: Path = Path("data/dead_letter_orphans.jsonl")
 
+    # ── Catálogo de namespaces (STAGE 1) ────────────────────────────────
+    catalog_path: Path = Path("catalog.yaml")
+
     # ── Canonicalización de entidades (REQ-CANON-04) ─────────────────────
     canonical_match_mode: Literal["slug", "fuzzy"] = "slug"
     canonical_fuzzy_threshold: float = 0.92

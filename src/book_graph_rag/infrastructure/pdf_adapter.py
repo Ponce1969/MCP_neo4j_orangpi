@@ -17,6 +17,7 @@ import fitz
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import Book, Chapter, KnowledgeGraphChunk, PageRef, Section
+from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.ports.pdf_port import PDFReaderPort
 
 # Titles that identify front-matter L1 entries. Stems rooted at these entries
@@ -86,8 +87,9 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
 class PDFAdapter(PDFReaderPort):
     """PyMuPDF-based implementation of ``PDFReaderPort``."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, namespace: SourceNamespace | None = None) -> None:
         self._settings = settings
+        self._namespace = namespace
         self._toc: list[tuple[int, str, int]] = []
 
     def extract_chunks(self, file_path: str) -> Iterator[KnowledgeGraphChunk]:
@@ -100,7 +102,11 @@ class PDFAdapter(PDFReaderPort):
         book_title = title if isinstance(title, str) and title.strip() else Path(file_path).stem
         book_author = author if isinstance(author, str) else ""
         book = Book(
-            id=self._slugify(book_title),
+            id=(
+                self._namespace.source_id
+                if self._namespace is not None
+                else self._slugify(book_title)
+            ),
             title=book_title,
             author=book_author,
             pdf_path=file_path,

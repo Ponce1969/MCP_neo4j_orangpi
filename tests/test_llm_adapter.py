@@ -24,6 +24,7 @@ from book_graph_rag.domain.models import (
     Relationship,
     Section,
 )
+from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.infrastructure.llm_adapter import (
     LLMAdapter,
     _CypherResponse,
@@ -34,6 +35,8 @@ from book_graph_rag.ports.cypher_generator_port import (
     CypherGeneratorPort,
 )
 from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
+
+_NAMESPACE = SourceNamespace(corpus="knowledge", source="agentic-architectural-patterns")
 
 _EXTRACTION_JSON = json.dumps(
     {
@@ -299,17 +302,25 @@ async def test_llm_adapter_retries_with_exponential_backoff(
 
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
 
-    adapter = LLMAdapter(settings)
+    adapter = LLMAdapter(settings, _NAMESPACE)
     chunk = _make_chunk()
     result = await adapter.extract_graph(chunk)
 
     assert result is chunk
     assert len(result.entities) == 2
-    assert result.entities[0].id == "agent-pattern-pattern"
-    assert result.entities[1].id == "multi-agent-system-concept"
+    assert result.entities[0].id == (
+        "knowledge:agentic-architectural-patterns:agent-pattern-pattern"
+    )
+    assert result.entities[1].id == (
+        "knowledge:agentic-architectural-patterns:multi-agent-system-concept"
+    )
     assert len(result.relationships) == 1
-    assert result.relationships[0].source_entity_id == "agent-pattern-pattern"
-    assert result.relationships[0].target_entity_id == "multi-agent-system-concept"
+    assert result.relationships[0].source_entity_id == (
+        "knowledge:agentic-architectural-patterns:agent-pattern-pattern"
+    )
+    assert result.relationships[0].target_entity_id == (
+        "knowledge:agentic-architectural-patterns:multi-agent-system-concept"
+    )
     assert factory._instances
     assert len(factory._instances[0].chat.completions.calls) == 3
     assert all(
@@ -363,10 +374,12 @@ async def test_llm_adapter_computes_entity_id_from_name_slug(
         factory,
     )
 
-    adapter = LLMAdapter(settings)
+    adapter = LLMAdapter(settings, _NAMESPACE)
     result = await adapter.extract_graph(_make_chunk())
 
-    assert result.entities[0].id == "agent-pattern-pattern"
+    assert result.entities[0].id == (
+        "knowledge:agentic-architectural-patterns:agent-pattern-pattern"
+    )
     assert result.entities[0].name == "Agent Pattern"
 
 
@@ -382,12 +395,16 @@ async def test_llm_adapter_computes_relationship_ids_from_entity_names(
         factory,
     )
 
-    adapter = LLMAdapter(settings)
+    adapter = LLMAdapter(settings, _NAMESPACE)
     result = await adapter.extract_graph(_make_chunk())
 
     relationship = result.relationships[0]
-    assert relationship.source_entity_id == "agent-pattern-pattern"
-    assert relationship.target_entity_id == "multi-agent-system-concept"
+    assert relationship.source_entity_id == (
+        "knowledge:agentic-architectural-patterns:agent-pattern-pattern"
+    )
+    assert relationship.target_entity_id == (
+        "knowledge:agentic-architectural-patterns:multi-agent-system-concept"
+    )
 
 
 # ── Canonicalization (REQ-CANON-01/02/05, AC-CANON-01/04) ───────────────────
@@ -544,13 +561,13 @@ async def test_extract_graph_populates_aliases_and_canonical_name(
         factory,
     )
 
-    adapter = LLMAdapter(settings)
+    adapter = LLMAdapter(settings, _NAMESPACE)
     chunk = _make_chunk()
     result = await adapter.extract_graph(chunk)
 
     assert len(result.entities) == 1
     entity = result.entities[0]
-    assert entity.id == "model-context-protocol-concept"
+    assert entity.id == ("knowledge:agentic-architectural-patterns:model-context-protocol-concept")
     assert entity.name == "MCP"
     assert entity.canonical_name == "Model Context Protocol"
     assert entity.aliases == ["MCP", "Model Context Protocol"]

@@ -94,6 +94,7 @@ def test_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.community_max_calls == 150
     assert settings.relationship_orphan_policy == "log_orphan"
     assert settings.dead_letter_path_orphans == Path("data/dead_letter_orphans.jsonl")
+    assert settings.catalog_path == Path("catalog.yaml")
 
 
 def test_settings_mcp_values_can_be_overridden(

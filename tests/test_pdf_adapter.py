@@ -10,6 +10,7 @@ import pytest
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import PageRef, Section
+from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter, chunk_text
 
 
@@ -115,6 +116,39 @@ def test_extract_chunks_with_toc_yields_chunks_with_metadata(
         assert chunk.section_ancestors == ()
         assert chunk.page_ref is not None
         assert chunk.page_ref.start <= chunk.page_ref.end
+
+
+def test_extract_chunks_builds_namespaced_book_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A namespace scopes the extracted Book.id to ``corpus:source``."""
+    settings = _make_settings(tmp_path, monkeypatch, pdf_max_chunk_size=2000)
+    namespace = SourceNamespace(corpus="knowledge", source="agentic-architectural-patterns")
+    page_texts = [f"Page {i + 1} " + "x" * 200 for i in range(3)]
+    toc = [(1, "1", 1), (2, "Section 1.1", 1)]
+    pdf_path = _make_pdf(tmp_path, toc, page_texts)
+
+    chunks = list(PDFAdapter(settings, namespace).extract_chunks(str(pdf_path)))
+
+    assert chunks[0].book is not None
+    assert chunks[0].book.id == "knowledge:agentic-architectural-patterns"
+
+
+def test_extract_chunks_falls_back_to_slug_without_namespace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without a namespace the Book.id remains the slugified PDF title."""
+    settings = _make_settings(tmp_path, monkeypatch, pdf_max_chunk_size=2000)
+    page_texts = [f"Page {i + 1} " + "x" * 200 for i in range(3)]
+    toc = [(1, "1", 1), (2, "Section 1.1", 1)]
+    pdf_path = _make_pdf(tmp_path, toc, page_texts)
+
+    chunks = list(PDFAdapter(settings).extract_chunks(str(pdf_path)))
+
+    assert chunks[0].book is not None
+    assert chunks[0].book.id == "test"
 
 
 def test_extract_chunks_builds_nested_section_ancestors(

@@ -26,7 +26,9 @@ from book_graph_rag.domain.models import (
     PathQuery,
     RelationQuery,
 )
+from book_graph_rag.domain.namespaces import SourceNamespace, UnknownNamespaceError
 from book_graph_rag.domain.validation_models import BookScope, SmokeManifest, TargetScope
+from book_graph_rag.infrastructure.catalog_loader import CatalogLoader, CatalogLoadError
 from book_graph_rag.infrastructure.json_evidence_adapter import JSONEvidenceAdapter
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.neo4j_audit_adapter import Neo4jAuditAdapter
@@ -43,12 +45,32 @@ def cli() -> None:
     """book-graph-rag: Knowledge-graph RAG indexer for Agentic Architectural Patterns."""
 
 
+def _resolve_namespace(
+    settings: Settings, corpus: str | None, source: str | None
+) -> SourceNamespace | None:
+    """Resolve the catalog namespace, or ``None`` for legacy non-namespaced ids."""
+    if corpus is None and source is None:
+        return None
+    if corpus is None or source is None:
+        raise click.UsageError("--corpus and --source must be provided together")
+    catalog = CatalogLoader(settings.catalog_path).load()
+    return catalog.resolve_source(corpus, source)
+
+
 @cli.command("index")
 @click.argument("pdf_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-def index(pdf_path: Path) -> None:
+@click.option("--corpus", default=None, help="Catalog corpus that owns the source.")
+@click.option(
+    "--source",
+    default=None,
+    help="Catalog source slug (e.g. agentic-architectural-patterns).",
+)
+def index(pdf_path: Path, corpus: str | None, source: str | None) -> None:
     """Index a PDF book into the knowledge graph.
 
-    PDF_PATH is the book PDF to process.
+    PDF_PATH is the book PDF to process. Pass ``--corpus`` and ``--source``
+    together to scope book/entity ids under a catalog namespace
+    (``corpus:source``); omitting both keeps legacy non-namespaced ids.
     """
     try:
         settings = Settings.model_validate({})
@@ -57,8 +79,18 @@ def index(pdf_path: Path) -> None:
         click.echo(f"Configuration error: {exc}", err=True)
         sys.exit(1)
 
-    pdf_adapter = PDFAdapter(settings)
-    llm_adapter = LLMAdapter(settings)
+    try:
+        namespace = _resolve_namespace(settings, corpus, source)
+    except (UnknownNamespaceError, CatalogLoadError) as exc:
+        click.echo(f"Namespace error: {exc}", err=True)
+        sys.exit(2)
+
+    if namespace is None:
+        pdf_adapter = PDFAdapter(settings)
+        llm_adapter = LLMAdapter(settings)
+    else:
+        pdf_adapter = PDFAdapter(settings, namespace)
+        llm_adapter = LLMAdapter(settings, namespace)
     neo4j_command_adapter = Neo4jCommandAdapter(settings)
 
     use_case = IndexBookUseCase(
@@ -248,9 +280,7 @@ def validate(
         manifest = (
             evidence_adapter.read_smoke_manifest(manifest_path)
             if manifest_path is not None
-            else SmokeManifest(
-                manifest_id="empty", version="1.0.0", book_id=book_id, cases=()
-            )
+            else SmokeManifest(manifest_id="empty", version="1.0.0", book_id=book_id, cases=())
         )
     except Exception as exc:  # noqa: BLE003
         click.echo(f"Manifest error: {exc}", err=True)
