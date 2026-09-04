@@ -494,7 +494,8 @@ async def load_relationship_scope(driver: Any) -> tuple[set[str], dict[str, int]
     OPTIONAL MATCH (src:Entity)-[:RELATED]->(dst:Entity)
     WITH collect(src.id) + collect(dst.id) AS related_ids
     OPTIONAL MATCH ()-[:MENTIONS]->(e:Entity)
-    WITH related_ids + collect(e.id) AS all_ids
+    WITH related_ids, collect(e.id) AS mention_ids
+    WITH related_ids + mention_ids AS all_ids
     UNWIND all_ids AS id
     RETURN collect(DISTINCT id) AS ids
     """
