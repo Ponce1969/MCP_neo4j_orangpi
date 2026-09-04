@@ -63,8 +63,10 @@ Gates are additive; passing one does not waive the others.
 
 ## 5. Explicit non-goals (this work, unless a spec says otherwise)
 
-- **Do not touch OrangePi or any production system.** All specs describe changes to the
-  local repository and its non-production Neo4j. `[VERIFIED]` `AGENTS.md` §7.
+- **Do not touch other projects on the shared Orange Pi host.** This project's only Neo4j is
+  `bookgraph-neo4j` on the Orange Pi (there is no separate local/non-production graph);
+  operating on it is in scope under the safety protocol: fresh backup → dry-run → explicit
+  consent. `[VERIFIED]` `AGENTS.md` §7.
 - **Do not mutate the existing production graph** while validating target behavior.
   Migration specs (02) require dry-run + approval before any write.
 - **No universal external benchmark as a gate.** No external metric (RAGAS, DeepEval,
@@ -76,7 +78,8 @@ Gates are additive; passing one does not waive the others.
 
 ## 6. Production safety rules
 
-1. No phase mutates production before evidence and explicit approval (`roadmap.md`).
+1. No phase mutates the project graph (`bookgraph-neo4j`) before evidence and explicit
+   approval (`roadmap.md`).
 2. Destructive operations (`DELETE`, `DETACH DELETE`, `clear_index`, `docker compose
    down -v`, `DROP`, prune) require explicit human consent and a backup. `[VERIFIED]`
    `AGENTS.md` §7 and `neo4j_command_adapter.py::clear_index`.

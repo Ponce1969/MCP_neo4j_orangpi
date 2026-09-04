@@ -5,9 +5,10 @@
 
 ## 1. Governing rule
 
-**No phase mutates production or expands network exposure before evidence and explicit
-human approval.** Each phase must pass the gates in `00-governance-and-scope.md` §3 and,
-where it changes graph data or exposure, the readiness/security gates in 04/06/07.
+**No phase mutates the project graph (`bookgraph-neo4j`) or expands network exposure before
+evidence and explicit human approval.** Each phase must pass the gates in
+`00-governance-and-scope.md` §3 and, where it changes graph data or exposure, the
+readiness/security gates in 04/06/07.
 
 ## 2. Dependency order
 
@@ -60,8 +61,10 @@ Phase 0 (baseline/evidence)
 
 ## 6. Non-goals of this roadmap
 
-- No Orange Pi / production mutation in any phase before Phase 7, and Phase 7 itself is
-  approval-gated.
+- No mutation of the shared Orange Pi host or of other projects' containers in any phase.
+  Mutating this project's own graph (`bookgraph-neo4j`) is allowed in phases 1–6 under the
+  safety protocol (fresh backup → dry-run → explicit consent); Phase 7 gates network
+  exposure, not graph mutation.
 - No universal-benchmark adoption without a project-owned baseline (06 §2).
 - No automatic re-enabling of the `agentic-patterns` MCP (`AGENTS.md` §6).
 
