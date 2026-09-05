@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from book_graph_rag.domain.checkpoint_models import CheckpointStatus
+from book_graph_rag.domain.checkpoint_models import Checkpoint, CheckpointStatus, VersionDimensions
 
 
 class InvalidCheckpointTransition(Exception):  # noqa: N818
@@ -57,3 +57,14 @@ def transition(
         return
     if (from_state, to_state) not in _ALLOWED_TRANSITIONS:
         raise InvalidCheckpointTransition(from_state, to_state, source_id, chunk_index)
+
+
+def is_stale(record: Checkpoint, current: VersionDimensions) -> bool:
+    """Return True when any version dimension differs from the current run."""
+    record_versions = record.versions
+    return (
+        record_versions.source_version != current.source_version
+        or record_versions.pipeline_version != current.pipeline_version
+        or record_versions.model_version != current.model_version
+        or record_versions.schema_version != current.schema_version
+    )
