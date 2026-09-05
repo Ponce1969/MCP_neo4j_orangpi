@@ -11,6 +11,7 @@ from typing import Any
 from neo4j import AsyncGraphDatabase
 
 from book_graph_rag.config import Settings
+from book_graph_rag.domain.checkpoint_models import Checkpoint, VersionDimensions
 from book_graph_rag.domain.models import (
     Book,
     Chapter,
@@ -300,6 +301,18 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                         "book_id": book_id,
                     },
                 )
+
+    async def commit_chunk_atomic(
+        self,
+        chunk: KnowledgeGraphChunk,
+        entity_ids: list[str],
+        versions: VersionDimensions,
+        *,
+        attempt: int = 1,
+        lease_owned: bool = True,
+    ) -> Checkpoint:
+        """Persist one chunk's writes + checkpoint row in a single transaction."""
+        raise NotImplementedError("commit_chunk_atomic is implemented in Phase 2 infrastructure")
 
     async def clear_index(self) -> None:
         """Delete every index-created node and edge while preserving :User/:Config.

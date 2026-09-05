@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import book_graph_rag.ports as ports
+from book_graph_rag.domain.checkpoint_models import Checkpoint, VersionDimensions
 from book_graph_rag.domain.models import (
     Book,
     Chapter,
@@ -77,6 +78,17 @@ class _DummyGraphDB(GraphDatabasePort):
     async def count_mentions(self) -> int:
         return 0
 
+    async def commit_chunk_atomic(
+        self,
+        chunk: KnowledgeGraphChunk,
+        entity_ids: list[str],
+        versions: VersionDimensions,
+        *,
+        attempt: int = 1,
+        lease_owned: bool = True,
+    ) -> Checkpoint:
+        raise NotImplementedError
+
 
 class _DummyPDF(PDFReaderPort):
     def extract_chunks(self, file_path: str) -> Iterator[KnowledgeGraphChunk]:
@@ -122,6 +134,17 @@ class _DummyGraphDBMissingBook(GraphDatabasePort):
     async def count_mentions(self) -> int:
         return 0
 
+    async def commit_chunk_atomic(
+        self,
+        chunk: KnowledgeGraphChunk,
+        entity_ids: list[str],
+        versions: VersionDimensions,
+        *,
+        attempt: int = 1,
+        lease_owned: bool = True,
+    ) -> Checkpoint:
+        raise NotImplementedError
+
 
 def test_graph_db_port_missing_upsert_book_raises() -> None:
     with pytest.raises(TypeError):
@@ -160,6 +183,17 @@ def test_graph_db_port_complete_subclass_can_be_instantiated() -> None:
 
         async def count_mentions(self) -> int:
             return 0
+
+        async def commit_chunk_atomic(
+            self,
+            chunk: KnowledgeGraphChunk,
+            entity_ids: list[str],
+            versions: VersionDimensions,
+            *,
+            attempt: int = 1,
+            lease_owned: bool = True,
+        ) -> Checkpoint:
+            raise NotImplementedError
 
     db = CompleteGraphDB()
     assert db is not None
@@ -214,6 +248,9 @@ class _DummyDeadLetter(DeadLetterPort):
         self.records: list[dict[str, object]] = []
 
     async def write_orphan_relationship(self, record: dict[str, object]) -> None:
+        self.records.append(record)
+
+    async def write_failed_chunk(self, record: dict[str, object]) -> None:
         self.records.append(record)
 
 

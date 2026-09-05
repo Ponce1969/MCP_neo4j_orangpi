@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import get_type_hints
 
 from book_graph_rag.application.index_book_use_case import IndexBookUseCase
+from book_graph_rag.domain.checkpoint_models import Checkpoint, VersionDimensions
 from book_graph_rag.domain.models import (
     Book,
     Chapter,
@@ -140,6 +141,17 @@ class _FakeGraphDBPort(GraphDatabasePort):
 
     async def count_mentions(self) -> int:
         return 0
+
+    async def commit_chunk_atomic(
+        self,
+        chunk: KnowledgeGraphChunk,
+        entity_ids: list[str],
+        versions: VersionDimensions,
+        *,
+        attempt: int = 1,
+        lease_owned: bool = True,
+    ) -> Checkpoint:
+        raise NotImplementedError
 
 
 def _make_book() -> Book:

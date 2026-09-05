@@ -5,6 +5,7 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass
 
+from book_graph_rag.domain.checkpoint_models import Checkpoint, VersionDimensions
 from book_graph_rag.domain.models import (
     Book,
     Chapter,
@@ -62,6 +63,25 @@ class GraphDatabasePort(abc.ABC):
     ) -> None:
         """Persist the book's hierarchical editorial structure (chapter →
         section → chunk) with their page references. Idempotent via MERGE.
+        """
+        ...
+
+    @abc.abstractmethod
+    async def commit_chunk_atomic(
+        self,
+        chunk: KnowledgeGraphChunk,
+        entity_ids: list[str],
+        versions: VersionDimensions,
+        *,
+        attempt: int = 1,
+        lease_owned: bool = True,
+    ) -> Checkpoint:
+        """Persist one chunk's writes + checkpoint row in a single transaction.
+
+        Writes: editorial structure, entities, relationships (with orphan
+        handling), mentions, AND the checkpoint row transition to PROCESSED.
+        All-or-nothing — if any write fails, the transaction is rolled back and
+        the checkpoint stays in PROCESSING/FAILED.
         """
         ...
 

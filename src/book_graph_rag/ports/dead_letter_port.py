@@ -23,3 +23,12 @@ class DeadLetterPort(abc.ABC):
         SHOULD add a ``timestamp`` field before persisting.
         """
         ...
+
+    @abc.abstractmethod
+    async def write_failed_chunk(self, record: dict[str, Any]) -> None:
+        """Append a re-addressable failed-chunk record.
+
+        The caller is responsible for supplying the design §1.3 fields;
+        implementations SHOULD add a ``timestamp`` if missing.
+        """
+        ...

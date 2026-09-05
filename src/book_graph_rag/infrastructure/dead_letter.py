@@ -31,6 +31,10 @@ class JSONLDeadLetter(DeadLetterPort):
             None, self._sync_append, enriched
         )
 
+    async def write_failed_chunk(self, record: dict[str, Any]) -> None:
+        """Append a failed-chunk record (full implementation in Phase 2 infra)."""
+        raise NotImplementedError("write_failed_chunk is implemented in Phase 2 infrastructure")
+
     def _sync_append(self, record: dict[str, Any]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._path.open("a", encoding="utf-8") as f:
