@@ -1,8 +1,13 @@
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_SEMVER_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
+_ISO_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 LLMRole = Literal["graph", "query"]
 
@@ -78,6 +83,16 @@ class Settings(BaseSettings):
 
     # ── Text2Cypher fallback (REQ-GR.4) ───────────────────────────────────
     text2cypher_timeout: int = 10  # seconds, whole pipeline budget
+
+    # ── Checkpoint / resumable indexing (Phase 2) ─────────────────────────
+    checkpoint_enabled: bool = True
+    checkpoint_stale_lease_seconds: int = 300
+    checkpoint_max_attempts: int = 3
+    pipeline_version: str = "1.0.0"
+    schema_version: str = "1.0.0"
+    graph_llm_model_date: str = "2026-09-01"
+    # Distinct path for re-addressable failed-chunk dead-letter records.
+    dead_letter_path_chunks: Path = Path("data/dead_letter_chunks.jsonl")
 
     # ── Community summaries (REQ-GR.1) ────────────────────────────────────
     max_cluster_size: int = 10
@@ -155,6 +170,40 @@ class Settings(BaseSettings):
     def _validate_canonical_fuzzy_threshold(cls, value: float) -> float:
         if not 0.5 <= value <= 1.0:
             raise ValueError(f"canonical_fuzzy_threshold ({value}) debe estar entre 0.5 y 1.0")
+        return value
+
+    @field_validator("checkpoint_stale_lease_seconds")
+    @classmethod
+    def _validate_checkpoint_stale_lease_seconds(cls, value: int) -> int:
+        if not 10 <= value <= 86_400:
+            raise ValueError(
+                f"checkpoint_stale_lease_seconds ({value}) must be between 10 and 86400"
+            )
+        return value
+
+    @field_validator("checkpoint_max_attempts")
+    @classmethod
+    def _validate_checkpoint_max_attempts(cls, value: int) -> int:
+        if not 1 <= value <= 10:
+            raise ValueError(f"checkpoint_max_attempts ({value}) must be between 1 and 10")
+        return value
+
+    @field_validator("pipeline_version", "schema_version")
+    @classmethod
+    def _validate_semantic_version(cls, value: str) -> str:
+        if not _SEMVER_PATTERN.match(value):
+            raise ValueError(f"version ({value!r}) must match semver x.y.z")
+        return value
+
+    @field_validator("graph_llm_model_date")
+    @classmethod
+    def _validate_graph_llm_model_date(cls, value: str) -> str:
+        if not _ISO_DATE_PATTERN.match(value):
+            raise ValueError(f"graph_llm_model_date ({value!r}) must be yyyy-mm-dd")
+        try:
+            datetime.strptime(value, "%Y-%m-%d")  # noqa: DTZ007
+        except ValueError as exc:
+            raise ValueError(f"graph_llm_model_date ({value!r}) is not a valid date") from exc
         return value
 
     @model_validator(mode="after")
