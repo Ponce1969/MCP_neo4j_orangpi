@@ -115,3 +115,14 @@ class GraphDatabasePort(abc.ABC):
     async def count_mentions(self) -> int:
         """Return the number of ``(:Chunk)-[:MENTIONS]->(:Entity)`` edges."""
         ...
+
+    async def fetch_backfill_candidates(self, source_id: str) -> list[int]:
+        """Return chunk indices that have at least one ``(:Chunk)-[:MENTIONS]->(:Entity)`` edge.
+
+        This is a migration helper for ``--backfill-checkpoints``. The default
+        implementation raises ``NotImplementedError``; concrete adapters may
+        override it to scan the graph for backfill-eligible chunks.
+        """
+        raise NotImplementedError(
+            "fetch_backfill_candidates is not implemented by this GraphDatabasePort"
+        )

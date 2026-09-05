@@ -266,3 +266,56 @@ class Neo4jCheckpointAdapter(CheckpointPort):
             if record is None:
                 return 0
             return int(record["changed"])
+
+    async def backfill_processed(
+        self, source_id: str, chunk_indices: list[int], versions: VersionDimensions
+    ) -> list[Checkpoint]:
+        """Create PROCESSED checkpoints for legacy chunks without graph writes."""
+        async with self._driver.session() as session:
+            result: list[Checkpoint] = await session.execute_write(
+                self._backfill_processed_tx,
+                source_id=source_id,
+                chunk_indices=chunk_indices,
+                versions=versions,
+            )
+        return result
+
+    @staticmethod
+    async def _backfill_processed_tx(
+        tx: Any,
+        *,
+        source_id: str,
+        chunk_indices: list[int],
+        versions: VersionDimensions,
+    ) -> list[Checkpoint]:
+        result = await tx.run(
+            """
+            UNWIND $chunk_indices AS chunk_index
+            MERGE (c:Checkpoint {source_id: $source_id, chunk_index: chunk_index})
+            ON CREATE SET c.created_at = datetime(), c.attempt = 1
+            ON MATCH SET c.attempt = coalesce(c.attempt, 1)
+            SET c.status = 'PROCESSED',
+                c.source_version = $source_version,
+                c.pipeline_version = $pipeline_version,
+                c.model_version = $model_version,
+                c.schema_version = $schema_version,
+                c.processed_at = datetime(),
+                c.leased_at = null,
+                c.error_type = null,
+                c.error_message = null,
+                c.updated_at = datetime()
+            RETURN c
+            """,
+            {
+                "source_id": source_id,
+                "chunk_indices": chunk_indices,
+                "source_version": versions.source_version,
+                "pipeline_version": versions.pipeline_version,
+                "model_version": versions.model_version,
+                "schema_version": versions.schema_version,
+            },
+        )
+        checkpoints: list[Checkpoint] = []
+        async for record in result:
+            checkpoints.append(Neo4jCheckpointAdapter._node_to_checkpoint(record["c"]))
+        return checkpoints

@@ -668,3 +668,19 @@ class Neo4jCommandAdapter(GraphDatabasePort):
             if record is None:
                 return 0
             return int(record["c"])
+
+    async def fetch_backfill_candidates(self, source_id: str) -> list[int]:
+        """Return chunk indices with at least one outgoing MENTIONS edge."""
+        async with self._driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (k:Chunk {source_id: $source_id})-[:MENTIONS]->(:Entity)
+                RETURN k.chunk_index AS chunk_index
+                ORDER BY k.chunk_index
+                """,
+                {"source_id": source_id},
+            )
+            indices: list[int] = []
+            async for record in result:
+                indices.append(int(record["chunk_index"]))
+            return indices

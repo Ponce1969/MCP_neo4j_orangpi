@@ -63,3 +63,16 @@ class CheckpointPort(abc.ABC):
         Returns the number of leases reclaimed.
         """
         ...
+
+    async def backfill_processed(
+        self, source_id: str, chunk_indices: list[int], versions: VersionDimensions
+    ) -> list[Checkpoint]:
+        """Create ``PROCESSED`` checkpoints for legacy chunks.
+
+        This is a migration helper for graphs that pre-date Phase 2. The default
+        implementation raises ``NotImplementedError``; concrete adapters may
+        override it to write checkpoints without re-emitting graph writes.
+        """
+        raise NotImplementedError(
+            "backfill_processed is not implemented by this CheckpointPort"
+        )
