@@ -571,11 +571,28 @@ class Neo4jCommandAdapter(GraphDatabasePort):
 
         return checkpoint  # type: ignore[no-any-return]
 
+    async def ensure_indexes(self) -> None:
+        """Create command-side constraints idempotently.
+
+        Currently creates the uniqueness constraint that underpins the durable
+        checkpoint key ``(source_id, chunk_index)``. ``IF NOT EXISTS`` makes
+        the call safe to repeat.
+        """
+        async with self._driver.session() as session:
+            await session.run(
+                """
+                CREATE CONSTRAINT checkpoint_unique IF NOT EXISTS
+                FOR (c:Checkpoint)
+                REQUIRE (c.source_id, c.chunk_index) IS UNIQUE
+                """
+            )
+
     async def clear_index(self) -> None:
         """Delete every index-created node and edge while preserving :User/:Config.
 
         Edges are deleted first to avoid leaving orphaned relationships, then
-        nodes are detached and removed in a fixed order.
+        nodes are detached and removed in a fixed order. ``:Checkpoint`` rows
+        are also removed because they are pure indexing metadata.
         """
         edge_types = (
             "MENTIONS",
