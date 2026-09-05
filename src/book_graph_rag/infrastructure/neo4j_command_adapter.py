@@ -626,6 +626,12 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                     DETACH DELETE n
                     """
                 )
+            await session.run(
+                """
+                MATCH (c:Checkpoint)
+                DETACH DELETE c
+                """
+            )
 
     async def _count_label(self, label: str) -> int:
         """Return the number of nodes with the given label."""
