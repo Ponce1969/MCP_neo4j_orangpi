@@ -4,17 +4,30 @@ The use case implements a streaming producer/consumer pipeline with bounded
 concurrency (asyncio.Semaphore) and mini-batch persistence
 (asyncio.Queue + sentinel). Failed chunks are written to a dead-letter log
 (JSONL) and skipped without aborting the pipeline.
+
+Phase 2 adds resumable indexing: when a ``CheckpointPort`` is supplied and
+``checkpoint_enabled`` is true, the use case skips already-``PROCESSED`` chunks,
+acquires per-chunk leases, and persists each chunk atomically via
+``commit_chunk_atomic``.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 
+from book_graph_rag.domain.checkpoint_models import (
+    CheckpointStatus,
+    FailedChunkRecord,
+    VersionDimensions,
+)
 from book_graph_rag.domain.models import Entity, KnowledgeGraphChunk, Relationship
+from book_graph_rag.ports.checkpoint_port import CheckpointPort
+from book_graph_rag.ports.dead_letter_port import DeadLetterPort
 from book_graph_rag.ports.graph_db_port import GraphDatabasePort
 from book_graph_rag.ports.llm_port import LLMProviderPort
 from book_graph_rag.ports.pdf_port import PDFReaderPort
@@ -37,6 +50,13 @@ class IndexBookUseCase:
         max_concurrency: int,
         batch_size: int,
         dead_letter_path: Path,
+        checkpoint_port: CheckpointPort | None = None,
+        dead_letter_port: DeadLetterPort | None = None,
+        versions: VersionDimensions | None = None,
+        checkpoint_enabled: bool = False,
+        resume: bool = True,
+        max_attempts: int = 3,
+        stale_lease_seconds: int = 300,
     ) -> None:
         self._pdf_port = pdf_port
         self._llm_port = llm_port
@@ -44,6 +64,13 @@ class IndexBookUseCase:
         self._max_concurrency = max_concurrency
         self._batch_size = batch_size
         self._dead_letter_path = dead_letter_path
+        self._checkpoint_port = checkpoint_port
+        self._dead_letter_port = dead_letter_port
+        self._versions = versions
+        self._checkpoint_enabled = checkpoint_enabled
+        self._resume = resume
+        self._max_attempts = max_attempts
+        self._stale_lease_seconds = stale_lease_seconds
 
     async def execute(self, pdf_path: str) -> None:
         """Index ``pdf_path`` into the graph database.
@@ -54,15 +81,14 @@ class IndexBookUseCase:
            This trades lazy iteration for a deterministic trigger point for
            ``upsert_book`` (the first chunk already carries the ``Book``).
         2. Upsert the book once, if any chunk references one.
-        3. Spawn producer tasks that call the LLM port under a semaphore.
-        4. A single consumer coroutine drains an ``asyncio.Queue``, batches
-           ``batch_size`` extracted chunks, and flushes them to the graph DB.
-        5. Failed chunks are written to ``dead_letter_path`` and skipped.
+        3. If checkpointing is enabled, run the Phase 2 lease-orchestration
+           loop: mark stale rows, reclaim stale leases, short-circuit
+           ``PROCESSED`` chunks, and atomically commit the rest.
+        4. Otherwise fall back to the legacy batch-flush path.
+        5. Failed chunks are written to the configured dead-letter sink and
+           skipped.
         """
         chunk_iter: Iterator[KnowledgeGraphChunk] = self._pdf_port.extract_chunks(pdf_path)
-        # We materialise the iterator so that:
-        #   (a) the consumer works with an async-safe list, and
-        #   (b) ``upsert_book`` can be triggered before any LLM work begins.
         chunks: list[KnowledgeGraphChunk] = list(chunk_iter)
 
         if not chunks:
@@ -72,6 +98,117 @@ class IndexBookUseCase:
         if first_chunk.book is not None:
             await self._graph_db_port.upsert_book(first_chunk.book)
 
+        if self._checkpoint_enabled and self._checkpoint_port is not None:
+            await self._execute_resumable(chunks)
+        else:
+            await self._execute_legacy(chunks)
+
+    async def _execute_resumable(self, chunks: list[KnowledgeGraphChunk]) -> None:
+        """Phase 2 per-chunk lease orchestration."""
+        assert self._checkpoint_port is not None
+        assert self._versions is not None
+
+        first_chunk = chunks[0]
+        if first_chunk.book is None:
+            raise ValueError("Resumable indexing requires chunks that reference a Book")
+        source_id = first_chunk.book.id
+
+        if self._resume:
+            await self._checkpoint_port.mark_stale_and_reset(source_id, self._versions)
+            await self._checkpoint_port.reclaim_stale_leases(
+                source_id, datetime.now(UTC), self._stale_lease_seconds
+            )
+            state = await self._checkpoint_port.fetch_state(
+                source_id, [chunk.chunk_index for chunk in chunks]
+            )
+        else:
+            state = {}
+
+        semaphore = asyncio.Semaphore(self._max_concurrency)
+        tasks: list[asyncio.Task[None]] = []
+        for chunk in chunks:
+            checkpoint = state.get(chunk.chunk_index)
+            if checkpoint is not None and checkpoint.status == CheckpointStatus.PROCESSED:
+                continue
+            tasks.append(
+                asyncio.create_task(self._process_chunk(chunk, source_id, semaphore))
+            )
+
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, BaseException):
+                    # Unhandled errors are logged but do not crash the pipeline.
+                    continue
+
+    async def _process_chunk(
+        self,
+        chunk: KnowledgeGraphChunk,
+        source_id: str,
+        semaphore: asyncio.Semaphore,
+    ) -> None:
+        """Acquire lease, extract, commit; on any failure transition to FAILED."""
+        assert self._checkpoint_port is not None
+        assert self._versions is not None
+        lease = await self._checkpoint_port.acquire_lease(
+            source_id, chunk.chunk_index, self._versions
+        )
+        attempt = lease.checkpoint.attempt + 1
+
+        async with semaphore:
+            try:
+                extracted = await self._llm_port.extract_graph(chunk)
+            except Exception as error:  # noqa: BLE001 - chunk errors are recoverable per spec
+                await self._fail_chunk(chunk, source_id, attempt, error)
+                return
+
+        entity_ids = [entity.id for entity in extracted.entities]
+        try:
+            await self._graph_db_port.commit_chunk_atomic(
+                extracted,
+                entity_ids,
+                self._versions,
+                attempt=attempt,
+                lease_owned=True,
+            )
+        except Exception as error:  # noqa: BLE001
+            await self._fail_chunk(chunk, source_id, attempt, error)
+
+    async def _fail_chunk(
+        self,
+        chunk: KnowledgeGraphChunk,
+        source_id: str,
+        attempt: int,
+        error: Exception,
+    ) -> None:
+        """Release the lease to FAILED and append a re-addressable dead-letter record."""
+        assert self._checkpoint_port is not None
+        assert self._versions is not None
+        error_type = type(error).__name__
+        error_message = str(error)
+        with contextlib.suppress(Exception):
+            await self._checkpoint_port.release_lease_to_failed(
+                source_id, chunk.chunk_index, error_type, error_message, attempt
+            )
+
+        if self._dead_letter_port is not None:
+            record = FailedChunkRecord(
+                source_id=source_id,
+                chunk_index=chunk.chunk_index,
+                page_ref=chunk.page_ref,
+                source_version=self._versions.source_version,
+                pipeline_version=self._versions.pipeline_version,
+                model_version=self._versions.model_version,
+                schema_version=self._versions.schema_version,
+                attempt=attempt,
+                checkpoint_status=CheckpointStatus.FAILED,
+                error_type=error_type,
+                error_message=error_message,
+            )
+            await self._dead_letter_port.write_failed_chunk(record.model_dump(mode="json"))
+
+    async def _execute_legacy(self, chunks: list[KnowledgeGraphChunk]) -> None:
+        """Pre-Phase 2 batch-flush path, preserved for ``--no-resume`` callers."""
         queue: asyncio.Queue[KnowledgeGraphChunk | None] = asyncio.Queue()
         semaphore = asyncio.Semaphore(self._max_concurrency)
 
