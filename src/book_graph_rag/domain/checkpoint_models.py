@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from book_graph_rag.domain.models import PageRef
 
 
 class CheckpointStatus(StrEnum):
@@ -45,3 +48,56 @@ class Checkpoint(BaseModel):
     error_type: str | None = None
     error_message: str | None = None
     updated_at: datetime
+
+
+class LeaseResult(BaseModel):
+    """Result of acquiring or refreshing a checkpoint lease."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    checkpoint: Checkpoint
+    is_new_lease: bool
+
+
+class ReplayableChunk(BaseModel):
+    """Minimal information needed to re-queue a failed chunk."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    source_id: str
+    chunk_index: int
+    versions: VersionDimensions
+
+
+class FailedChunkRecord(BaseModel):
+    """Re-addressable dead-letter record for a failed chunk."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    source_id: str
+    chunk_index: int = Field(ge=0)
+    page_ref: PageRef
+    source_version: str
+    pipeline_version: str
+    model_version: str
+    schema_version: str
+    attempt: int = Field(ge=0)
+    checkpoint_status: CheckpointStatus
+    error_type: str
+    error_message: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+def parse_failed_chunk(record: dict[str, Any]) -> ReplayableChunk:
+    """Extract the replayable identity from a failed-chunk dead-letter record."""
+    parsed = FailedChunkRecord.model_validate(record)
+    return ReplayableChunk(
+        source_id=parsed.source_id,
+        chunk_index=parsed.chunk_index,
+        versions=VersionDimensions(
+            source_version=parsed.source_version,
+            pipeline_version=parsed.pipeline_version,
+            model_version=parsed.model_version,
+            schema_version=parsed.schema_version,
+        ),
+    )
