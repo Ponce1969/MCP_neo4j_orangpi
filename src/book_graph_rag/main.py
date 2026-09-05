@@ -13,12 +13,19 @@ from uuid import uuid4
 import click
 
 from book_graph_rag.application.audit_graph_use_case import AuditGraphUseCase, build_audit_target
+from book_graph_rag.application.backfill_checkpoints_use_case import (
+    BackfillCheckpointsUseCase,
+)
 from book_graph_rag.application.index_book_use_case import IndexBookUseCase
 from book_graph_rag.application.query_knowledge_graph_use_case import (
     QueryKnowledgeGraphUseCase,
 )
+from book_graph_rag.application.replay_dead_letter_use_case import (
+    ReplayDeadLetterUseCase,
+)
 from book_graph_rag.application.validate_graph_use_case import ValidateGraphUseCase
 from book_graph_rag.config import Settings, validate_llm_provider_settings
+from book_graph_rag.domain.checkpoint_models import ReplayCommand
 from book_graph_rag.domain.models import (
     BatchEntityQuery,
     EntityQuery,
@@ -29,14 +36,17 @@ from book_graph_rag.domain.models import (
 from book_graph_rag.domain.namespaces import SourceNamespace, UnknownNamespaceError
 from book_graph_rag.domain.validation_models import BookScope, SmokeManifest, TargetScope
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader, CatalogLoadError
+from book_graph_rag.infrastructure.dead_letter import JSONLDeadLetter
 from book_graph_rag.infrastructure.json_evidence_adapter import JSONEvidenceAdapter
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.neo4j_audit_adapter import Neo4jAuditAdapter
+from book_graph_rag.infrastructure.neo4j_checkpoint_adapter import Neo4jCheckpointAdapter
 from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdapter
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.infrastructure.neo4j_retrieval_smoke_adapter import Neo4jRetrievalSmokeAdapter
 from book_graph_rag.infrastructure.neo4j_validation_adapter import Neo4jValidationAdapter
 from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter
+from book_graph_rag.infrastructure.version_dimensions import compute_version_dimensions
 
 
 @click.group()
@@ -65,12 +75,79 @@ def _resolve_namespace(
     default=None,
     help="Catalog source slug (e.g. agentic-architectural-patterns).",
 )
-def index(pdf_path: Path, corpus: str | None, source: str | None) -> None:
+@click.option(
+    "--resume/--no-resume",
+    default=True,
+    show_default=True,
+    help="Resume skipping already-PROCESSED chunks (default), or one-shot legacy flush.",
+)
+@click.option(
+    "--replay-dead-letter",
+    is_flag=True,
+    default=False,
+    help="Re-process failed chunks recorded in the dead-letter JSONL.",
+)
+@click.option(
+    "--backfill-checkpoints",
+    is_flag=True,
+    default=False,
+    help="Backfill :Checkpoint rows for a legacy graph.",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Maximum number of dead-letter records to replay (only with --replay-dead-letter).",
+)
+@click.option(
+    "--source-id",
+    default=None,
+    help="Target source id (corpus:source) for replay or backfill.",
+)
+@click.option(
+    "--dry-run/--apply",
+    default=False,
+    show_default=True,
+    help=(
+        "Dry-run reports candidates; --apply writes checkpoints "
+        "(only with --backfill-checkpoints)."
+    ),
+)
+@click.option(
+    "--approval",
+    "approval_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Approval file for destructive operations.",
+)
+@click.option(
+    "--force-reprocess",
+    is_flag=True,
+    default=False,
+    help="Allow replay to overwrite currently-PROCESSED chunks.",
+)
+def index(
+    pdf_path: Path,
+    corpus: str | None,
+    source: str | None,
+    resume: bool,
+    replay_dead_letter: bool,
+    backfill_checkpoints: bool,
+    limit: int | None,
+    source_id: str | None,
+    dry_run: bool,
+    approval_path: Path | None,
+    force_reprocess: bool,
+) -> None:
     """Index a PDF book into the knowledge graph.
 
     PDF_PATH is the book PDF to process. Pass ``--corpus`` and ``--source``
     together to scope book/entity ids under a catalog namespace
     (``corpus:source``); omitting both keeps legacy non-namespaced ids.
+
+    Phase 2 adds resumable indexing, dead-letter replay, and checkpoint
+    backfill. Use ``--replay-dead-letter`` or ``--backfill-checkpoints`` to
+    run the corresponding admin command.
     """
     try:
         settings = Settings.model_validate({})
@@ -85,6 +162,42 @@ def index(pdf_path: Path, corpus: str | None, source: str | None) -> None:
         click.echo(f"Namespace error: {exc}", err=True)
         sys.exit(2)
 
+    if replay_dead_letter and backfill_checkpoints:
+        raise click.UsageError(
+            "--replay-dead-letter and --backfill-checkpoints are mutually exclusive"
+        )
+    if replay_dead_letter and not resume:
+        raise click.UsageError(
+            "--replay-dead-letter cannot be combined with --no-resume"
+        )
+    if backfill_checkpoints and not resume:
+        raise click.UsageError(
+            "--backfill-checkpoints cannot be combined with --no-resume"
+        )
+    if limit is not None and not replay_dead_letter:
+        raise click.UsageError("--limit is only valid with --replay-dead-letter")
+    if limit is not None and limit < 1:
+        raise click.UsageError("--limit must be a positive integer")
+    if dry_run and not backfill_checkpoints:
+        raise click.UsageError("--dry-run is only valid with --backfill-checkpoints")
+
+    if replay_dead_letter:
+        mode = "replay_dead_letter"
+    elif backfill_checkpoints:
+        mode = "backfill_checkpoints"
+    elif resume:
+        mode = "resume"
+    else:
+        mode = "no_resume"
+
+    command = ReplayCommand(
+        mode=mode,  # type: ignore[arg-type]
+        force_reprocess=force_reprocess,
+        limit=limit,
+        source_id=source_id,
+        dry_run=dry_run,
+    )
+
     if namespace is None:
         pdf_adapter = PDFAdapter(settings)
         llm_adapter = LLMAdapter(settings)
@@ -93,16 +206,130 @@ def index(pdf_path: Path, corpus: str | None, source: str | None) -> None:
         llm_adapter = LLMAdapter(settings, namespace)
     neo4j_command_adapter = Neo4jCommandAdapter(settings)
 
-    use_case = IndexBookUseCase(
-        pdf_port=pdf_adapter,
-        llm_port=llm_adapter,
-        graph_db_port=neo4j_command_adapter,
-        max_concurrency=settings.llm_max_concurrency,
-        batch_size=settings.processing_batch_size,
-        dead_letter_path=settings.dead_letter_path,
+    effective_source_id = command.source_id or (
+        namespace.source_id if namespace is not None else None
     )
 
-    asyncio.run(use_case.execute(str(pdf_path)))
+    checkpoint_enabled = bool(getattr(settings, "checkpoint_enabled", False))
+    versions = None
+    if checkpoint_enabled or command.mode in {"replay_dead_letter", "backfill_checkpoints"}:
+        versions = compute_version_dimensions(pdf_path.read_bytes(), settings)
+
+    if command.mode in {"resume", "no_resume"}:
+        if checkpoint_enabled and versions is not None:
+            checkpoint_adapter = Neo4jCheckpointAdapter(settings)
+            dead_letter_port = JSONLDeadLetter(
+                settings.dead_letter_path, settings.dead_letter_path_chunks
+            )
+            index_use_case = IndexBookUseCase(
+                pdf_port=pdf_adapter,
+                llm_port=llm_adapter,
+                graph_db_port=neo4j_command_adapter,
+                max_concurrency=settings.llm_max_concurrency,
+                batch_size=settings.processing_batch_size,
+                dead_letter_path=settings.dead_letter_path,
+                checkpoint_port=checkpoint_adapter,
+                dead_letter_port=dead_letter_port,
+                versions=versions,
+                checkpoint_enabled=True,
+                resume=command.mode == "resume",
+                max_attempts=getattr(settings, "checkpoint_max_attempts", 3),
+                stale_lease_seconds=getattr(
+                    settings, "checkpoint_stale_lease_seconds", 300
+                ),
+            )
+        else:
+            index_use_case = IndexBookUseCase(
+                pdf_port=pdf_adapter,
+                llm_port=llm_adapter,
+                graph_db_port=neo4j_command_adapter,
+                max_concurrency=settings.llm_max_concurrency,
+                batch_size=settings.processing_batch_size,
+                dead_letter_path=settings.dead_letter_path,
+            )
+
+        asyncio.run(index_use_case.execute(str(pdf_path)))
+        return
+
+    if command.mode == "replay_dead_letter":
+        if versions is None:
+            raise click.UsageError("Could not compute version dimensions")
+
+        checkpoint_adapter = Neo4jCheckpointAdapter(settings)
+        dead_letter_port = JSONLDeadLetter(
+            settings.dead_letter_path, settings.dead_letter_path_chunks
+        )
+        chunks = list(pdf_adapter.extract_chunks(str(pdf_path)))
+        chunk_by_index = {chunk.chunk_index: chunk for chunk in chunks}
+
+        async def chunk_loader(source_id_param: str, chunk_index: int) -> Any:
+            try:
+                return chunk_by_index[chunk_index]
+            except KeyError as exc:
+                raise ValueError(
+                    f"Chunk {chunk_index} not found in {pdf_path}"
+                ) from exc
+
+        replay_use_case = ReplayDeadLetterUseCase(
+            checkpoint_port=checkpoint_adapter,
+            graph_db_port=neo4j_command_adapter,
+            llm_port=llm_adapter,
+            dead_letter_port=dead_letter_port,
+            versions=versions,
+            chunk_loader=chunk_loader,
+            dead_letter_path=settings.dead_letter_path_chunks,
+            max_attempts=getattr(settings, "checkpoint_max_attempts", 3),
+        )
+
+        try:
+            try:
+                processed = asyncio.run(
+                    replay_use_case.execute(
+                        source_id=effective_source_id,
+                        limit=command.limit,
+                        force_reprocess=command.force_reprocess,
+                    )
+                )
+            finally:
+                asyncio.run(replay_use_case.close())
+        except Exception as exc:  # noqa: BLE001
+            click.echo(f"Replay error: {exc}", err=True)
+            sys.exit(3)
+        click.echo(f"Replayed {processed} dead-letter chunk(s)")
+        return
+
+    if command.mode == "backfill_checkpoints":
+        if effective_source_id is None:
+            raise click.UsageError(
+                "--source-id is required for --backfill-checkpoints"
+            )
+        if versions is None:
+            raise click.UsageError("Could not compute version dimensions")
+
+        checkpoint_adapter = Neo4jCheckpointAdapter(settings)
+        backfill_use_case = BackfillCheckpointsUseCase(
+            checkpoint_port=checkpoint_adapter,
+            graph_db_port=neo4j_command_adapter,
+            versions=versions,
+            run_id=f"cli-{uuid4().hex[:12]}",
+        )
+
+        try:
+            try:
+                report = asyncio.run(
+                    backfill_use_case.execute(
+                        effective_source_id,
+                        apply=not command.dry_run,
+                        approval_path=approval_path,
+                    )
+                )
+            finally:
+                asyncio.run(backfill_use_case.close())
+        except Exception as exc:  # noqa: BLE001
+            click.echo(f"Backfill error: {exc}", err=True)
+            sys.exit(3)
+        click.echo(report.model_dump_json(indent=2))
+        return
 
 
 def _build_graph_query(query_type: str, params: dict[str, Any]) -> GraphQueryUnion:
