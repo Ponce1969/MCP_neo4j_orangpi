@@ -16,11 +16,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 from collections.abc import Iterator
 from datetime import UTC, datetime, timezone
 from pathlib import Path
 
 from book_graph_rag.domain.checkpoint_models import (
+    Checkpoint,
     CheckpointStatus,
     FailedChunkRecord,
     VersionDimensions,
@@ -57,6 +59,7 @@ class IndexBookUseCase:
         resume: bool = True,
         max_attempts: int = 3,
         stale_lease_seconds: int = 300,
+        force_reprocess: bool = False,
     ) -> None:
         self._pdf_port = pdf_port
         self._llm_port = llm_port
@@ -71,6 +74,15 @@ class IndexBookUseCase:
         self._resume = resume
         self._max_attempts = max_attempts
         self._stale_lease_seconds = stale_lease_seconds
+        self._force_reprocess = force_reprocess
+        self._logger = logging.getLogger(__name__)
+
+    async def close(self) -> None:
+        """Close any closable ports held by the use case."""
+        for port in (self._graph_db_port, self._checkpoint_port, self._dead_letter_port):
+            if port is not None and hasattr(port, "close"):
+                with contextlib.suppress(Exception):
+                    await port.close()
 
     async def execute(self, pdf_path: str) -> None:
         """Index ``pdf_path`` into the graph database.
@@ -121,6 +133,7 @@ class IndexBookUseCase:
             state = await self._checkpoint_port.fetch_state(
                 source_id, [chunk.chunk_index for chunk in chunks]
             )
+            state = await self._maybe_force_reprocess(source_id, state)
         else:
             state = {}
 
@@ -138,6 +151,42 @@ class IndexBookUseCase:
                 if isinstance(result, BaseException):
                     # Unhandled errors are logged but do not crash the pipeline.
                     continue
+
+    async def _maybe_force_reprocess(
+        self, source_id: str, state: dict[int, Checkpoint]
+    ) -> dict[int, Checkpoint]:
+        """Handle version-mismatched PROCESSED rows according to force_reprocess."""
+        from book_graph_rag.domain.checkpoint_state_machine import is_stale
+
+        assert self._versions is not None
+        mismatched: list[int] = []
+        for chunk_index, checkpoint in state.items():
+            if checkpoint.status == CheckpointStatus.PROCESSED and is_stale(
+                checkpoint, self._versions
+            ):
+                mismatched.append(chunk_index)
+
+        if not mismatched:
+            return state
+
+        if not self._force_reprocess:
+            self._logger.warning(
+                "PROCESSED chunks %s for %s have version dimensions that differ from "
+                "the current run; preserving them because --force-reprocess was not set",
+                sorted(mismatched),
+                source_id,
+            )
+            return state
+
+        # Mark mismatched PROCESSED rows as STALE so the normal loop will re-process them.
+        assert self._checkpoint_port is not None
+        for chunk_index in mismatched:
+            await self._checkpoint_port.acquire_lease(source_id, chunk_index, self._versions)
+        return {
+            chunk_index: checkpoint
+            for chunk_index, checkpoint in state.items()
+            if chunk_index not in mismatched
+        }
 
     async def _process_chunk(
         self,

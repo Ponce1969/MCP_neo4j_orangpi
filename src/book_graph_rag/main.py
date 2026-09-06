@@ -230,6 +230,7 @@ def index(
                 resume=command.mode == "resume",
                 max_attempts=getattr(settings, "checkpoint_max_attempts", 3),
                 stale_lease_seconds=getattr(settings, "checkpoint_stale_lease_seconds", 300),
+                force_reprocess=command.force_reprocess,
             )
         else:
             index_use_case = IndexBookUseCase(
