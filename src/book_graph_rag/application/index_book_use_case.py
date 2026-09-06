@@ -143,6 +143,16 @@ class IndexBookUseCase:
             checkpoint = state.get(chunk.chunk_index)
             if checkpoint is not None and checkpoint.status == CheckpointStatus.PROCESSED:
                 continue
+            if checkpoint is not None and checkpoint.attempt >= self._max_attempts:
+                self._logger.warning(
+                    "Skipping chunk %s:%s because attempt count %s has reached "
+                    "checkpoint_max_attempts (%s); recover via explicit dead-letter replay",
+                    source_id,
+                    chunk.chunk_index,
+                    checkpoint.attempt,
+                    self._max_attempts,
+                )
+                continue
             tasks.append(asyncio.create_task(self._process_chunk(chunk, source_id, semaphore)))
 
         if tasks:

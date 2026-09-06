@@ -90,7 +90,7 @@ def _dead_letter_record(chunk_index: int) -> dict[str, Any]:
         pipeline_version=_V.pipeline_version,
         model_version=_V.model_version,
         schema_version=_V.schema_version,
-        attempt=3,
+        attempt=2,
         checkpoint_status=CheckpointStatus.FAILED,
         error_type="LLMExtractionError",
         error_message="simulated failure",
@@ -123,7 +123,7 @@ async def test_replay_dead_letter_moves_failed_chunks_to_processed(
                 index,
                 error_type="LLMExtractionError",
                 error_message="simulated failure",
-                attempt=3,
+                attempt=2,
             )
     finally:
         await checkpoint_adapter.close()

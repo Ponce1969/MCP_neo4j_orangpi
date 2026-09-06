@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from book_graph_rag.domain.checkpoint_models import (
     CheckpointStatus,
@@ -50,6 +52,7 @@ class ReplayDeadLetterUseCase:
         self._chunk_loader = chunk_loader
         self._dead_letter_path = dead_letter_path
         self._max_attempts = max_attempts
+        self._logger = logging.getLogger(__name__)
 
     async def execute(
         self,
@@ -70,6 +73,7 @@ class ReplayDeadLetterUseCase:
             return 0
 
         await self._guard_against_processed_records(records, force_reprocess)
+        records = await self._drop_exhausted_records(records)
 
         processed = 0
         for record in records:
@@ -118,6 +122,34 @@ class ReplayDeadLetterUseCase:
                         f"Chunk {source}:{index} is already PROCESSED; "
                         "use --force-reprocess to replay it"
                     )
+
+    async def _drop_exhausted_records(
+        self, records: list[ReplayableChunk]
+    ) -> list[ReplayableChunk]:
+        """Skip records whose stored attempt count has reached the limit."""
+        by_source: dict[str, list[int]] = {}
+        for record in records:
+            by_source.setdefault(record.source_id, []).append(record.chunk_index)
+
+        states: dict[str, dict[int, Any]] = {}
+        for source, indices in by_source.items():
+            states[source] = await self._checkpoint_port.fetch_state(source, indices)
+
+        keep: list[ReplayableChunk] = []
+        for record in records:
+            checkpoint = states[record.source_id].get(record.chunk_index)
+            if checkpoint is not None and checkpoint.attempt >= self._max_attempts:
+                self._logger.warning(
+                    "Skipping replay of %s:%s because attempt count %s has reached "
+                    "checkpoint_max_attempts (%s)",
+                    record.source_id,
+                    record.chunk_index,
+                    checkpoint.attempt,
+                    self._max_attempts,
+                )
+                continue
+            keep.append(record)
+        return keep
 
     async def _replay_one(self, record: ReplayableChunk) -> bool:
         """Re-process a single failed chunk.
@@ -183,6 +215,4 @@ class ReplayDeadLetterUseCase:
             error_type=error_type,
             error_message=error_message,
         )
-        await self._dead_letter_port.write_failed_chunk(
-            dead_letter_record.model_dump(mode="json")
-        )
+        await self._dead_letter_port.write_failed_chunk(dead_letter_record.model_dump(mode="json"))

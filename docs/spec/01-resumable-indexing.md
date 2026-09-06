@@ -2,8 +2,8 @@
 
 > **Status: Implemented (Phase 2).** The pipeline persists per-chunk `:Checkpoint`
 > nodes in Neo4j and can resume, replay dead letters, and backfill legacy graphs.
-> One known gap remains: `checkpoint_max_attempts` is configured but not yet
-> enforced as a hard stop for retries (see §2.3).
+> `checkpoint_max_attempts` is enforced by both the resume path and the dead-letter
+> replay path.
 
 ## 1. Current state `[VERIFIED]`
 
@@ -49,13 +49,8 @@ Every processed chunk MUST record, at minimum:
 | `schema_version` | graph schema revision | Invalidate on schema change |
 
 A change to any dimension makes previously-checkpointed chunks **stale** (see §2.5).
-This is `[TARGET]`; no such versions are persisted today.
 
-### 2.3 Checkpoint lifecycle `[TARGET]`
-
-> Gap: `checkpoint_max_attempts` is stored in `Settings` and passed to
-> `IndexBookUseCase`, but the use case does not yet skip chunks whose stored
-> `attempt` count has reached the limit. Retries are effectively unbounded today.
+### 2.3 Checkpoint lifecycle `[IMPLEMENTED]`
 
 - Checkpoint state lives in Neo4j (or an equivalent transactional store), keyed by
   `(source_id, chunk_index)`, with `status ∈ {PENDING, PROCESSING, PROCESSED, FAILED,
