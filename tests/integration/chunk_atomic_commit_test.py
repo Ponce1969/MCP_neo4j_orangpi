@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 import pytest
@@ -121,3 +122,86 @@ async def test_commit_chunk_atomic_round_trip(
         record = await checkpoint_count.single()
         assert record is not None
         assert record["c"] == 1
+
+@pytest.mark.neo4j_integration
+async def test_atomic_chunk_commit_kill_mid_write(
+    neo4j_settings: Settings,
+    neo4j_driver: Any,
+) -> None:
+    """A transaction that never commits leaves no half-written chunk or checkpoint.
+
+    The adapter's ``commit_chunk_atomic`` wraps all writes + the PROCESSED
+    checkpoint in a single ``execute_write``. If the driver session is killed
+    (or the transaction rolled back) before commit, Neo4j aborts the whole
+    transaction. This test simulates that mid-write kill by opening a write
+    transaction, running the same MERGE statements the adapter would run, and
+    closing the session without committing.
+    """
+    source_id = "test:kill-mid-write"
+    chunk_index = 0
+    versions = VersionDimensions(
+        source_version="kill-src-v1",
+        pipeline_version="1.0.0",
+        model_version="openai:gpt-4o-mini:2026-09-01",
+        schema_version="1.0.0",
+    )
+
+    # Simulate the adapter starting its transaction, writing the chunk and
+    # checkpoint, but then dying before commit. We use the raw driver to stay
+    # outside the adapter's automatic commit/rollback behavior.
+    async with neo4j_driver.session() as session:
+        tx = await session.begin_transaction()
+        try:
+            await tx.run(
+                """
+                MERGE (k:Chunk {source_id: $source_id, chunk_index: $chunk_index})
+                SET k.text = $text, k.page_start = 1, k.page_end = 2
+                """,
+                {
+                    "source_id": source_id,
+                    "chunk_index": chunk_index,
+                    "text": "killed mid write",
+                },
+            )
+            await tx.run(
+                """
+                MERGE (c:Checkpoint {source_id: $source_id, chunk_index: $chunk_index})
+                SET c.status = 'PROCESSED',
+                    c.source_version = $source_version,
+                    c.pipeline_version = $pipeline_version,
+                    c.model_version = $model_version,
+                    c.schema_version = $schema_version
+                """,
+                {
+                    "source_id": source_id,
+                    "chunk_index": chunk_index,
+                    "source_version": versions.source_version,
+                    "pipeline_version": versions.pipeline_version,
+                    "model_version": versions.model_version,
+                    "schema_version": versions.schema_version,
+                },
+            )
+            # Kill the transaction without committing.
+            await tx.rollback()
+        finally:
+            with contextlib.suppress(Exception):
+                await tx.close()
+
+    async with neo4j_driver.session() as session:
+        chunk_count = await session.run(
+            "MATCH (k:Chunk {source_id: $source_id, chunk_index: $chunk_index}) "
+            "RETURN count(k) AS c",
+            {"source_id": source_id, "chunk_index": chunk_index},
+        )
+        record = await chunk_count.single()
+        assert record is not None
+        assert record["c"] == 0
+
+        checkpoint_count = await session.run(
+            "MATCH (c:Checkpoint {source_id: $source_id, chunk_index: $chunk_index}) "
+            "RETURN count(c) AS c",
+            {"source_id": source_id, "chunk_index": chunk_index},
+        )
+        record = await checkpoint_count.single()
+        assert record is not None
+        assert record["c"] == 0
