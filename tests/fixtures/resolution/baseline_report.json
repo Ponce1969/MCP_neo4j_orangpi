@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0.0",
+  "resolver": "slug_token",
+  "retrieval_precision": 1.0,
+  "retrieval_recall": 0.58,
+  "retrieval_f1": 0.7341772151898733,
+  "multilingual_under_merge_rate": 1.0,
+  "multilingual_f1": 0.0,
+  "hard_over_merge_rate": 0.0,
+  "captured_at": "2026-09-06T23:47:38.022943Z",
+  "dataset_manifest_sha256": "67498951076c465c94495eed63d02b45b774bb74f732347aecc629a59e8101d1"
+}
