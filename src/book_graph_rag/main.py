@@ -109,8 +109,7 @@ def _resolve_namespace(
     default=False,
     show_default=True,
     help=(
-        "Dry-run reports candidates; --apply writes checkpoints "
-        "(only with --backfill-checkpoints)."
+        "Dry-run reports candidates; --apply writes checkpoints (only with --backfill-checkpoints)."
     ),
 )
 @click.option(
@@ -167,13 +166,9 @@ def index(
             "--replay-dead-letter and --backfill-checkpoints are mutually exclusive"
         )
     if replay_dead_letter and not resume:
-        raise click.UsageError(
-            "--replay-dead-letter cannot be combined with --no-resume"
-        )
+        raise click.UsageError("--replay-dead-letter cannot be combined with --no-resume")
     if backfill_checkpoints and not resume:
-        raise click.UsageError(
-            "--backfill-checkpoints cannot be combined with --no-resume"
-        )
+        raise click.UsageError("--backfill-checkpoints cannot be combined with --no-resume")
     if limit is not None and not replay_dead_letter:
         raise click.UsageError("--limit is only valid with --replay-dead-letter")
     if limit is not None and limit < 1:
@@ -234,9 +229,7 @@ def index(
                 checkpoint_enabled=True,
                 resume=command.mode == "resume",
                 max_attempts=getattr(settings, "checkpoint_max_attempts", 3),
-                stale_lease_seconds=getattr(
-                    settings, "checkpoint_stale_lease_seconds", 300
-                ),
+                stale_lease_seconds=getattr(settings, "checkpoint_stale_lease_seconds", 300),
             )
         else:
             index_use_case = IndexBookUseCase(
@@ -266,9 +259,7 @@ def index(
             try:
                 return chunk_by_index[chunk_index]
             except KeyError as exc:
-                raise ValueError(
-                    f"Chunk {chunk_index} not found in {pdf_path}"
-                ) from exc
+                raise ValueError(f"Chunk {chunk_index} not found in {pdf_path}") from exc
 
         replay_use_case = ReplayDeadLetterUseCase(
             checkpoint_port=checkpoint_adapter,
@@ -300,9 +291,7 @@ def index(
 
     if command.mode == "backfill_checkpoints":
         if effective_source_id is None:
-            raise click.UsageError(
-                "--source-id is required for --backfill-checkpoints"
-            )
+            raise click.UsageError("--source-id is required for --backfill-checkpoints")
         if versions is None:
             raise click.UsageError("Could not compute version dimensions")
 

@@ -130,9 +130,7 @@ class IndexBookUseCase:
             checkpoint = state.get(chunk.chunk_index)
             if checkpoint is not None and checkpoint.status == CheckpointStatus.PROCESSED:
                 continue
-            tasks.append(
-                asyncio.create_task(self._process_chunk(chunk, source_id, semaphore))
-            )
+            tasks.append(asyncio.create_task(self._process_chunk(chunk, source_id, semaphore)))
 
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
