@@ -1,7 +1,9 @@
 # 01 — Resumable Indexing
 
-> **Status: Target (unimplemented).** The current pipeline is idempotent at the write
-> level but has **no checkpoint/resume**. This spec defines the resumable contract.
+> **Status: Implemented (Phase 2).** The pipeline persists per-chunk `:Checkpoint`
+> nodes in Neo4j and can resume, replay dead letters, and backfill legacy graphs.
+> One known gap remains: `checkpoint_max_attempts` is configured but not yet
+> enforced as a hard stop for retries (see §2.3).
 
 ## 1. Current state `[VERIFIED]`
 
@@ -22,7 +24,7 @@
 
 ## 2. Target requirements
 
-### 2.1 Chunk identity `[TARGET]`
+### 2.1 Chunk identity `[IMPLEMENTED]`
 
 - A chunk's durable identity is `(source_id, chunk_index)`, not `chunk_index` alone.
   Today `chunk_index` is an integer scoped only implicitly to a single PDF, and
@@ -34,7 +36,7 @@
   version; if the chunker changes, the source **pipeline version** changes, not the
   chunk index (see §2.3).
 
-### 2.2 Source / pipeline / model / schema versioning `[TARGET]`
+### 2.2 Source / pipeline / model / schema versioning `[IMPLEMENTED]`
 
 Every processed chunk MUST record, at minimum:
 
@@ -51,6 +53,10 @@ This is `[TARGET]`; no such versions are persisted today.
 
 ### 2.3 Checkpoint lifecycle `[TARGET]`
 
+> Gap: `checkpoint_max_attempts` is stored in `Settings` and passed to
+> `IndexBookUseCase`, but the use case does not yet skip chunks whose stored
+> `attempt` count has reached the limit. Retries are effectively unbounded today.
+
 - Checkpoint state lives in Neo4j (or an equivalent transactional store), keyed by
   `(source_id, chunk_index)`, with `status ∈ {PENDING, PROCESSING, PROCESSED, FAILED,
   STALE}`.
@@ -62,7 +68,7 @@ This is `[TARGET]`; no such versions are persisted today.
 - `FAILED` chunks are retried up to a configured limit, then routed to the dead letter
   with the failure context and the checkpoint left in `FAILED`.
 
-### 2.4 Stale processing recovery `[TARGET]`
+### 2.4 Stale processing recovery `[IMPLEMENTED]`
 
 - On startup, the pipeline MUST detect chunks whose recorded version dimensions no
   longer match the current run's dimensions and mark them `STALE`.
@@ -71,7 +77,7 @@ This is `[TARGET]`; no such versions are persisted today.
 - Re-processing is scoped to the affected source(s); it must not silently wipe
   unrelated sources.
 
-### 2.5 Atomic graph writes `[TARGET]`
+### 2.5 Atomic graph writes `[IMPLEMENTED]`
 
 - The unit of atomicity is **one chunk's full write set**: its entities, relationships,
   editorial structure, mentions, and the checkpoint row commit together or not at all.
@@ -81,7 +87,7 @@ This is `[TARGET]`; no such versions are persisted today.
 - `MERGE` remains the write primitive; atomicity is provided by wrapping the chunk's
   writes + checkpoint in one Neo4j transaction.
 
-### 2.6 Retries and dead letters `[TARGET]`
+### 2.6 Retries and dead letters `[IMPLEMENTED]`
 
 - Transport retries remain on `tenacity` with exponential backoff and a cap
   (`LLM_MAX_RETRIES`, `LLM_RETRY_WAIT_MAX`). `[VERIFIED]` `config.py`.
@@ -103,14 +109,14 @@ This is `[TARGET]`; no such versions are persisted today.
 
 ## 4. Acceptance criteria
 
-- [ ] Interrupting a run mid-way and restarting resumes without re-extracting
+- [x] Interrupting a run mid-way and restarting resumes without re-extracting
   already-`PROCESSED` chunks (verified by counting LLM calls in a test).
-- [ ] A chunk's writes and its `PROCESSED` checkpoint are atomic (kill between them
+- [x] A chunk's writes and its `PROCESSED` checkpoint are atomic (kill between them
   leaves no half-written chunk counted as processed).
-- [ ] Changing `pipeline_version` (e.g. prompt text) marks matching chunks `STALE` and
+- [x] Changing `pipeline_version` (e.g. prompt text) marks matching chunks `STALE` and
   re-processes them; unrelated sources are untouched.
-- [ ] Dead-letter records are replayable end-to-end.
-- [ ] Re-running with identical versions is a no-op.
+- [x] Dead-letter records are replayable end-to-end.
+- [x] Re-running with identical versions is a no-op.
 
 ## 5. Tests
 

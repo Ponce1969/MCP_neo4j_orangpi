@@ -80,3 +80,16 @@ del proyecto `bookgraph` (contenedor `bookgraph-neo4j`).**
   (que hace auto-backup a `~/backups_neo4j/` antes de un `--fresh`) o comandos
   explícitos aprobados por el humano.
 - Copiar esta regla a cualquier subagente que vaya a tocar el servidor.
+
+### 7.1 Flags administrativos de Phase 2 (resumable indexing)
+
+Los comandos `--replay-dead-letter` y `--backfill-checkpoints` mutan checkpoints
+en el grafo; aplican las mismas reglas de aprobación que cualquier operación
+destructiva:
+
+- `--backfill-checkpoints --apply` requiere `--approval <archivo>` cuyo
+  contenido incluya la palabra `approve`.
+- `--replay-dead-letter` y `--force-reprocess` pueden sobrescribir checkpoints
+  `PROCESSED`; usar solo con `--source-id corpus:source` explícito y previa
+  validación.
+- Para `--backfill-checkpoints` siempre correr `--dry-run` antes de `--apply`.

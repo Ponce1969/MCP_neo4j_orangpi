@@ -122,6 +122,33 @@ uv run book-graph-rag index data/your-book.pdf
 #   MATCH (n) RETURN n LIMIT 25;
 ```
 
+### Resumable indexing (Phase 2)
+
+The `index` command now persists per-chunk `:Checkpoint` nodes in Neo4j so an
+interrupted run can resume without re-spending LLM tokens on already-`PROCESSED`
+chunks:
+
+- `--resume` / `--no-resume` — skip `PROCESSED` chunks (default) or run a
+  one-shot legacy flush.
+- `--force-reprocess` — re-process `PROCESSED` chunks whose version dimensions
+  changed.
+- `--replay-dead-letter` — re-process failed chunks from `data/dead_letter.log`;
+  combine with `--limit N` and optional `--source-id corpus:source`.
+- `--backfill-checkpoints` — create `PROCESSED` checkpoints for a legacy graph
+  without re-indexing; use `--dry-run` to preview or `--apply --approval <file>`
+  to write.
+
+```powershell
+# Resume an interrupted run
+uv run book-graph-rag index data/your-book.pdf --corpus <corpus> --source <source> --resume
+
+# Replay up to 10 dead-letter records
+uv run book-graph-rag index data/your-book.pdf --replay-dead-letter --limit 10 --source-id corpus:source
+
+# Backfill checkpoints on a legacy graph (dry-run first)
+uv run book-graph-rag index data/your-book.pdf --backfill-checkpoints --source-id corpus:source --dry-run
+```
+
 ### Chunking model — "TORO"
 
 The chunker is driven by the PDF's own bookmark TOC (hierarchical chapters
