@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0.0",
+  "pairs_file_sha256": "67498951076c465c94495eed63d02b45b774bb74f732347aecc629a59e8101d1",
+  "pair_count": 110,
+  "same_count": 50,
+  "different_count": 60,
+  "hard_count": 25,
+  "multilingual_count": 20,
+  "generated_at": "2026-09-06T23:45:16.701693Z"
+}

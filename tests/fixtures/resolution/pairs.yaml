@@ -1,0 +1,1210 @@
+- id: same-en-001
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: LangGraph
+    type: pattern
+  entity_b:
+    name: LangGraph framework
+    type: pattern
+  note: ''
+- id: same-en-002
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: CrewAI
+    type: pattern
+  entity_b:
+    name: Crew AI
+    type: pattern
+  note: ''
+- id: same-en-003
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: AutoGen
+    type: pattern
+  entity_b:
+    name: Auto Gen
+    type: pattern
+  note: ''
+- id: same-en-004
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: ReAct Pattern
+    type: pattern
+  entity_b:
+    name: ReAct pattern
+    type: pattern
+  note: ''
+- id: same-en-005
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Multi-Agent Pattern
+    type: pattern
+  entity_b:
+    name: Multi Agent Pattern
+    type: pattern
+  note: ''
+- id: same-en-006
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Agentic Workflow
+    type: pattern
+  entity_b:
+    name: Agentic workflow
+    type: pattern
+  note: ''
+- id: same-en-007
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: RAG Pattern
+    type: pattern
+  entity_b:
+    name: RAG pattern
+    type: pattern
+  note: ''
+- id: same-en-008
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Tool Use Pattern
+    type: pattern
+  entity_b:
+    name: Tool-use pattern
+    type: pattern
+  note: ''
+- id: same-en-009
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Reflection Pattern
+    type: pattern
+  entity_b:
+    name: Reflection pattern
+    type: pattern
+  note: ''
+- id: same-en-010
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Planning Pattern
+    type: pattern
+  entity_b:
+    name: Planning pattern
+    type: pattern
+  note: ''
+- id: same-en-011
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Human-in-the-loop
+    type: pattern
+  entity_b:
+    name: Human in the loop
+    type: pattern
+  note: ''
+- id: same-en-012
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: AI Agent
+    type: agent
+  entity_b:
+    name: AI agent
+    type: agent
+  note: ''
+- id: same-en-013
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Autonomous Agent
+    type: agent
+  entity_b:
+    name: Autonomous agent
+    type: agent
+  note: ''
+- id: same-en-014
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: LangGraph Agent
+    type: agent
+  entity_b:
+    name: LangGraph agent
+    type: agent
+  note: ''
+- id: same-en-015
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Orchestrator Agent
+    type: agent
+  entity_b:
+    name: Orchestrator agent
+    type: agent
+  note: ''
+- id: same-en-016
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Memory Component
+    type: component
+  entity_b:
+    name: Memory component
+    type: component
+  note: ''
+- id: same-en-017
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Planning Module
+    type: component
+  entity_b:
+    name: Planning module
+    type: component
+  note: ''
+- id: same-en-018
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Vector Store
+    type: tool
+  entity_b:
+    name: Vector store
+    type: tool
+  note: ''
+- id: same-en-019
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Embedding Tool
+    type: tool
+  entity_b:
+    name: Embedding tool
+    type: tool
+  note: ''
+- id: same-en-020
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Prompt Injection
+    type: risk
+  entity_b:
+    name: Prompt injection
+    type: risk
+  note: ''
+- id: same-en-021
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Hallucination Risk
+    type: risk
+  entity_b:
+    name: Hallucination risk
+    type: risk
+  note: ''
+- id: same-en-022
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: LLMOps Pipeline
+    type: llmops
+  entity_b:
+    name: LLMOps pipeline
+    type: llmops
+  note: ''
+- id: same-en-023
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Observability Stack
+    type: llmops
+  entity_b:
+    name: Observability stack
+    type: llmops
+  note: ''
+- id: same-en-024
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: MCP Server
+    type: mcp
+  entity_b:
+    name: MCP server
+    type: mcp
+  note: ''
+- id: same-en-025
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: MCP Client
+    type: mcp
+  entity_b:
+    name: MCP client
+    type: mcp
+  note: ''
+- id: same-en-026
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Emergence
+    type: concept
+  entity_b:
+    name: emergence
+    type: concept
+  note: ''
+- id: same-en-027
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Agentic Reasoning
+    type: concept
+  entity_b:
+    name: Agentic reasoning
+    type: concept
+  note: ''
+- id: same-en-028
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: LangChain
+    type: framework
+  entity_b:
+    name: Lang Chain
+    type: framework
+  note: ''
+- id: same-en-029
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Semantic Kernel
+    type: framework
+  entity_b:
+    name: SemanticKernel
+    type: framework
+  note: ''
+- id: same-en-030
+  label: same
+  hard: false
+  multilingual: false
+  entity_a:
+    name: State Machine
+    type: component
+  entity_b:
+    name: State machine
+    type: component
+  note: ''
+- id: same-ml-001
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Agente Autónomo
+    type: agent
+  entity_b:
+    name: Autonomous Agent
+    type: agent
+  note: ''
+- id: same-ml-002
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Patrón Multiagente
+    type: pattern
+  entity_b:
+    name: Multi-Agent Pattern
+    type: pattern
+  note: ''
+- id: same-ml-003
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Grafo de Conocimiento
+    type: concept
+  entity_b:
+    name: Knowledge Graph
+    type: concept
+  note: ''
+- id: same-ml-004
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Tienda Vectorial
+    type: tool
+  entity_b:
+    name: Vector Store
+    type: tool
+  note: ''
+- id: same-ml-005
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Inyección de Prompt
+    type: risk
+  entity_b:
+    name: Prompt Injection
+    type: risk
+  note: ''
+- id: same-ml-006
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Riesgo de Alucinación
+    type: risk
+  entity_b:
+    name: Hallucination Risk
+    type: risk
+  note: ''
+- id: same-ml-007
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Embeddings
+    type: tool
+  entity_b:
+    name: Embedding Tool
+    type: tool
+  note: ''
+- id: same-ml-008
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Memoria a Largo Plazo
+    type: component
+  entity_b:
+    name: Long-Term Memory
+    type: component
+  note: ''
+- id: same-ml-009
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Agente Orquestador
+    type: agent
+  entity_b:
+    name: Orchestrator Agent
+    type: agent
+  note: ''
+- id: same-ml-010
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Razonamiento Agentico
+    type: concept
+  entity_b:
+    name: Agentic Reasoning
+    type: concept
+  note: ''
+- id: same-ml-011
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Patrón ReAct
+    type: pattern
+  entity_b:
+    name: ReAct Pattern
+    type: pattern
+  note: ''
+- id: same-ml-012
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Flujo de Trabajo Agentico
+    type: pattern
+  entity_b:
+    name: Agentic Workflow
+    type: pattern
+  note: ''
+- id: same-ml-013
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Modelo de Lenguaje Grande
+    type: concept
+  entity_b:
+    name: Large Language Model
+    type: concept
+  note: ''
+- id: same-ml-014
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Sistema Multiagente
+    type: pattern
+  entity_b:
+    name: Multi-Agent System
+    type: pattern
+  note: ''
+- id: same-ml-015
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Cliente MCP
+    type: mcp
+  entity_b:
+    name: MCP Client
+    type: mcp
+  note: ''
+- id: same-ml-016
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Servidor MCP
+    type: mcp
+  entity_b:
+    name: MCP Server
+    type: mcp
+  note: ''
+- id: same-ml-017
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Canalización LLMOps
+    type: llmops
+  entity_b:
+    name: LLMOps Pipeline
+    type: llmops
+  note: ''
+- id: same-ml-018
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Pila de Observabilidad
+    type: llmops
+  entity_b:
+    name: Observability Stack
+    type: llmops
+  note: ''
+- id: same-ml-019
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Kernel Semántico
+    type: framework
+  entity_b:
+    name: Semantic Kernel
+    type: framework
+  note: ''
+- id: same-ml-020
+  label: same
+  hard: false
+  multilingual: true
+  entity_a:
+    name: Cadena LangChain
+    type: framework
+  entity_b:
+    name: LangChain
+    type: framework
+  note: ''
+- id: diff-en-001
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: LangGraph
+    type: framework
+  entity_b:
+    name: LangChain
+    type: framework
+  note: ''
+- id: diff-en-002
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: CrewAI
+    type: framework
+  entity_b:
+    name: AutoGen
+    type: framework
+  note: ''
+- id: diff-en-003
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Autonomous Agent
+    type: agent
+  entity_b:
+    name: Human Agent
+    type: agent
+  note: ''
+- id: diff-en-004
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Prompt Injection
+    type: risk
+  entity_b:
+    name: Prompt Engineering
+    type: risk
+  note: ''
+- id: diff-en-005
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Vector Store
+    type: tool
+  entity_b:
+    name: Vector Search
+    type: tool
+  note: ''
+- id: diff-en-006
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Memory
+    type: component
+  entity_b:
+    name: Memory Leak
+    type: component
+  note: ''
+- id: diff-en-007
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: MCP Server
+    type: mcp
+  entity_b:
+    name: MCP Host
+    type: mcp
+  note: ''
+- id: diff-en-008
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: LLMOps
+    type: llmops
+  entity_b:
+    name: MLOps
+    type: llmops
+  note: ''
+- id: diff-en-009
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: ReAct
+    type: pattern
+  entity_b:
+    name: Reflexion
+    type: pattern
+  note: ''
+- id: diff-en-010
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: RAG
+    type: pattern
+  entity_b:
+    name: CAG
+    type: pattern
+  note: ''
+- id: diff-en-011
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: CrewAI Agent
+    type: agent
+  entity_b:
+    name: AutoGen Agent
+    type: agent
+  note: ''
+- id: diff-en-012
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Embedding Model
+    type: tool
+  entity_b:
+    name: Embedding Tool
+    type: tool
+  note: ''
+- id: diff-en-013
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: LangGraph
+    type: framework
+  entity_b:
+    name: LangGraph Agent
+    type: framework
+  note: ''
+- id: diff-en-014
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: LLM
+    type: concept
+  entity_b:
+    name: SLM
+    type: concept
+  note: ''
+- id: diff-en-015
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: GPT-4
+    type: concept
+  entity_b:
+    name: GPT-3
+    type: concept
+  note: ''
+- id: diff-en-016
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: OpenAI
+    type: concept
+  entity_b:
+    name: Open Source
+    type: concept
+  note: ''
+- id: diff-en-017
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Cloud Deployment
+    type: concept
+  entity_b:
+    name: Edge Deployment
+    type: concept
+  note: ''
+- id: diff-en-018
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Batch Processing
+    type: concept
+  entity_b:
+    name: Stream Processing
+    type: concept
+  note: ''
+- id: diff-en-019
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Synchronous
+    type: concept
+  entity_b:
+    name: Asynchronous
+    type: concept
+  note: ''
+- id: diff-en-020
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Stateful
+    type: concept
+  entity_b:
+    name: Stateless
+    type: concept
+  note: ''
+- id: diff-en-021
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Autonomous
+    type: concept
+  entity_b:
+    name: Manual
+    type: concept
+  note: ''
+- id: diff-en-022
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Proactive
+    type: concept
+  entity_b:
+    name: Reactive
+    type: concept
+  note: ''
+- id: diff-en-023
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Observability
+    type: llmops
+  entity_b:
+    name: Monitoring
+    type: llmops
+  note: ''
+- id: diff-en-024
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: LangGraph Supervisor
+    type: agent
+  entity_b:
+    name: LangGraph Worker
+    type: agent
+  note: ''
+- id: diff-en-025
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: CrewAI Process
+    type: component
+  entity_b:
+    name: CrewAI Task
+    type: component
+  note: ''
+- id: diff-en-026
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: AutoGen Assistant
+    type: agent
+  entity_b:
+    name: AutoGen UserProxy
+    type: agent
+  note: ''
+- id: diff-en-027
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: MCP Resource
+    type: mcp
+  entity_b:
+    name: MCP Tool
+    type: mcp
+  note: ''
+- id: diff-en-028
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: RAG Retriever
+    type: component
+  entity_b:
+    name: RAG Generator
+    type: component
+  note: ''
+- id: diff-en-029
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Short-Term Memory
+    type: component
+  entity_b:
+    name: Long-Term Memory
+    type: component
+  note: ''
+- id: diff-en-030
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Working Memory
+    type: component
+  entity_b:
+    name: Episodic Memory
+    type: component
+  note: ''
+- id: diff-en-031
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Semantic Memory
+    type: component
+  entity_b:
+    name: Procedural Memory
+    type: component
+  note: ''
+- id: diff-en-032
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Knowledge Graph RAG
+    type: pattern
+  entity_b:
+    name: Vector RAG
+    type: pattern
+  note: ''
+- id: diff-en-033
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: GraphRAG
+    type: pattern
+  entity_b:
+    name: VectorRAG
+    type: pattern
+  note: ''
+- id: diff-en-034
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Scalable
+    type: concept
+  entity_b:
+    name: Scalability
+    type: concept
+  note: ''
+- id: diff-en-035
+  label: different
+  hard: false
+  multilingual: false
+  entity_a:
+    name: Modular
+    type: concept
+  entity_b:
+    name: Monolithic
+    type: concept
+  note: ''
+- id: hard-001
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Agent
+    type: agent
+  entity_b:
+    name: Agent-1
+    type: agent
+  note: ''
+- id: hard-002
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Agent-2
+    type: agent
+  entity_b:
+    name: Agent-3
+    type: agent
+  note: ''
+- id: hard-003
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Centralized Control
+    type: concept
+  entity_b:
+    name: Decentralized Control
+    type: concept
+  note: ''
+- id: hard-004
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Centralized Planning
+    type: concept
+  entity_b:
+    name: Decentralized Planning
+    type: concept
+  note: ''
+- id: hard-005
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Single Agent
+    type: pattern
+  entity_b:
+    name: Multi Agent
+    type: pattern
+  note: ''
+- id: hard-006
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Human-in-the-loop
+    type: pattern
+  entity_b:
+    name: Human-on-the-loop
+    type: pattern
+  note: ''
+- id: hard-007
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Tool Calling
+    type: pattern
+  entity_b:
+    name: Tool Calling-1
+    type: pattern
+  note: ''
+- id: hard-008
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: ReAct Agent
+    type: agent
+  entity_b:
+    name: ReAct Agent-1
+    type: agent
+  note: ''
+- id: hard-009
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: LangGraph-1
+    type: framework
+  entity_b:
+    name: LangGraph-2
+    type: framework
+  note: ''
+- id: hard-010
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Crew-1
+    type: framework
+  entity_b:
+    name: Crew-2
+    type: framework
+  note: ''
+- id: hard-011
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Component A
+    type: component
+  entity_b:
+    name: Component B
+    type: component
+  note: ''
+- id: hard-012
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Module X
+    type: component
+  entity_b:
+    name: Module Y
+    type: component
+  note: ''
+- id: hard-013
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Risk Alpha
+    type: risk
+  entity_b:
+    name: Risk Beta
+    type: risk
+  note: ''
+- id: hard-014
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Pattern One
+    type: pattern
+  entity_b:
+    name: Pattern Two
+    type: pattern
+  note: ''
+- id: hard-015
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Concept Red
+    type: concept
+  entity_b:
+    name: Concept Blue
+    type: concept
+  note: ''
+- id: hard-016
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Deterministic
+    type: concept
+  entity_b:
+    name: Stochastic
+    type: concept
+  note: ''
+- id: hard-017
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Robust
+    type: concept
+  entity_b:
+    name: Fragile
+    type: concept
+  note: ''
+- id: hard-018
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Transparent
+    type: concept
+  entity_b:
+    name: Opaque
+    type: concept
+  note: ''
+- id: hard-019
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Tool Use
+    type: pattern
+  entity_b:
+    name: Tool Abuse
+    type: pattern
+  note: ''
+- id: hard-020
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Planning
+    type: concept
+  entity_b:
+    name: Replanning
+    type: concept
+  note: ''
+- id: hard-021
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Hallucination
+    type: concept
+  entity_b:
+    name: Grounding
+    type: concept
+  note: ''
+- id: hard-022
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Collaborative
+    type: concept
+  entity_b:
+    name: Adversarial
+    type: concept
+  note: ''
+- id: hard-023
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: LangGraph-3
+    type: framework
+  entity_b:
+    name: LangGraph-4
+    type: framework
+  note: ''
+- id: hard-024
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Agent-4
+    type: agent
+  entity_b:
+    name: Agent-5
+    type: agent
+  note: ''
+- id: hard-025
+  label: different
+  hard: true
+  multilingual: false
+  entity_a:
+    name: Module Alpha
+    type: component
+  entity_b:
+    name: Module Beta
+    type: component
+  note: ''
