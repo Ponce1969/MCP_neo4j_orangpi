@@ -21,7 +21,6 @@ from book_graph_rag.domain.resolution_models import (
 )
 from book_graph_rag.domain.resolution_policy import (
     MergeAction,
-    ResolutionDecision,
     decide,
 )
 from book_graph_rag.domain.s4_band_assignment import BandThresholds

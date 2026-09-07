@@ -73,7 +73,10 @@ def test_description_overlap_empty_descriptions() -> None:
 
 
 def test_description_overlap_identical_descriptions() -> None:
-    assert description_overlap("LangGraph agent framework", "LangGraph agent framework") == pytest.approx(1.0)
+    assert (
+        description_overlap("LangGraph agent framework", "LangGraph agent framework")
+        == pytest.approx(1.0)
+    )
 
 
 def test_description_overlap_order_does_not_matter() -> None:
@@ -111,7 +114,8 @@ def test_s3_context_score_composite_is_mean() -> None:
     assert s3.mentions_jaccard == pytest.approx(0.5)
     assert s3.related_jaccard == pytest.approx(0.5)
     assert s3.description_overlap == pytest.approx(0.5)
-    assert (s3.mentions_jaccard + s3.related_jaccard + s3.description_overlap) / 3 == pytest.approx(0.5)
+    composite = (s3.mentions_jaccard + s3.related_jaccard + s3.description_overlap) / 3
+    assert composite == pytest.approx(0.5)
 
 
 @pytest.mark.parametrize(

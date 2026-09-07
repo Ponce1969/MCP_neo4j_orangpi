@@ -38,10 +38,10 @@ def test_band_thresholds_defaults() -> None:
 
 
 def test_band_thresholds_rejects_non_monotonic_high_and_medium() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="high_cosine"):
         BandThresholds(high_cosine=0.80, medium_cosine=0.80)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="high_cosine"):
         BandThresholds(high_cosine=0.70, medium_cosine=0.80)
 
 
@@ -55,7 +55,12 @@ def test_assign_band_exact_short_circuits() -> None:
 
 def test_assign_band_exact_id_match() -> None:
     thresholds = BandThresholds()
-    band = assign_band(s1_cosine=0.95, s3=_s3(0.6, 0.6, 0.6), s0_match_field="id", thresholds=thresholds)
+    band = assign_band(
+        s1_cosine=0.95,
+        s3=_s3(0.6, 0.6, 0.6),
+        s0_match_field="id",
+        thresholds=thresholds,
+    )
     assert band == ConfidenceBand.EXACT
 
 

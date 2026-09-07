@@ -28,7 +28,7 @@ class BandThresholds(BaseModel):
     conflict_floor: float = 0.10
 
     @model_validator(mode="after")
-    def _validate_ordering(self) -> "BandThresholds":
+    def _validate_ordering(self) -> BandThresholds:
         if self.high_cosine <= self.medium_cosine:
             raise ValueError(
                 f"high_cosine ({self.high_cosine}) must be strictly greater than "
