@@ -35,7 +35,8 @@ def cosine_similarity(a: tuple[float, ...], b: tuple[float, ...]) -> float:
     norm_b = math.sqrt(sum(x * x for x in b))
     if norm_a == 0.0 or norm_b == 0.0:
         return 0.0
-    return dot / (norm_a * norm_b)
+    # Clamp to [-1, 1]: floating-point rounding can produce 1.0000000000000002.
+    return max(-1.0, min(1.0, dot / (norm_a * norm_b)))
 
 
 class BruteForceCandidateRetrieval(CandidateRetrievalPort):

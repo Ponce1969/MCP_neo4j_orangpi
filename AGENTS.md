@@ -93,3 +93,14 @@ destructiva:
   `PROCESSED`; usar solo con `--source-id corpus:source` explícito y previa
   validación.
 - Para `--backfill-checkpoints` siempre correr `--dry-run` antes de `--apply`.
+### 7.2 Operaciones de Phase 3 (semantic entity resolution)
+
+- Aplicar merges de resolución (`ResolveEntitiesUseCase` con apply, o
+  `RESOLUTION_STRATEGY=hybrid` en el pipeline) MUTA el grafo de entidades: requiere el
+  mismo gate de aprobación que cualquier operación destructiva (backup → dry-run →
+  aprobación humana explícita).
+- Los duplicados se marcan `merged_into` (soft-delete), nunca `DETACH DELETE`.
+- El ledger `data/resolution/merge_ledger.jsonl` es append-only y tamper-evident; el
+  rollback agrega entradas compensatorias, nunca edita historial.
+- La cuarentena (`data/resolution/quarantine.jsonl`) y el ledger viven en la máquina que
+  ejecuta el merge; respaldarlos junto con el grafo.

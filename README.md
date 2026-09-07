@@ -149,6 +149,27 @@ uv run book-graph-rag index data/your-book.pdf --replay-dead-letter --limit 10 -
 uv run book-graph-rag index data/your-book.pdf --backfill-checkpoints --source-id corpus:source --dry-run
 ```
 
+### Semantic entity resolution (Phase 3)
+
+A staged, conservative pipeline (S0 normalization -> S1 embedding retrieval -> S2 type
+gate -> S3 context validation -> S4 confidence bands) consolidates duplicate entities:
+
+- **Bands:** `exact` auto-merges; `high` goes to a human-confirm queue; `medium` goes to
+  quarantine; `low` is never merged. Cross-type and cross-namespace pairs are hard
+  boundaries.
+- **CLI:** `uv run book-graph-rag resolve-entities --dry-run` (legacy path is unchanged;
+  set `RESOLUTION_STRATEGY=hybrid` to run the new pipeline), or use the evaluation
+  harness: `uv run python scripts/run_evaluation_harness.py --model
+  paraphrase-multilingual-MiniLM-L12-v2 --variant A`.
+- **Safety:** duplicates are soft-deleted via `merged_into` (never deleted); every
+  applied merge appends to the append-only, chained-SHA-256 ledger
+  `data/resolution/merge_ledger.jsonl`; `medium`/`high` candidates wait in
+  `data/resolution/quarantine.jsonl` until human review; every merge is reversible
+  (`resolve_entities.py rollback --ledger <path> --entry <seq>`).
+- **Production:** applying merges against the production graph requires the same
+  backup -> dry-run -> explicit human approval gate as any destructive op
+  (`AGENTS.md` §7).
+
 ### Chunking model — "TORO"
 
 The chunker is driven by the PDF's own bookmark TOC (hierarchical chapters

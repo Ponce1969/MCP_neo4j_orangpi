@@ -36,10 +36,17 @@ Phase 0 (baseline/evidence)
 | **1 — Namespaces (02)** | Namespaced id scheme + catalog + migration script with `--dry-run` | 0 | audit + migration dry-run diff | Migration is idempotent; delete catalog + revert ids via inverse map |
 | **2 — Resumable indexing (01)** | Checkpoint store + atomic chunk writes + replay | 1 | resume/invariant tests green | Delete checkpoint metadata (additive); existing MERGE behavior intact |
 | **3 — Semantic resolution (03)** | Staged hybrid resolver + labeled dataset + quarantine/approve | 1 | eval thresholds (F1, over-merge 0) | Merge evidence supports rollback; dry-run before apply |
+
 | **4 — Scoped audit + gates (04)** | Namespace-scoped audits + readiness gate policy | 1 | audit scope tests + gate policy | Gate config/policy is revertible |
 | **5 — Evaluation + readiness (06)** | Committed baselines for all layers + CI regression gate | 0 | readiness gate green | Revert thresholds/baseline files |
 | **6 — MCP hardening (05 + 07)** | Outcome tools + server-side enforcement + read-only session + log redaction + no `0.0.0.0` | 3, 4, 5 | exposure gate + denylist/read-only tests | Revert tool/alias + config; read-only session on/off |
 | **7 — Guarded exposure** | Private-transport deployment behind readiness + security gates | 6 | **human approval + 07 preconditions all met** | Systemd/deploy rollback (`AGENTS.md`), read-only credential revocation |
+
+> Phase 3 status (2026-09-07): **implemented** (S0-S4, quarantine, ledger, rollback,
+> dataset, harness; 930+ tests green). Hard over-merge and multilingual under-merge
+> gates satisfied; the F1-beats-baseline gate is escalated per spec 03 SS4 (pair-only
+> evaluation lacks graph context for S3). A follow-up product decision is required
+> before Phase 6/7 exposure.
 
 ## 4. Per-phase checklist (each phase repeats this)
 

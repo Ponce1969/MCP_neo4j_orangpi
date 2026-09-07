@@ -1,0 +1,13 @@
+{
+  "model_id": "paraphrase-multilingual-MiniLM-L12-v2",
+  "input_variant": "A",
+  "retrieval_precision": 0.5384615384615384,
+  "retrieval_recall": 0.98,
+  "retrieval_f1": 0.6950354609929078,
+  "multilingual_under_merge_rate": 0.05,
+  "multilingual_f1": 0.9743589743589743,
+  "hard_over_merge_rate": 0.0,
+  "auto_merge_count": 29,
+  "auto_merge_correct": 29,
+  "generated_at": "2026-09-07T06:19:25.437600Z"
+}
