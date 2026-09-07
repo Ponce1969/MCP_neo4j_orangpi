@@ -323,3 +323,7 @@ class Neo4jGraphMergeAdapter(GraphMergePort):
                 raise ResolutionError(
                     f"rollback_merge failed for seq={entry.seq}: {exc}"
                 ) from exc
+
+    async def close(self) -> None:
+        """Close the underlying Neo4j driver."""
+        await self._driver.close()

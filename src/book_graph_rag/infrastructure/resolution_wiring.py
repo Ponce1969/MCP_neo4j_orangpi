@@ -11,6 +11,7 @@ from typing import Any
 
 from neo4j import AsyncGraphDatabase
 
+from book_graph_rag.application.apply_merge_use_case import ApplyMergeUseCase
 from book_graph_rag.application.resolve_entities_use_case import ResolveEntitiesUseCase
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import Entity
@@ -18,8 +19,10 @@ from book_graph_rag.domain.s4_band_assignment import BandThresholds
 from book_graph_rag.infrastructure.brute_force_candidate_retrieval import (
     BruteForceCandidateRetrieval,
 )
+from book_graph_rag.infrastructure.jsonl_merge_ledger import JSONLMergeLedger
 from book_graph_rag.infrastructure.jsonl_quarantine_writer import JSONLQuarantineWriter
 from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdapter
+from book_graph_rag.infrastructure.neo4j_graph_merge_adapter import Neo4jGraphMergeAdapter
 from book_graph_rag.infrastructure.neo4j_neighborhood_query_adapter import (
     Neo4jNeighborhoodQueryAdapter,
 )
@@ -101,4 +104,19 @@ async def build_resolve_entities_use_case(
 
     closables: list[Any] = [entity_loader, neighborhood]
     return use_case, closables
+
+
+async def build_apply_merge_use_case(
+    settings: Settings,
+) -> tuple[ApplyMergeUseCase, list[Any]]:
+    """Wire ``ApplyMergeUseCase`` with Neo4j graph merge + JSONL ledger."""
+    entity_loader = Neo4jCommandAdapter(settings)
+    graph_merge = Neo4jGraphMergeAdapter(_make_driver(settings))
+    ledger = JSONLMergeLedger(settings.merge_ledger_path)
+    use_case = ApplyMergeUseCase(
+        graph_merge=graph_merge,
+        ledger=ledger,
+        entity_loader=entity_loader,
+    )
+    return use_case, [entity_loader, graph_merge]
 

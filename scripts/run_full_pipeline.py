@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +25,10 @@ from book_graph_rag.config import Settings
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdapter
 from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter
+from book_graph_rag.infrastructure.resolution_wiring import (
+    build_apply_merge_use_case,
+    build_resolve_entities_use_case,
+)
 from book_graph_rag.ports.graph_db_port import CountTolerancePolicy, GraphDatabasePort
 
 # Allow importing sibling scripts when invoked directly.
@@ -299,18 +304,49 @@ async def _run_pipeline(
 
     merged_entities = 0
     if resolve_entities_flag:
-        resolve_driver = _make_driver(settings)
-        try:
-            resolution = await resolve_entities.run_resolution(
-                resolve_driver, threshold=resolve_threshold
+        if os.environ.get("RESOLUTION_STRATEGY") == "hybrid":
+            resolve_use_case, resolve_closables = await build_resolve_entities_use_case(
+                settings
             )
-            merged_entities = resolution.duplicate_count
+            try:
+                hybrid_result = await resolve_use_case.analyze(dry_run=False)
+            finally:
+                for closable in resolve_closables:
+                    if hasattr(closable, "close"):
+                        await closable.close()
+
+            if hybrid_result.auto_merge_groups:
+                apply_use_case, apply_closables = await build_apply_merge_use_case(
+                    settings
+                )
+                try:
+                    for group in hybrid_result.auto_merge_groups:
+                        await apply_use_case.apply(group, approver="pipeline")
+                finally:
+                    for closable in apply_closables:
+                        if hasattr(closable, "close"):
+                            await closable.close()
+
+            merged_entities = sum(
+                len(group.duplicate_ids) for group in hybrid_result.auto_merge_groups
+            )
             click.echo(
-                f"Entity resolution: merged {merged_entities} duplicates into "
-                f"{resolution.group_count} groups."
+                f"Entity resolution: merged {merged_entities} duplicates "
+                f"(quarantined {len(hybrid_result.quarantine_records)})."
             )
-        finally:
-            await resolve_driver.close()
+        else:
+            resolve_driver = _make_driver(settings)
+            try:
+                resolution = await resolve_entities.run_resolution(
+                    resolve_driver, threshold=resolve_threshold
+                )
+                merged_entities = resolution.duplicate_count
+                click.echo(
+                    f"Entity resolution: merged {merged_entities} duplicates into "
+                    f"{resolution.group_count} groups."
+                )
+            finally:
+                await resolve_driver.close()
 
     if with_communities:
         await _run_communities(fresh=True)
