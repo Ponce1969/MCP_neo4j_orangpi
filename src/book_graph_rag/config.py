@@ -94,6 +94,29 @@ class Settings(BaseSettings):
     # Distinct path for re-addressable failed-chunk dead-letter records.
     dead_letter_path_chunks: Path = Path("data/dead_letter_chunks.jsonl")
 
+    # ── Phase 3: Semantic Entity Resolution (NEW) ─────────────────────────
+    embedding_model_id: str = "paraphrase-multilingual-MiniLM-L12-v2"
+    embedding_local_path: str | None = None
+    embedding_input_variant: Literal["A", "B"] = "A"
+    embedding_top_k: int = 20
+    embedding_min_similarity: float = 0.60
+    embedding_dim: int | None = None
+    band_high_cosine: float = 0.90
+    band_high_context: float = 0.50
+    band_medium_cosine: float = 0.80
+    band_conflict_floor: float = 0.10
+    candidate_retrieval_strategy: Literal["brute_force", "neo4j_vector"] = "brute_force"
+    vector_index_name: str = "entity_embedding_index"
+    resolution_dataset_path: Path = Path("tests/fixtures/resolution/pairs.yaml")
+    resolution_manifest_path: Path = Path("tests/fixtures/resolution/manifest.json")
+    resolution_baseline_report_path: Path = Path("tests/fixtures/resolution/baseline_report.json")
+    quarantine_path: Path = Path("data/resolution/quarantine.jsonl")
+    merge_ledger_path: Path = Path("data/resolution/merge_ledger.jsonl")
+    merge_embedding_cache_path: Path = Path("data/resolution/entity_embeddings.jsonl")
+    resolution_schema_version: str = "1.0.0"
+    ledger_genesis_sha256: str = "0" * 64
+    allow_extra_embedding_model: bool = False
+
     # ── Community summaries (REQ-GR.1) ────────────────────────────────────
     max_cluster_size: int = 10
     summary_max_concurrency: int = 3  # max concurrent LLM calls for summarization
