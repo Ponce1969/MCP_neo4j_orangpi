@@ -8,6 +8,28 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class EvaluationGate(BaseModel):
+    """Verdict from comparing a hybrid run against the slug+token baseline."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    beats_baseline_f1: bool
+    hard_over_merge_zero: bool
+    multilingual_under_merge_ok: bool
+    passed: bool
+
+
+class ThresholdSweepResult(BaseModel):
+    """One threshold pair that satisfies the dataset-gated acceptance gates."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    high_cosine: float
+    medium_cosine: float
+    metrics: EvaluationMetrics
+    gate: EvaluationGate
+
+
 class EvaluationMetrics(BaseModel):
     """Metrics produced by a model evaluation run."""
 
