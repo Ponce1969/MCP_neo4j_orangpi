@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0.0",
+  "task": "D3 — OrangePi verification (design 0.14, spec D1-D3)",
+  "change": "phase-3-semantic-entity-resolution",
+  "executed_at": "2026-09-07T00:40:00Z",
+  "executed_by": "orchestrator-per-maintainer-authorization (user pre-approved chain 2026-09-06)",
+  "host": {
+    "address": "100.106.85.109 (Tailscale)",
+    "arch": "aarch64",
+    "python": "3.12.3",
+    "uv": "0.7.8",
+    "repo_head": "cadc68a",
+    "repo_path": "~/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi"
+  },
+  "checks": [
+    {"name": "sentence-transformers importable in project venv (aarch64)", "result": "pass", "detail": "import-ok 16.5s; uv pip install reported 'Audited 1 package' (already satisfied)"},
+    {"name": "model load paraphrase-multilingual-MiniLM-L12-v2", "result": "pass", "detail": "loaded in 53.5s (first download), dim=384; FutureWarning: get_sentence_embedding_dimension renamed to get_embedding_dimension (note for adapter)"},
+    {"name": "embedding round-trip", "result": "pass", "detail": "0.63s for 3 short texts"},
+    {"name": "multilingual sanity", "result": "pass", "detail": "cos(en 'GraphRAG pattern: knowledge graph retrieval', es 'patron GraphRAG: recuperacion con grafo de conocimiento')=0.8608 > 0.7; cos(en, unrelated 'docker compose up -d')=-0.0247"},
+    {"name": "no production graph mutation", "result": "pass", "detail": "read-only verification; no Neo4j connection used"}
+  ],
+  "conclusion": "D3-VERIFICATION-PASS. Slice C prod wiring (Neo4j vector adapter + SentenceTransformerAdapter on OrangePi) unblocked. Embedding dim for vector index config: 384.",
+  "notes": [
+    "Model weights cached on OrangePi at default HF hub location.",
+    "Adapter should call get_embedding_dimension() (new name) with fallback for older versions.",
+    "D4 vector index target: Neo4j 5.23.0 native vector index (verified 2026-09-06)."
+  ]
+}
