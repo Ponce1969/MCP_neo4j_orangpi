@@ -46,6 +46,7 @@ from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.infrastructure.neo4j_retrieval_smoke_adapter import Neo4jRetrievalSmokeAdapter
 from book_graph_rag.infrastructure.neo4j_validation_adapter import Neo4jValidationAdapter
 from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter
+from book_graph_rag.infrastructure.resolution_wiring import build_resolve_entities_use_case
 from book_graph_rag.infrastructure.version_dimensions import compute_version_dimensions
 
 
@@ -546,6 +547,49 @@ def validate(
 
     click.echo(bundle.model_dump_json(indent=2))
     raise click.exceptions.Exit(policy.exit_code)
+
+
+@cli.command("resolve-entities")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Analyze without persisting quarantine or applying merges.",
+)
+def resolve_entities(dry_run: bool) -> None:
+    """Run semantic entity resolution over the active graph."""
+    try:
+        settings = Settings.model_validate({})
+    except Exception as exc:  # noqa: BLE003
+        click.echo(f"Configuration error: {exc}", err=True)
+        sys.exit(1)
+
+    async def _run() -> dict[str, Any]:
+        use_case, closables = await build_resolve_entities_use_case(settings)
+        try:
+            result = await use_case.analyze(dry_run=dry_run)
+        finally:
+            for closable in closables:
+                if hasattr(closable, "close"):
+                    await closable.close()
+        return {
+            "strategy": "hybrid",
+            "dry_run": dry_run,
+            "auto_merge_groups": len(result.auto_merge_groups),
+            "quarantine_records": len(result.quarantine_records),
+            "no_merge_candidates": len(result.no_merge_candidates),
+            "total_pairs_evaluated": result.total_pairs_evaluated,
+            "merged_entities": sum(
+                len(g.duplicate_ids) for g in result.auto_merge_groups
+            ),
+        }
+
+    try:
+        summary = asyncio.run(_run())
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Resolution error: {exc}", err=True)
+        sys.exit(3)
+
+    click.echo(json.dumps(summary, indent=2))
 
 
 def main() -> None:

@@ -20,6 +20,8 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -27,8 +29,10 @@ from typing import Any
 import click
 from neo4j import AsyncGraphDatabase
 
+from book_graph_rag.application.resolve_entities_use_case import ResolveEntitiesResult
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import Entity
+from book_graph_rag.infrastructure.resolution_wiring import build_resolve_entities_use_case
 
 DEFAULT_THRESHOLD = 0.9
 
@@ -390,6 +394,40 @@ def _plan_lines(entities: list[Entity], groups: list[MergeGroup]) -> list[str]:
     return lines
 
 
+def _print_hybrid_report(result: ResolveEntitiesResult, *, dry_run: bool) -> None:
+    """Emit the new JSON summary produced by the hybrid use case."""
+    summary = {
+        "strategy": "hybrid",
+        "dry_run": dry_run,
+        "auto_merge_groups": len(result.auto_merge_groups),
+        "quarantine_records": len(result.quarantine_records),
+        "no_merge_candidates": len(result.no_merge_candidates),
+        "total_pairs_evaluated": result.total_pairs_evaluated,
+        "merged_entities": sum(len(g.duplicate_ids) for g in result.auto_merge_groups),
+    }
+    click.echo(json.dumps(summary, indent=2))
+
+
+async def run_hybrid_resolution(
+    dry_run: bool,
+    use_case_factory: Any | None = None,
+) -> ResolveEntitiesResult:
+    """Run the hybrid semantic resolution pipeline.
+
+    ``use_case_factory`` receives ``Settings`` and returns ``(use_case, closables)``
+    so tests can inject a fake use case without building real adapters.
+    """
+    settings = Settings.model_validate({})
+    factory = use_case_factory or build_resolve_entities_use_case
+    use_case, closables = await factory(settings)
+    try:
+        return await use_case.analyze(dry_run=dry_run)
+    finally:
+        for closable in closables:
+            if hasattr(closable, "close"):
+                await closable.close()
+
+
 async def _run_main(threshold: float, dry_run: bool) -> None:
     """Single-entry coroutine so the event loop stays open for cleanup."""
     settings = Settings.model_validate({})
@@ -431,6 +469,10 @@ async def _run_main(threshold: float, dry_run: bool) -> None:
 )
 def main(threshold: float, dry_run: bool) -> None:
     """Merge near-duplicate :Entity nodes."""
+    if os.environ.get("RESOLUTION_STRATEGY") == "hybrid":
+        result = asyncio.run(run_hybrid_resolution(dry_run=dry_run))
+        _print_hybrid_report(result, dry_run=dry_run)
+        return
     asyncio.run(_run_main(threshold, dry_run))
 
 
