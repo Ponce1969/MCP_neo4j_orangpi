@@ -18,6 +18,19 @@ class DatasetManifestMismatch(ResolutionError):  # noqa: N818
 class LedgerChainBroken(ResolutionError):  # noqa: N818
     """Raised when the merge ledger chained hash is tampered with."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        seq: int | None = None,
+        expected: str | None = None,
+        actual: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.seq = seq
+        self.expected = expected
+        self.actual = actual
+
 
 class RollbackTargetInvalid(ResolutionError):  # noqa: N818
     """Raised when a rollback target entry is missing or invalid."""
