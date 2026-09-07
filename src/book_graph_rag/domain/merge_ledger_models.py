@@ -17,10 +17,15 @@ from book_graph_rag.domain.resolution_models import ResolutionEvidence
 
 
 class MergeBand(StrEnum):
-    """Band of an applied merge. Only EXACT and HIGH are auto-merge eligible."""
+    """Band of an applied merge.
+
+    EXACT and HIGH may be auto-merged; MEDIUM appears only after a human
+    approves a quarantine record.
+    """
 
     EXACT = "exact"
     HIGH = "high"
+    MEDIUM = "medium"
 
 
 class FoldedAlias(BaseModel):
