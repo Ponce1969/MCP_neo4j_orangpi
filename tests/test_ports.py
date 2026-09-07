@@ -69,6 +69,9 @@ class _DummyGraphDB(GraphDatabasePort):
     async def clear_index(self) -> None:
         return None
 
+    async def load_active_entities(self, *, batch_size: int = 500) -> list[Entity]:
+        return []
+
     async def count_chunks(self) -> int:
         return 0
 
@@ -174,6 +177,9 @@ def test_graph_db_port_complete_subclass_can_be_instantiated() -> None:
 
         async def clear_index(self) -> None:
             return None
+
+        async def load_active_entities(self, *, batch_size: int = 500) -> list[Entity]:
+            return []
 
         async def count_chunks(self) -> int:
             return 0

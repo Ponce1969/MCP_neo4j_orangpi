@@ -684,3 +684,41 @@ class Neo4jCommandAdapter(GraphDatabasePort):
             async for record in result:
                 indices.append(int(record["chunk_index"]))
             return indices
+
+    async def load_active_entities(self, *, batch_size: int = 500) -> list[Entity]:
+        """Return all :Entity nodes that are not soft-deleted.
+
+        The ``merged_into`` property marks duplicates folded into a canonical
+        entity. Empty string is treated as active for defensive compatibility.
+        """
+        _ = batch_size  # reserved for future streaming / apoc.periodic.iterate
+        async with self._driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (n:Entity)
+                WHERE n.merged_into IS NULL OR n.merged_into = ''
+                RETURN n.id AS id,
+                       n.name AS name,
+                       n.type AS type,
+                       n.description AS description,
+                       n.source_page AS source_page,
+                       n.aliases AS aliases,
+                       n.canonical_name AS canonical_name
+                ORDER BY n.name
+                """
+            )
+            entities: list[Entity] = []
+            async for record in result:
+                aliases = record["aliases"] or []
+                entities.append(
+                    Entity(
+                        id=record["id"],
+                        name=record["name"],
+                        type=record["type"],
+                        description=record["description"] or "",
+                        source_page=record["source_page"],
+                        aliases=list(aliases),
+                        canonical_name=record["canonical_name"],
+                    )
+                )
+            return entities

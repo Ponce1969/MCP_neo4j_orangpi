@@ -116,6 +116,16 @@ class GraphDatabasePort(abc.ABC):
         """Return the number of ``(:Chunk)-[:MENTIONS]->(:Entity)`` edges."""
         ...
 
+    @abc.abstractmethod
+    async def load_active_entities(self, *, batch_size: int = 500) -> list[Entity]:
+        """Return every :Entity that has not been soft-deleted.
+
+        Filters out entities where ``merged_into`` is non-empty. Read paths
+        MUST use this helper (or equivalent filtering) so merged duplicates
+        remain invisible to resolution, retrieval, and queries.
+        """
+        ...
+
     async def fetch_backfill_candidates(self, source_id: str) -> list[int]:
         """Return chunk indices that have at least one ``(:Chunk)-[:MENTIONS]->(:Entity)`` edge.
 
