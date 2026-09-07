@@ -523,3 +523,228 @@ def test_settings_community_max_calls_must_be_positive(
         Settings.model_validate(data)
 
     assert "community_max_calls" in str(exc_info.value)
+
+# ── Phase 3: Semantic Entity Resolution settings validators ──────────────────
+
+
+_APPROVED_MODELS = (
+    "paraphrase-multilingual-MiniLM-L12-v2",
+    "distiluse-base-multilingual-cased-v2",
+    "all-MiniLM-L6-v2",
+)
+
+
+def test_settings_resolution_defaults_are_conservative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default retrieval strategy is brute_force and model is approved."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.candidate_retrieval_strategy == "brute_force"
+    assert settings.embedding_model_id in _APPROVED_MODELS
+    assert settings.embedding_input_variant == "A"
+    assert settings.embedding_top_k == 20
+    assert settings.embedding_min_similarity == pytest.approx(0.60)
+    assert settings.vector_index_name == "entity_embedding_index"
+
+
+def test_settings_embedding_model_id_must_be_approved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unknown embedding_model_id is rejected unless allow_extra_embedding_model is True."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "embedding_model_id": "unknown-model",
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "embedding_model_id" in str(exc_info.value)
+
+
+def test_settings_allow_extra_embedding_model_permits_unknown_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """allow_extra_embedding_model=True bypasses the approved-model list."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "embedding_model_id": "unknown-model",
+        "allow_extra_embedding_model": True,
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.embedding_model_id == "unknown-model"
+
+
+@pytest.mark.parametrize("top_k", [0, 101, -5])
+def test_settings_embedding_top_k_out_of_range_rejected(
+    top_k: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """embedding_top_k must be between 1 and 100 inclusive."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "embedding_top_k": top_k,
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "embedding_top_k" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("min_sim", [-0.1, 1.1, 2.0])
+def test_settings_embedding_min_similarity_out_of_range_rejected(
+    min_sim: float, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """embedding_min_similarity must be in [0.0, 1.0]."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "embedding_min_similarity": min_sim,
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "embedding_min_similarity" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "threshold",
+    [
+        "band_high_cosine",
+        "band_high_context",
+        "band_medium_cosine",
+        "band_conflict_floor",
+    ],
+)
+@pytest.mark.parametrize("value", [-0.1, 1.1])
+def test_settings_band_thresholds_out_of_range_rejected(
+    threshold: str, value: float, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Band thresholds must be within [0.0, 1.0]."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        threshold: value,
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert threshold in str(exc_info.value)
+
+
+def test_settings_band_high_cosine_must_be_greater_than_medium(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """band_high_cosine must be strictly greater than band_medium_cosine."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "band_high_cosine": 0.80,
+        "band_medium_cosine": 0.80,
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "band_high_cosine" in str(exc_info.value)
+    assert "band_medium_cosine" in str(exc_info.value)
+
+
+def test_settings_neo4j_vector_requires_embedding_dim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """candidate_retrieval_strategy=neo4j_vector requires embedding_dim to be set."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "candidate_retrieval_strategy": "neo4j_vector",
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "embedding_dim" in str(exc_info.value)
+
+
+def test_settings_neo4j_vector_accepts_embedding_dim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """candidate_retrieval_strategy=neo4j_vector is valid when embedding_dim is provided."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "candidate_retrieval_strategy": "neo4j_vector",
+        "embedding_dim": 384,
+    }
+    settings = Settings.model_validate(data)
+
+    assert settings.candidate_retrieval_strategy == "neo4j_vector"
+    assert settings.embedding_dim == 384
+
+
+def test_settings_embedding_input_variant_rejects_invalid_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """embedding_input_variant must be 'A' or 'B'."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "embedding_input_variant": "C",
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "embedding_input_variant" in str(exc_info.value)
+

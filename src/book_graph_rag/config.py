@@ -11,6 +11,12 @@ _ISO_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 LLMRole = Literal["graph", "query"]
 
+_APPROVED_EMBEDDING_MODELS = frozenset({
+    "paraphrase-multilingual-MiniLM-L12-v2",
+    "distiluse-base-multilingual-cased-v2",
+    "all-MiniLM-L6-v2",
+})
+
 
 def validate_llm_provider_settings(
     settings: "Settings", *, roles: tuple[LLMRole, ...] = ("graph", "query")
@@ -229,6 +235,34 @@ class Settings(BaseSettings):
             raise ValueError(f"graph_llm_model_date ({value!r}) is not a valid date") from exc
         return value
 
+    @field_validator("embedding_top_k")
+    @classmethod
+    def _validate_embedding_top_k(cls, value: int) -> int:
+        if not 1 <= value <= 100:
+            raise ValueError(f"embedding_top_k ({value}) must be between 1 and 100")
+        return value
+
+    @field_validator("embedding_min_similarity")
+    @classmethod
+    def _validate_embedding_min_similarity(cls, value: float) -> float:
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(
+                f"embedding_min_similarity ({value}) must be between 0.0 and 1.0"
+            )
+        return value
+
+    @field_validator(
+        "band_high_cosine",
+        "band_high_context",
+        "band_medium_cosine",
+        "band_conflict_floor",
+    )
+    @classmethod
+    def _validate_band_threshold_range(cls, value: float) -> float:
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"band threshold ({value}) must be between 0.0 and 1.0")
+        return value
+
     @model_validator(mode="after")
     def _validate_settings(self) -> "Settings":
         # Validación cross-field: requiere AMBOS valores ya validados.
@@ -247,5 +281,24 @@ class Settings(BaseSettings):
         if self.mcp_log_retention_days < 1:
             raise ValueError(
                 f"mcp_log_retention_days ({self.mcp_log_retention_days}) debe ser mayor o igual a 1"
+            )
+        if self.band_high_cosine <= self.band_medium_cosine:
+            raise ValueError(
+                f"band_high_cosine ({self.band_high_cosine}) must be strictly greater "
+                f"than band_medium_cosine ({self.band_medium_cosine})"
+            )
+        if (
+            not self.allow_extra_embedding_model
+            and self.embedding_model_id not in _APPROVED_EMBEDDING_MODELS
+        ):
+            approved = ", ".join(sorted(_APPROVED_EMBEDDING_MODELS))
+            raise ValueError(
+                f"embedding_model_id ({self.embedding_model_id!r}) is not in the "
+                f"approved list: {approved}. "
+                "Set allow_extra_embedding_model=True to bypass this guard."
+            )
+        if self.candidate_retrieval_strategy == "neo4j_vector" and self.embedding_dim is None:
+            raise ValueError(
+                "embedding_dim is required when candidate_retrieval_strategy is 'neo4j_vector'"
             )
         return self
