@@ -28,7 +28,7 @@ def test_audit_emits_json_before_nonzero_state(monkeypatch: Any) -> None:
         def __init__(self, port: object) -> None:
             pass
 
-        async def execute(self, target: object, sample_limit: int) -> Any:
+        async def execute(self, target: object, sample_limit: int, scope: object = None) -> Any:
             return type(
                 "Report",
                 (),
@@ -71,7 +71,7 @@ def test_audit_cleanup_preserves_report_exit_code(monkeypatch: Any) -> None:
         def __init__(self, port: Adapter) -> None:
             self.port = port
 
-        async def execute(self, target: object, sample_limit: int) -> Any:
+        async def execute(self, target: object, sample_limit: int, scope: object = None) -> Any:
             self.port.audit_loop = asyncio.get_running_loop()
             return type(
                 "Report",

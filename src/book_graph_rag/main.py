@@ -12,7 +12,10 @@ from uuid import uuid4
 
 import click
 
-from book_graph_rag.application.audit_graph_use_case import AuditGraphUseCase, build_audit_target
+from book_graph_rag.application.audit_graph_use_case import (
+    AuditGraphUseCase,
+    build_audit_target,
+)
 from book_graph_rag.application.backfill_checkpoints_use_case import (
     BackfillCheckpointsUseCase,
 )
@@ -23,8 +26,10 @@ from book_graph_rag.application.query_knowledge_graph_use_case import (
 from book_graph_rag.application.replay_dead_letter_use_case import (
     ReplayDeadLetterUseCase,
 )
+from book_graph_rag.application.resolve_audit_scope import resolve_audit_scope
 from book_graph_rag.application.validate_graph_use_case import ValidateGraphUseCase
 from book_graph_rag.config import Settings, validate_llm_provider_settings
+from book_graph_rag.domain.audit_models import AuditScope
 from book_graph_rag.domain.checkpoint_models import ReplayCommand
 from book_graph_rag.domain.models import (
     BatchEntityQuery,
@@ -353,11 +358,33 @@ def _build_graph_query(query_type: str, params: dict[str, Any]) -> GraphQueryUni
 @cli.command("audit")
 @click.option("--target", required=True, type=click.Choice(["bookgraph-neo4j"]))
 @click.option("--sample-limit", default=50, type=click.IntRange(min=0), show_default=True)
+@click.option("--scope", default=None, help="Scoped corpus[:source] (whole-graph if omitted).")
 @click.option("--output", type=click.Path(dir_okay=False, path_type=Path), default=None)
-def audit(target: str, sample_limit: int, output: Path | None) -> None:
+def audit(target: str, sample_limit: int, scope: str | None, output: Path | None) -> None:
     """Run the configured project's static, read-only graph audit."""
     try:
         settings = Settings.model_validate({})
+    except Exception:
+        payload = json.dumps(
+            {
+                "report_schema_version": "1.0",
+                "state": "failed",
+                "reason": "configuration_or_audit_failure",
+            }
+        )
+        click.echo(payload)
+        raise click.exceptions.Exit(13) from None
+
+    audit_scope: AuditScope | None = None
+    if scope is not None:
+        try:
+            catalog = CatalogLoader(settings.catalog_path).load()
+            audit_scope = resolve_audit_scope(scope, catalog)
+        except (ValueError, CatalogLoadError) as exc:
+            click.echo(f"Scope error: {exc}", err=True)
+            sys.exit(2)
+
+    try:
         audit_target = build_audit_target(target, settings.neo4j_uri, settings.neo4j_database)
         adapter = Neo4jAuditAdapter(settings)
     except Exception:
@@ -373,7 +400,9 @@ def audit(target: str, sample_limit: int, output: Path | None) -> None:
 
     async def _run_audit() -> Any:
         try:
-            return await AuditGraphUseCase(adapter).execute(audit_target, sample_limit)
+            return await AuditGraphUseCase(adapter).execute(
+                audit_target, sample_limit, scope=audit_scope
+            )
         finally:
             if hasattr(adapter, "close"):
                 await adapter.close()
