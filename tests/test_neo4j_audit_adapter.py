@@ -1,3 +1,4 @@
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -97,8 +98,9 @@ async def test_adapter_uses_one_configured_read_session_and_static_queries(
     assert driver.databases == ["neo4j"]
     assert session.read_transactions == len(QUERY_PLAN)
     assert all(params["sample_limit"] == 3 for _, params in session.queries)
+    write_keyword = re.compile(r"\b(?:MERGE|CREATE|DELETE|DROP|SET)\b")
     assert all(
-        not any(token in query.upper() for token in ("MERGE", "CREATE", "DELETE", "DROP", "SET "))
+        not write_keyword.search(query.upper())
         for query, _ in session.queries
     )
     assert snapshot.runtime.neo4j_version == "5.23"
