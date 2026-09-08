@@ -4,7 +4,7 @@ import re
 from typing import Literal, cast
 from urllib.parse import urlsplit
 from book_graph_rag.domain.audit_models import (  # noqa: E501
-    AuditExecution, AuditQueryExecution, AuditReport, AuditSnapshot, AuditTarget,
+    AuditExecution, AuditQueryExecution, AuditReport, AuditScope, AuditSnapshot, AuditTarget,
     OverallState, QueryState, exit_code,
 )
 from book_graph_rag.ports.graph_audit_port import GraphIntegrityAuditPort
@@ -40,17 +40,20 @@ class AuditGraphUseCase:
     """Assemble a report from a typed port without importing infrastructure."""
     def __init__(self, port: GraphIntegrityAuditPort) -> None:
         self._port = port
-    async def execute(self, target: AuditTarget, sample_limit: int = 50) -> AuditReport:
+    async def execute(
+        self, target: AuditTarget, sample_limit: int = 50, scope: AuditScope | None = None
+    ) -> AuditReport:
         self._validate_target(target)
         if not isinstance(sample_limit, int) or isinstance(sample_limit, bool) or sample_limit < 0:
             raise ValueError("sample_limit must be a non-negative integer")
         try:
-            snapshot = await self._port.collect_snapshot(target, sample_limit)
+            snapshot = await self._port.collect_snapshot(target, sample_limit, scope=scope)
         except Exception as error:  # provider details never enter the report
             snapshot = _failure_snapshot(error)
         state = self._classify(snapshot)
         return AuditReport(  # noqa: E501
-            target=target, state=state, inventory=snapshot.inventory, findings=snapshot.findings,
+            target=target, state=state, scope=scope.display if scope is not None else None,
+            inventory=snapshot.inventory, findings=snapshot.findings,
             runtime=snapshot.runtime, executed_at=snapshot.executed_at,
             execution=AuditExecution(state=state, exit_code=exit_code(state), queries=snapshot.queries),  # noqa: E501
         )

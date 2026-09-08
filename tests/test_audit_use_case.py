@@ -7,8 +7,11 @@ from book_graph_rag.ports.graph_audit_port import GraphIntegrityAuditPort
 class FakePort(GraphIntegrityAuditPort):
     def __init__(self, result: AuditSnapshot | Exception) -> None:
         self.result, self.calls = result, 0
-    async def collect_snapshot(self, target: AuditTarget, sample_limit: int) -> AuditSnapshot:
+    async def collect_snapshot(
+        self, target: AuditTarget, sample_limit: int, scope: object = None
+    ) -> AuditSnapshot:
         self.calls += 1
+        self.last_scope = scope
         if isinstance(self.result, Exception):
             raise self.result
         return self.result
@@ -44,3 +47,12 @@ async def test_port_failure_is_non_clean(error: Exception, expected: OverallStat
     assert report.inventory == {}
     assert report.execution is not None
     assert report.execution.exit_code != 0
+
+
+async def test_audit_graph_use_case_forwards_scope() -> None:
+    from book_graph_rag.domain.audit_models import AuditScope
+    scope = AuditScope(corpus="knowledge")
+    port = FakePort(AuditSnapshot())
+    report = await AuditGraphUseCase(port).execute(target(), sample_limit=2, scope=scope)
+    assert report.state == OverallState.PASSED
+    assert port.last_scope is scope

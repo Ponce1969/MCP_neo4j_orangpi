@@ -29,6 +29,51 @@ class Severity(StrEnum):
     WARNING = "warning"
     INCOMPLETE = "incomplete"
 RULE_CATALOG = tuple(sorted("DUPLICATE_ENTITY_LOGICAL DUPLICATE_RELATIONSHIP_LOGICAL ENDPOINT_HIERARCHY_INVALID ENDPOINT_MENTIONS_INVALID ENDPOINT_RELATED_INVALID ENTITY_ISOLATED_RELATED ENTITY_UNMENTIONED HIERARCHY_CHAPTER_BOOK_PARENT HIERARCHY_CHUNK_MULTIPLE_PARENT HIERARCHY_CHUNK_PARENT_REQUIRED HIERARCHY_LEVEL_CONTRADICTION HIERARCHY_SECTION_PARENT PAGE_CHAPTER_INVALID_START PAGE_CHUNK_INVALID_RANGE PAGE_SECTION_INVALID_START PROVENANCE_CHUNK_MISSING PROVENANCE_ENTITY_MISSING PROVENANCE_MENTIONS_MISSING PROVENANCE_RELATIONSHIP_MISSING".split()))  # noqa: E501,SIM905
+
+
+class AuditScope(AuditModel):
+    """Validated corpus[:source] scope used to bound an audit snapshot."""
+
+    corpus: str = Field(min_length=1, description="Catalog corpus slug")
+    source: str | None = Field(default=None, min_length=1, description="Catalog source slug")
+
+    @property
+    def display(self) -> str:
+        """Canonical ``corpus`` or ``corpus:source`` string for reporting."""
+        return self.corpus if self.source is None else f"{self.corpus}:{self.source}"
+
+    @property
+    def entity_prefix(self) -> str:
+        """Prefix for Entity.id STARTS WITH, including trailing colon."""
+        return f"{self.corpus}:" if self.source is None else f"{self.corpus}:{self.source}:"
+
+    @property
+    def source_id(self) -> str | None:
+        """Book id for book_id equality filters, only when a source is given."""
+        return None if self.source is None else f"{self.corpus}:{self.source}"
+
+
+RULE_CATEGORY: dict[str, FindingCategory] = {
+    **{r: "hierarchy" for r in RULE_CATALOG if r.startswith("HIERARCHY_")},
+    **{r: "endpoints" for r in RULE_CATALOG if r.startswith("ENDPOINT_")},
+    **{r: "pages" for r in RULE_CATALOG if r.startswith("PAGE_")},
+    **{r: "duplicates" for r in RULE_CATALOG if r.startswith("DUPLICATE_")},
+    **{r: "provenance" for r in RULE_CATALOG if r.startswith("PROVENANCE_")},
+    "ENTITY_UNMENTIONED": "coverage",
+    "ENTITY_ISOLATED_RELATED": "coverage",
+}
+
+
+def severity_for_category(category: FindingCategory) -> Severity:
+    """Return the canonical severity for a finding category."""
+    return {
+        "duplicates": Severity.WARNING,
+        "coverage": Severity.WARNING,
+        "provenance": Severity.INCOMPLETE,
+        "hierarchy": Severity.BLOCKING,
+        "endpoints": Severity.BLOCKING,
+        "pages": Severity.BLOCKING,
+    }[category]
 def normalize_key(value: str | None) -> str:
     value = "" if value is None else unicodedata.normalize("NFKC", value)
     return " ".join(value.casefold().split()) or "<empty>"
@@ -106,6 +151,9 @@ class FindingSample(AuditModel):
     properties: dict[str, Any] = Field(default_factory=dict, description="Bounded safe properties")
     group_id: str | None = Field(default=None, description="Stable logical duplicate group ID")
     native_edge_count: int | None = Field(default=None, description="Exact native edge count")
+    namespace: str | None = Field(
+        default=None, description="Namespace bucket for duplicate samples"
+    )
     @model_validator(mode="before")
     @classmethod
     def sanitize(cls, data: Any) -> Any:
@@ -184,6 +232,7 @@ class AuditReport(AuditModel):
     report_schema_version: Literal["1.0"] = Field(default="1.0", description="Report schema version")  # noqa: E501
     audit_query_version: str = Field(default="p1-static-v1", description="Stable audit query version")  # noqa: E501
     target: AuditTarget = Field(description="Secret-safe target projection")
+    scope: str | None = Field(default=None, description="Scoped corpus[:source] or whole-graph when absent")  # noqa: E501
     state: OverallState = Field(description="Final overall state")
     inventory: dict[str, InventoryMetric] = Field(default_factory=dict, description="Complete totals")  # noqa: E501
     findings: tuple[AuditFinding, ...] = Field(default=(), description="Stable ordered findings")

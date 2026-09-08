@@ -28,7 +28,7 @@ class _FakeAuditPort(GraphIntegrityAuditPort):
         self._snapshot = snapshot
 
     async def collect_snapshot(
-        self, target: AuditTarget, sample_limit: int
+        self, target: AuditTarget, sample_limit: int, scope: object = None
     ) -> AuditSnapshot:
         return self._snapshot
 
