@@ -44,10 +44,6 @@ class GatePolicyLoader:
                 f"Gate policy {self._policy_path} must be a YAML mapping"
             )
 
-        raw_gates = data.get("gates")
-        if isinstance(raw_gates, list):
-            data["gates"] = tuple(raw_gates)
-
         try:
             return GatePolicy.model_validate(data)
         except ValidationError as exc:

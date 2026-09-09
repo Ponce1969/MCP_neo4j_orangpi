@@ -56,7 +56,7 @@ class GatePolicy(AuditModel):
     """Versioned catalog of readiness gates loaded from ``gates.yaml``."""
 
     version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
-    gates: tuple[ReadinessGate, ...]
+    gates: list[ReadinessGate]
 
     @model_validator(mode="after")
     def _unique_gate_names(self) -> GatePolicy:
