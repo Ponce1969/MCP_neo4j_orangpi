@@ -1,0 +1,10 @@
+version: 1.0.0
+gates:
+  - name: expose-mcp
+    version: 1.0.0
+    required_dimensions:
+      hierarchy: pass
+      endpoints: pass
+      uniqueness: pass
+      coverage: pass
+    max_severity: blocking
