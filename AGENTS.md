@@ -104,3 +104,12 @@ destructiva:
   rollback agrega entradas compensatorias, nunca edita historial.
 - La cuarentena (`data/resolution/quarantine.jsonl`) y el ledger viven en la máquina que
   ejecuta el merge; respaldarlos junto con el grafo.
+
+### 7.3 Phase 4 — Scoped audit + readiness gates
+
+- `book-graph-rag audit` y `book-graph-rag gate` son **read-only**: no mutan el grafo.
+- La política de gates vive en `gates.yaml` (raíz del repo, sobreescribible vía
+  `GATES_POLICY_PATH`). El gate `expose-mcp` es **provisional y audit-only**;
+  el smoke de retrieval se decide en Phase 5/6.
+- Los gates usan los mismos códigos de salida que el audit: 0 pass, 10 violaciones,
+  11 incomplete, 12 unreachable, 13 failed.

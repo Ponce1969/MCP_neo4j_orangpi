@@ -23,7 +23,7 @@ implemented yet.
 | 02 — Domain & Ports (Pydantic entities + ABCs) | done |
 | 03 — Infrastructure (`PDFAdapter`, `LLMAdapter`, `Neo4jCommandAdapter`) | done |
 | 04 — Application (`IndexBookUseCase`, streaming + dead-letter) | done |
-| 05 — CLI (`book-graph-rag index <pdf>`) | done |
+| 05 — Audit (`book-graph-rag audit`) + scoped audits + readiness gates | done |
 | 06 — Query layer for the loaded graph | not started |
 | 07 — MCP server to expose the graph to agents | not started |
 
@@ -117,7 +117,14 @@ uv run pytest -v
 # 7. Index a book (smoke test, ~20-30 min against Groq free plan)
 uv run book-graph-rag index data/your-book.pdf
 
-# 8. Inspect the resulting graph
+# 8. Audit the graph (read-only structural health check)
+uv run book-graph-rag audit --target bookgraph-neo4j --output audit-report.json
+
+# 9. Evaluate a readiness gate over the whole graph or a namespace scope
+uv run book-graph-rag gate expose-mcp --target bookgraph-neo4j
+uv run book-graph-rag gate expose-mcp --target bookgraph-neo4j --scope knowledge:agentic-architectural-patterns
+
+# 10. Inspect the resulting graph
 # Open http://localhost:7474 in a browser (Neo4j Browser), run:
 #   MATCH (n) RETURN n LIMIT 25;
 ```
@@ -262,18 +269,27 @@ it is a hard architectural gate, not a stylistic linter.
 src/book_graph_rag/
 ├── config.py              # Settings (Fail-Fast, SecretStr, cross-field validator)
 ├── domain/
-│   └── models.py          # Book, Chapter, Section, PageRef, Entity, Relationship, KnowledgeGraphChunk
+│   ├── models.py          # Book, Chapter, Section, PageRef, Entity, Relationship, KnowledgeGraphChunk
+│   ├── audit_models.py    # AuditReport, AuditScope, RULE_CATEGORY, severity mapping, exit codes
+│   └── gate_models.py     # GatePolicy, ReadinessGate, GateResult
 ├── ports/
 │   ├── pdf_port.py        # PDFReaderPort (ABC)
 │   ├── llm_port.py        # LLMProviderPort (ABC)
-│   └── graph_db_port.py   # GraphDatabasePort (ABC)
+│   ├── graph_db_port.py   # GraphDatabasePort (ABC)
+│   └── graph_audit_port.py # GraphIntegrityAuditPort (ABC)
 ├── application/
-│   └── index_book_use_case.py   # streaming + mini-batches + dead-letter
+│   ├── index_book_use_case.py   # streaming + mini-batches + dead-letter
+│   ├── audit_graph_use_case.py  # read-only graph audit orchestration
+│   ├── evaluate_gate_use_case.py # readiness gate evaluation
+│   └── resolve_audit_scope.py   # corpus[:source] validation
 ├── infrastructure/
 │   ├── pdf_adapter.py     # pymupdf + TOC chunking
 │   ├── llm_adapter.py     # instructor + AsyncOpenAI + tenacity
-│       ├── neo4j_command_adapter.py   # async driver + MERGE upserts (write side)
-    └── neo4j_query_adapter.py     # async driver + MATCH queries (read side)
+│   ├── neo4j_command_adapter.py   # async driver + MERGE upserts (write side)
+│   ├── neo4j_query_adapter.py     # async driver + MATCH queries (read side)
+│   ├── neo4j_audit_adapter.py     # static Cypher audit collector
+│   ├── gate_policy_loader.py      # gates.yaml loader
+│   └── catalog_loader.py          # catalog.yaml loader
 └── main.py                # click CLI + CompositionRoot
 
 scripts/

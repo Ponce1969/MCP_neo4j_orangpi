@@ -1,7 +1,8 @@
 # 04 — Graph Integrity and Audit
 
-> **Status: Target (extends existing).** A strong static read-only audit already exists
-> (19 rules). This spec preserves it and adds topic-scoped audits and readiness gates.
+> **Status: Verified (implemented).** Namespace-scoped audits, the coverage taxonomy fix,
+> namespace-aware duplicate keys, and the readiness gate framework are all implemented.
+> The provisional `expose-mcp` gate is audit-only; retrieval smoke remains deferred to 06.
 
 ## 1. Current state `[VERIFIED]`
 
@@ -19,26 +20,26 @@ The repository has a mature static audit subsystem. Preserve it; do not duplicat
   | endpoints | 3 | `RELATED`, `MENTIONS`, and hierarchy edge validity |
   | pages | 3 | chunk range, chapter start, section start |
   | duplicates | 2 | logical entity + relationship duplicates |
-  | provenance | 6 | entity / relationship / mentions / chunk missing provenance **plus** unmentioned entities and isolated entities |
+  | provenance | 4 | entity / relationship / mentions / chunk missing provenance |
+  | coverage | 2 | `ENTITY_UNMENTIONED`, `ENTITY_ISOLATED_RELATED` |
 
-  The `FindingCategory` type also declares a `coverage` category, but the adapter
-  currently classifies `ENTITY_UNMENTIONED` and `ENTITY_ISOLATED_RELATED` as
-  `provenance` (via the `ENTITY_*` prefix match). `[VERIFIED]`
-  `infrastructure/neo4j_audit_adapter.py::_CATEGORY`.
+  `ENTITY_UNMENTIONED` and `ENTITY_ISOLATED_RELATED` now map to the `coverage`
+  category with severity `WARNING`. `[VERIFIED]` `domain/audit_models.py::RULE_CATEGORY`
+  and `severity_for_category`.
 
 - **Adapter** (`infrastructure/neo4j_audit_adapter.py`): allowlisted static Cypher, one
   statement per named operation, read-only session, bounded samples (`sample_limit`,
   default 50), inventory metrics, runtime metadata (`dbms.components()`).
-- **Severity mapping:** `provenance` category (all 6 rules, including
-  `ENTITY_UNMENTIONED` and `ENTITY_ISOLATED_RELATED`) → `INCOMPLETE`; `duplicates` →
-  `WARNING`; everything else (hierarchy/endpoints/pages) → `BLOCKING`. `[VERIFIED]`
-  `infrastructure/neo4j_audit_adapter.py` (severity assignment at snapshot collection).
+- **Severity mapping:** `provenance` → `INCOMPLETE`; `duplicates`/`coverage` → `WARNING`;
+  `hierarchy`/`endpoints`/`pages` → `BLOCKING`. `[VERIFIED]`
+  `domain/audit_models.py::severity_for_category`.
 - **Exit codes:** passed `0`, violations `10`, incomplete `11`, unreachable `12`,
   failed `13`. `[VERIFIED]` `application/audit_graph_use_case.py` and
   `domain/audit_models.py::exit_code`.
-- CLI: `book-graph-rag audit --target bookgraph-neo4j [--sample-limit N] [--output f]`.
+- CLI: `book-graph-rag audit --target bookgraph-neo4j [--scope corpus[:source]] [--sample-limit N] [--output f]`
+  and `book-graph-rag gate <name> [--target ...] [--scope ...]`.
 
-## 2. Structural health model `[TARGET]`
+## 2. Structural health model `[VERIFIED]`
 
 Define the graph's health as a small, explicit set of dimensions, each with a severity
 and a pass/fail rule:
@@ -54,42 +55,48 @@ and a pass/fail rule:
 The existing 19 rules already implement most of this. The model is a **taxonomy** used to
 scope future audits and report summaries, not a rewrite of the existing rules.
 
-## 3. Topic-scoped audits `[TARGET]`
+## 3. Topic-scoped audits `[VERIFIED]`
 
-- Audits MUST be able to run against a **namespace scope** (corpus/domain/source, per
-  02) or a **topic filter**, producing a scoped report instead of only a whole-graph one.
+- Audits MUST be able to run against a **namespace scope** (`corpus[:source]`, per 02)
+  or a future topic filter, producing a scoped report instead of only a whole-graph one.
+  `[VERIFIED]` `application/resolve_audit_scope.py` and `AuditScope`.
 - Existing rules run unchanged within the scope; the scope is a bounding constraint on
   the candidate node/edge set, not a change to rule semantics.
+  `[VERIFIED]` `infrastructure/neo4j_audit_adapter.py::_scoped_query`.
 - A scoped report MUST state its scope explicitly and must not silently report whole-graph
-  numbers when a scope was requested.
+  numbers when a scope was requested. `[VERIFIED]` `AuditReport.scope`.
 
-## 4. Required checks (preserve + extend) `[TARGET]`
+## 4. Required checks (preserve + extend) `[VERIFIED]`
 
 Keep all 19 existing checks. Add, only where justified:
 
 - **Orphan/integrity:** keep `ENTITY_ISOLATED_RELATED`, `ENTITY_UNMENTIONED`,
   endpoint-validity checks. Add cross-namespace orphan detection once 02 lands.
-- **Uniqueness:** keep logical duplicate rules; extend the duplicate key to include the
-  namespace component (02) so cross-namespace same-names are not false positives.
+- **Uniqueness:** keep logical duplicate rules; the duplicate key now includes the
+  namespace component derived from the entity id so cross-namespace same-names are not
+  false positives.
 - **Provenance:** keep the 4 provenance rules; after 01, add "missing version
   dimensions" and "stale checkpoint" checks.
 - **Readiness gates** (see §5) are separate from RAG evaluation (06) and from the
   static audit; they consume audit output but do not replace it.
 
-## 5. Readiness gates `[TARGET]`
+## 5. Readiness gates `[VERIFIED]`
 
 A readiness gate is a **named, versioned policy** that asserts "this graph is ready for
 purpose X" by combining audit results and (optionally) evaluation results (06).
 
 - Example gate: `expose-mcp` requires `hierarchy=pass`, `endpoints=pass`,
-  `uniqueness=pass`, `coverage=pass`, no BLOCKING findings, and retrieval smoke green.
+  `uniqueness=pass`, `coverage=pass`, and no BLOCKING findings. Retrieval smoke is
+  deferred to 06, so the current gate is **audit-only**. `[VERIFIED]` `gates.yaml` and
+  `application/evaluate_gate_use_case.py`.
 - Gates produce a single pass/fail decision and a stable exit code, reusing the existing
-  exit-code convention.
+  exit-code convention. `[VERIFIED]` `GateEvaluatorUseCase` and `GateResult`.
 - A gate MUST not be satisfied by a `FAILED` or `UNREACHABLE` audit (those are terminal
   transport/failure states, not "clean"). `[VERIFIED]` classification in
-  `application/audit_graph_use_case.py::_classify`.
+  `application/audit_graph_use_case.py::_classify` and terminal-state handling in
+  `GateEvaluatorUseCase.evaluate`.
 
-## 6. Evidence and severities `[TARGET]`
+## 6. Evidence and severities `[VERIFIED]`
 
 - Every finding keeps its current shape: `rule_id`, `category`, `severity`, `total`,
   bounded ordered `samples`, `query_state`. `[VERIFIED]` `domain/audit_models.py`.
@@ -98,7 +105,7 @@ purpose X" by combining audit results and (optionally) evaluation results (06).
 - Severity semantics stay: BLOCKING stops readiness; WARNING is advisory; INCOMPLETE
   blocks "fully verified" status but is distinct from a violation.
 
-## 7. Separation from RAG evaluation `[TARGET]`
+## 7. Separation from RAG evaluation `[VERIFIED]`
 
 - Graph integrity/audit measures **structural health** (well-formedness, uniqueness,
   provenance), NOT retrieval/generation quality.
@@ -109,12 +116,12 @@ purpose X" by combining audit results and (optionally) evaluation results (06).
 
 ## 8. Acceptance criteria
 
-- [ ] Existing 19 rules remain intact and pass unchanged on a healthy graph.
-- [ ] A namespace-scoped audit returns only scoped numbers and names its scope.
-- [ ] A readiness gate returns a deterministic pass/fail and exit code, and fails on any
+- [x] Existing 19 rules remain intact and pass unchanged on a healthy graph.
+- [x] A namespace-scoped audit returns only scoped numbers and names its scope.
+- [x] A readiness gate returns a deterministic pass/fail and exit code, and fails on any
   BLOCKING finding or any FAILED/UNREACHABLE audit.
-- [ ] Duplicate keys become namespace-aware after 02 (no cross-namespace false positives).
-- [ ] No audit rule is added that measures RAG retrieval/generation quality.
+- [x] Duplicate keys are namespace-aware (no cross-namespace false positives).
+- [x] No audit rule is added that measures RAG retrieval/generation quality.
 
 ## 9. Tests
 
@@ -123,8 +130,11 @@ purpose X" by combining audit results and (optionally) evaluation results (06).
   assert findings + severities + exit codes; run a scoped audit and assert scope
   enforcement.
 
-## 10. Open decisions
+## 10. Closed decisions
 
-- `[OPEN]` Whether readiness gates live in config, code, or a declarative policy file.
-- `[OPEN]` The exact gate definitions (which dimensions must pass for which purpose);
-  `expose-mcp` is proposed but not finalized.
+- Readiness gates live in a declarative policy file: `gates.yaml` at the repository root,
+  loaded by `infrastructure/gate_policy_loader.py`, with path overridable via
+  `Settings.gates_policy_path`.
+- The provisional `expose-mcp` gate is defined in `gates.yaml` and is **audit-only**
+  (retrieval smoke deferred to 06). Final approved gate definitions remain a Phase 6/W1
+  product decision.

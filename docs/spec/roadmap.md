@@ -38,6 +38,11 @@ Phase 0 (baseline/evidence)
 | **3 — Semantic resolution (03)** | Staged hybrid resolver + labeled dataset + quarantine/approve | 1 | eval thresholds (F1, over-merge 0) | Merge evidence supports rollback; dry-run before apply |
 
 | **4 — Scoped audit + gates (04)** | Namespace-scoped audits + readiness gate policy | 1 | audit scope tests + gate policy | Gate config/policy is revertible |
+
+> Phase 4 status (2026-09-09): **implemented** (`AuditScope`, scoped Cypher,
+> `RULE_CATEGORY` coverage taxonomy, namespace-aware duplicate keys, `gates.yaml`,
+> `GateEvaluatorUseCase`, `book-graph-rag gate`, integration matrix; all quality gates
+> green). The `expose-mcp` gate is **audit-only**; retrieval smoke is deferred to Phase 5/6.
 | **5 — Evaluation + readiness (06)** | Committed baselines for all layers + CI regression gate | 0 | readiness gate green | Revert thresholds/baseline files |
 | **6 — MCP hardening (05 + 07)** | Outcome tools + server-side enforcement + read-only session + log redaction + no `0.0.0.0` | 3, 4, 5 | exposure gate + denylist/read-only tests | Revert tool/alias + config; read-only session on/off |
 | **7 — Guarded exposure** | Private-transport deployment behind readiness + security gates | 6 | **human approval + 07 preconditions all met** | Systemd/deploy rollback (`AGENTS.md`), read-only credential revocation |
