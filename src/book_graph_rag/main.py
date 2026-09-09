@@ -19,6 +19,7 @@ from book_graph_rag.application.audit_graph_use_case import (
 from book_graph_rag.application.backfill_checkpoints_use_case import (
     BackfillCheckpointsUseCase,
 )
+from book_graph_rag.application.evaluate_gate_use_case import GateEvaluatorUseCase
 from book_graph_rag.application.index_book_use_case import IndexBookUseCase
 from book_graph_rag.application.query_knowledge_graph_use_case import (
     QueryKnowledgeGraphUseCase,
@@ -31,6 +32,7 @@ from book_graph_rag.application.validate_graph_use_case import ValidateGraphUseC
 from book_graph_rag.config import Settings, validate_llm_provider_settings
 from book_graph_rag.domain.audit_models import AuditScope
 from book_graph_rag.domain.checkpoint_models import ReplayCommand
+from book_graph_rag.domain.gate_models import UnknownGateError
 from book_graph_rag.domain.models import (
     BatchEntityQuery,
     EntityQuery,
@@ -42,6 +44,7 @@ from book_graph_rag.domain.namespaces import SourceNamespace, UnknownNamespaceEr
 from book_graph_rag.domain.validation_models import BookScope, SmokeManifest, TargetScope
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader, CatalogLoadError
 from book_graph_rag.infrastructure.dead_letter import JSONLDeadLetter
+from book_graph_rag.infrastructure.gate_policy_loader import GatePolicyLoader, GatePolicyLoadError
 from book_graph_rag.infrastructure.json_evidence_adapter import JSONEvidenceAdapter
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.neo4j_audit_adapter import Neo4jAuditAdapter
@@ -437,6 +440,95 @@ def audit(target: str, sample_limit: int, scope: str | None, output: Path | None
         }.get(str(report.state), 13)
     )
     raise click.exceptions.Exit(code)
+
+
+@cli.command("gate")
+@click.argument("name")
+@click.option("--target", required=True, type=click.Choice(["bookgraph-neo4j"]))
+@click.option("--sample-limit", default=50, type=click.IntRange(min=0), show_default=True)
+@click.option("--scope", default=None, help="Scoped corpus[:source] (whole-graph if omitted).")
+@click.option("--output", type=click.Path(dir_okay=False, path_type=Path), default=None)
+def gate(
+    name: str,
+    target: str,
+    sample_limit: int,
+    scope: str | None,
+    output: Path | None,
+) -> None:
+    """Evaluate a readiness gate over a scoped or whole-graph audit."""
+    try:
+        settings = Settings.model_validate({})
+    except Exception:
+        payload = json.dumps(
+            {
+                "report_schema_version": "1.0",
+                "state": "failed",
+                "reason": "configuration_or_audit_failure",
+            }
+        )
+        click.echo(payload)
+        raise click.exceptions.Exit(13) from None
+
+    try:
+        policy = GatePolicyLoader(settings.gates_policy_path).load()
+    except GatePolicyLoadError as exc:
+        click.echo(f"Gate policy error: {exc}", err=True)
+        sys.exit(2)
+
+    audit_scope: AuditScope | None = None
+    if scope is not None:
+        try:
+            catalog = CatalogLoader(settings.catalog_path).load()
+            audit_scope = resolve_audit_scope(scope, catalog)
+        except (ValueError, CatalogLoadError) as exc:
+            click.echo(f"Scope error: {exc}", err=True)
+            sys.exit(2)
+
+    try:
+        audit_target = build_audit_target(target, settings.neo4j_uri, settings.neo4j_database)
+        adapter = Neo4jAuditAdapter(settings)
+    except Exception:
+        payload = json.dumps(
+            {
+                "report_schema_version": "1.0",
+                "state": "failed",
+                "reason": "configuration_or_audit_failure",
+            }
+        )
+        click.echo(payload)
+        raise click.exceptions.Exit(13) from None
+
+    async def _run() -> Any:
+        try:
+            report = await AuditGraphUseCase(adapter).execute(
+                audit_target, sample_limit, scope=audit_scope
+            )
+            return GateEvaluatorUseCase(policy).evaluate(name, report)
+        finally:
+            if hasattr(adapter, "close"):
+                await adapter.close()
+
+    try:
+        result = asyncio.run(_run())
+    except UnknownGateError as exc:
+        click.echo(f"Unknown gate: {exc}", err=True)
+        sys.exit(10)
+    except Exception:
+        payload = json.dumps(
+            {
+                "report_schema_version": "1.0",
+                "state": "failed",
+                "reason": "configuration_or_audit_failure",
+            }
+        )
+        click.echo(payload)
+        raise click.exceptions.Exit(13) from None
+
+    payload = result.model_dump_json(indent=2)
+    click.echo(payload)
+    if output is not None:
+        output.write_text(payload + "\n", encoding="utf-8")
+    raise click.exceptions.Exit(result.exit_code)
 
 
 @cli.command("query")

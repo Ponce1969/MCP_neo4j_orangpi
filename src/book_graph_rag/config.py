@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     # ── Catálogo de namespaces (STAGE 1) ────────────────────────────────
     catalog_path: Path = Path("catalog.yaml")
 
+    # ── Readiness gate policy (Phase 4) ──────────────────────────────────
+    gates_policy_path: Path = Path("gates.yaml")
+
     # ── Canonicalización de entidades (REQ-CANON-04) ─────────────────────
     canonical_match_mode: Literal["slug", "fuzzy"] = "slug"
     canonical_fuzzy_threshold: float = 0.92
