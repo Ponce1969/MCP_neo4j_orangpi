@@ -38,6 +38,9 @@ from book_graph_rag.application.index_book_use_case import IndexBookUseCase
 from book_graph_rag.application.query_knowledge_graph_use_case import (
     QueryKnowledgeGraphUseCase,
 )
+from book_graph_rag.application.readiness_gate_evaluator_use_case import (
+    ReadinessGateEvaluatorUseCase,
+)
 from book_graph_rag.application.replay_dead_letter_use_case import (
     ReplayDeadLetterUseCase,
 )
@@ -46,7 +49,7 @@ from book_graph_rag.application.validate_graph_use_case import ValidateGraphUseC
 from book_graph_rag.config import Settings, validate_llm_provider_settings
 from book_graph_rag.domain.audit_models import AuditScope
 from book_graph_rag.domain.checkpoint_models import ReplayCommand
-from book_graph_rag.domain.gate_models import UnknownGateError
+from book_graph_rag.domain.gate_models import GatePolicy, UnknownGateError
 from book_graph_rag.domain.models import (
     BatchEntityQuery,
     EntityQuery,
@@ -534,6 +537,11 @@ def gate(
             report = await AuditGraphUseCase(adapter).execute(
                 audit_target, sample_limit, scope=audit_scope
             )
+            if name in {g.name for g in policy.readiness_gates}:
+                readiness_use_case = _build_readiness_gate_evaluator_use_case(
+                    settings, policy
+                )
+                return await readiness_use_case.execute(name, report, scope=scope)
             return GateEvaluatorUseCase(policy).evaluate(name, report)
         finally:
             if hasattr(adapter, "close"):
@@ -605,6 +613,60 @@ def _build_evaluate_command_use_case(settings: Settings) -> EvaluateCommandUseCa
     extraction_layer = EvaluateExtractionLayerUseCase()
 
     return EvaluateCommandUseCase(
+        resolution_layer=resolution_layer,
+        generation_layer=generation_layer,
+        retrieval_layer=retrieval_layer,
+        extraction_layer=extraction_layer,
+    )
+
+
+def _build_readiness_gate_evaluator_use_case(
+    settings: Settings, policy: GatePolicy
+) -> ReadinessGateEvaluatorUseCase:
+    """Wire the readiness gate evaluator for the ``gate`` command."""
+    dataset_port = JsonlManifestEvaluationDatasetLoader(settings.evaluation_manifest_path)
+    baseline_port = JsonEvaluationBaselineLoader(settings.evaluation_baseline_dir)
+
+    harness = EvaluationHarness(
+        embedding=SentenceTransformerAdapter(settings),
+        retrieval=BruteForceCandidateRetrieval(),
+        thresholds=BandThresholds(),
+        dataset_path=settings.resolution_dataset_path,
+        manifest_path=settings.resolution_manifest_path,
+        baseline_path=settings.resolution_baseline_report_path,
+        output_path=settings.evaluation_dir / "resolution_metrics.json",
+    )
+    resolution_layer = EvaluateResolutionLayerUseCase(
+        dataset_port=dataset_port,
+        baseline_port=baseline_port,
+        harness=harness,
+    )
+
+    retrieval_port = Neo4jRetrievalAdapter(settings)
+    ragas_port = SubprocessRAGASRunner()
+    retrieval_layer = EvaluateRetrievalLayerUseCase(
+        dataset_port=dataset_port,
+        retrieval_port=retrieval_port,
+        ragas_port=ragas_port,
+    )
+
+    claim_port = LLMClaimValidator(settings)
+    pairwise_port = LLMPairwiseJudge(settings)
+    generation_layer = EvaluateGenerationLayerUseCase(
+        dataset_port=dataset_port,
+        retrieval_port=retrieval_port,
+        claim_port=claim_port,
+        pairwise_port=pairwise_port,
+        ragas_port=ragas_port,
+        baseline_port=baseline_port,
+        settings=settings,
+    )
+
+    extraction_layer = EvaluateExtractionLayerUseCase()
+
+    return ReadinessGateEvaluatorUseCase(
+        gate_policy=policy,
+        audit_evaluator=GateEvaluatorUseCase(policy),
         resolution_layer=resolution_layer,
         generation_layer=generation_layer,
         retrieval_layer=retrieval_layer,
