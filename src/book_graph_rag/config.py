@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     # ── Readiness gate policy (Phase 4) ──────────────────────────────────
     gates_policy_path: Path = Path("gates.yaml")
 
+    # ── Phase 5: Evaluation readiness ─────────────────────────────────────
+    evaluation_dir: Path = Path("data/evaluation")
+    evaluation_manifest_path: Path = Path("data/evaluation/MANIFEST.json")
+    evaluation_baseline_dir: Path = Path("data/evaluation")
+    claim_extractor_model: str = ""
+    pairwise_judge_model: str = ""
+    ragas_enabled: bool = True
+
     # ── Canonicalización de entidades (REQ-CANON-04) ─────────────────────
     canonical_match_mode: Literal["slug", "fuzzy"] = "slug"
     canonical_fuzzy_threshold: float = 0.92
@@ -148,6 +156,37 @@ class Settings(BaseSettings):
     # client is configured with max_retries=0. A high value here would burst retries
     # immediately on a saturated endpoint, worsening 503 storms.
     llm_instructor_max_retries: int = 1
+
+    @property
+    def effective_claim_extractor_model(self) -> str:
+        """Claim extractor model id, defaulting to the query LLM model."""
+        return self.claim_extractor_model or self.query_llm_model_name
+
+    @property
+    def effective_pairwise_judge_model(self) -> str:
+        """Pairwise judge model id, defaulting to the query LLM model."""
+        return self.pairwise_judge_model or self.query_llm_model_name
+
+    @model_validator(mode="after")
+    def _validate_evaluation_paths(self) -> "Settings":
+        """Fail fast when evaluation paths are explicitly set to missing values."""
+        default_manifest = Path("data/evaluation/MANIFEST.json")
+        if (
+            self.evaluation_manifest_path != default_manifest
+            and not self.evaluation_manifest_path.exists()
+        ):
+            raise ValueError(
+                f"evaluation_manifest_path ({self.evaluation_manifest_path}) does not exist"
+            )
+        default_baseline_dir = Path("data/evaluation")
+        if (
+            self.evaluation_baseline_dir != default_baseline_dir
+            and (not self.evaluation_baseline_dir.exists() or not self.evaluation_baseline_dir.is_dir())
+        ):
+            raise ValueError(
+                f"evaluation_baseline_dir ({self.evaluation_baseline_dir}) does not exist or is not a directory"
+            )
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -253,6 +292,8 @@ class Settings(BaseSettings):
                 f"embedding_min_similarity ({value}) must be between 0.0 and 1.0"
             )
         return value
+
+
 
     @field_validator(
         "band_high_cosine",
