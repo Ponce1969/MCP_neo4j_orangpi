@@ -1,0 +1,20 @@
+{
+  "generation_dataset": {
+    "available": true,
+    "faithfulness": 0.6825,
+    "answer_relevancy": 0.5953,
+    "context_precision": 0.474,
+    "notes": "fixture"
+  },
+  "drop_dataset": {
+    "available": true,
+    "faithfulness": 0.55,
+    "answer_relevancy": 0.60,
+    "context_precision": 0.45,
+    "notes": "drop fixture"
+  },
+  "unavailable_dataset": {
+    "available": false,
+    "notes": "import failed"
+  }
+}
