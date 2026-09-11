@@ -85,6 +85,14 @@ The gate outputs a pass/fail + stable exit code (reusing 04's convention) and a 
 naming each metric, its measured value, its threshold, and pass/fail. `expose-mcp` (05)
 and any production change (07) require the readiness gate to pass.
 
+### W1 boundary note
+
+Phase 5 produces graph-context evidence — audit result, per-layer metrics,
+thresholds, and regression comparisons — that informs readiness, but it does not
+close W1. W1 closure is a separate human decision: a maintainer may still require
+additional evidence, a production smoke test, or explicit sign-off even when the
+readiness gate passes. Consequently, the readiness gate may pass while W1 remains open, and a passing gate must not be interpreted as automatic W1 closure.
+
 ## 8. Monitoring and rollback `[TARGET]`
 
 - **Monitoring (production only):** sample live queries, score retrieval/generation over
@@ -111,9 +119,14 @@ and any production change (07) require the readiness gate to pass.
   metrics match a committed reference run (determinism guard where applicable).
 - **CI:** a dry-run readiness gate exercises all layers and fails on seeded violations.
 
-## 11. Open decisions
+## 11. Resolved decisions
 
-- `[OPEN]` Exact threshold values (set after measuring the committed baseline).
-- `[OPEN]` Whether external tools (RAGAS/DeepEval) are adopted as secondary signals or
-  excluded from gates entirely.
-- `[OPEN]` Which layers are required vs. optional for the first `expose-mcp` gate.
+- `[RESOLVED-PHASE5]` Exact threshold values: mechanism-first — the committed baseline
+  report lands first; numeric thresholds are fixed post-measurement in a follow-up Phase 5
+  delta, and the readiness gate reports `incomplete` (11) while thresholds are unset.
+- `[RESOLVED-PHASE5]` External tools: RAGAS is adopted as a secondary signal only
+  (WARNING, never blocks alone); DeepEval is not adopted; TruLens is deferred to
+  Phase 6/7.
+- `[RESOLVED-PHASE5]` Required vs. optional layers: layers 1 (audit), 3 (entity
+  resolution), and 5 (generation) are required/blocking; layers 2 (extraction fidelity)
+  and 4 (retrieval) are optional/informative and never block.
