@@ -54,7 +54,7 @@ from book_graph_rag.infrastructure.stub_ragas_runner import StubRAGASRunner
 
 pytestmark = pytest.mark.neo4j_integration
 
-_PRODUCTION_HOST = "100.106.85.109"
+_PRODUCTION_HOST = "100.106.85.109"  # no-external-endpoints-allow
 
 
 async def _count_nodes(driver: Any) -> int:

@@ -8,7 +8,10 @@ import pytest
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.checkpoint_models import VersionDimensions
-from book_graph_rag.infrastructure.version_dimensions import compute_version_dimensions
+from book_graph_rag.infrastructure.version_dimensions import (
+    _provider_name,
+    compute_version_dimensions,
+)
 
 
 def _source_version(pdf_bytes: bytes) -> str:
@@ -42,7 +45,7 @@ def settings() -> Settings:
             "schema_version": "1.0.0",
             "graph_llm_model_date": "2026-09-01",
             "graph_llm_model_name": "gpt-4o-mini",
-            "graph_llm_base_url": "https://api.openai.com/v1",
+            "graph_llm_base_url": "https://graph-provider.test/v1",
         }
     )
 
@@ -53,7 +56,7 @@ def test_compute_version_dimensions_matches_manual(settings: Settings) -> None:
     expected = VersionDimensions(
         source_version=hashlib.sha256(pdf_bytes).hexdigest()[:16],
         pipeline_version=settings.pipeline_version,
-        model_version=f"openai:{settings.graph_llm_model_name}:{settings.graph_llm_model_date}",
+        model_version=f"{_provider_name(settings)}:{settings.graph_llm_model_name}:{settings.graph_llm_model_date}",
         schema_version=settings.schema_version,
     )
 
