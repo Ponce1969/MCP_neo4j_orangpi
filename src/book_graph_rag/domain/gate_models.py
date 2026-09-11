@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from book_graph_rag.domain.audit_models import AuditModel, OverallState
+from book_graph_rag.domain.evaluation_models import ReadinessGatePolicy
 
 GateDimension = Literal["hierarchy", "endpoints", "provenance", "uniqueness", "coverage"]
 MaxSeverity = Literal["blocking", "warning", "incomplete", "none"]
@@ -57,12 +58,20 @@ class GatePolicy(AuditModel):
 
     version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
     gates: list[ReadinessGate]
+    readiness_gates: list[ReadinessGatePolicy] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _unique_gate_names(self) -> GatePolicy:
         names = [g.name for g in self.gates]
         if len(set(names)) != len(names):
             raise ValueError("duplicate gate names")
+        return self
+
+    @model_validator(mode="after")
+    def _unique_readiness_names(self) -> GatePolicy:
+        names = [g.name for g in self.readiness_gates]
+        if len(set(names)) != len(names):
+            raise ValueError("duplicate readiness gate names")
         return self
 
 
