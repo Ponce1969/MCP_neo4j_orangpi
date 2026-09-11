@@ -1,0 +1,17 @@
+{
+  "q1": {
+    "verdict": "graph_wins",
+    "rationale": "The graph answer explains MCP with more detail and accuracy.",
+    "judge_model_id": "stub-judge"
+  },
+  "q2": {
+    "verdict": "tie",
+    "rationale": "Both answers are essentially equivalent.",
+    "judge_model_id": "stub-judge"
+  },
+  "q3": {
+    "verdict": "baseline_wins",
+    "rationale": "The baseline answer is more concise and correct.",
+    "judge_model_id": "stub-judge"
+  }
+}
