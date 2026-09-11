@@ -373,7 +373,24 @@ def _run_ragas(
     is_flag=True,
     help="Skip baseline comparison and do not emit gr3_after.json deltas",
 )
-def main(dataset: str, detail_level: int, no_ragas: bool, no_compare: bool) -> None:
+@click.option(
+    "--no-baseline",
+    is_flag=True,
+    help="Alias for --no-compare",
+)
+@click.option(
+    "--json-output",
+    type=click.Path(path_type=Path),
+    help="Also write the after-metrics JSON to this path",
+)
+def main(
+    dataset: str,
+    detail_level: int,
+    no_ragas: bool,
+    no_compare: bool,
+    no_baseline: bool,
+    json_output: Path | None,
+) -> None:
     """Run the RAGAS evaluation pipeline."""
     settings = Settings.model_validate({})
     try:
@@ -455,13 +472,6 @@ def main(dataset: str, detail_level: int, no_ragas: bool, no_compare: bool) -> N
     click.echo(f"\nRaw results saved: {_RESULTS_OUTPUT}")
 
     # ── RAGAS metrics ──────────────────────────────────────────────────
-    if no_ragas:
-        click.echo("Skipping RAGAS (--no-ragas).")
-        return
-
-    click.echo("Computing RAGAS metrics…")
-    score = _run_ragas(results, settings)
-
     failed_rows = [r for r in results if r.get("error")]
 
     _BENCHMARK_DIR.mkdir(parents=True, exist_ok=True)
@@ -472,9 +482,16 @@ def main(dataset: str, detail_level: int, no_ragas: bool, no_compare: bool) -> N
         "global_questions": sum(1 for r in results if r["type"] == "global"),
         "local_questions": sum(1 for r in results if r["type"] == "local"),
         "failed_questions": [{"question": r["question"], "error": r["error"]} for r in failed_rows],
-        "metrics": score,
+        "metrics": None,
     }
 
+    if no_ragas:
+        click.echo("Skipping RAGAS (--no-ragas).")
+    else:
+        click.echo("Computing RAGAS metrics…")
+        after["metrics"] = _run_ragas(results, settings)
+
+    no_compare = no_compare or no_baseline
     if no_compare:
         after["baseline"] = None
         after["delta"] = None
@@ -487,6 +504,15 @@ def main(dataset: str, detail_level: int, no_ragas: bool, no_compare: bool) -> N
     with open(_AFTER_OUTPUT, "w", encoding="utf-8") as f:
         json.dump(after, f, ensure_ascii=False, indent=2)
     click.echo(f"After-metrics saved: {_AFTER_OUTPUT}")
+
+    if json_output is not None:
+        json_output.parent.mkdir(parents=True, exist_ok=True)
+        with json_output.open("w", encoding="utf-8") as f:
+            json.dump(after, f, ensure_ascii=False, indent=2)
+        click.echo(f"JSON output saved: {json_output}")
+
+    if after["metrics"] is None:
+        return
 
     # Print quick summary.
     click.echo("\n── RAGAS After ──")
