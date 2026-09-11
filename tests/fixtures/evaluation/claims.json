@@ -1,0 +1,55 @@
+{
+  "q1": {
+    "extracted": [
+      {
+        "claim_id": "q1-c1",
+        "text": "MCP is a protocol for context exchange.",
+        "evidence_refs": ["ctx1"]
+      },
+      {
+        "claim_id": "q1-c2",
+        "text": "MCP stands for Model Context Protocol.",
+        "evidence_refs": ["ctx2"]
+      }
+    ],
+    "verified": [
+      {
+        "claim_id": "q1-c1",
+        "text": "MCP is a protocol for context exchange.",
+        "evidence_refs": ["ctx1"],
+        "verdict": "support",
+        "verdict_rationale": "Explicitly supported by ctx1.",
+        "verifier_model_id": "stub-verifier"
+      },
+      {
+        "claim_id": "q1-c2",
+        "text": "MCP stands for Model Context Protocol.",
+        "evidence_refs": ["ctx2"],
+        "verdict": "support",
+        "verdict_rationale": "Explicitly supported by ctx2.",
+        "verifier_model_id": "stub-verifier"
+      }
+    ],
+    "faithfulness": 1.0
+  },
+  "q2": {
+    "extracted": [
+      {
+        "claim_id": "q2-c1",
+        "text": "GraphRAG uses community summaries.",
+        "evidence_refs": ["ctx3"]
+      }
+    ],
+    "verified": [
+      {
+        "claim_id": "q2-c1",
+        "text": "GraphRAG uses community summaries.",
+        "evidence_refs": ["ctx3"],
+        "verdict": "not_verifiable",
+        "verdict_rationale": "No direct evidence in contexts.",
+        "verifier_model_id": "stub-verifier"
+      }
+    ],
+    "faithfulness": 0.0
+  }
+}
