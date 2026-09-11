@@ -99,6 +99,8 @@ def test_json_output_flag_writes_file(
             "--no-baseline",
             "--json-output",
             str(output_file),
+            "--after-output",
+            str(tmp_path / "after.json"),
         ],
     )
     assert result.exit_code == 0, result.output
@@ -124,6 +126,8 @@ def test_no_baseline_alias_accepted(
             "--no-baseline",
             "--json-output",
             str(output_file),
+            "--after-output",
+            str(tmp_path / "after.json"),
         ],
     )
     assert result.exit_code == 0, result.output
@@ -136,11 +140,41 @@ def test_existing_flags_unmodified(
     cli_runner: CliRunner,
     env_vars: None,
     patched_module: None,
+    tmp_path: Path,
 ) -> None:
     """The existing --no-ragas and --no-compare flags still work."""
     result = cli_runner.invoke(
         run_ragas_module.main,
-        ["--no-ragas", "--no-compare"],
+        [
+            "--no-ragas",
+            "--no-compare",
+            "--after-output",
+            str(tmp_path / "after.json"),
+        ],
     )
     assert result.exit_code == 0, result.output
     assert "Skipping RAGAS" in result.output
+
+
+def test_after_output_redirect_never_touches_repo_benchmark(
+    cli_runner: CliRunner,
+    env_vars: None,
+    patched_module: None,
+    tmp_path: Path,
+) -> None:
+    """--after-output redirects the default gr3_after.json write (regression)."""
+    benchmark = Path("docs/benchmarks/gr3_after.json")
+    before = benchmark.read_text(encoding="utf-8")
+    after_file = tmp_path / "after.json"
+    result = cli_runner.invoke(
+        run_ragas_module.main,
+        [
+            "--no-ragas",
+            "--no-compare",
+            "--after-output",
+            str(after_file),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert after_file.exists()
+    assert benchmark.read_text(encoding="utf-8") == before

@@ -383,6 +383,12 @@ def _run_ragas(
     type=click.Path(path_type=Path),
     help="Also write the after-metrics JSON to this path",
 )
+@click.option(
+    "--after-output",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Redirect the default gr3_after.json write (tests/sandboxed runs)",
+)
 def main(
     dataset: str,
     detail_level: int,
@@ -390,6 +396,7 @@ def main(
     no_compare: bool,
     no_baseline: bool,
     json_output: Path | None,
+    after_output: Path | None,
 ) -> None:
     """Run the RAGAS evaluation pipeline."""
     settings = Settings.model_validate({})
@@ -501,9 +508,10 @@ def main(
         after["delta"] = _compute_deltas(after, baseline)
         click.echo(f"Loaded baseline: {_BASELINE_OUTPUT}")
 
-    with open(_AFTER_OUTPUT, "w", encoding="utf-8") as f:
+    after_target = after_output if after_output is not None else _AFTER_OUTPUT
+    with open(after_target, "w", encoding="utf-8") as f:
         json.dump(after, f, ensure_ascii=False, indent=2)
-    click.echo(f"After-metrics saved: {_AFTER_OUTPUT}")
+    click.echo(f"After-metrics saved: {after_target}")
 
     if json_output is not None:
         json_output.parent.mkdir(parents=True, exist_ok=True)
