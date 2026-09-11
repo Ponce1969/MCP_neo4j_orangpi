@@ -1,0 +1,20 @@
+{"question_id":"ret-001","question":"ReAct pattern definition","qtype":"local","reference_context_ids":["react-summary","react-example"]}
+{"question_id":"ret-002","question":"CrewAI agent roles","qtype":"local","reference_context_ids":["crewai-summary","crewai-example"]}
+{"question_id":"ret-003","question":"LangGraph state graph","qtype":"local","reference_context_ids":["langgraph-summary","langgraph-example"]}
+{"question_id":"ret-004","question":"Chain-of-thought examples","qtype":"local","reference_context_ids":["prompting-summary","cot-example"]}
+{"question_id":"ret-005","question":"RAG retrieval step","qtype":"local","reference_context_ids":["rag-summary","retrieval-example"]}
+{"question_id":"ret-006","question":"RAGAS metrics explained","qtype":"local","reference_context_ids":["evaluation-summary","ragas-example"]}
+{"question_id":"ret-007","question":"Tool use in agents","qtype":"local","reference_context_ids":["tool-use-summary","tool-example"]}
+{"question_id":"ret-008","question":"Reflection loop","qtype":"local","reference_context_ids":["reflection-summary","reflection-example"]}
+{"question_id":"ret-009","question":"Plan-and-solve workflow","qtype":"local","reference_context_ids":["planning-summary","plan-example"]}
+{"question_id":"ret-010","question":"AutoGen conversational agents","qtype":"local","reference_context_ids":["autogen-summary","autogen-example"]}
+{"question_id":"ret-011","question":"Agent memory types","qtype":"local","reference_context_ids":["memory-summary","memory-example"]}
+{"question_id":"ret-012","question":"Agent observability tools","qtype":"local","reference_context_ids":["observability-summary","traces-example"]}
+{"question_id":"ret-013","question":"Prompt injection defenses","qtype":"local","reference_context_ids":["security-summary","injection-example"]}
+{"question_id":"ret-014","question":"Semantic router design","qtype":"local","reference_context_ids":["routing-summary","router-example"]}
+{"question_id":"ret-015","question":"Local LLM deployment","qtype":"local","reference_context_ids":["local-llm-summary","ollama-example"]}
+{"question_id":"ret-016","question":"GraphRAG communities","qtype":"local","reference_context_ids":["graphrag-summary","community-example"]}
+{"question_id":"ret-017","question":"Entity resolution hard pairs","qtype":"local","reference_context_ids":["resolution-summary","hard-pair-example"]}
+{"question_id":"ret-018","question":"Faithfulness claim validation","qtype":"local","reference_context_ids":["faithfulness-summary","claim-example"]}
+{"question_id":"ret-019","question":"Readiness gate policy","qtype":"local","reference_context_ids":["readiness-summary","gate-example"]}
+{"question_id":"ret-020","question":"Merge ledger format","qtype":"local","reference_context_ids":["ledger-summary","ledger-example"]}

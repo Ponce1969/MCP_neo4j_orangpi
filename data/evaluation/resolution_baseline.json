@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "layer": "resolution",
+  "dataset_id": "resolution_dataset",
+  "dataset_sha256": "67498951076c465c94495eed63d02b45b774bb74f732347aecc629a59e8101d1",
+  "committed_at": "2026-09-10T23:58:32.174701Z",
+  "code_commit": "f7e23343453d6e6c5c9cccfae879eccdf162c776",
+  "model_ids": [
+    "paraphrase-multilingual-MiniLM-L12-v2"
+  ],
+  "metrics": {
+    "retrieval_precision": 0.46296296296296297,
+    "retrieval_recall": 1.0,
+    "f1": 0.6329113924050632,
+    "multilingual_under_merge": 0.0,
+    "multilingual_f1": 1.0,
+    "hard_over_merge": 0.0,
+    "auto_merge_count": 29,
+    "auto_merge_correct": 29
+  },
+  "thresholds_finalized": false
+}

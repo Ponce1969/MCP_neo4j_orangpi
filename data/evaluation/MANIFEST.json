@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0.0",
+  "datasets": [
+    {
+      "id": "resolution_dataset",
+      "schema_version": "1.0.0",
+      "file": "../../tests/fixtures/resolution/pairs.yaml",
+      "sha256": "67498951076c465c94495eed63d02b45b774bb74f732347aecc629a59e8101d1",
+      "provenance": "Phase 3 labeled entity-resolution pairs, manually curated",
+      "model_id": "paraphrase-multilingual-MiniLM-L12-v2",
+      "record_count": 110
+    },
+    {
+      "id": "generation_dataset",
+      "schema_version": "1.0.0",
+      "file": "generation_dataset.jsonl",
+      "sha256": "e9616f3cd5a68969b4e82cf0bc8c41aac564e13052ca9924c5cfb8d64442c88a",
+      "provenance": "Slice A hand-crafted generation questions and reference answers",
+      "model_id": "",
+      "record_count": 35
+    },
+    {
+      "id": "retrieval_dataset",
+      "schema_version": "1.0.0",
+      "file": "retrieval_dataset.jsonl",
+      "sha256": "4ddc3ca3b0de2cb67c72283b12c70de98d113aede7d9707bd64ccb2f7304fe09",
+      "provenance": "Slice A hand-crafted retrieval questions with reference context ids",
+      "model_id": "",
+      "record_count": 20
+    }
+  ]
+}
