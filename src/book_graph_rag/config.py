@@ -181,10 +181,14 @@ class Settings(BaseSettings):
         default_baseline_dir = Path("data/evaluation")
         if (
             self.evaluation_baseline_dir != default_baseline_dir
-            and (not self.evaluation_baseline_dir.exists() or not self.evaluation_baseline_dir.is_dir())
+            and (
+                not self.evaluation_baseline_dir.exists()
+                or not self.evaluation_baseline_dir.is_dir()
+            )
         ):
             raise ValueError(
-                f"evaluation_baseline_dir ({self.evaluation_baseline_dir}) does not exist or is not a directory"
+                f"evaluation_baseline_dir ({self.evaluation_baseline_dir}) "
+                "does not exist or is not a directory"
             )
         return self
 

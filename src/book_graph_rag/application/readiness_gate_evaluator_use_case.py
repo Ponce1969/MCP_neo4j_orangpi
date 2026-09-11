@@ -19,10 +19,10 @@ from book_graph_rag.domain.evaluation_models import (
 from book_graph_rag.domain.gate_models import GatePolicy, GateResult, UnknownGateError
 
 if TYPE_CHECKING:
-    from book_graph_rag.domain.audit_models import AuditReport
     from book_graph_rag.application.evaluate_extraction_layer_use_case import (
         EvaluateExtractionLayerUseCase,
     )
+    from book_graph_rag.application.evaluate_gate_use_case import GateEvaluatorUseCase
     from book_graph_rag.application.evaluate_generation_layer_use_case import (
         EvaluateGenerationLayerUseCase,
     )
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from book_graph_rag.application.evaluate_retrieval_layer_use_case import (
         EvaluateRetrievalLayerUseCase,
     )
-    from book_graph_rag.application.evaluate_gate_use_case import GateEvaluatorUseCase
+    from book_graph_rag.domain.audit_models import AuditReport
 
 
 class ReadinessGateEvaluatorUseCase:
@@ -236,7 +236,7 @@ class ReadinessGateEvaluatorUseCase:
                 gate_version=gate.version,
                 scope=scope,
                 passed=False,
-                overall_state=audit_result.overall_state.value,  # type: ignore[arg-type]
+                overall_state=audit_result.overall_state.value,
                 exit_code=audit_result.exit_code,
                 rationale=f"audit {audit_result.overall_state.value}: {audit_result.rationale}",
                 audit_gate_status=audit_result.overall_state.value,
@@ -251,8 +251,7 @@ class ReadinessGateEvaluatorUseCase:
                 ),
             )
 
-        required_names = {r.layer for r in gate.required_layers}
-        optional_names = {r.layer for r in gate.optional_layers}
+        required_names: set[str] = {r.layer for r in gate.required_layers}
 
         layer_results: list[EvaluationLayerResult] = []
         for req in gate.required_layers:

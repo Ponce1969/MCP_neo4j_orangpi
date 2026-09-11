@@ -98,7 +98,7 @@ class EvaluateCommandUseCase:
                 code_commit=self._code_commit,
                 evaluated_at=self._evaluated_at,
                 scope=scope,
-                rationale=f"evaluated layers: resolution, retrieval, generation, extraction",
+                rationale="evaluated layers: resolution, retrieval, generation, extraction",
             )
             return report, self._worst_exit_code(tuple(layer_results))
 

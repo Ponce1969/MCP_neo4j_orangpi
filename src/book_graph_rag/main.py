@@ -19,7 +19,21 @@ from book_graph_rag.application.audit_graph_use_case import (
 from book_graph_rag.application.backfill_checkpoints_use_case import (
     BackfillCheckpointsUseCase,
 )
+from book_graph_rag.application.evaluate_command_use_case import EvaluateCommandUseCase
+from book_graph_rag.application.evaluate_extraction_layer_use_case import (
+    EvaluateExtractionLayerUseCase,
+)
 from book_graph_rag.application.evaluate_gate_use_case import GateEvaluatorUseCase
+from book_graph_rag.application.evaluate_generation_layer_use_case import (
+    EvaluateGenerationLayerUseCase,
+)
+from book_graph_rag.application.evaluate_resolution_layer_use_case import (
+    EvaluateResolutionLayerUseCase,
+)
+from book_graph_rag.application.evaluate_retrieval_layer_use_case import (
+    EvaluateRetrievalLayerUseCase,
+)
+from book_graph_rag.application.evaluation_harness import EvaluationHarness
 from book_graph_rag.application.index_book_use_case import IndexBookUseCase
 from book_graph_rag.application.query_knowledge_graph_use_case import (
     QueryKnowledgeGraphUseCase,
@@ -41,20 +55,37 @@ from book_graph_rag.domain.models import (
     RelationQuery,
 )
 from book_graph_rag.domain.namespaces import SourceNamespace, UnknownNamespaceError
+from book_graph_rag.domain.s4_band_assignment import BandThresholds
 from book_graph_rag.domain.validation_models import BookScope, SmokeManifest, TargetScope
+from book_graph_rag.infrastructure.brute_force_candidate_retrieval import (
+    BruteForceCandidateRetrieval,
+)
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader, CatalogLoadError
 from book_graph_rag.infrastructure.dead_letter import JSONLDeadLetter
+from book_graph_rag.infrastructure.evaluation_baseline_loader import (
+    JsonEvaluationBaselineLoader,
+)
+from book_graph_rag.infrastructure.evaluation_dataset_loader import (
+    JsonlManifestEvaluationDatasetLoader,
+)
 from book_graph_rag.infrastructure.gate_policy_loader import GatePolicyLoader, GatePolicyLoadError
 from book_graph_rag.infrastructure.json_evidence_adapter import JSONEvidenceAdapter
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
+from book_graph_rag.infrastructure.llm_claim_validator import LLMClaimValidator
+from book_graph_rag.infrastructure.llm_pairwise_judge import LLMPairwiseJudge
 from book_graph_rag.infrastructure.neo4j_audit_adapter import Neo4jAuditAdapter
 from book_graph_rag.infrastructure.neo4j_checkpoint_adapter import Neo4jCheckpointAdapter
 from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdapter
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
+from book_graph_rag.infrastructure.neo4j_retrieval_adapter import Neo4jRetrievalAdapter
 from book_graph_rag.infrastructure.neo4j_retrieval_smoke_adapter import Neo4jRetrievalSmokeAdapter
 from book_graph_rag.infrastructure.neo4j_validation_adapter import Neo4jValidationAdapter
 from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter
 from book_graph_rag.infrastructure.resolution_wiring import build_resolve_entities_use_case
+from book_graph_rag.infrastructure.sentence_transformer_adapter import (
+    SentenceTransformerAdapter,
+)
+from book_graph_rag.infrastructure.subprocess_ragas_runner import SubprocessRAGASRunner
 from book_graph_rag.infrastructure.version_dimensions import compute_version_dimensions
 
 
@@ -529,6 +560,110 @@ def gate(
     if output is not None:
         output.write_text(payload + "\n", encoding="utf-8")
     raise click.exceptions.Exit(result.exit_code)
+
+
+def _build_evaluate_command_use_case(settings: Settings) -> EvaluateCommandUseCase:
+    """Wire the evaluation layer use cases for the ``evaluate`` command."""
+    dataset_port = JsonlManifestEvaluationDatasetLoader(settings.evaluation_manifest_path)
+    baseline_port = JsonEvaluationBaselineLoader(settings.evaluation_baseline_dir)
+
+    harness = EvaluationHarness(
+        embedding=SentenceTransformerAdapter(settings),
+        retrieval=BruteForceCandidateRetrieval(),
+        thresholds=BandThresholds(),
+        dataset_path=settings.resolution_dataset_path,
+        manifest_path=settings.resolution_manifest_path,
+        baseline_path=settings.resolution_baseline_report_path,
+        output_path=settings.evaluation_dir / "resolution_metrics.json",
+    )
+    resolution_layer = EvaluateResolutionLayerUseCase(
+        dataset_port=dataset_port,
+        baseline_port=baseline_port,
+        harness=harness,
+    )
+
+    retrieval_port = Neo4jRetrievalAdapter(settings)
+    ragas_port = SubprocessRAGASRunner()
+    retrieval_layer = EvaluateRetrievalLayerUseCase(
+        dataset_port=dataset_port,
+        retrieval_port=retrieval_port,
+        ragas_port=ragas_port,
+    )
+
+    claim_port = LLMClaimValidator(settings)
+    pairwise_port = LLMPairwiseJudge(settings)
+    generation_layer = EvaluateGenerationLayerUseCase(
+        dataset_port=dataset_port,
+        retrieval_port=retrieval_port,
+        claim_port=claim_port,
+        pairwise_port=pairwise_port,
+        ragas_port=ragas_port,
+        baseline_port=baseline_port,
+        settings=settings,
+    )
+
+    extraction_layer = EvaluateExtractionLayerUseCase()
+
+    return EvaluateCommandUseCase(
+        resolution_layer=resolution_layer,
+        generation_layer=generation_layer,
+        retrieval_layer=retrieval_layer,
+        extraction_layer=extraction_layer,
+    )
+
+
+@cli.command("evaluate")
+@click.option(
+    "--layer",
+    required=True,
+    type=click.Choice(["resolution", "retrieval", "generation", "all"]),
+    help="Evaluation layer to run.",
+)
+@click.option("--dataset", default=None, help="Reserved: dataset id override.")
+@click.option("--baseline", default=None, help="Reserved: baseline path override.")
+@click.option(
+    "--output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write the JSON report to this file.",
+)
+@click.option(
+    "--json-only",
+    is_flag=True,
+    default=False,
+    help="Emit only JSON to stdout; suppress human summary.",
+)
+def evaluate(
+    layer: str,
+    dataset: str | None,
+    baseline: str | None,
+    output: Path | None,
+    json_only: bool,
+) -> None:
+    """Run an evaluation layer and emit a JSON report."""
+    del dataset, baseline  # reserved for future slicing; not wired in T-C.5
+    try:
+        settings = Settings.model_validate({})
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Configuration error: {exc}", err=True)
+        sys.exit(1)
+
+    use_case = _build_evaluate_command_use_case(settings)
+    try:
+        report, exit_code = asyncio.run(use_case.execute(layer=layer))
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
+
+    payload = report.model_dump_json(indent=2)
+    if not json_only:
+        click.echo(
+            f"Layer: {layer} -> status: {report.overall_status.value}",
+            err=True,
+        )
+    click.echo(payload)
+    if output is not None:
+        output.write_text(payload + "\n", encoding="utf-8")
+    raise click.exceptions.Exit(exit_code)
 
 
 @cli.command("query")

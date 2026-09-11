@@ -58,7 +58,9 @@ def test_missing_manifest_path_fails_fast(monkeypatch: pytest.MonkeyPatch, tmp_p
         Settings.model_validate({"evaluation_manifest_path": str(missing)})
 
 
-def test_evaluation_baseline_dir_must_exist(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_evaluation_baseline_dir_must_exist(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A nonexistent baseline dir aborts at startup."""
     missing = tmp_path / "missing"
     with pytest.raises(ValidationError, match="evaluation_baseline_dir"):

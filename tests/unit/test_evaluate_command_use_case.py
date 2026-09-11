@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from book_graph_rag.domain.evaluation_models import (
@@ -48,16 +50,16 @@ def _make_use_case(
     generation: LayerStatus = LayerStatus.PASSED,
     retrieval: LayerStatus = LayerStatus.PASSED,
     extraction: LayerStatus = LayerStatus.PENDING,
-):
+) -> Any:
     from book_graph_rag.application.evaluate_command_use_case import (
         EvaluateCommandUseCase,
     )
 
     return EvaluateCommandUseCase(
-        resolution_layer=FakeLayerUseCase(_layer_result("resolution", resolution)),
-        generation_layer=FakeLayerUseCase(_layer_result("generation", generation)),
-        retrieval_layer=FakeLayerUseCase(_layer_result("retrieval", retrieval)),
-        extraction_layer=FakeLayerUseCase(_layer_result("extraction", extraction)),
+        resolution_layer=FakeLayerUseCase(_layer_result("resolution", resolution)),  # type: ignore[arg-type]
+        generation_layer=FakeLayerUseCase(_layer_result("generation", generation)),  # type: ignore[arg-type]
+        retrieval_layer=FakeLayerUseCase(_layer_result("retrieval", retrieval)),  # type: ignore[arg-type]
+        extraction_layer=FakeLayerUseCase(_layer_result("extraction", extraction)),  # type: ignore[arg-type]
     )
 
 
@@ -76,7 +78,6 @@ async def test_dispatches_by_layer(layer: str, expected_calls: set[str]) -> None
     report, exit_code = await use_case.execute(layer=layer)
     assert isinstance(report, EvaluationReport)
     assert exit_code == 0
-    called = {name for name, _ in use_case._resolution_layer.calls}  # type: ignore[attr-defined]
     # Inspect the correct fake
     fakes = {
         "resolution": use_case._resolution_layer,

@@ -12,9 +12,25 @@ from book_graph_rag.domain.gate_models import GatePolicy
 from book_graph_rag.infrastructure.gate_policy_loader import GatePolicyLoader
 
 
-def test_default_empty_readiness_gates_preserves_phase4_load() -> None:
+def test_default_empty_readiness_gates_preserves_phase4_load(tmp_path: Path) -> None:
     """A legacy gates.yaml with only 'gates:' loads with empty readiness_gates."""
-    policy = GatePolicyLoader(Path("gates.yaml")).load()
+    legacy = tmp_path / "legacy_gates.yaml"
+    legacy.write_text(
+        """
+version: 1.0.0
+gates:
+  - name: expose-mcp
+    version: 1.0.0
+    required_dimensions:
+      hierarchy: pass
+      endpoints: pass
+      uniqueness: pass
+      coverage: pass
+    max_severity: blocking
+""",
+        encoding="utf-8",
+    )
+    policy = GatePolicyLoader(legacy).load()
     assert policy.readiness_gates == []
 
 

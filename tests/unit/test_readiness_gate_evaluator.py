@@ -1,6 +1,10 @@
 """Tests for ReadinessGateEvaluatorUseCase (Slice C, T-C.1)."""
 
+# mypy: disable-error-code="arg-type"
+
 from __future__ import annotations
+
+from typing import Any
 
 import pytest
 
@@ -38,7 +42,7 @@ class FakeAuditEvaluator:
 class FakeLayerUseCase:
     def __init__(self, result: EvaluationLayerResult) -> None:
         self._result = result
-        self.calls: list[tuple[dict[str, object], ...]] = []
+        self.calls: list[dict[str, object]] = []
 
     async def execute(self, **kwargs: object) -> EvaluationLayerResult:
         self.calls.append(kwargs)
@@ -107,7 +111,7 @@ def _layer_result(
     metrics: tuple[LayerMetricValue, ...] = (),
 ) -> EvaluationLayerResult:
     return EvaluationLayerResult(
-        layer=layer,  # type: ignore[arg-type]
+        layer=layer,
         status=status,
         project_owned_metrics=metrics,
         rationale=rationale,
@@ -137,11 +141,11 @@ def _policy(
                 name="expose-mcp-readiness",
                 version="1.0.0",
                 required_layers=[
-                    RequiredLayer(layer=layer, blocking=True)  # type: ignore[arg-type]
+                    RequiredLayer(layer=layer, blocking=True)
                     for layer in required
                 ],
                 optional_layers=[
-                    RequiredLayer(layer=layer, blocking=False)  # type: ignore[arg-type]
+                    RequiredLayer(layer=layer, blocking=False)
                     for layer in optional
                 ],
                 audit_gate_ref="expose-mcp",
@@ -154,18 +158,30 @@ def _make_use_case(
     policy: GatePolicy,
     audit_result: GateResult,
     layer_results: dict[str, EvaluationLayerResult],
-):
+) -> Any:
     from book_graph_rag.application.readiness_gate_evaluator_use_case import (
         ReadinessGateEvaluatorUseCase,
     )
 
+    resolution = layer_results.get("resolution") or _layer_result(
+        "resolution", LayerStatus.PASSED
+    )
+    generation = layer_results.get("generation") or _layer_result(
+        "generation", LayerStatus.PASSED
+    )
+    retrieval = layer_results.get("retrieval") or _layer_result(
+        "retrieval", LayerStatus.PASSED
+    )
+    extraction = layer_results.get("extraction") or _layer_result(
+        "extraction", LayerStatus.PENDING
+    )
     return ReadinessGateEvaluatorUseCase(
         gate_policy=policy,
         audit_evaluator=FakeAuditEvaluator(audit_result),
-        resolution_layer=FakeLayerUseCase(layer_results.get("resolution") or _layer_result("resolution", LayerStatus.PASSED)),
-        generation_layer=FakeLayerUseCase(layer_results.get("generation") or _layer_result("generation", LayerStatus.PASSED)),
-        retrieval_layer=FakeLayerUseCase(layer_results.get("retrieval") or _layer_result("retrieval", LayerStatus.PASSED)),
-        extraction_layer=FakeLayerUseCase(layer_results.get("extraction") or _layer_result("extraction", LayerStatus.PENDING)),
+        resolution_layer=FakeLayerUseCase(resolution),
+        generation_layer=FakeLayerUseCase(generation),
+        retrieval_layer=FakeLayerUseCase(retrieval),
+        extraction_layer=FakeLayerUseCase(extraction),
     )
 
 
