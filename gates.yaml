@@ -8,3 +8,19 @@ gates:
       uniqueness: pass
       coverage: pass
     max_severity: blocking
+readiness_gates:
+  - name: expose-mcp-readiness
+    version: 1.0.0
+    required_layers:
+      - layer: structure
+        blocking: true
+      - layer: resolution
+        blocking: true
+      - layer: generation
+        blocking: true
+    optional_layers:
+      - layer: extraction
+        blocking: false
+      - layer: retrieval
+        blocking: false
+    audit_gate_ref: expose-mcp
