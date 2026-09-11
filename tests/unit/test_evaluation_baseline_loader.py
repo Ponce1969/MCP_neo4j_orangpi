@@ -84,3 +84,25 @@ def test_layer_path_mapping(tmp_path: Path) -> None:
     loader = JsonEvaluationBaselineLoader(tmp_path)
     assert loader.load("resolution") is not None
     assert loader.load("generation") is not None
+
+def test_generation_baseline_unfinalized_loads() -> None:
+    """The committed generation baseline loads with thresholds_finalized=false."""
+    loader = JsonEvaluationBaselineLoader(Path("data/evaluation"))
+    baseline = loader.load("generation")
+    assert baseline is not None
+    assert baseline.layer == "generation"
+    assert baseline.dataset_id == "generation_dataset"
+    assert baseline.thresholds_finalized is False
+
+
+def test_generation_baseline_metrics_shape() -> None:
+    """The committed generation baseline carries the real RAGAS metric names."""
+    loader = JsonEvaluationBaselineLoader(Path("data/evaluation"))
+    baseline = loader.load("generation")
+    assert baseline is not None
+    assert "faithfulness" in baseline.metrics
+    assert "answer_relevancy" in baseline.metrics
+    assert "context_precision" in baseline.metrics
+    assert baseline.metrics["faithfulness"] == pytest.approx(0.6825)
+    assert baseline.metrics["answer_relevancy"] == pytest.approx(0.5953)
+    assert baseline.metrics["context_precision"] == pytest.approx(0.474)
