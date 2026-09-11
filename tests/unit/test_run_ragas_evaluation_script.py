@@ -164,7 +164,7 @@ def test_after_output_redirect_never_touches_repo_benchmark(
 ) -> None:
     """--after-output redirects the default gr3_after.json write (regression)."""
     benchmark = Path("docs/benchmarks/gr3_after.json")
-    before = benchmark.read_text(encoding="utf-8")
+    before = benchmark.read_text(encoding="utf-8") if benchmark.exists() else None
     after_file = tmp_path / "after.json"
     result = cli_runner.invoke(
         run_ragas_module.main,
@@ -177,4 +177,9 @@ def test_after_output_redirect_never_touches_repo_benchmark(
     )
     assert result.exit_code == 0, result.output
     assert after_file.exists()
-    assert benchmark.read_text(encoding="utf-8") == before
+    if before is not None:
+        assert benchmark.read_text(encoding="utf-8") == before
+    else:
+        assert not benchmark.exists(), (
+            "--after-output recreated the default docs/benchmarks/gr3_after.json file"
+        )

@@ -4,7 +4,7 @@
   "dataset_id": "generation_dataset",
   "dataset_sha256": "e9616f3cd5a68969b4e82cf0bc8c41aac564e13052ca9924c5cfb8d64442c88a",
   "committed_at": "2026-09-11T00:00:00Z",
-  "code_commit": "",
+  "code_commit": "03406ee",
   "model_ids": [
     "sentence-transformers/all-MiniLM-L6-v2"
   ],
