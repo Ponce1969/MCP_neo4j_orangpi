@@ -7,6 +7,8 @@ adapters while the ``EvaluationHarness`` class remains hexagonally pure.
 from __future__ import annotations
 
 import argparse
+import asyncio
+import sys
 from collections.abc import Coroutine
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,7 @@ from book_graph_rag.domain.s4_band_assignment import BandThresholds
 from book_graph_rag.infrastructure.brute_force_candidate_retrieval import (
     BruteForceCandidateRetrieval,
 )
+from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.infrastructure.sentence_transformer_adapter import (
     SentenceTransformerAdapter,
 )
@@ -74,7 +77,27 @@ def main(argv: list[str] | None = None) -> int:
         default=0.0,
         help="Candidate retrieval minimum cosine similarity",
     )
+    parser.add_argument(
+        "--read-only-snapshot",
+        action="store_true",
+        help="Print a MATCH (n) RETURN count(n) snapshot before/after the run",
+    )
     args = parser.parse_args(argv)
+
+    async def _node_count(adapter: Neo4jQueryAdapter) -> int:
+        result = await adapter.execute_read("MATCH (n) RETURN count(n) AS c")
+        return int(result[0]["c"])
+
+    async def _snapshot(label: str) -> None:
+        settings = Settings.model_validate({})
+        try:
+            adapter = Neo4jQueryAdapter(settings)
+            count = await _node_count(adapter)
+            await adapter.close()
+        except Exception as exc:  # noqa: BLE001
+            count = 0
+            print(f"  snapshot unavailable: {exc}", file=sys.stderr)
+        print(f"Read-only snapshot {label}: MATCH (n) RETURN count(n) = {count}")
 
     settings = Settings.model_validate({})
     embedding = SentenceTransformerAdapter(settings)
@@ -92,8 +115,14 @@ def main(argv: list[str] | None = None) -> int:
         min_similarity=args.min_similarity,
     )
 
+    if args.read_only_snapshot:
+        asyncio.run(_snapshot("BEFORE"))
+
     metrics = run_sync(harness.evaluate(model_id=args.model, input_variant=args.variant))
     gate = harness.compare_to_baseline(metrics)
+
+    if args.read_only_snapshot:
+        asyncio.run(_snapshot("AFTER"))
 
     print(f"model={metrics.model_id} variant={metrics.input_variant}")
     print(f"retrieval F1={metrics.retrieval_f1:.4f}")
