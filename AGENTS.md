@@ -113,3 +113,16 @@ destructiva:
   el smoke de retrieval se decide en Phase 5/6.
 - Los gates usan los mismos códigos de salida que el audit: 0 pass, 10 violaciones,
   11 incomplete, 12 unreachable, 13 failed.
+
+### 7.4 Phase 5 — Evaluación y readiness gates
+
+- `book-graph-rag evaluate` y `book-graph-rag gate` para readiness gates son
+  **read-only**: no mutan el grafo. Solo producen reportes (`data/evaluation/`)
+  y códigos de salida.
+- En el OrangePi usar `~/.local/bin/uv` (uv instalado localmente para el usuario
+  `gonzalo`) y luego `uv sync --extra community` para sincronizar las dependencias
+  opcionales de comunidad requeridas por el readiness gate.
+- Los umbrales son **mechanism-first**: los archivos `data/evaluation/*_baseline.json`
+  llevan `thresholds_finalized: false` hasta una delta posterior de Phase 5 que fije
+  los valores numéricos. Mientras tanto, el readiness gate reporta `INCOMPLETE` (11)
+  aunque las métricas medidas pasen las comprobaciones relativas al baseline.

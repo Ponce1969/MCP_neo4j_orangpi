@@ -23,7 +23,7 @@ implemented yet.
 | 02 — Domain & Ports (Pydantic entities + ABCs) | done |
 | 03 — Infrastructure (`PDFAdapter`, `LLMAdapter`, `Neo4jCommandAdapter`) | done |
 | 04 — Application (`IndexBookUseCase`, streaming + dead-letter) | done |
-| 05 — Audit (`book-graph-rag audit`) + scoped audits + readiness gates | done |
+| 05 — Audit (`book-graph-rag audit`) + scoped audits + [readiness gates](docs/spec/06-evaluation-and-readiness.md) ([datasets & baselines](data/evaluation/README.md)) | done |
 | 06 — Query layer for the loaded graph | not started |
 | 07 — MCP server to expose the graph to agents | not started |
 
@@ -120,9 +120,13 @@ uv run book-graph-rag index data/your-book.pdf
 # 8. Audit the graph (read-only structural health check)
 uv run book-graph-rag audit --target bookgraph-neo4j --output audit-report.json
 
-# 9. Evaluate a readiness gate over the whole graph or a namespace scope
-uv run book-graph-rag gate expose-mcp --target bookgraph-neo4j
-uv run book-graph-rag gate expose-mcp --target bookgraph-neo4j --scope knowledge:agentic-architectural-patterns
+# 9. Evaluate a layer or run the readiness gate over the whole graph / a namespace scope
+uv run book-graph-rag evaluate --layer resolution
+uv run book-graph-rag gate expose-mcp-readiness --target bookgraph-neo4j
+uv run book-graph-rag gate expose-mcp-readiness --target bookgraph-neo4j --scope knowledge:agentic-architectural-patterns
+
+# Dataset schemas, baseline format, and threshold mechanism are documented in:
+#   data/evaluation/README.md
 
 # 10. Inspect the resulting graph
 # Open http://localhost:7474 in a browser (Neo4j Browser), run:
