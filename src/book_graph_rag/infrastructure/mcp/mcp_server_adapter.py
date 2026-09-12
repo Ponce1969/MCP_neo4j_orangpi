@@ -11,6 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
+from book_graph_rag.domain.mcp_security import InvalidScopeError, ScopeContext
 from book_graph_rag.domain.models import (
     EntityType,
     QueryLogEntry,
@@ -18,6 +19,7 @@ from book_graph_rag.domain.models import (
 )
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
+from book_graph_rag.ports.scope_resolver_port import ScopeResolverPort
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort
 
 
@@ -32,6 +34,13 @@ class McpServerAdapter:
     The adapter calls the ports directly (bypassing the application use case)
     because each MCP tool has a distinct input/output shape that does not fit
     the unified ``GraphQueryUnion`` dispatch.
+
+    Scope-aware structured tools accept an optional ``source_id`` plus filter
+    lists. When a ``source_id`` is supplied, the configured ``ScopeResolverPort``
+    validates it and produces a frozen ``ScopeContext`` that is bound as
+    parameters to the underlying graph queries. ``query_cypher`` is disabled by
+    default and must be explicitly enabled; when disabled it returns a typed
+    policy error without contacting the graph.
     """
 
     def __init__(
@@ -40,15 +49,41 @@ class McpServerAdapter:
         query_logger: QueryLoggerPort,
         text2cypher_port: Text2CypherPort,
         global_query_use_case: GlobalQueryUseCase | None = None,
+        scope_resolver: ScopeResolverPort | None = None,
+        enable_query_cypher: bool = False,
     ) -> None:
         self._graph_query_port = graph_query_port
         self._query_logger = query_logger
         self._text2cypher_port = text2cypher_port
         self._global_query_use_case = global_query_use_case
+        self._scope_resolver = scope_resolver
+        self._enable_query_cypher = enable_query_cypher
 
     def _now(self) -> datetime:
         """Return the current UTC time (extracted for testability)."""
         return datetime.now(tz=UTC)
+
+    def _resolve_scope(
+        self,
+        source_id: str | None,
+        book_ids: list[str] | None,
+        entity_types: list[str] | None,
+        relationship_types: list[str] | None,
+    ) -> ScopeContext | None:
+        """Resolve a validated ``ScopeContext`` when ``source_id`` is provided."""
+        if source_id is None:
+            return None
+        if self._scope_resolver is None:
+            raise InvalidScopeError(
+                "Scope source_id provided but no ScopeResolverPort is configured",
+                scope_id=source_id,
+            )
+        return self._scope_resolver.resolve(
+            source_id,
+            book_ids=tuple(book_ids or ()),
+            entity_types=tuple(entity_types or ()),
+            relationship_types=tuple(relationship_types or ()),
+        )
 
     async def _log(
         self,
@@ -76,13 +111,30 @@ class McpServerAdapter:
         await self._query_logger.log_query(entry)
 
     async def find_entity(
-        self, name: str, entity_type: EntityType | None = None
+        self,
+        name: str,
+        entity_type: EntityType | None = None,
+        *,
+        source_id: str | None = None,
+        book_ids: list[str] | None = None,
+        entity_types: list[str] | None = None,
+        relationship_types: list[str] | None = None,
     ) -> dict[str, Any]:
         """Find entities by name and optional type."""
-        params = {"name": name, "entity_type": entity_type}
+        scope = self._resolve_scope(
+            source_id, book_ids, entity_types, relationship_types
+        )
+        params: dict[str, Any] = {
+            "name": name,
+            "entity_type": entity_type,
+        }
+        if source_id is not None:
+            params["source_id"] = source_id
         start = self._now()
         try:
-            entities = await self._graph_query_port.find_entity(name, entity_type)
+            entities = await self._graph_query_port.find_entity(
+                name, entity_type, scope=scope
+            )
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -116,14 +168,28 @@ class McpServerAdapter:
         source_id: str,
         rel_type: RelationshipType | None = None,
         depth: int = 1,
+        *,
+        scope_source_id: str | None = None,
+        book_ids: list[str] | None = None,
+        entity_types: list[str] | None = None,
+        relationship_types: list[str] | None = None,
     ) -> dict[str, Any]:
         """Traverse outgoing relationships up to ``depth`` levels (clamped 0-3)."""
+        scope = self._resolve_scope(
+            scope_source_id, book_ids, entity_types, relationship_types
+        )
         clamped_depth = max(0, min(depth, 3))
-        params = {"source_id": source_id, "rel_type": rel_type, "depth": clamped_depth}
+        params: dict[str, Any] = {
+            "source_id": source_id,
+            "rel_type": rel_type,
+            "depth": clamped_depth,
+        }
+        if scope_source_id is not None:
+            params["scope_source_id"] = scope_source_id
         start = self._now()
         try:
             entities, relationships = await self._graph_query_port.traverse_relationships(
-                source_id, rel_type, clamped_depth
+                source_id, rel_type, clamped_depth, scope=scope
             )
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
@@ -152,12 +218,26 @@ class McpServerAdapter:
             "relationships": [r.model_dump(mode="json") for r in relationships],
         }
 
-    async def search_chunks(self, query: str, limit: int = 10) -> dict[str, Any]:
+    async def search_chunks(
+        self,
+        query: str,
+        limit: int = 10,
+        *,
+        source_id: str | None = None,
+        book_ids: list[str] | None = None,
+        entity_types: list[str] | None = None,
+        relationship_types: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Full-text search over chunk nodes."""
-        params = {"query": query, "limit": limit}
+        scope = self._resolve_scope(
+            source_id, book_ids, entity_types, relationship_types
+        )
+        params: dict[str, Any] = {"query": query, "limit": limit}
+        if source_id is not None:
+            params["source_id"] = source_id
         start = self._now()
         try:
-            chunks = await self._graph_query_port.search_chunks(query, limit)
+            chunks = await self._graph_query_port.search_chunks(query, limit, scope=scope)
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -182,13 +262,27 @@ class McpServerAdapter:
         )
         return {"chunks": chunks}
 
-    async def list_entities(self, cursor: int = 0, page_size: int = 50) -> dict[str, Any]:
+    async def list_entities(
+        self,
+        cursor: int = 0,
+        page_size: int = 50,
+        *,
+        source_id: str | None = None,
+        book_ids: list[str] | None = None,
+        entity_types: list[str] | None = None,
+        relationship_types: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Cursor-based pagination over entities."""
-        params = {"cursor": cursor, "page_size": page_size}
+        scope = self._resolve_scope(
+            source_id, book_ids, entity_types, relationship_types
+        )
+        params: dict[str, Any] = {"cursor": cursor, "page_size": page_size}
+        if source_id is not None:
+            params["source_id"] = source_id
         start = self._now()
         try:
             entities, next_cursor = await self._graph_query_port.list_entities(
-                cursor, page_size
+                cursor, page_size, scope=scope
             )
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
@@ -217,12 +311,25 @@ class McpServerAdapter:
             "next_cursor": next_cursor,
         }
 
-    async def count_entities(self, entity_type: str | None = None) -> dict[str, Any]:
+    async def count_entities(
+        self,
+        entity_type: str | None = None,
+        *,
+        source_id: str | None = None,
+        book_ids: list[str] | None = None,
+        entity_types: list[str] | None = None,
+        relationship_types: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Return the number of entities, optionally filtered by type."""
-        params = {"entity_type": entity_type}
+        scope = self._resolve_scope(
+            source_id, book_ids, entity_types, relationship_types
+        )
+        params: dict[str, Any] = {"entity_type": entity_type}
+        if source_id is not None:
+            params["source_id"] = source_id
         start = self._now()
         try:
-            count = await self._graph_query_port.count_entities(entity_type)
+            count = await self._graph_query_port.count_entities(entity_type, scope=scope)
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -248,10 +355,27 @@ class McpServerAdapter:
         return {"count": count}
 
     async def search_rag(
-        self, query: str, limit: int = 10, include_relations: bool = True
+        self,
+        query: str,
+        limit: int = 10,
+        include_relations: bool = True,
+        *,
+        source_id: str | None = None,
+        book_ids: list[str] | None = None,
+        entity_types: list[str] | None = None,
+        relationship_types: list[str] | None = None,
     ) -> dict[str, Any]:
         """Unified RAG search: chunks + entity + optional relationships."""
-        params = {"query": query, "limit": limit, "include_relations": include_relations}
+        scope = self._resolve_scope(
+            source_id, book_ids, entity_types, relationship_types
+        )
+        params: dict[str, Any] = {
+            "query": query,
+            "limit": limit,
+            "include_relations": include_relations,
+        }
+        if source_id is not None:
+            params["source_id"] = source_id
         start = self._now()
 
         errors: list[str] = []
@@ -260,8 +384,8 @@ class McpServerAdapter:
         entity_not_found = False
         relationships: list[dict[str, Any]] = []
 
-        chunk_task = self._graph_query_port.search_chunks(query, limit)
-        entity_task = self._graph_query_port.find_entity(query, None)
+        chunk_task = self._graph_query_port.search_chunks(query, limit, scope=scope)
+        entity_task = self._graph_query_port.find_entity(query, None, scope=scope)
         chunk_result, entity_result = await asyncio.gather(
             chunk_task, entity_task, return_exceptions=True
         )
@@ -279,7 +403,7 @@ class McpServerAdapter:
             if entity_result and include_relations:
                 try:
                     _, rels = await self._graph_query_port.traverse_relationships(
-                        entity_result[0].entity.id, None, 1
+                        entity_result[0].entity.id, None, 1, scope=scope
                     )
                     relationships = [rel.model_dump(mode="json") for rel in rels]
                 except Exception as exc:  # pragma: no cover - defensive only
@@ -306,9 +430,35 @@ class McpServerAdapter:
         }
 
     async def query_cypher(self, question: str) -> dict[str, Any]:
-        """Generate and execute a Cypher query from a natural-language question."""
+        """Generate and execute a Cypher query from a natural-language question.
+
+        This high-risk tool is disabled by default. When disabled it returns a
+        typed policy error without contacting the graph or the LLM.
+        """
         params = {"question": question}
         start = self._now()
+        if not self._enable_query_cypher:
+            duration_ms = (self._now() - start).total_seconds() * 1000
+            error = "query_cypher is disabled by default"
+            await self._log(
+                tool_name="query_cypher",
+                query_type="text2cypher",
+                query_params=params,
+                result_count=0,
+                entity_not_found=False,
+                duration_ms=duration_ms,
+                error=error,
+            )
+            return {
+                "question": question,
+                "error": error,
+                "error_code": "policy_violation",
+                "cypher": None,
+                "rows": [],
+                "schema_source": None,
+                "retries": 0,
+            }
+
         try:
             result = await self._text2cypher_port.generate_and_run(question)
         except Exception as exc:
@@ -341,11 +491,22 @@ class McpServerAdapter:
             "retries": result.retries,
         }
 
-    async def ask_global(self, question: str, detail_level: int = 1) -> dict[str, Any]:
+    async def ask_global(
+        self,
+        question: str,
+        detail_level: int = 1,
+        *,
+        source_id: str | None = None,
+        book_ids: list[str] | None = None,
+        entity_types: list[str] | None = None,
+        relationship_types: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Answer a global question using community-summary map-reduce.
 
         ``detail_level`` must be in ``[0, 3]``; it is validated before any
-        expensive LLM or Neo4j calls are made.
+        expensive LLM or Neo4j calls are made. Scope parameters are accepted for
+        interface consistency but are not yet wired into the community read
+        path.
         """
         if not 0 <= detail_level <= 3:
             raise ValueError(
@@ -354,6 +515,13 @@ class McpServerAdapter:
         if self._global_query_use_case is None:
             raise RuntimeError("GlobalQueryUseCase is not configured")
 
+        # Resolve scope for logging/validation, but the community read path is
+        # not scope-aware in this slice.
+        if source_id is not None:
+            self._resolve_scope(
+                source_id, book_ids, entity_types, relationship_types
+            )
+
         return await self._global_query_use_case.ask(question, detail_level)
 
     def create_server(self, host: str = "0.0.0.0", port: int = 8003) -> FastMCP:
@@ -361,42 +529,138 @@ class McpServerAdapter:
         mcp = FastMCP("book-graph-rag", host=host, port=port)
 
         @mcp.tool()
-        async def find_entity(name: str, entity_type: EntityType | None = None) -> dict[str, Any]:
-            return await self.find_entity(name, entity_type)
+        async def find_entity(
+            name: str,
+            entity_type: EntityType | None = None,
+            source_id: str | None = None,
+            book_ids: list[str] | None = None,
+            entity_types: list[str] | None = None,
+            relationship_types: list[str] | None = None,
+        ) -> dict[str, Any]:
+            return await self.find_entity(
+                name,
+                entity_type,
+                source_id=source_id,
+                book_ids=book_ids,
+                entity_types=entity_types,
+                relationship_types=relationship_types,
+            )
 
         @mcp.tool()
         async def traverse_relationships(
             source_id: str,
             rel_type: RelationshipType | None = None,
             depth: int = 1,
+            scope_source_id: str | None = None,
+            book_ids: list[str] | None = None,
+            entity_types: list[str] | None = None,
+            relationship_types: list[str] | None = None,
         ) -> dict[str, Any]:
-            return await self.traverse_relationships(source_id, rel_type, depth)
+            return await self.traverse_relationships(
+                source_id,
+                rel_type,
+                depth,
+                scope_source_id=scope_source_id,
+                book_ids=book_ids,
+                entity_types=entity_types,
+                relationship_types=relationship_types,
+            )
 
         @mcp.tool()
-        async def search_chunks(query: str, limit: int = 10) -> dict[str, Any]:
-            return await self.search_chunks(query, limit)
+        async def search_chunks(
+            query: str,
+            limit: int = 10,
+            source_id: str | None = None,
+            book_ids: list[str] | None = None,
+            entity_types: list[str] | None = None,
+            relationship_types: list[str] | None = None,
+        ) -> dict[str, Any]:
+            return await self.search_chunks(
+                query,
+                limit,
+                source_id=source_id,
+                book_ids=book_ids,
+                entity_types=entity_types,
+                relationship_types=relationship_types,
+            )
 
         @mcp.tool()
-        async def list_entities(cursor: int = 0, page_size: int = 50) -> dict[str, Any]:
-            return await self.list_entities(cursor, page_size)
+        async def list_entities(
+            cursor: int = 0,
+            page_size: int = 50,
+            source_id: str | None = None,
+            book_ids: list[str] | None = None,
+            entity_types: list[str] | None = None,
+            relationship_types: list[str] | None = None,
+        ) -> dict[str, Any]:
+            return await self.list_entities(
+                cursor,
+                page_size,
+                source_id=source_id,
+                book_ids=book_ids,
+                entity_types=entity_types,
+                relationship_types=relationship_types,
+            )
 
         @mcp.tool()
-        async def count_entities(entity_type: str | None = None) -> dict[str, Any]:
-            return await self.count_entities(entity_type)
+        async def count_entities(
+            entity_type: str | None = None,
+            source_id: str | None = None,
+            book_ids: list[str] | None = None,
+            entity_types: list[str] | None = None,
+            relationship_types: list[str] | None = None,
+        ) -> dict[str, Any]:
+            return await self.count_entities(
+                entity_type,
+                source_id=source_id,
+                book_ids=book_ids,
+                entity_types=entity_types,
+                relationship_types=relationship_types,
+            )
 
         @mcp.tool()
         async def search_rag(
-            query: str, limit: int = 10, include_relations: bool = True
+            query: str,
+            limit: int = 10,
+            include_relations: bool = True,
+            source_id: str | None = None,
+            book_ids: list[str] | None = None,
+            entity_types: list[str] | None = None,
+            relationship_types: list[str] | None = None,
         ) -> dict[str, Any]:
-            return await self.search_rag(query, limit, include_relations)
+            return await self.search_rag(
+                query,
+                limit,
+                include_relations,
+                source_id=source_id,
+                book_ids=book_ids,
+                entity_types=entity_types,
+                relationship_types=relationship_types,
+            )
 
         @mcp.tool()
         async def query_cypher(question: str) -> dict[str, Any]:
             return await self.query_cypher(question)
 
         @mcp.tool()
-        async def ask_global(question: str, detail_level: int = 1) -> list[TextContent]:
-            return _tool_content(await self.ask_global(question, detail_level))
+        async def ask_global(
+            question: str,
+            detail_level: int = 1,
+            source_id: str | None = None,
+            book_ids: list[str] | None = None,
+            entity_types: list[str] | None = None,
+            relationship_types: list[str] | None = None,
+        ) -> list[TextContent]:
+            return _tool_content(
+                await self.ask_global(
+                    question,
+                    detail_level,
+                    source_id=source_id,
+                    book_ids=book_ids,
+                    entity_types=entity_types,
+                    relationship_types=relationship_types,
+                )
+            )
 
         return mcp
 

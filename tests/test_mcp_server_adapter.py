@@ -712,10 +712,17 @@ async def test_search_rag_logs_query_entry_with_correct_fields(
 
 
 async def test_query_cypher_returns_text2cypher_result(
-    adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
     text2cypher_port: _FakeText2CypherPort,
 ) -> None:
     """query_cypher delegates to the Text2CypherPort and returns its result."""
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        enable_query_cypher=True,
+    )
     text2cypher_port._result = Text2CypherResult(
         question="what patterns mitigate security risks?",
         cypher="MATCH (e:Entity) RETURN e LIMIT 100",
@@ -737,10 +744,17 @@ async def test_query_cypher_returns_text2cypher_result(
 
 
 async def test_query_cypher_logs_entry_with_text2cypher_query_type(
-    adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
     query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
 ) -> None:
     """query_cypher logs a QueryLogEntry with tool_name and query_type text2cypher."""
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        enable_query_cypher=True,
+    )
     await adapter.query_cypher("what patterns mitigate security risks?")
 
     assert len(query_logger.entries) == 1
@@ -754,11 +768,17 @@ async def test_query_cypher_logs_entry_with_text2cypher_query_type(
 
 
 async def test_query_cypher_error_is_logged_and_propagated(
-    adapter: McpServerAdapter,
-    text2cypher_port: _FakeText2CypherPort,
+    graph_query_port: _FakeGraphQueryPort,
     query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
 ) -> None:
     """When Text2CypherPort raises, the error is logged and re-raised."""
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        enable_query_cypher=True,
+    )
     text2cypher_port.generate_and_run = AsyncMock(  # type: ignore[method-assign]
         side_effect=RuntimeError("pipeline failed")
     )
