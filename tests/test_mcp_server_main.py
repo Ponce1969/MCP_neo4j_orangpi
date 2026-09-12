@@ -51,11 +51,13 @@ class _FakeMcpServerAdapter:
         query_logger: Any,
         text2cypher_port: Any,
         global_query_use_case: Any | None = None,
+        scope_resolver: Any | None = None,
     ) -> None:
         self.query_port = query_port
         self.query_logger = query_logger
         self.text2cypher_port = text2cypher_port
         self.global_query_use_case = global_query_use_case
+        self.scope_resolver = scope_resolver
         self.run_sse_mock = AsyncMock()
 
     async def run_sse(self, host: str = "0.0.0.0", port: int = 8003) -> None:
@@ -118,8 +120,11 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             query_logger: Any,
             text2cypher_port: Any,
             global_query_use_case: Any | None = None,
+            scope_resolver: Any | None = None,
         ) -> None:
-            super().__init__(query_port, query_logger, text2cypher_port, global_query_use_case)
+            super().__init__(
+                query_port, query_logger, text2cypher_port, global_query_use_case, scope_resolver
+            )
             created["server_adapter"] = self
 
     class _FakeLLMAdapterTracked(_FakeLLMAdapter):

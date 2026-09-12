@@ -9,6 +9,8 @@ import click
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.config import Settings
+from book_graph_rag.infrastructure.catalog_loader import CatalogLoader
+from book_graph_rag.infrastructure.catalog_scope_resolver import CatalogScopeResolver
 from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.logging.json_query_logger_adapter import (
@@ -42,11 +44,15 @@ async def _run_server(settings: Settings) -> None:
                     llm_port=llm_adapter,
                     max_concurrency=settings.summary_max_concurrency,
                 )
+                scope_resolver = CatalogScopeResolver(
+                    CatalogLoader(settings.catalog_path)
+                )
                 server_adapter: McpServerAdapter = McpServerAdapter(
                     query_adapter,
                     query_logger,
                     text2cypher_adapter,
                     global_query_use_case=global_query_use_case,
+                    scope_resolver=scope_resolver,
                 )
                 click.echo(f"MCP server starting on port {settings.mcp_port}")
                 await server_adapter.run_sse(host="0.0.0.0", port=settings.mcp_port)
