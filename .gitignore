@@ -45,3 +45,6 @@ Thumbs.db
 logs/
 *.log
 evaluation_results.jsonl
+
+# ── Pi harness runtime config ───────────────────────────────────────────
+.pi/
