@@ -1,8 +1,11 @@
-"""Tests for MCP hardening domain security contracts (T-A.1).
+"""Tests for MCP hardening domain security contracts (T-A.1 + T-A.2).
 
 Covers ToolRiskTier, ScopeContext, ResourcePolicy, QueryFingerprint,
 and typed security errors.
 """
+
+import json
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -17,6 +20,7 @@ from book_graph_rag.domain.mcp_security import (
     ScopeContext,
     ToolRiskTier,
     UnsupportedQueryError,
+    canonical_json,
 )
 from book_graph_rag.domain.namespaces import SourceNamespace
 
@@ -149,3 +153,92 @@ def test_typed_security_errors_are_distinguishable() -> None:
     err = InvalidScopeError("bad scope", scope_id="book:other")
     assert err.error_code == "invalid_scope"
     assert err.scope_id == "book:other"
+
+
+def test_resource_policy_defaults_are_secure() -> None:
+    """Default policies are positive, bounded, and tighten with risk."""
+    low = ResourcePolicy.default_for(ToolRiskTier.LOW)
+    medium = ResourcePolicy.default_for(ToolRiskTier.MEDIUM)
+    high = ResourcePolicy.default_for(ToolRiskTier.HIGH)
+
+    for policy in (low, medium, high):
+        assert policy.timeout_ms > 0
+        assert policy.max_rows > 0
+        assert policy.max_nodes >= policy.max_rows
+        assert policy.max_traversal_depth >= 0
+        assert policy.max_query_retries >= 0
+        assert policy.concurrency_limit > 0
+        assert policy.rate_limit_calls > 0
+        assert policy.rate_limit_window_ms > 0
+
+    assert low.timeout_ms <= medium.timeout_ms
+    assert high.timeout_ms <= medium.timeout_ms
+    assert high.concurrency_limit <= medium.concurrency_limit <= low.concurrency_limit
+    assert high.max_rows <= medium.max_rows <= low.max_rows
+
+
+def test_query_fingerprint_basic() -> None:
+    """Fingerprints are deterministic HMAC-SHA256 over a canonical payload."""
+    fp = QueryFingerprint.from_canonical(
+        key_id="dev-1",
+        secret=b"secret-key",
+        payload={"query": "MATCH (n) RETURN n", "scope": "book:agentic-patterns"},
+    )
+    assert fp.key_id == "dev-1"
+    assert fp.algorithm == "hmac-sha256"
+    assert len(fp.fingerprint_hex) == 64
+    fp2 = QueryFingerprint.from_canonical(
+        key_id="dev-1",
+        secret=b"secret-key",
+        payload={"scope": "book:agentic-patterns", "query": "MATCH (n) RETURN n"},
+    )
+    assert fp.fingerprint_hex == fp2.fingerprint_hex
+
+
+def test_query_fingerprint_differentiates_keys_and_payload() -> None:
+    """Different keys or payloads produce different fingerprints."""
+    payload: dict[str, Any] = {"query": "MATCH (n) RETURN n"}
+    fp_a = QueryFingerprint.from_canonical("k", b"key-a", payload)
+    fp_b = QueryFingerprint.from_canonical("k", b"key-b", payload)
+    fp_c = QueryFingerprint.from_canonical("k", b"key-a", {**payload, "extra": 1})
+    assert fp_a.fingerprint_hex != fp_b.fingerprint_hex
+    assert fp_a.fingerprint_hex != fp_c.fingerprint_hex
+
+
+def test_query_fingerprint_from_canonical_rejects_empty_key_id() -> None:
+    """from_canonical also rejects an empty key_id."""
+    with pytest.raises(ValidationError, match="key_id"):
+        QueryFingerprint.from_canonical(key_id="", secret=b"x", payload={"q": "x"})
+
+
+def test_canonical_json_sorts_and_compacts() -> None:
+    """canonical_json is deterministic and whitespace-free."""
+    a = canonical_json({"z": 1, "a": [3, 1, 2], "s": {"b", "a"}})
+    b = canonical_json({"a": [3, 1, 2], "z": 1, "s": {"b", "a"}})
+    assert a == b
+    parsed = json.loads(a)
+    assert parsed == {"a": [3, 1, 2], "s": ["a", "b"], "z": 1}
+
+
+def test_scope_context_canonical_serialization() -> None:
+    """ScopeContext serializes to a canonical key independent of input ordering."""
+    scope1 = ScopeContext(
+        source=SourceNamespace(corpus="book", source="agentic-patterns"),
+        book_ids=("z", "a"),
+        entity_types=("pattern", "agent"),
+    )
+    scope2 = ScopeContext(
+        source=SourceNamespace(corpus="book", source="agentic-patterns"),
+        book_ids=("a", "z"),
+        entity_types=("agent", "pattern"),
+    )
+    assert scope1.to_canonical_key() == scope2.to_canonical_key()
+    assert "book:agentic-patterns" in scope1.to_canonical_key()
+
+
+def test_resource_policy_canonical_serialization() -> None:
+    """ResourcePolicy serializes deterministically for tier comparison and audit."""
+    policy = ResourcePolicy.default_for(ToolRiskTier.MEDIUM)
+    raw = json.loads(policy.to_canonical_json())
+    assert raw["tier"] == "medium"
+    assert raw["max_rows"] == policy.max_rows

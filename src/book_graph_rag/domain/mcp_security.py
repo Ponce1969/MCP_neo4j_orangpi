@@ -6,8 +6,11 @@ Pydantic. No Neo4j, OpenAI, MCP or infrastructure references are allowed here.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 from enum import Enum, unique
-from typing import Any
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -136,6 +139,49 @@ class ResourcePolicy(BaseModel):
             raise ValueError("max_nodes must be >= max_rows")
         return self
 
+    @classmethod
+    def default_for(cls, tier: ToolRiskTier) -> ResourcePolicy:
+        """Return the secure default policy for the given tier."""
+        defaults: dict[ToolRiskTier, dict[str, int]] = {
+            ToolRiskTier.LOW: {
+                "timeout_ms": 30_000,
+                "max_rows": 200,
+                "max_nodes": 1_000,
+                "max_traversal_depth": 4,
+                "max_query_retries": 1,
+                "concurrency_limit": 8,
+                "rate_limit_calls": 60,
+                "rate_limit_window_ms": 60_000,
+            },
+            ToolRiskTier.MEDIUM: {
+                "timeout_ms": 60_000,
+                "max_rows": 100,
+                "max_nodes": 500,
+                "max_traversal_depth": 3,
+                "max_query_retries": 1,
+                "concurrency_limit": 4,
+                "rate_limit_calls": 30,
+                "rate_limit_window_ms": 60_000,
+            },
+            ToolRiskTier.HIGH: {
+                "timeout_ms": 10_000,
+                "max_rows": 20,
+                "max_nodes": 100,
+                "max_traversal_depth": 2,
+                "max_query_retries": 0,
+                "concurrency_limit": 1,
+                "rate_limit_calls": 5,
+                "rate_limit_window_ms": 60_000,
+            },
+        }
+        return cls(tier=tier, **defaults[tier])
+
+    def to_canonical_json(self) -> str:
+        """Deterministic JSON serialization for audit and tier comparison."""
+        return canonical_json(
+            self.model_dump(mode="json", by_alias=False),
+        ).decode("utf-8")
+
 
 # ── Scope context ────────────────────────────────────────────────────────────
 
@@ -176,6 +222,17 @@ class ScopeContext(BaseModel):
             raise ValueError("scope source corpus and source must be non-empty")
         return self
 
+    def to_canonical_key(self) -> str:
+        """Return a deterministic string key for this scope."""
+        return canonical_json(
+            {
+                "source": self.source.source_id,
+                "book_ids": list(self.book_ids),
+                "entity_types": list(self.entity_types),
+                "relationship_types": list(self.relationship_types),
+            },
+        ).decode("utf-8")
+
 
 # ── Query fingerprint ────────────────────────────────────────────────────────
 
@@ -191,7 +248,7 @@ class QueryFingerprint(BaseModel):
 
     key_id: str = Field(min_length=1)
     fingerprint_hex: str = Field(min_length=1)
-    algorithm: str = "hmac-sha256"
+    algorithm: Literal["hmac-sha256"] = "hmac-sha256"
 
     @field_validator("fingerprint_hex")
     @classmethod
@@ -199,3 +256,54 @@ class QueryFingerprint(BaseModel):
         if len(value) % 2 != 0 or not all(c in "0123456789abcdef" for c in value.lower()):
             raise ValueError("fingerprint_hex must be a lowercase hex string")
         return value.lower()
+
+    @classmethod
+    def from_canonical(
+        cls,
+        key_id: str,
+        secret: str | bytes,
+        payload: dict[str, Any],
+    ) -> Self:
+        """Create a fingerprint from a canonicalized payload.
+
+        The payload is serialised deterministically (sorted keys, no whitespace,
+        sets/frozensets sorted) before HMAC computation so that equivalent
+        requests produce identical fingerprints regardless of dict/set ordering.
+        """
+        key_bytes = secret.encode("utf-8") if isinstance(secret, str) else secret
+        canonical = canonical_json(payload)
+        digest = hmac.new(key_bytes, canonical, hashlib.sha256).hexdigest()
+        return cls(key_id=key_id, fingerprint_hex=digest)
+
+
+# ── Canonical serialization helper ───────────────────────────────────────────
+
+
+def _canonical_value(value: Any) -> Any:
+    """Recursively convert a value into a JSON-canonical form."""
+    if isinstance(value, dict):
+        return {k: _canonical_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_value(v) for v in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted(_canonical_value(v) for v in value)
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, BaseModel):
+        return _canonical_value(value.model_dump(mode="json", by_alias=False))
+    return value
+
+
+def canonical_json(value: Any) -> bytes:
+    """Return deterministic, compact UTF-8 JSON bytes for ``value``.
+
+    Dict keys are sorted, sequences keep order, and sets/frozensets are sorted.
+    Whitespace is removed so the output is suitable for stable hashing.
+    """
+    canonical = _canonical_value(value)
+    return json.dumps(
+        canonical,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
