@@ -10,26 +10,47 @@
 
 ---
 
+## Current status — 2026-09-11
+
+Phase 5 (evaluation and readiness) is complete, verified, archived, and
+**deployed to the Orange Pi 5 Plus**. The repository now contains the indexer,
+read-only evaluation/readiness gates, and the MCP SSE server used to expose the
+loaded graph. The next roadmap step is MCP hardening before guarded external
+exposure; deployment alone does not close that gate.
+
+| Area | Current state | Evidence / location |
+|---|---|---|
+| Phase 0 — Evidence baseline | complete | `docs/spec/` and roadmap |
+| Phase 1 — Namespaces | complete | `docs/spec/02-knowledge-namespaces.md` |
+| Phase 2 — Resumable indexing | complete | `:Checkpoint` nodes and resume CLI |
+| Phase 3 — Semantic resolution | complete with W1 follow-up | `docs/spec/03-semantic-entity-resolution.md` |
+| Phase 4 — Scoped audit and gates | complete | `book-graph-rag audit` / `gate` |
+| Phase 5 — Evaluation and readiness | complete and archived | `docs/spec/06-evaluation-and-readiness.md`, `data/evaluation/` |
+| Phase 6 — MCP hardening | pending | security and read-only exposure hardening |
+| Phase 7 — Guarded exposure | pending approval | production exposure gate |
+| Orange Pi MCP service | running | `mcp-server.service`, SSE on port `8003` |
+| Neo4j production graph | healthy | Docker service `bookgraph-neo4j` |
+
+### Deployment facts
+
+- Git `main` is deployed at commit `776c60d`.
+- The application repository lives on the Pi at
+  `/home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi`.
+- The MCP server runs under systemd as `mcp-server.service`; it is **not** a
+  Docker Compose service.
+- Docker Compose manages the Neo4j container only: `bookgraph-neo4j`.
+- Neo4j remains untouched by application deploys; no containers, volumes, or
+  databases are deleted as part of deployment.
+- The readiness gate intentionally remains `INCOMPLETE` (exit code `11`) until
+  project-owned numeric thresholds are finalized. W1 remains a separate human
+  decision supported by Phase 5 evidence.
+
 ## What this is — and what it is **not** yet
 
-This repository today is an **indexer**. It takes a PDF book and produces a
-Neo4j graph of entities and relationships. That's it. The full product vision
-is a knowledge base that AI agents can query, but the later phases are not
-implemented yet.
-
-| Phase | Status |
-|---|---|
-| 01 — Foundation (`Settings`, Fail-Fast config) | done |
-| 02 — Domain & Ports (Pydantic entities + ABCs) | done |
-| 03 — Infrastructure (`PDFAdapter`, `LLMAdapter`, `Neo4jCommandAdapter`) | done |
-| 04 — Application (`IndexBookUseCase`, streaming + dead-letter) | done |
-| 05 — Audit (`book-graph-rag audit`) + scoped audits + [readiness gates](docs/spec/06-evaluation-and-readiness.md) ([datasets & baselines](data/evaluation/README.md)) | done |
-| 06 — Query layer for the loaded graph | not started |
-| 07 — MCP server to expose the graph to agents | not started |
-
-The repo name `MCP_neo4j_orangpi` reflects the **intended final deployment**
-(MCP server on an Orange Pi). Today there is no MCP server here yet. When
-phase 07 lands, this README will say so plainly.
+This repository is an indexer, evaluation/readiness gate, and MCP server for a
+Neo4j knowledge graph. MCP service operation is deployed; MCP hardening and the
+final guarded exposure gate are still pending. The graph is never mutated by
+evaluation or readiness checks.
 
 ---
 
@@ -193,23 +214,50 @@ metadata. Without a TOC, it falls back to plain char-window chunking.
 
 ## Deployment on Orange Pi 5 Plus (production)
 
-Target hardware: **Orange Pi 5 Plus, 16 GB RAM, ARM**. The graph lives here;
-remote agents will query it (phase 06/07).
+Target hardware: **Orange Pi 5 Plus, 16 GB RAM, ARM**, connected through
+Tailscale. The production graph and MCP service are already running there.
+
+### Components and ownership
+
+| Component | Runtime | Current state |
+|---|---|---|
+| Neo4j graph | Docker Compose | `bookgraph-neo4j`, healthy |
+| MCP SSE server | systemd | `mcp-server.service`, port `8003`, active |
+| Application environment | `uv` | `/home/gonzalo/.local/bin/uv` |
+| Repository | Git checkout | `/home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi` |
+
+Docker Compose manages **only Neo4j** in this deployment. The MCP server is a
+separate systemd service, so updating the application does not require
+rebuilding or restarting Docker.
+
+### Safe application update
+
+Run these commands on the Pi over Tailscale/SSH. They update only this
+repository and its own systemd service:
 
 ```bash
-# On the Pi, over Tailscale / SSH:
-git clone https://github.com/Ponce1969/MCP_neo4j_orangpi.git
-cd MCP_neo4j_orangpi
-uv sync
-cp .env.example .env
-# Edit .env on the Pi:
-#   - NEO4J_BOLT_ADVERTISED_ADDRESS=<pi-tailscale-ip>:7687
-#   - NEO4J_HTTP_ADVERTISED_ADDRESS=<pi-tailscale-ip>:7474
-#   - GRAPH_LLM_API_KEY=<your graph-provider key> (optional for local providers)
-#   - QUERY_LLM_API_KEY=<your query-provider key> (optional for local providers)
-docker compose up -d
-uv run book-graph-rag index data/your-book.pdf
+cd /home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi
+git pull --ff-only
+/home/gonzalo/.local/bin/uv sync --extra community
+sudo systemctl restart mcp-server
+systemctl status mcp-server --no-pager
 ```
+
+### Read-only post-deploy checks
+
+```bash
+# MCP SSE endpoint
+curl -H 'Accept: text/event-stream' http://127.0.0.1:8003/sse
+
+# Neo4j container health; do not run compose down, prune, or volume commands
+docker compose ps
+```
+
+**Production safety:** never run `docker compose down`, `docker system prune`,
+`docker volume rm`, `docker rm`, `DROP DATABASE`, or delete project files as
+part of an application deploy. Other projects and PostgreSQL services share
+this Orange Pi. Graph mutations require the explicit backup → dry-run → human
+approval protocol in `AGENTS.md` §7.
 
 Recommended Neo4j heap on a 16 GB Pi: `NEO4J_server_memory_heap_max__size=2G`
 (leave RAM for the indexer and OS).
@@ -303,18 +351,22 @@ scripts/
 
 docs/spec/                    # normative target specs (00..07) + README + roadmap
     └── archive/                  # historical phase notes (former docs/specs/)
-tests/                        # 532 tests, all green
-docker-compose.yml            # Neo4j 5.23 with APOC, 8 vars interpolated from .env
+tests/                        # unit, property, and testcontainers suites
+deploy/                       # systemd unit and Orange Pi deployment notes
+    docker-compose.yml            # Neo4j 5.23 with APOC, vars interpolated from .env
 ```
 
 ---
 
 ## Roadmap
 
-- **Phase 06** — Query layer: read-side use cases for searching entities and
-  traversing relationships in the loaded graph.
-- **Phase 07** — MCP server: expose the query layer as an MCP tool so remote
-  agents (Claude Desktop, opencode, etc.) can answer questions from the book's
-  knowledge graph.
-- **Production hardening** — Docker secrets for API keys, TLS for Bolt,
-  Tailscale-only firewall, Neo4j heap tuning on the Pi.
+- **Phase 05 — Evaluation and readiness:** complete and archived. The readiness
+  gate is mechanism-first and remains `INCOMPLETE` until numeric thresholds are
+  finalized from project-owned baselines.
+- **Phase 06 — MCP hardening:** pending. Complete the security, permissions,
+  logging/redaction, and read-only exposure hardening before broad use.
+- **Phase 07 — Guarded exposure:** pending explicit approval and all readiness /
+  security preconditions. The MCP service is deployed, but deployment is not
+  equivalent to approval for unrestricted exposure.
+- **Operational hardening:** Docker secrets for API keys, TLS for Bolt,
+  Tailscale-only firewall, and Neo4j heap tuning on the Pi.
