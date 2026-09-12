@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from book_graph_rag.domain.mcp_security import ScopeContext
+from book_graph_rag.domain.mcp_security import InvalidScopeError, ScopeContext
 from book_graph_rag.domain.models import (
     Entity,
     EntityType,
@@ -18,9 +18,11 @@ from book_graph_rag.domain.models import (
     Relationship,
     RelationshipType,
 )
+from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.infrastructure.mcp.mcp_server_adapter import McpServerAdapter
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
+from book_graph_rag.ports.scope_resolver_port import ScopeResolverPort
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort, Text2CypherResult
 
 
@@ -164,6 +166,32 @@ class _FakeText2CypherPort(Text2CypherPort):
         return self._result
 
 
+class _FakeScopeResolverPort(ScopeResolverPort):
+    """In-memory ScopeResolverPort that returns a fixed or configurable scope."""
+
+    def __init__(self, scope: ScopeContext | None = None) -> None:
+        self._scope = scope
+        self.calls: list[tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = []
+
+    def resolve(
+        self,
+        source_id: str,
+        *,
+        book_ids: tuple[str, ...] = (),
+        entity_types: tuple[str, ...] = (),
+        relationship_types: tuple[str, ...] = (),
+    ) -> ScopeContext:
+        self.calls.append((source_id, book_ids, entity_types, relationship_types))
+        if self._scope is not None:
+            return self._scope
+        return ScopeContext(
+            source=SourceNamespace(corpus="book", source="default"),
+            book_ids=book_ids,
+            entity_types=entity_types,
+            relationship_types=relationship_types,
+        )
+
+
 @pytest.fixture
 def graph_query_port() -> _FakeGraphQueryPort:
     return _FakeGraphQueryPort()
@@ -180,12 +208,32 @@ def text2cypher_port() -> _FakeText2CypherPort:
 
 
 @pytest.fixture
+def scope_resolver() -> _FakeScopeResolverPort:
+    return _FakeScopeResolverPort()
+
+
+@pytest.fixture
 def adapter(
     graph_query_port: _FakeGraphQueryPort,
     query_logger: _FakeQueryLoggerPort,
     text2cypher_port: _FakeText2CypherPort,
 ) -> McpServerAdapter:
     return McpServerAdapter(graph_query_port, query_logger, text2cypher_port)
+
+
+@pytest.fixture
+def scoped_adapter(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+    scope_resolver: _FakeScopeResolverPort,
+) -> McpServerAdapter:
+    return McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        scope_resolver=scope_resolver,
+    )
 
 
 def _entity(
@@ -791,3 +839,108 @@ async def test_query_cypher_error_is_logged_and_propagated(
     assert entry.query_type == "text2cypher"
     assert entry.error == "pipeline failed"
     assert entry.result_count == 0
+
+
+# ── scope propagation ────────────────────────────────────────────────────────
+
+
+async def test_scope_params_are_passed_to_graph_query_port(
+    scoped_adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+    scope_resolver: _FakeScopeResolverPort,
+) -> None:
+    """A structured tool resolves source_id and forwards ScopeContext to the port."""
+    await scoped_adapter.find_entity(
+        "MCP",
+        source_id="book:default",
+        entity_types=["concept", "agent"],
+    )
+
+    assert scope_resolver.calls == [
+        ("book:default", (), ("concept", "agent"), ())
+    ]
+    _, params = graph_query_port.calls[0]
+    assert params["scope"] == ScopeContext(
+        source=SourceNamespace(corpus="book", source="default"),
+        entity_types=("agent", "concept"),
+    )
+
+
+async def test_source_id_without_resolver_raises_invalid_scope(
+    adapter: McpServerAdapter,
+) -> None:
+    """A source_id requires a configured ScopeResolverPort."""
+    with pytest.raises(InvalidScopeError):
+        await adapter.find_entity("MCP", source_id="book:default")
+
+
+async def test_search_rag_propagates_scope_to_all_subqueries(
+    scoped_adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+) -> None:
+    """search_rag resolves scope once and passes it to chunks, entity and traverse."""
+    entity = _entity("MCP", entity_id="e1", entity_type="mcp")
+    rel = _relationship("e1", "e2", "requires")
+    graph_query_port.find_entity_result = [entity]
+    graph_query_port.traverse_result = ([], [rel])
+    graph_query_port.search_chunks_result = [{"text": "chunk"}]
+
+    await scoped_adapter.search_rag(
+        "MCP",
+        source_id="book:default",
+        book_ids=["book-1"],
+    )
+
+    calls = graph_query_port.calls
+    assert calls[0][0] == "search_chunks"
+    assert calls[0][1]["scope"].book_ids == ("book-1",)
+    assert calls[1][0] == "find_entity"
+    assert calls[1][1]["scope"].book_ids == ("book-1",)
+    assert calls[2][0] == "traverse_relationships"
+    assert calls[2][1]["scope"].book_ids == ("book-1",)
+
+
+async def test_scope_params_are_logged_in_query_params(
+    scoped_adapter: McpServerAdapter,
+    query_logger: _FakeQueryLoggerPort,
+) -> None:
+    """Scope source_id is included in the logged query_params."""
+    await scoped_adapter.count_entities(
+        entity_type="agent",
+        source_id="book:default",
+        book_ids=["book-1"],
+    )
+
+    entry = query_logger.entries[0]
+    assert entry.query_params == {
+        "entity_type": "agent",
+        "source_id": "book:default",
+    }
+
+
+# ── query_cypher disabled by default ─────────────────────────────────────────
+
+
+async def test_query_cypher_disabled_by_default_returns_typed_error(
+    adapter: McpServerAdapter,
+    query_logger: _FakeQueryLoggerPort,
+) -> None:
+    """query_cypher is disabled by default and returns a typed policy error."""
+    result = await adapter.query_cypher("what patterns mitigate security risks?")
+
+    assert result["error"] == "query_cypher is disabled by default"
+    assert result["error_code"] == "policy_violation"
+    assert result["rows"] == []
+    assert result["cypher"] is None
+    entry = query_logger.entries[0]
+    assert entry.error == "query_cypher is disabled by default"
+
+
+async def test_query_cypher_disabled_by_default_does_not_call_text2cypher(
+    adapter: McpServerAdapter,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """A disabled query_cypher never invokes the Text2CypherPort."""
+    await adapter.query_cypher("what patterns mitigate security risks?")
+
+    assert text2cypher_port.calls == []
