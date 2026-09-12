@@ -8,6 +8,7 @@ import pytest
 from mcp.types import TextContent
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.infrastructure.mcp.mcp_server_adapter import McpServerAdapter
 from book_graph_rag.ports.community_read_port import CommunityReadPort
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
@@ -71,28 +72,43 @@ class _FakeQueryLoggerPort(QueryLoggerPort):
 
 
 class _FakeGraphQueryPort(GraphQueryPort):
-    async def find_entity(self, name: str, entity_type: Any | None = None) -> list[Any]:
+    async def find_entity(
+        self, name: str, entity_type: Any | None = None, *, scope: ScopeContext | None = None
+    ) -> list[Any]:
         return []
 
     async def find_entities_batch(self, ids: list[str]) -> list[Any]:
         return []
 
     async def traverse_relationships(
-        self, source_id: str, rel_type: Any | None = None, depth: int = 1
+        self,
+        source_id: str,
+        rel_type: Any | None = None,
+        depth: int = 1,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[Any], list[Any]]:
         return [], []
 
     async def find_path(self, start_id: str, end_id: str, max_depth: int = 3) -> list[Any]:
         return []
 
-    async def search_chunks(self, query: str, limit: int = 10) -> list[Any]:
+    async def search_chunks(
+        self, query: str, limit: int = 10, *, scope: ScopeContext | None = None
+    ) -> list[Any]:
         return []
 
-    async def count_entities(self, entity_type: str | None = None) -> int:
+    async def count_entities(
+        self, entity_type: str | None = None, *, scope: ScopeContext | None = None
+    ) -> int:
         return 0
 
     async def list_entities(
-        self, cursor: int = 0, page_size: int = 50
+        self,
+        cursor: int = 0,
+        page_size: int = 50,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[Any], int]:
         return [], 0
 

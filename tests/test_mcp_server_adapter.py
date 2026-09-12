@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 from mcp.server.fastmcp import FastMCP
 
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import (
     Entity,
     EntityType,
@@ -44,9 +45,16 @@ class _FakeGraphQueryPort(GraphQueryPort):
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     async def find_entity(
-        self, name: str, entity_type: EntityType | None
+        self,
+        name: str,
+        entity_type: EntityType | None,
+        *,
+        scope: ScopeContext | None = None,
     ) -> list[EntityWithContext]:
-        self.calls.append(("find_entity", {"name": name, "entity_type": entity_type}))
+        call: dict[str, Any] = {"name": name, "entity_type": entity_type}
+        if scope is not None:
+            call["scope"] = scope
+        self.calls.append(("find_entity", call))
         if self._should_raise("find_entity"):
             raise TimeoutError("neo4j timeout")
         return self.find_entity_result
@@ -56,14 +64,19 @@ class _FakeGraphQueryPort(GraphQueryPort):
         return []
 
     async def traverse_relationships(
-        self, source_id: str, rel_type: RelationshipType | None, depth: int
+        self,
+        source_id: str,
+        rel_type: RelationshipType | None,
+        depth: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], list[Relationship]]:
-        self.calls.append(
-            (
-                "traverse_relationships",
-                {"source_id": source_id, "rel_type": rel_type, "depth": depth},
-            )
-        )
+        call: dict[str, Any] = {
+            "source_id": source_id, "rel_type": rel_type, "depth": depth
+        }
+        if scope is not None:
+            call["scope"] = scope
+        self.calls.append(("traverse_relationships", call))
         if self._should_raise("traverse_relationships"):
             raise TimeoutError("neo4j timeout")
         return self.traverse_result
@@ -71,8 +84,13 @@ class _FakeGraphQueryPort(GraphQueryPort):
     async def find_path(self, start_id: str, end_id: str, max_depth: int) -> list[Any]:
         return []
 
-    async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
-        self.calls.append(("search_chunks", {"query": query, "limit": limit}))
+    async def search_chunks(
+        self, query: str, limit: int, *, scope: ScopeContext | None = None
+    ) -> list[dict[str, Any]]:
+        call: dict[str, Any] = {"query": query, "limit": limit}
+        if scope is not None:
+            call["scope"] = scope
+        self.calls.append(("search_chunks", call))
         if self._should_raise("search_chunks"):
             raise TimeoutError("neo4j timeout")
         return self.search_chunks_result
@@ -84,16 +102,28 @@ class _FakeGraphQueryPort(GraphQueryPort):
             return method in self.raise_on
         return self.raise_on == method
 
-    async def count_entities(self, entity_type: str | None) -> int:
-        self.calls.append(("count_entities", {"entity_type": entity_type}))
+    async def count_entities(
+        self, entity_type: str | None, *, scope: ScopeContext | None = None
+    ) -> int:
+        call: dict[str, Any] = {"entity_type": entity_type}
+        if scope is not None:
+            call["scope"] = scope
+        self.calls.append(("count_entities", call))
         if self.raise_on == "count_entities":
             raise TimeoutError("neo4j timeout")
         return self.count_result
 
     async def list_entities(
-        self, cursor: int, page_size: int
+        self,
+        cursor: int,
+        page_size: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], int]:
-        self.calls.append(("list_entities", {"cursor": cursor, "page_size": page_size}))
+        call: dict[str, Any] = {"cursor": cursor, "page_size": page_size}
+        if scope is not None:
+            call["scope"] = scope
+        self.calls.append(("list_entities", call))
         if self.raise_on == "list_entities":
             raise TimeoutError("neo4j timeout")
         return self.list_entities_result

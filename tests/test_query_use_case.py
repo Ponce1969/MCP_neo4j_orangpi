@@ -14,6 +14,7 @@ import pytest
 from book_graph_rag.application.query_knowledge_graph_use_case import (
     QueryKnowledgeGraphUseCase,
 )
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import (
     BatchEntityQuery,
     BatchSizeExceededError,
@@ -67,7 +68,11 @@ class _FakeGraphQueryPort(GraphQueryPort):
         self.calls: list[dict[str, Any]] = []
 
     async def find_entity(
-        self, name: str, entity_type: EntityType | None
+        self,
+        name: str,
+        entity_type: EntityType | None,
+        *,
+        scope: ScopeContext | None = None,
     ) -> list[EntityWithContext]:
         self.calls.append({"method": "find_entity", "name": name, "entity_type": entity_type})
         if self.find_entity_raises is not None:
@@ -81,7 +86,12 @@ class _FakeGraphQueryPort(GraphQueryPort):
         return self.find_entities_batch_result
 
     async def traverse_relationships(
-        self, source_id: str, rel_type: RelationshipType | None, depth: int
+        self,
+        source_id: str,
+        rel_type: RelationshipType | None,
+        depth: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], list[Relationship]]:
         self.calls.append(
             {
@@ -105,20 +115,28 @@ class _FakeGraphQueryPort(GraphQueryPort):
             raise self.find_path_raises
         return self.find_path_result
 
-    async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
+    async def search_chunks(
+        self, query: str, limit: int, *, scope: ScopeContext | None = None
+    ) -> list[dict[str, Any]]:
         self.calls.append({"method": "search_chunks", "query": query, "limit": limit})
         if self.search_chunks_raises is not None:
             raise self.search_chunks_raises
         return self.search_chunks_result
 
-    async def count_entities(self, entity_type: str | None) -> int:
+    async def count_entities(
+        self, entity_type: str | None, *, scope: ScopeContext | None = None
+    ) -> int:
         self.calls.append({"method": "count_entities", "entity_type": entity_type})
         if self.count_entities_raises is not None:
             raise self.count_entities_raises
         return self.count_entities_result
 
     async def list_entities(
-        self, cursor: int, page_size: int
+        self,
+        cursor: int,
+        page_size: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], int]:
         self.calls.append({"method": "list_entities", "cursor": cursor, "page_size": page_size})
         if self.list_entities_raises is not None:

@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import (
     EntityType,
     EntityWithContext,
@@ -14,6 +15,7 @@ from book_graph_rag.domain.models import (
     Relationship,
     RelationshipType,
 )
+from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
 
 
@@ -21,7 +23,11 @@ class _CompleteQueryAdapter(GraphQueryPort):
     """Every abstract method is implemented so instantiation should succeed."""
 
     async def find_entity(
-        self, name: str, entity_type: EntityType | None
+        self,
+        name: str,
+        entity_type: EntityType | None,
+        *,
+        scope: ScopeContext | None = None,
     ) -> list[EntityWithContext]:
         return []
 
@@ -29,7 +35,12 @@ class _CompleteQueryAdapter(GraphQueryPort):
         return []
 
     async def traverse_relationships(
-        self, source_id: str, rel_type: RelationshipType | None, depth: int
+        self,
+        source_id: str,
+        rel_type: RelationshipType | None,
+        depth: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], list[Relationship]]:
         return [], []
 
@@ -38,14 +49,22 @@ class _CompleteQueryAdapter(GraphQueryPort):
     ) -> list[GraphPath]:
         return []
 
-    async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
+    async def search_chunks(
+        self, query: str, limit: int, *, scope: ScopeContext | None = None
+    ) -> list[dict[str, Any]]:
         return []
 
-    async def count_entities(self, entity_type: str | None) -> int:
+    async def count_entities(
+        self, entity_type: str | None, *, scope: ScopeContext | None = None
+    ) -> int:
         return 0
 
     async def list_entities(
-        self, cursor: int, page_size: int
+        self,
+        cursor: int,
+        page_size: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], int]:
         return [], 0
 
@@ -57,7 +76,11 @@ class _IncompleteQueryAdapter(GraphQueryPort):
     """Missing one method so instantiation should fail."""
 
     async def find_entity(
-        self, name: str, entity_type: EntityType | None
+        self,
+        name: str,
+        entity_type: EntityType | None,
+        *,
+        scope: ScopeContext | None = None,
     ) -> list[EntityWithContext]:
         return []
 
@@ -65,7 +88,12 @@ class _IncompleteQueryAdapter(GraphQueryPort):
         return []
 
     async def traverse_relationships(
-        self, source_id: str, rel_type: RelationshipType | None, depth: int
+        self,
+        source_id: str,
+        rel_type: RelationshipType | None,
+        depth: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], list[Relationship]]:
         return [], []
 
@@ -74,14 +102,22 @@ class _IncompleteQueryAdapter(GraphQueryPort):
     ) -> list[GraphPath]:
         return []
 
-    async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
+    async def search_chunks(
+        self, query: str, limit: int, *, scope: ScopeContext | None = None
+    ) -> list[dict[str, Any]]:
         return []
 
-    async def count_entities(self, entity_type: str | None) -> int:
+    async def count_entities(
+        self, entity_type: str | None, *, scope: ScopeContext | None = None
+    ) -> int:
         return 0
 
     async def list_entities(
-        self, cursor: int, page_size: int
+        self,
+        cursor: int,
+        page_size: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], int]:
         return [], 0
 
@@ -105,6 +141,18 @@ def test_graph_query_port_missing_method_cannot_be_instantiated() -> None:
     """A subclass missing a method is still abstract."""
     with pytest.raises(TypeError):
         _IncompleteQueryAdapter()  # type: ignore[abstract]
+
+
+async def test_graph_query_port_methods_accept_optional_scope() -> None:
+    """ScopeContext can be passed to read-side query methods."""
+    scope = ScopeContext(source=SourceNamespace(corpus="book", source="default"))
+    adapter = _CompleteQueryAdapter()
+
+    await adapter.find_entity("x", None, scope=scope)
+    await adapter.traverse_relationships("x", None, 1, scope=scope)
+    await adapter.search_chunks("x", 10, scope=scope)
+    await adapter.count_entities(None, scope=scope)
+    await adapter.list_entities(0, 10, scope=scope)
 
 
 @pytest.mark.parametrize(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import abc
 from typing import Any
 
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import (
     EntityType,
     EntityWithContext,
@@ -23,7 +24,11 @@ class GraphQueryPort(abc.ABC):
 
     @abc.abstractmethod
     async def find_entity(
-        self, name: str, entity_type: EntityType | None
+        self,
+        name: str,
+        entity_type: EntityType | None,
+        *,
+        scope: ScopeContext | None = None,
     ) -> list[EntityWithContext]:
         """Return entities matching ``name`` and optional ``entity_type``.
 
@@ -31,6 +36,10 @@ class GraphQueryPort(abc.ABC):
         substring, and fulltext index tiers, stopping at the first tier that
         yields matches. Results are deduplicated by entity id and annotated
         with a tier confidence score and chunk provenance in ``source``.
+
+        Args:
+            scope: Optional validated namespace scope; when provided,
+                implementations MUST bind scope predicates as parameters.
         """
         ...
 
@@ -41,9 +50,20 @@ class GraphQueryPort(abc.ABC):
 
     @abc.abstractmethod
     async def traverse_relationships(
-        self, source_id: str, rel_type: RelationshipType | None, depth: int
+        self,
+        source_id: str,
+        rel_type: RelationshipType | None,
+        depth: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], list[Relationship]]:
-        """Traverse outgoing relationships up to ``depth`` levels."""
+        """Traverse outgoing relationships up to ``depth`` levels.
+
+        Args:
+            scope: Optional validated namespace scope; when provided,
+                implementations MUST bind relationship-type predicates as
+                parameters.
+        """
         ...
 
     @abc.abstractmethod
@@ -54,7 +74,9 @@ class GraphQueryPort(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
+    async def search_chunks(
+        self, query: str, limit: int, *, scope: ScopeContext | None = None
+    ) -> list[dict[str, Any]]:
         """Full-text search over chunk nodes.
 
         Each result dict is additive and carries stable identity and
@@ -62,21 +84,41 @@ class GraphQueryPort(abc.ABC):
         ``chunk_id``, ``chunk_index``, ``book_id``, ``chapter_id``,
         ``section_id``, ``page_start``, ``page_end``, ``text``, ``score``.
         Identity/provenance fields are ``None`` when unavailable.
+
+        Args:
+            scope: Optional validated namespace scope; when provided,
+                implementations MUST bind ``Chunk.book_id`` predicates as
+                parameters.
         """
         ...
 
     @abc.abstractmethod
-    async def count_entities(self, entity_type: str | None) -> int:
-        """Return the number of entities, optionally filtered by type."""
+    async def count_entities(
+        self, entity_type: str | None, *, scope: ScopeContext | None = None
+    ) -> int:
+        """Return the number of entities, optionally filtered by type.
+
+        Args:
+            scope: Optional validated namespace scope; when provided,
+                implementations MUST bind scope predicates as parameters.
+        """
         ...
 
     @abc.abstractmethod
     async def list_entities(
-        self, cursor: int, page_size: int
+        self,
+        cursor: int,
+        page_size: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], int]:
         """Cursor-based pagination over entities.
 
         Returns a tuple of (page_entities, next_cursor).
+
+        Args:
+            scope: Optional validated namespace scope; when provided,
+                implementations MUST bind scope predicates as parameters.
         """
         ...
 

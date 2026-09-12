@@ -13,6 +13,7 @@ from typing import Any
 from neo4j import AsyncGraphDatabase
 
 from book_graph_rag.config import Settings
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import (
     Entity,
     EntityType,
@@ -82,7 +83,11 @@ class Neo4jQueryAdapter(GraphQueryPort):
         return f"chunk_index={chunk_index}"
 
     async def find_entity(
-        self, name: str, entity_type: EntityType | None
+        self,
+        name: str,
+        entity_type: EntityType | None,
+        *,
+        scope: ScopeContext | None = None,
     ) -> list[EntityWithContext]:
         """Return entities matching ``name`` and optional ``entity_type``.
 
@@ -216,7 +221,12 @@ class Neo4jQueryAdapter(GraphQueryPort):
         )
 
     async def traverse_relationships(
-        self, source_id: str, rel_type: RelationshipType | None, depth: int
+        self,
+        source_id: str,
+        rel_type: RelationshipType | None,
+        depth: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], list[Relationship]]:
         """Traverse outgoing relationships up to ``depth`` levels."""
         clamped_depth = max(0, min(depth, 3))
@@ -302,7 +312,9 @@ class Neo4jQueryAdapter(GraphQueryPort):
             relationships = [self._relationship_to_domain(rel) for rel in path.relationships]
             return [GraphPath(nodes=nodes, relationships=relationships)]
 
-    async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
+    async def search_chunks(
+        self, query: str, limit: int, *, scope: ScopeContext | None = None
+    ) -> list[dict[str, Any]]:
         """Full-text search over chunk nodes with identity and provenance."""
         async with self._driver.session() as session:
             result = await self._run_with_timeout(
@@ -365,7 +377,9 @@ class Neo4jQueryAdapter(GraphQueryPort):
             return None
         return f"{number}:{title}"
 
-    async def count_entities(self, entity_type: str | None) -> int:
+    async def count_entities(
+        self, entity_type: str | None, *, scope: ScopeContext | None = None
+    ) -> int:
         """Return the number of entities, optionally filtered by type."""
         async with self._driver.session() as session:
             result = await self._run_with_timeout(
@@ -382,7 +396,11 @@ class Neo4jQueryAdapter(GraphQueryPort):
             return records[0]["count"] if records else 0
 
     async def list_entities(
-        self, cursor: int, page_size: int
+        self,
+        cursor: int,
+        page_size: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], int]:
         """Cursor-based pagination over entities."""
         async with self._driver.session() as session:

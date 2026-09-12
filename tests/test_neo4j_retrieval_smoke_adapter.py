@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import (
     Entity,
     EntityWithContext,
@@ -34,28 +35,43 @@ class _FakeQueryPort(GraphQueryPort):
         self._paths = paths or []
         self._chunks = chunks or []
 
-    async def find_entity(self, name: str, entity_type: Any) -> list[EntityWithContext]:
+    async def find_entity(
+        self, name: str, entity_type: Any, *, scope: ScopeContext | None = None
+    ) -> list[EntityWithContext]:
         return self._entities
 
     async def find_entities_batch(self, ids: list[str]) -> list[EntityWithContext]:
         return []
 
     async def traverse_relationships(
-        self, source_id: str, rel_type: Any, depth: int
+        self,
+        source_id: str,
+        rel_type: Any,
+        depth: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], list[Relationship]]:
         return [], self._relationships
 
     async def find_path(self, start_id: str, end_id: str, max_depth: int) -> list[GraphPath]:
         return self._paths
 
-    async def search_chunks(self, query: str, limit: int) -> list[dict[str, Any]]:
+    async def search_chunks(
+        self, query: str, limit: int, *, scope: ScopeContext | None = None
+    ) -> list[dict[str, Any]]:
         return self._chunks
 
-    async def count_entities(self, entity_type: str | None) -> int:
+    async def count_entities(
+        self, entity_type: str | None, *, scope: ScopeContext | None = None
+    ) -> int:
         return 0
 
     async def list_entities(
-        self, cursor: int, page_size: int
+        self,
+        cursor: int,
+        page_size: int,
+        *,
+        scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], int]:
         return [], 0
 
