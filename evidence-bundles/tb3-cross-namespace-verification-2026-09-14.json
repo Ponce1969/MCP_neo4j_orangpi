@@ -1,0 +1,51 @@
+{
+  "budget_max_changed_lines": 400,
+  "change": "phase-6-mcp-hardening",
+  "changed_lines": 310,
+  "commands": [
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy .",
+      "exit_code": 0,
+      "result": "Success: no issues found in 288 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "architecture validated"
+    },
+    {
+      "command": "uv run pytest tests -m \"not neo4j_integration\" -q",
+      "exit_code": 0,
+      "result": "1159 passed, 61 deselected"
+    },
+    {
+      "command": "uv run pytest tests/integration/test_cross_namespace_scope.py -q",
+      "exit_code": 0,
+      "result": "3 passed"
+    },
+    {
+      "command": "uv run pytest tests/integration/test_cross_namespace_scope.py tests/test_neo4j_query_adapter.py -q",
+      "exit_code": 0,
+      "result": "50 passed"
+    }
+  ],
+  "commits": [
+    "90fd990",
+    "427e498"
+  ],
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "tdd": {
+    "green": "all three tests pass after binding scope.source predicates and fixing Cypher ordering",
+    "red": [
+      "test_scoped_entity_queries_do_not_leak_cross_namespace: assert 3 == 2 (count_entities leaked ns-b)",
+      "test_scoped_chunk_search_does_not_leak_cross_namespace: {'adversarial:ns-a'} != {'adversarial:ns-a','adversarial:ns-b'}",
+      "test_scoped_reads_leave_graph_unchanged: neo4j.exceptions.CypherSyntaxError in list_entities"
+    ]
+  },
+  "work_unit": "T-B.3 adversarial cross-namespace integration test"
+}
