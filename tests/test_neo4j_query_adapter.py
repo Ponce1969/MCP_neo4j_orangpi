@@ -258,7 +258,7 @@ async def test_find_entity_with_type_filter(adapter: Neo4jQueryAdapter) -> None:
     await adapter.find_entity("Agent", "agent")
 
     query, params = session.queries[0]
-    assert "WHERE $entity_type IS NULL OR n.type = $entity_type" in query
+    assert "WHERE ($entity_type IS NULL OR n.type = $entity_type)" in query
     assert params["entity_type"] == "agent"
 
 
@@ -273,7 +273,7 @@ async def test_find_entity_without_type_does_not_filter(adapter: Neo4jQueryAdapt
     await adapter.find_entity("Homonym", None)
 
     query, params = session.queries[0]
-    assert "WHERE $entity_type IS NULL OR n.type = $entity_type" in query
+    assert "WHERE ($entity_type IS NULL OR n.type = $entity_type)" in query
     assert params["entity_type"] is None
 
 
@@ -438,7 +438,7 @@ async def test_find_entity_type_filter_applied_to_all_tiers(
     assert len(result) == 1
     assert result[0].entity.type == "tool"
     for query, _params in session.queries:
-        assert "$entity_type IS NULL OR n.type = $entity_type" in query
+        assert "($entity_type IS NULL OR n.type = $entity_type)" in query
     assert _params["entity_type"] == "tool"
 
 
@@ -690,7 +690,7 @@ async def test_traverse_without_rel_type_allows_all_types(adapter: Neo4jQueryAda
     await adapter.traverse_relationships("s", None, 1)
 
     query, params = session.queries[0]
-    assert "WHERE $rel_type IS NULL OR" in query
+    assert "WHERE ($rel_type IS NULL OR" in query
     assert params["rel_type"] is None
 
 
@@ -891,7 +891,7 @@ async def test_count_entities_with_type_filter(adapter: Neo4jQueryAdapter) -> No
 
     assert result == 7
     query, params = session.queries[0]
-    assert "WHERE $type IS NULL OR n.type = $type" in query
+    assert "WHERE ($type IS NULL OR n.type = $type)" in query
     assert params["type"] == "agent"
 
 

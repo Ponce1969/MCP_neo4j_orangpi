@@ -82,31 +82,43 @@ class Neo4jQueryAdapter(GraphQueryPort):
             return f"book_id={book_id},chunk_index={chunk_index}"
         return f"chunk_index={chunk_index}"
     @staticmethod
-    def _build_scope_clause(scope: ScopeContext | None) -> tuple[dict[str, Any], str]:
-        """Return parameterized scope predicates and their bound values.
+    def _build_scope_clause(
+        scope: ScopeContext | None,
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        """Return parameterized scope predicates keyed by variable context.
 
-        The returned predicate string is composed of fixed fragments; all
+        The returned predicate strings are composed of fixed fragments; all
         user-provided scope values are returned in the parameter map so the
-        driver binds them safely.
+        driver binds them safely. Predicates are grouped by the variable they
+        reference (``entity`` -> ``n``, ``path`` -> ``p``, ``chunk`` ->
+        ``node``) so each query shape binds only the variables it defines.
+
+        The validated ``scope.source`` namespace is bound as an ``Entity.id``
+        prefix predicate (``n.id STARTS WITH $scope_prefix``) and a chunk book
+        id predicate (``node.book_id = $scope_source_id``).
         """
         if scope is None:
-            return {}, ""
+            return {}, {"entity": "", "path": "", "chunk": ""}
         params: dict[str, Any] = {}
-        fragments: list[str] = []
+        clauses: dict[str, list[str]] = {"entity": [], "path": [], "chunk": []}
+        params["scope_prefix"] = f"{scope.source.source_id}:"
+        params["scope_source_id"] = scope.source.source_id
+        clauses["entity"].append("n.id STARTS WITH $scope_prefix")
+        clauses["chunk"].append("node.book_id = $scope_source_id")
         if scope.entity_types:
             params["scope_entity_types"] = list(scope.entity_types)
-            fragments.append("n.type IN $scope_entity_types")
+            clauses["entity"].append("n.type IN $scope_entity_types")
         if scope.relationship_types:
             params["scope_rel_types"] = list(scope.relationship_types)
-            fragments.append(
+            clauses["path"].append(
                 "ALL(r IN relationships(p) WHERE r.type IN $scope_rel_types)"
             )
         if scope.book_ids:
             params["scope_book_ids"] = list(scope.book_ids)
-            fragments.append("node.book_id IN $scope_book_ids")
-        if not fragments:
-            return {}, ""
-        return params, " AND ".join(fragments)
+            clauses["chunk"].append("node.book_id IN $scope_book_ids")
+        return params, {
+            name: " AND ".join(parts) for name, parts in clauses.items()
+        }
 
     async def find_entity(
         self,
@@ -125,7 +137,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
         parameters and appended to each tier's WHERE clause.
         """
         limit = 100
-        scope_params, scope_clause = self._build_scope_clause(scope)
+        scope_params, scope_clauses = self._build_scope_clause(scope)
         params: dict[str, Any] = {
             "name": name,
             "entity_type": entity_type,
@@ -134,10 +146,11 @@ class Neo4jQueryAdapter(GraphQueryPort):
         }
 
         base_predicates = [
-            "$entity_type IS NULL OR n.type = $entity_type",
+            "($entity_type IS NULL OR n.type = $entity_type)",
         ]
-        if scope_clause:
-            base_predicates.append(scope_clause)
+        entity_clause = scope_clauses["entity"]
+        if entity_clause:
+            base_predicates.append(entity_clause)
         where_fragment = " AND ".join(base_predicates)
 
         tier_queries: list[tuple[float, str]] = [
@@ -290,7 +303,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
                     return [], []
                 return [self._node_to_entity(records[0]["start"])], []
 
-        scope_params, scope_clause = self._build_scope_clause(scope)
+        scope_params, scope_clauses = self._build_scope_clause(scope)
         params: dict[str, Any] = {
             "source_id": source_id,
             "rel_type": rel_type,
@@ -298,10 +311,11 @@ class Neo4jQueryAdapter(GraphQueryPort):
         }
 
         predicates = [
-            "$rel_type IS NULL OR ALL(r IN relationships(p) WHERE r.type = $rel_type)",
+            "($rel_type IS NULL OR ALL(r IN relationships(p) WHERE r.type = $rel_type))",
         ]
-        if scope_clause:
-            predicates.append(scope_clause)
+        path_clause = scope_clauses["path"]
+        if path_clause:
+            predicates.append(path_clause)
         where_fragment = " AND ".join(predicates)
 
         query = f"""
@@ -376,14 +390,15 @@ class Neo4jQueryAdapter(GraphQueryPort):
         self, query: str, limit: int, *, scope: ScopeContext | None = None
     ) -> list[dict[str, Any]]:
         """Full-text search over chunk nodes with identity and provenance."""
-        scope_params, scope_clause = self._build_scope_clause(scope)
+        scope_params, scope_clauses = self._build_scope_clause(scope)
         params: dict[str, Any] = {"query": query, "limit": limit, **scope_params}
 
-        if scope_clause:
+        chunk_clause = scope_clauses["chunk"]
+        if chunk_clause:
             query_text = f"""
                 CALL db.index.fulltext.queryNodes("chunk_text_index", $query)
                 YIELD node, score
-                WHERE {scope_clause}
+                WHERE {chunk_clause}
                 OPTIONAL MATCH (parent)-[:HAS_CHUNK]->(node)
                 WHERE parent:Chapter OR parent:Section
                 WITH node, score, parent,
@@ -460,12 +475,13 @@ class Neo4jQueryAdapter(GraphQueryPort):
         self, entity_type: str | None, *, scope: ScopeContext | None = None
     ) -> int:
         """Return the number of entities, optionally filtered by type."""
-        scope_params, scope_clause = self._build_scope_clause(scope)
+        scope_params, scope_clauses = self._build_scope_clause(scope)
         params: dict[str, Any] = {"type": entity_type, **scope_params}
 
-        predicates = ["$type IS NULL OR n.type = $type"]
-        if scope_clause:
-            predicates.append(scope_clause)
+        predicates = ["($type IS NULL OR n.type = $type)"]
+        entity_clause = scope_clauses["entity"]
+        if entity_clause:
+            predicates.append(entity_clause)
         where_fragment = " AND ".join(predicates)
 
         async with self._driver.session() as session:
@@ -490,7 +506,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
         scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], int]:
         """Cursor-based pagination over entities."""
-        scope_params, scope_clause = self._build_scope_clause(scope)
+        scope_params, scope_clauses = self._build_scope_clause(scope)
         params: dict[str, Any] = {
             "cursor": cursor,
             "page_size": page_size,
@@ -498,8 +514,9 @@ class Neo4jQueryAdapter(GraphQueryPort):
         }
 
         predicates = ["id(n) > $cursor"]
-        if scope_clause:
-            predicates.append(scope_clause)
+        entity_clause = scope_clauses["entity"]
+        if entity_clause:
+            predicates.append(entity_clause)
         where_fragment = " AND ".join(predicates)
 
         async with self._driver.session() as session:
@@ -508,9 +525,9 @@ class Neo4jQueryAdapter(GraphQueryPort):
                     f"""
                     MATCH (n:Entity)
                     WHERE {where_fragment}
+                    RETURN n, id(n) AS internal_id
                     ORDER BY id(n)
                     LIMIT $page_size
-                    RETURN n, id(n) AS internal_id
                     """,
                     params,
                 )
