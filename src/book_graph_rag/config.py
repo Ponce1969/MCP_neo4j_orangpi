@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     # Routed with READ_ACCESS by Neo4jQueryAdapter; keep decoupled from the
     # write-side ``neo4j_database`` so reads can target a read replica/role.
     neo4j_read_database: str = "neo4j"
+    # Server-side transaction timeout (seconds) applied to managed read
+    # transactions. The neo4j driver terminates the transaction server-side
+    # when exceeded; Neo4jQueryAdapter maps that to QueryTimeoutError.
+    neo4j_read_timeout_seconds: float = 3.0
+    # Hard cap on rows materialized per read query. Exceeding it raises a
+    # typed ResourceExhaustedError instead of unbounded materialization.
+    neo4j_read_max_rows: int = 1000
     # Graph construction and community summaries use this independent provider.
     graph_llm_api_key: SecretStr | None = None  # None for local providers
     graph_llm_base_url: str = ""
@@ -207,6 +214,24 @@ class Settings(BaseSettings):
     def _validate_text2cypher_timeout(cls, value: int) -> int:
         if not 1 <= value <= 60:
             raise ValueError(f"text2cypher_timeout ({value}) debe estar entre 1 y 60")
+        return value
+
+    @field_validator("neo4j_read_timeout_seconds")
+    @classmethod
+    def _validate_neo4j_read_timeout_seconds(cls, value: float) -> float:
+        if not 0.0 < value <= 300.0:
+            raise ValueError(
+                f"neo4j_read_timeout_seconds ({value}) must be > 0 and <= 300"
+            )
+        return value
+
+    @field_validator("neo4j_read_max_rows")
+    @classmethod
+    def _validate_neo4j_read_max_rows(cls, value: int) -> int:
+        if not 1 <= value <= 1_000_000:
+            raise ValueError(
+                f"neo4j_read_max_rows ({value}) must be between 1 and 1000000"
+            )
         return value
 
     @field_validator("max_cluster_size")

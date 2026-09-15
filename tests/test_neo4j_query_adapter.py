@@ -8,8 +8,10 @@ from typing import Any
 
 import pytest
 from neo4j import READ_ACCESS
+from neo4j.exceptions import Neo4jError
 
 from book_graph_rag.config import Settings
+from book_graph_rag.domain.mcp_security import ResourceExhaustedError, UnsupportedQueryError
 from book_graph_rag.domain.models import (
     Entity,
     EntityWithContext,
@@ -1120,3 +1122,120 @@ async def test_execute_read_uses_run_with_timeout(adapter: Neo4jQueryAdapter) ->
 
     with pytest.raises(QueryTimeoutError, match=r"Query exceeded 3\.?0?s timeout"):
         await adapter.execute_read("MATCH (n) RETURN n")
+
+
+# ── T-C.3: server-side timeout + bounded result collection ─────────────────
+
+
+def _neo4j_error(code: str) -> Neo4jError:
+    """Build a Neo4jError carrying a specific server code for mapping tests."""
+    return Neo4jError._basic_hydrate(neo4j_code=code, message="rejected")
+
+
+def test_settings_read_timeout_defaults() -> None:
+    """The server-side read transaction timeout defaults to 3 seconds."""
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+        }
+    )
+    assert settings.neo4j_read_timeout_seconds == 3.0
+
+
+def test_settings_read_max_rows_defaults() -> None:
+    """The read materialization cap defaults to 1000 rows."""
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+        }
+    )
+    assert settings.neo4j_read_max_rows == 1000
+
+
+async def test_read_records_applies_server_transaction_timeout(
+    adapter: Neo4jQueryAdapter,
+) -> None:
+    """The managed read transaction carries the configured server-side timeout."""
+    session = _make_session([_FakeRecord({"count": 3})])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.count_entities(None)
+
+    tx_func = session.execute_read_calls[0][0]
+    assert tx_func.timeout == 3.0
+
+
+async def test_read_records_caps_materialized_rows(
+    fake_graph_database: _FakeGraphDatabase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exceeding the configured row cap raises a typed ResourceExhaustedError."""
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.neo4j_query_adapter.AsyncGraphDatabase",
+        fake_graph_database,
+    )
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+            "neo4j_read_max_rows": 2,
+        }
+    )
+    adapter = Neo4jQueryAdapter(settings)
+    session = _make_session(
+        [
+            _FakeRecord({"n": 1}),
+            _FakeRecord({"n": 2}),
+            _FakeRecord({"n": 3}),
+        ]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    with pytest.raises(ResourceExhaustedError, match="materialization cap"):
+        await adapter.execute_read("MATCH (n) RETURN n")
+
+
+async def test_read_records_maps_server_timeout_to_query_timeout(
+    adapter: Neo4jQueryAdapter,
+) -> None:
+    """A server-side transaction timeout is mapped to QueryTimeoutError."""
+    session = _FakeSession(
+        raise_exc=_neo4j_error(
+            "Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration"
+        )
+    )
+    adapter._driver = _FakeDriver(session)
+
+    with pytest.raises(QueryTimeoutError, match="timed out"):
+        await adapter.count_entities(None)
+
+
+async def test_read_records_maps_write_rejection_to_unsupported_query(
+    adapter: Neo4jQueryAdapter,
+) -> None:
+    """A write rejected on the read path is mapped to UnsupportedQueryError."""
+    session = _FakeSession(
+        raise_exc=_neo4j_error("Neo.ClientError.Statement.AccessMode")
+    )
+    adapter._driver = _FakeDriver(session)
+
+    with pytest.raises(UnsupportedQueryError, match="Write rejected"):
+        await adapter.execute_read("CREATE (n:Entity {id: 'x'})")
+
+
+async def test_run_with_timeout_maps_cancellation(
+    adapter: Neo4jQueryAdapter,
+) -> None:
+    """Client cancellation is surfaced as a typed QueryTimeoutError."""
+
+    async def cancelled() -> None:
+        raise asyncio.CancelledError()
+
+    with pytest.raises(QueryTimeoutError, match="cancelled"):
+        await adapter._run_with_timeout(cancelled())
+

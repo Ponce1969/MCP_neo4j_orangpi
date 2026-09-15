@@ -8,12 +8,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 from neo4j import READ_ACCESS, AsyncGraphDatabase
+from neo4j.exceptions import Neo4jError
 
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.mcp_security import ScopeContext
+from book_graph_rag.domain.mcp_security import (
+    ResourceExhaustedError,
+    ScopeContext,
+    UnsupportedQueryError,
+)
 from book_graph_rag.domain.models import (
     Entity,
     EntityType,
@@ -26,6 +31,21 @@ from book_graph_rag.domain.models import (
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
 
 logger = logging.getLogger(__name__)
+
+# Server-side transaction termination codes mapped to QueryTimeoutError.
+_NEO4J_TRANSACTION_TIMEOUT_CODES = frozenset({
+    "Neo.ClientError.Transaction.TransactionTimedOut",
+    "Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration",
+    "Neo.TransientError.Transaction.Terminated",
+})
+
+# Write vectors the read-only path must never execute; mapped to a typed
+# UnsupportedQueryError so callers can distinguish a rejected write from a
+# transient driver failure.
+_NEO4J_WRITE_REJECTION_CODES = frozenset({
+    "Neo.ClientError.Statement.AccessMode",
+    "Neo.ClientError.General.ForbiddenOnReadOnlyDatabase",
+})
 
 
 class Neo4jQueryAdapter(GraphQueryPort):
@@ -56,27 +76,69 @@ class Neo4jQueryAdapter(GraphQueryPort):
             default_access_mode=READ_ACCESS,
         )
 
-    @staticmethod
     async def _fetch_records(
-        tx: Any, query: str, params: dict[str, Any]
+        self, tx: Any, query: str, params: dict[str, Any], max_rows: int
     ) -> list[Any]:
-        """Materialize every record of a query inside a managed read transaction."""
-        result = await tx.run(query, params)
-        return [record async for record in result]
+        """Materialize at most ``max_rows`` records inside a managed read transaction.
 
-    @classmethod
+        Materialization is bounded so a query that ignores its own ``LIMIT`` can
+        never exhaust the read session; exceeding the cap raises a typed
+        ``ResourceExhaustedError``.
+        """
+        result = await tx.run(query, params)
+        records: list[Any] = []
+        async for record in result:
+            if len(records) >= max_rows:
+                raise ResourceExhaustedError(
+                    f"Read query exceeded the {max_rows}-row materialization cap"
+                )
+            records.append(record)
+        return records
+
     async def _read_records(
-        cls, session: Any, query: str, params: dict[str, Any]
+        self, session: Any, query: str, params: dict[str, Any]
     ) -> list[Any]:
-        """Run a read query through the managed ``execute_read`` transaction."""
-        return cast(
-            list[Any], await session.execute_read(cls._fetch_records, query, params)
-        )
+        """Run a read query through a managed ``execute_read`` transaction.
+
+        A server-side transaction timeout is applied by attaching the configured
+        timeout (seconds) to the unit-of-work callable; the neo4j driver reads
+        that attribute when it opens the managed transaction. Server-side
+        timeouts and write-vector rejections are mapped to typed domain errors.
+        """
+        max_rows = self._settings.neo4j_read_max_rows
+
+        async def unit_of_work(tx: Any) -> list[Any]:
+            return await self._fetch_records(tx, query, params, max_rows)
+
+        # The neo4j driver reads the ``timeout`` attribute off the unit-of-work
+        # callable and applies it as a server-side transaction timeout.
+        unit_of_work.timeout = self._settings.neo4j_read_timeout_seconds  # type: ignore[attr-defined]
+
+        try:
+            return cast(list[Any], await session.execute_read(unit_of_work))
+        except Neo4jError as exc:
+            self._raise_typed_driver_error(exc)
+
+    @staticmethod
+    def _raise_typed_driver_error(exc: Neo4jError) -> NoReturn:
+        """Map a Neo4j driver error to a typed domain error, or re-raise it."""
+        code = getattr(exc, "code", None)
+        if code in _NEO4J_TRANSACTION_TIMEOUT_CODES:
+            raise QueryTimeoutError(f"Neo4j transaction timed out: {code}") from exc
+        if code in _NEO4J_WRITE_REJECTION_CODES:
+            raise UnsupportedQueryError(
+                f"Write rejected on the read-only query path: {code}"
+            ) from exc
+        raise exc
 
     async def _run_with_timeout(self, coro: Any, timeout: float = 3.0) -> Any:
         """Wrap a coroutine with a hard timeout and map to a domain error."""
         try:
             return await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.CancelledError as exc:
+            raise QueryTimeoutError(
+                f"Query cancelled before the {timeout}s budget elapsed"
+            ) from exc
         except TimeoutError:
             raise QueryTimeoutError(f"Query exceeded {timeout}s timeout") from None
 
