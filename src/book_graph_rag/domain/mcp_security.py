@@ -76,6 +76,26 @@ class TraversalDepthExceededError(ResourceExhaustedError):
     _error_code = "traversal_depth_exceeded"
 
 
+class ConcurrencyLimitExceededError(ResourceExhaustedError):
+    """Raised when a tier has no free in-flight request slots.
+
+    Subclasses ``ResourceExhaustedError`` with a distinct code so callers can tell
+    a saturated tier from rate or traversal exhaustion.
+    """
+
+    _error_code = "concurrency_limit_exceeded"
+
+
+class RateLimitExceededError(ResourceExhaustedError):
+    """Raised when a tier's rolling call-rate window is saturated.
+
+    Subclasses ``ResourceExhaustedError`` with a distinct code so callers can tell
+    rate saturation from concurrency exhaustion.
+    """
+
+    _error_code = "rate_limit_exceeded"
+
+
 class QueryFingerprintError(McpSecurityError):
     """Raised when fingerprint canonicalization or validation fails."""
 
