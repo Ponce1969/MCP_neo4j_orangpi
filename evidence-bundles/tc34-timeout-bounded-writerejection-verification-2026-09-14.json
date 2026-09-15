@@ -1,0 +1,72 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-C.3+T-C.4 server transaction timeout, bounded collection, write rejection",
+  "budget_max_changed_lines": 600,
+  "changed_lines": 330,
+  "commits": [
+    "ed54e97",
+    "90c1572"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "result": "7 new unit tests failed against pre-change code (missing settings/behavior); 1 integration test failed with unmapped raw ClientError Neo.ClientError.Statement.AccessMode",
+      "observed": "7 failed, 50 deselected (focused unit run); 1 failed in 13.05s (integration)"
+    },
+    "green": {
+      "result": "66 passed in 1.62s (both adapter test files); 1 passed in 12.76s (integration write rejection)"
+    },
+    "triangulate_refactor": "default-settings, cap-exceeded, timeout, write-rejection and cancellation paths exercised; setattr replaced with assignment (ruff B010); no focused-suite regression"
+  },
+  "commands": [
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy .",
+      "exit_code": 0,
+      "result": "Success: no issues found in 289 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "architecture validated"
+    },
+    {
+      "command": "uv run pytest -q -m 'not integration' --ignore=tests/integration --ignore=tests/property",
+      "exit_code": 0,
+      "result": "1144 passed, 2 warnings"
+    },
+    {
+      "command": "uv run pytest tests/property -q",
+      "exit_code": 0,
+      "result": "9 passed"
+    },
+    {
+      "command": "uv run pytest tests/integration -q",
+      "exit_code": 0,
+      "result": "78 passed in 847.83s (testcontainers only)"
+    }
+  ],
+  "evidence_goal_status": {
+    "server_side_timeout": "neo4j_read_timeout_seconds (default 3.0) applied as server-side transaction timeout on managed execute_read unit of work; server timeout surfaces as Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration and is mapped to QueryTimeoutError",
+    "bounded_result_collection": "neo4j_read_max_rows (default 1000) caps materialized records inside the transaction; cap exhaustion maps to a typed domain error",
+    "cancellation_mapping": "asyncio.CancelledError mapped to QueryTimeoutError per spec R4 client-cancellation mapping (flagged for re-check in Slice D/F graceful shutdown wiring)",
+    "write_rejection": "writes through the managed read transaction rejected by server (Neo.ClientError.Statement.AccessMode); mapped to UnsupportedQueryError",
+    "graph_snapshot_unchanged": "tests/integration/test_read_path_write_rejection.py asserts byte-for-byte identical before/after graph snapshot (testcontainers)",
+    "production_untouched": "No connection to bolt://100.106.85.109:7687; testcontainers only"
+  },
+  "risks_open_followups": [
+    "CancelledError→QueryTimeoutError is intentional per spec R4 but must be re-checked in Slice D/F so it never delays graceful shutdown",
+    "Only two confirmed Neo4j write-rejection codes are mapped (Statement.AccessMode, ForbiddenOnReadOnlyDatabase); other future codes would surface as raw Neo4jError",
+    "ensure_indexes CREATE INDEX remains on a default session (deferred to Slice E write-path policy)"
+  ],
+  "notes": [
+    "Executor: gentle-ai-worker (sdd-apply native discovery guard remains blocked for phase agents); single run completed without stalls.",
+    "Empirical Neo4j 6.2.0 facts: READ_ACCESS managed transaction write rejection code = Neo.ClientError.Statement.AccessMode; server-side tx timeout code = Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration; execute_read has no tx_config kwarg — timeout is passed via the timeout attribute on the unit-of-work callable."
+  ]
+}
