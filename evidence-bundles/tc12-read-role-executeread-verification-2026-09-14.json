@@ -1,0 +1,76 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-C.1+T-C.2 read-role session config and managed execute_read",
+  "budget_max_changed_lines": 500,
+  "changed_lines": 250,
+  "commits": [
+    "a429998"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "method": "new tests run against pre-refactor adapter at dba5b3d (temporary worktree)",
+      "result": "3 failed, 56 passed",
+      "failing_tests": [
+        "tests/test_neo4j_query_adapter.py::test_settings_read_database_defaults_to_neo4j",
+        "tests/test_neo4j_query_adapter.py::test_read_sessions_route_read_access",
+        "tests/test_neo4j_query_adapter.py::test_read_methods_use_managed_execute_read"
+      ]
+    },
+    "green": {
+      "result": "71 passed (focused: tests/test_neo4j_query_adapter.py, tests/test_neo4j_query_adapter_scope.py, tests/test_graph_query_port.py)"
+    }
+  },
+  "commands": [
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy .",
+      "exit_code": 0,
+      "result": "Success: no issues found in 288 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "architecture validated"
+    },
+    {
+      "command": "uv run pytest -q -m 'not integration' --ignore=tests/integration --ignore=tests/property",
+      "exit_code": 0,
+      "result": "1137 passed, 2 warnings"
+    },
+    {
+      "command": "uv run pytest tests/property -q",
+      "exit_code": 0,
+      "result": "9 passed"
+    },
+    {
+      "command": "uv run pytest tests/integration -q",
+      "exit_code": 0,
+      "result": "77 passed in 818.07s (testcontainers only)"
+    }
+  ],
+  "evidence_goal_status": {
+    "read_role_sessions": "Neo4jQueryAdapter opens sessions via _read_session() with database=neo4j_read_database and default_access_mode=READ_ACCESS (supplemental signal; managed execute_read enforces read-only authority)",
+    "managed_execute_read": "All MCP read paths use session.execute_read(_fetch_records, ...) managed transaction functions with bound parameters",
+    "no_adhoc_session_run": "grep confirms zero session.run in query paths; the only remaining session.run is ensure_indexes (CREATE INDEX, a write, explicitly out of scope for this work unit and intentionally on a default session because READ_ACCESS would reject it)",
+    "production_untouched": "No connection to bolt://100.106.85.109:7687; testcontainers only"
+  },
+  "out_of_scope_untouched": [
+    "src/book_graph_rag/infrastructure/neo4j_command_adapter.py (write path)",
+    "src/book_graph_rag/infrastructure/community_adapter.py (write path)",
+    "src/book_graph_rag/infrastructure/neo4j_checkpoint_adapter.py",
+    "src/book_graph_rag/infrastructure/neo4j_vector_candidate_retrieval.py (embedding writes)",
+    "ensure_indexes CREATE INDEX statements (write, deferred to Slice E policy)"
+  ],
+  "notes": [
+    "Executor was gentle-ai-worker fallback after sdd-apply native discovery guard blocked the phase agent (known symptom from prior session); native attempt authority held by parent orchestrator.",
+    "Two worker runs stalled 240s after bash; partial work was preserved and verified (git diff consistency) before continuation; second continuation run also stalled, parent completed verification and gates inline.",
+    "T-C.3 (server transaction timeout + bounded result collection, cancellation/timeout mapping tests) and T-C.4 (testcontainers write rejection + before/after graph snapshot) are the remaining Slice C work units."
+  ]
+}
