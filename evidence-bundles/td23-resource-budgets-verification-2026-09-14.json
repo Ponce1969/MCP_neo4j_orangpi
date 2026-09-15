@@ -1,0 +1,79 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-D.2+T-D.3 per-tier resource budgets and exhaustion tests",
+  "budget_max_changed_lines": 600,
+  "changed_lines": 596,
+  "commits": [
+    "see git log — 2 work-unit commits plus evidence bundle"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "result": "collection-time ImportError for the not-yet-existing typed errors (2 collection errors) before implementation"
+    },
+    "green": {
+      "result": "16 passed after domain/port/adapter; 34 passed after refactor trim"
+    },
+    "triangulate": "double release, foreign lease, invalid scope with full budget, independent tiers, rolling-window rollover; consolidated two release tests and trimmed docstrings for line budget"
+  },
+  "commands": [
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy .",
+      "exit_code": 0,
+      "result": "Success: no issues found in 293 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "architecture validated"
+    },
+    {
+      "command": "uv run pytest tests/test_mcp_security_domain.py tests/test_mcp_resource_budget.py -q",
+      "exit_code": 0,
+      "result": "29 passed"
+    },
+    {
+      "command": "uv run pytest tests/integration/test_resource_budget_exhaustion.py -q",
+      "exit_code": 0,
+      "result": "5 passed"
+    },
+    {
+      "command": "uv run pytest -q -m 'not integration' --ignore=tests/integration --ignore=tests/property",
+      "exit_code": 0,
+      "result": "1165 passed, 2 warnings"
+    },
+    {
+      "command": "uv run pytest tests/property -q",
+      "exit_code": 0,
+      "result": "9 passed"
+    },
+    {
+      "command": "uv run pytest tests/integration -q",
+      "exit_code": 0,
+      "result": "83 passed in 775.59s (testcontainers + in-memory budget composition)"
+    }
+  ],
+  "evidence_goal_status": {
+    "typed_exhaustion": "ConcurrencyLimitExceededError and RateLimitExceededError (subclasses of ResourceExhaustedError) raised on per-(tier,key) limits",
+    "no_authorization_weakening": "integration proof: invalid scope never consumes budget; exhausted budget does not weaken scope validation; scope checks enforced regardless",
+    "tier_independence": "tiers keep independent budgets, proven through the real pipeline composition",
+    "determinism": "unit tests deterministic via injected MonotonicClock; no real sleeps in domain logic",
+    "production_untouched": "no Neo4j connection; budget is pure in-memory; no testcontainers needed for this work unit"
+  },
+  "scope_notes": [
+    "tests/test_mcp_resource_budget_integration.py intentionally not created; T-D.3 consolidated into tests/integration/test_resource_budget_exhaustion.py to avoid redundant coverage",
+    "application/query_knowledge_graph_use_case.py and tests/integration/conftest.py needed no edits; budget wiring into the MCP tool boundary is Slice F, not Slice D",
+    "Neo4jNeighborhoodQueryAdapter raw session.run capping still open (from T-D.1 follow-up)"
+  ],
+  "review_focus": [
+    "src/book_graph_rag/infrastructure/mcp_resource_budget_adapter.py — check-and-commit atomicity and rolling-window pruning",
+    "tests/integration/test_resource_budget_exhaustion.py — no-authorization-weakening ordering proof"
+  ]
+}
