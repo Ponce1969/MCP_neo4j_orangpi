@@ -65,6 +65,17 @@ class ResourceExhaustedError(McpSecurityError):
     _error_code = "resource_exhausted"
 
 
+class TraversalDepthExceededError(ResourceExhaustedError):
+    """Raised when a traversal depth falls outside the configured ceiling.
+
+    Subclasses ``ResourceExhaustedError`` so existing exhaustion handlers keep
+    working, while the more specific ``traversal_depth_exceeded`` code lets
+    callers distinguish an over-depth traversal from row/timeout exhaustion.
+    """
+
+    _error_code = "traversal_depth_exceeded"
+
+
 class QueryFingerprintError(McpSecurityError):
     """Raised when fingerprint canonicalization or validation fails."""
 

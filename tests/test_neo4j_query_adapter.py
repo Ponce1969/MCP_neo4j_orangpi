@@ -11,7 +11,11 @@ from neo4j import READ_ACCESS
 from neo4j.exceptions import Neo4jError
 
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.mcp_security import ResourceExhaustedError, UnsupportedQueryError
+from book_graph_rag.domain.mcp_security import (
+    ResourceExhaustedError,
+    TraversalDepthExceededError,
+    UnsupportedQueryError,
+)
 from book_graph_rag.domain.models import (
     Entity,
     EntityWithContext,
@@ -725,29 +729,49 @@ async def test_traverse_depth_zero_returns_only_start_entity(adapter: Neo4jQuery
     assert relationships == []
 
 
-async def test_traverse_depth_five_is_clamped_to_three(adapter: Neo4jQueryAdapter) -> None:
-    """AC-06.9: depths greater than 3 are clamped to the maximum of 3."""
-    start = _node({"id": "s", "name": "Source", "type": "concept"})
-    end = _node({"id": "t", "name": "Target", "type": "concept"})
-    session = _make_session([_FakeRecord({"start": start, "end": end, "rels": []})])
+async def test_traverse_depth_exceeding_cap_is_rejected(adapter: Neo4jQueryAdapter) -> None:
+    """AC-06.9 (hardened): depths above the configured ceiling are rejected, not clamped."""
+    with pytest.raises(ResourceExhaustedError) as exc_info:
+        await adapter.traverse_relationships("s", None, 5)
+    assert exc_info.value.error_code == "traversal_depth_exceeded"
+
+
+async def test_traverse_depth_negative_is_rejected(adapter: Neo4jQueryAdapter) -> None:
+    """Negative depth is rejected with a typed error instead of clamped to 0."""
+    with pytest.raises(ResourceExhaustedError) as exc_info:
+        await adapter.traverse_relationships("s", None, -1)
+    assert exc_info.value.error_code == "traversal_depth_exceeded"
+
+
+async def test_traverse_node_cap_is_enforced(
+    fake_graph_database: _FakeGraphDatabase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exceeding the configured node cap raises a typed ResourceExhaustedError."""
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.neo4j_query_adapter.AsyncGraphDatabase",
+        fake_graph_database,
+    )
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+            "neo4j_max_traversal_rows": 2,
+            "neo4j_max_traversal_nodes": 2,
+        }
+    )
+    adapter = Neo4jQueryAdapter(settings)
+    a = _node({"id": "a", "name": "A", "type": "concept"})
+    b = _node({"id": "b", "name": "B", "type": "concept"})
+    c = _node({"id": "c", "name": "C", "type": "concept"})
+    rel_ab = _FakeRelationship(a, b, "requires")
+    rel_bc = _FakeRelationship(b, c, "enables")
+    session = _make_session([_FakeRecord({"start": a, "end": c, "rels": [rel_ab, rel_bc]})])
     adapter._driver = _FakeDriver(session)
 
-    await adapter.traverse_relationships("s", None, 5)
-
-    query, _ = session.queries[0]
-    assert "[:RELATED*1..3]" in query
-
-
-async def test_traverse_depth_negative_is_clamped_to_zero(adapter: Neo4jQueryAdapter) -> None:
-    """Negative depth is clamped to 0 and uses the start-only query."""
-    start = _node({"id": "s", "name": "Source", "type": "concept"})
-    session = _make_session([_FakeRecord({"start": start})])
-    adapter._driver = _FakeDriver(session)
-
-    await adapter.traverse_relationships("s", None, -1)
-
-    query, _ = session.queries[0]
-    assert "MATCH (start:Entity {id: $source_id}) RETURN start" in query
+    with pytest.raises(ResourceExhaustedError, match="node cap"):
+        await adapter.traverse_relationships("a", None, 2)
 
 
 async def test_traverse_with_rel_type_filter(adapter: Neo4jQueryAdapter) -> None:
@@ -778,8 +802,8 @@ async def test_traverse_without_rel_type_allows_all_types(adapter: Neo4jQueryAda
     assert params["rel_type"] is None
 
 
-async def test_traverse_respects_limit_100(adapter: Neo4jQueryAdapter) -> None:
-    """Traversal Cypher includes a hard LIMIT 100."""
+async def test_traverse_respects_configured_limit(adapter: Neo4jQueryAdapter) -> None:
+    """Traversal Cypher binds the configured row cap as a LIMIT parameter."""
     start = _node({"id": "s", "name": "Source", "type": "concept"})
     end = _node({"id": "t", "name": "Target", "type": "concept"})
     session = _make_session([_FakeRecord({"start": start, "end": end, "rels": []})])
@@ -787,8 +811,9 @@ async def test_traverse_respects_limit_100(adapter: Neo4jQueryAdapter) -> None:
 
     await adapter.traverse_relationships("s", None, 1)
 
-    query, _ = session.queries[0]
-    assert "LIMIT 100" in query
+    query, params = session.queries[0]
+    assert "LIMIT $limit" in query
+    assert params["limit"] == 100
 
 
 async def test_traverse_raises_query_timeout(adapter: Neo4jQueryAdapter) -> None:
@@ -846,6 +871,29 @@ async def test_find_path_no_path_returns_empty_list(adapter: Neo4jQueryAdapter) 
     result = await adapter.find_path("a", "z", 3)
 
     assert result == []
+
+
+async def test_find_path_depth_exceeding_cap_is_rejected(adapter: Neo4jQueryAdapter) -> None:
+    """find_path rejects max_depth above the configured ceiling."""
+    with pytest.raises(ResourceExhaustedError) as exc_info:
+        await adapter.find_path("a", "b", 10)
+    assert exc_info.value.error_code == "traversal_depth_exceeded"
+
+
+async def test_find_path_depth_below_minimum_is_rejected(adapter: Neo4jQueryAdapter) -> None:
+    """find_path rejects max_depth below 1 (zero or negative)."""
+    with pytest.raises(ResourceExhaustedError):
+        await adapter.find_path("a", "b", 0)
+
+
+@pytest.mark.parametrize("max_depth", [-1, -3])
+async def test_find_path_negative_depth_is_rejected(
+    adapter: Neo4jQueryAdapter, max_depth: int
+) -> None:
+    """find_path rejects negative max_depth with a typed exhaustion error."""
+    with pytest.raises(ResourceExhaustedError) as exc_info:
+        await adapter.find_path("a", "b", max_depth)
+    assert exc_info.value.error_code == "traversal_depth_exceeded"
 
 
 async def test_search_chunks_uses_fulltext_index(adapter: Neo4jQueryAdapter) -> None:
@@ -1154,6 +1202,52 @@ def test_settings_read_max_rows_defaults() -> None:
         }
     )
     assert settings.neo4j_read_max_rows == 1000
+
+
+def test_settings_traversal_defaults() -> None:
+    """Traversal depth/row/node ceilings default to the secure bounds."""
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+        }
+    )
+    assert settings.neo4j_max_traversal_depth == 3
+    assert settings.neo4j_max_traversal_rows == 100
+    assert settings.neo4j_max_traversal_nodes == 1000
+
+
+def test_traversal_depth_exceeded_error_is_typed() -> None:
+    """Over-depth raises a specific typed error, still catchable as exhaustion."""
+    assert issubclass(TraversalDepthExceededError, ResourceExhaustedError)
+    err = TraversalDepthExceededError("over depth")
+    assert err.error_code == "traversal_depth_exceeded"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"neo4j_max_traversal_depth": 0}, "neo4j_max_traversal_depth"),
+        ({"neo4j_max_traversal_depth": 11}, "neo4j_max_traversal_depth"),
+        ({"neo4j_max_traversal_rows": 0}, "neo4j_max_traversal_rows"),
+        (
+            {"neo4j_max_traversal_nodes": 1, "neo4j_max_traversal_rows": 2},
+            "neo4j_max_traversal_nodes",
+        ),
+    ],
+)
+def test_settings_reject_invalid_traversal_limits(
+    overrides: dict[str, int], expected: str
+) -> None:
+    """Invalid traversal ceilings fail fast during settings validation."""
+    base = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+    }
+    with pytest.raises(ValueError, match=expected):
+        Settings.model_validate({**base, **overrides})
 
 
 async def test_read_records_applies_server_transaction_timeout(

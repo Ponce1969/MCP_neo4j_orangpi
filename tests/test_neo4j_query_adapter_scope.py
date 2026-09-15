@@ -190,7 +190,7 @@ async def test_traverse_relationships_without_scope_omits_rel_filter(
 
     query, params = adapter._driver._session.queries[-1]
     assert "scope_rel_types" not in query
-    assert params == {"source_id": "e1", "rel_type": None}
+    assert params == {"source_id": "e1", "rel_type": None, "limit": 100}
 
 
 async def test_scope_parameters_are_bound_not_concatenated(

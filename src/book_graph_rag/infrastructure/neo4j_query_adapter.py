@@ -17,6 +17,7 @@ from book_graph_rag.config import Settings
 from book_graph_rag.domain.mcp_security import (
     ResourceExhaustedError,
     ScopeContext,
+    TraversalDepthExceededError,
     UnsupportedQueryError,
 )
 from book_graph_rag.domain.models import (
@@ -380,12 +381,19 @@ class Neo4jQueryAdapter(GraphQueryPort):
     ) -> tuple[list[EntityWithContext], list[Relationship]]:
         """Traverse outgoing relationships up to ``depth`` levels.
 
-        When ``scope`` is provided, relationship-type predicates are bound as
-        parameters and appended to the path WHERE clause.
+        ``depth`` must lie within ``[0, neo4j_max_traversal_depth]``. Requests
+        outside that range are rejected with a typed ``TraversalDepthExceededError``
+        instead of being silently clamped. When ``scope`` is provided,
+        relationship-type predicates are bound as parameters and appended to the
+        path WHERE clause.
         """
-        clamped_depth = max(0, min(depth, 3))
+        max_depth = self._settings.neo4j_max_traversal_depth
+        if not 0 <= depth <= max_depth:
+            raise TraversalDepthExceededError(
+                f"Traversal depth {depth} outside the allowed range [0, {max_depth}]"
+            )
 
-        if clamped_depth == 0:
+        if depth == 0:
             async with self._read_session() as session:
                 records = await self._run_with_timeout(
                     self._read_records(
@@ -402,6 +410,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
         params: dict[str, Any] = {
             "source_id": source_id,
             "rel_type": rel_type,
+            "limit": self._settings.neo4j_max_traversal_rows,
             **scope_params,
         }
 
@@ -414,10 +423,10 @@ class Neo4jQueryAdapter(GraphQueryPort):
         where_fragment = " AND ".join(predicates)
 
         query = f"""
-            MATCH p = (start:Entity {{id: $source_id}})-[:RELATED*1..{clamped_depth}]->(end:Entity)
+            MATCH p = (start:Entity {{id: $source_id}})-[:RELATED*1..{depth}]->(end:Entity)
             WHERE {where_fragment}
             RETURN start, end, relationships(p) AS rels
-            LIMIT 100
+            LIMIT $limit
         """
         async with self._read_session() as session:
             records = await self._run_with_timeout(
@@ -451,15 +460,29 @@ class Neo4jQueryAdapter(GraphQueryPort):
                         seen_rel_keys.add(rel_key)
                         relationships.append(domain_rel)
 
+            if len(entity_by_id) > self._settings.neo4j_max_traversal_nodes:
+                raise ResourceExhaustedError(
+                    f"Traversal materialized {len(entity_by_id)} nodes exceeding the "
+                    f"{self._settings.neo4j_max_traversal_nodes}-node cap"
+                )
+
             return list(entity_by_id.values()), relationships
 
     async def find_path(self, start_id: str, end_id: str, max_depth: int) -> list[GraphPath]:
-        """Return shortest paths between two entities within ``max_depth``."""
-        clamped_depth = max(1, min(max_depth, 3))
+        """Return shortest paths between two entities within ``max_depth``.
+
+        ``max_depth`` must lie within ``[1, neo4j_max_traversal_depth]``; requests
+        outside that range are rejected with a typed ``TraversalDepthExceededError``.
+        """
+        ceiling = self._settings.neo4j_max_traversal_depth
+        if not 1 <= max_depth <= ceiling:
+            raise TraversalDepthExceededError(
+                f"Path depth {max_depth} outside the allowed range [1, {ceiling}]"
+            )
         query = f"""
             MATCH p = shortestPath(
                 (a:Entity {{id: $start_id}})
-                -[:RELATED*..{clamped_depth}]->
+                -[:RELATED*..{max_depth}]->
                 (b:Entity {{id: $end_id}})
             )
             RETURN p

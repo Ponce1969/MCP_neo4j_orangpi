@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     # Hard cap on rows materialized per read query. Exceeding it raises a
     # typed ResourceExhaustedError instead of unbounded materialization.
     neo4j_read_max_rows: int = 1000
+    # Traversal ceilings for bounded relationship/path queries. Requests whose
+    # depth exceeds ``neo4j_max_traversal_depth`` are rejected with a typed
+    # ``TraversalDepthExceededError`` instead of being silently clamped. The
+    # ``_rows`` value bounds the traversal LIMIT and ``_nodes`` bounds the
+    # distinct nodes materialized per traversal result.
+    neo4j_max_traversal_depth: int = 3
+    neo4j_max_traversal_rows: int = 100
+    neo4j_max_traversal_nodes: int = 1000
     # Graph construction and community summaries use this independent provider.
     graph_llm_api_key: SecretStr | None = None  # None for local providers
     graph_llm_base_url: str = ""
@@ -234,6 +242,33 @@ class Settings(BaseSettings):
             )
         return value
 
+    @field_validator("neo4j_max_traversal_depth")
+    @classmethod
+    def _validate_neo4j_max_traversal_depth(cls, value: int) -> int:
+        if not 1 <= value <= 10:
+            raise ValueError(
+                f"neo4j_max_traversal_depth ({value}) must be between 1 and 10"
+            )
+        return value
+
+    @field_validator("neo4j_max_traversal_rows")
+    @classmethod
+    def _validate_neo4j_max_traversal_rows(cls, value: int) -> int:
+        if not 1 <= value <= 1_000_000:
+            raise ValueError(
+                f"neo4j_max_traversal_rows ({value}) must be between 1 and 1000000"
+            )
+        return value
+
+    @field_validator("neo4j_max_traversal_nodes")
+    @classmethod
+    def _validate_neo4j_max_traversal_nodes(cls, value: int) -> int:
+        if not 1 <= value <= 1_000_000:
+            raise ValueError(
+                f"neo4j_max_traversal_nodes ({value}) must be between 1 and 1000000"
+            )
+        return value
+
     @field_validator("max_cluster_size")
     @classmethod
     def _validate_max_cluster_size(cls, value: int) -> int:
@@ -377,5 +412,10 @@ class Settings(BaseSettings):
         if self.candidate_retrieval_strategy == "neo4j_vector" and self.embedding_dim is None:
             raise ValueError(
                 "embedding_dim is required when candidate_retrieval_strategy is 'neo4j_vector'"
+            )
+        if self.neo4j_max_traversal_nodes < self.neo4j_max_traversal_rows:
+            raise ValueError(
+                f"neo4j_max_traversal_nodes ({self.neo4j_max_traversal_nodes}) "
+                f"must be >= neo4j_max_traversal_rows ({self.neo4j_max_traversal_rows})"
             )
         return self
