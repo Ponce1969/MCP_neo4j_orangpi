@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
+from neo4j import READ_ACCESS
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import (
@@ -78,8 +79,25 @@ class _FakeRelationship:
         return self._data.get(key, default)
 
 
+class _FakeTx:
+    """Managed-transaction stand-in whose ``run`` delegates to the session."""
+
+    def __init__(self, session: _FakeSession) -> None:
+        self._session = session
+
+    async def run(
+        self, query: str, parameters: dict[str, Any] | None = None
+    ) -> _FakeResult:
+        return self._session._run(query, parameters)
+
+
 class _FakeSession:
-    """Records Cypher queries and yields configurable records."""
+    """Records Cypher queries and yields configurable records.
+
+    Supports both the managed-transaction path (``execute_read``) and the
+    legacy ad-hoc path (``run``, still used by schema operations such as
+    ``ensure_indexes``).
+    """
 
     def __init__(
         self,
@@ -89,12 +107,28 @@ class _FakeSession:
         self._records = records or []
         self._raise = raise_exc
         self.queries: list[tuple[str, dict[str, Any]]] = []
+        self.run_calls: list[tuple[str, dict[str, Any]]] = []
+        self.execute_read_calls: list[tuple[Any, tuple[Any, ...], dict[str, Any]]] = []
 
-    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
+    def _run(
+        self, query: str, parameters: dict[str, Any] | None = None
+    ) -> _FakeResult:
         self.queries.append((query, parameters or {}))
         if self._raise is not None:
             raise self._raise
         return _FakeResult(self._records)
+
+    async def run(
+        self, query: str, parameters: dict[str, Any] | None = None
+    ) -> _FakeResult:
+        self.run_calls.append((query, parameters or {}))
+        return self._run(query, parameters)
+
+    async def execute_read(
+        self, tx_func: Any, *args: Any, **kwargs: Any
+    ) -> Any:
+        self.execute_read_calls.append((tx_func, args, kwargs))
+        return await tx_func(_FakeTx(self), *args, **kwargs)
 
     async def __aenter__(self) -> _FakeSession:
         return self
@@ -115,7 +149,9 @@ class _TieredFakeSession(_FakeSession):
         self._responses = responses
         self._raise_on = raise_on
 
-    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
+    def _run(
+        self, query: str, parameters: dict[str, Any] | None = None
+    ) -> _FakeResult:
         self.queries.append((query, parameters or {}))
         if self._raise_on is not None and self._raise_on in query:
             raise RuntimeError(f"fulltext index missing: {query}")
@@ -126,10 +162,14 @@ class _TieredFakeSession(_FakeSession):
 
 
 class _FakeDriver:
+    """Driver that records session configuration and yields a session."""
+
     def __init__(self, session: _FakeSession) -> None:
         self._session = session
+        self.session_configs: list[dict[str, Any]] = []
 
-    def session(self) -> _FakeSession:
+    def session(self, **config: Any) -> _FakeSession:
+        self.session_configs.append(config)
         return self._session
 
     async def close(self) -> None:
@@ -192,6 +232,48 @@ def test_adapter_creates_driver_from_settings(
     args, kwargs = fake_graph_database.driver_calls[0]
     assert args[0] == "bolt://localhost:7687"
     assert kwargs["auth"] == ("neo4j", "secret")
+
+
+# ── T-C.1/T-C.2: read-role session routing + managed read transactions ────────
+
+
+def test_settings_read_database_defaults_to_neo4j() -> None:
+    """The dedicated read database defaults to the shared 'neo4j' database."""
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+        }
+    )
+    assert settings.neo4j_read_database == "neo4j"
+
+
+async def test_read_sessions_route_read_access(adapter: Neo4jQueryAdapter) -> None:
+    """Read methods open sessions routed to the read database with READ_ACCESS."""
+    session = _make_session([_FakeRecord({"count": 3})])
+    driver = _FakeDriver(session)
+    adapter._driver = driver
+
+    await adapter.count_entities(None)
+
+    assert driver.session_configs == [
+        {"database": "neo4j", "default_access_mode": READ_ACCESS}
+    ]
+
+
+async def test_read_methods_use_managed_execute_read(
+    adapter: Neo4jQueryAdapter,
+) -> None:
+    """Read methods run through managed execute_read transactions, not ad-hoc run."""
+    session = _make_session([_FakeRecord({"count": 3})])
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.count_entities(None)
+
+    assert result == 3
+    assert session.execute_read_calls, "expected a managed execute_read transaction"
+    assert session.run_calls == []
 
 
 async def test_run_with_timeout_returns_result(adapter: Neo4jQueryAdapter) -> None:

@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, cast
 
-from neo4j import AsyncGraphDatabase
+from neo4j import READ_ACCESS, AsyncGraphDatabase
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.mcp_security import ScopeContext
@@ -43,6 +43,35 @@ class Neo4jQueryAdapter(GraphQueryPort):
     async def close(self) -> None:
         """Close the underlying Neo4j driver."""
         await self._driver.close()
+
+    def _read_session(self) -> Any:
+        """Open a session routed to the read database in READ_ACCESS mode.
+
+        Read-only authority is enforced by the managed ``execute_read``
+        transaction; READ_ACCESS routing is a supplemental signal that the
+        session must never run write operations.
+        """
+        return self._driver.session(
+            database=self._settings.neo4j_read_database,
+            default_access_mode=READ_ACCESS,
+        )
+
+    @staticmethod
+    async def _fetch_records(
+        tx: Any, query: str, params: dict[str, Any]
+    ) -> list[Any]:
+        """Materialize every record of a query inside a managed read transaction."""
+        result = await tx.run(query, params)
+        return [record async for record in result]
+
+    @classmethod
+    async def _read_records(
+        cls, session: Any, query: str, params: dict[str, Any]
+    ) -> list[Any]:
+        """Run a read query through the managed ``execute_read`` transaction."""
+        return cast(
+            list[Any], await session.execute_read(cls._fetch_records, query, params)
+        )
 
     async def _run_with_timeout(self, coro: Any, timeout: float = 3.0) -> Any:
         """Wrap a coroutine with a hard timeout and map to a domain error."""
@@ -189,11 +218,13 @@ class Neo4jQueryAdapter(GraphQueryPort):
             ),
         ]
 
-        async with self._driver.session() as session:
+        async with self._read_session() as session:
             results_by_id: dict[str, EntityWithContext] = {}
             for _score, query in tier_queries:
-                result = await self._run_with_timeout(session.run(query, params))
-                async for record in result:
+                records = await self._run_with_timeout(
+                    self._read_records(session, query, params)
+                )
+                for record in records:
                     entity = self._record_to_entity_with_context(record)
                     if entity.entity.id not in results_by_id:
                         results_by_id[entity.entity.id] = entity
@@ -202,8 +233,9 @@ class Neo4jQueryAdapter(GraphQueryPort):
 
             if not results_by_id:
                 try:
-                    result = await self._run_with_timeout(
-                        session.run(
+                    records = await self._run_with_timeout(
+                        self._read_records(
+                            session,
                             f"""
                             CALL db.index.fulltext.queryNodes(
                                 "entity_name_aliases_index", $name
@@ -222,7 +254,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
                             params,
                         )
                     )
-                    async for record in result:
+                    for record in records:
                         entity = self._record_to_entity_with_context(record)
                         if entity.entity.id not in results_by_id:
                             results_by_id[entity.entity.id] = entity
@@ -238,9 +270,10 @@ class Neo4jQueryAdapter(GraphQueryPort):
 
     async def find_entities_batch(self, ids: list[str]) -> list[EntityWithContext]:
         """Return entities for the given list of ids (max 200)."""
-        async with self._driver.session() as session:
-            result = await self._run_with_timeout(
-                session.run(
+        async with self._read_session() as session:
+            records = await self._run_with_timeout(
+                self._read_records(
+                    session,
                     """
                     UNWIND $ids AS id
                     MATCH (n:Entity {id: id})
@@ -252,7 +285,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
             )
             seen_ids: set[str] = set()
             entities: list[EntityWithContext] = []
-            async for record in result:
+            for record in records:
                 entity = self._record_to_entity_with_context(record)
                 if entity.entity.id not in seen_ids:
                     seen_ids.add(entity.entity.id)
@@ -291,14 +324,14 @@ class Neo4jQueryAdapter(GraphQueryPort):
         clamped_depth = max(0, min(depth, 3))
 
         if clamped_depth == 0:
-            async with self._driver.session() as session:
-                result = await self._run_with_timeout(
-                    session.run(
+            async with self._read_session() as session:
+                records = await self._run_with_timeout(
+                    self._read_records(
+                        session,
                         "MATCH (start:Entity {id: $source_id}) RETURN start",
                         {"source_id": source_id},
                     )
                 )
-                records = [record async for record in result]
                 if not records:
                     return [], []
                 return [self._node_to_entity(records[0]["start"])], []
@@ -324,9 +357,10 @@ class Neo4jQueryAdapter(GraphQueryPort):
             RETURN start, end, relationships(p) AS rels
             LIMIT 100
         """
-        async with self._driver.session() as session:
-            result = await self._run_with_timeout(
-                session.run(
+        async with self._read_session() as session:
+            records = await self._run_with_timeout(
+                self._read_records(
+                    session,
                     query,
                     params,
                 )
@@ -334,7 +368,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
             entity_by_id: dict[str, EntityWithContext] = {}
             relationships: list[Relationship] = []
             seen_rel_keys: set[tuple[str, str, str]] = set()
-            async for record in result:
+            for record in records:
                 start_entity = self._node_to_entity(record["start"])
                 entity_by_id[start_entity.entity.id] = start_entity
                 end_entity = self._node_to_entity(record["end"])
@@ -368,17 +402,15 @@ class Neo4jQueryAdapter(GraphQueryPort):
             )
             RETURN p
         """
-        async with self._driver.session() as session:
-            result = await self._run_with_timeout(
-                session.run(
+        async with self._read_session() as session:
+            records = await self._run_with_timeout(
+                self._read_records(
+                    session,
                     query,
                     {"start_id": start_id, "end_id": end_id},
                 )
             )
-            record: Any | None = None
-            async for row in result:
-                record = row
-                break
+            record: Any | None = records[0] if records else None
             if record is None:
                 return []
             path = record["p"]
@@ -426,11 +458,11 @@ class Neo4jQueryAdapter(GraphQueryPort):
                 LIMIT $limit
                 """
 
-        async with self._driver.session() as session:
-            result = await self._run_with_timeout(
-                session.run(query_text, params)
+        async with self._read_session() as session:
+            records = await self._run_with_timeout(
+                self._read_records(session, query_text, params)
             )
-            return [self._chunk_payload(record) async for record in result]
+            return [self._chunk_payload(record) for record in records]
 
     @staticmethod
     def _chunk_payload(record: Any) -> dict[str, Any]:
@@ -484,9 +516,10 @@ class Neo4jQueryAdapter(GraphQueryPort):
             predicates.append(entity_clause)
         where_fragment = " AND ".join(predicates)
 
-        async with self._driver.session() as session:
-            result = await self._run_with_timeout(
-                session.run(
+        async with self._read_session() as session:
+            records = await self._run_with_timeout(
+                self._read_records(
+                    session,
                     f"""
                     MATCH (n:Entity)
                     WHERE {where_fragment}
@@ -495,7 +528,6 @@ class Neo4jQueryAdapter(GraphQueryPort):
                     params,
                 )
             )
-            records = [record async for record in result]
             return records[0]["count"] if records else 0
 
     async def list_entities(
@@ -519,9 +551,10 @@ class Neo4jQueryAdapter(GraphQueryPort):
             predicates.append(entity_clause)
         where_fragment = " AND ".join(predicates)
 
-        async with self._driver.session() as session:
-            result = await self._run_with_timeout(
-                session.run(
+        async with self._read_session() as session:
+            records = await self._run_with_timeout(
+                self._read_records(
+                    session,
                     f"""
                     MATCH (n:Entity)
                     WHERE {where_fragment}
@@ -532,7 +565,6 @@ class Neo4jQueryAdapter(GraphQueryPort):
                     params,
                 )
             )
-            records = [record async for record in result]
             entities = [self._node_to_entity(record["n"]) for record in records]
             next_cursor = records[-1]["internal_id"] if records else cursor
             return entities, next_cursor
@@ -547,9 +579,9 @@ class Neo4jQueryAdapter(GraphQueryPort):
         Raises:
             QueryTimeoutError: If the EXPLAIN exceeds the 3-second internal limit.
         """
-        async with self._driver.session() as session:
+        async with self._read_session() as session:
             await self._run_with_timeout(
-                session.run(f"EXPLAIN {cypher}", parameters or {}),
+                self._read_records(session, f"EXPLAIN {cypher}", parameters or {}),
                 timeout=3.0,
             )
 
@@ -559,9 +591,11 @@ class Neo4jQueryAdapter(GraphQueryPort):
         Raises:
             QueryTimeoutError: If the query exceeds the 3-second internal limit.
         """
-        async with self._driver.session() as session:
-            result = await self._run_with_timeout(session.run(cypher), timeout=3.0)
-            return [record.data() async for record in result]
+        async with self._read_session() as session:
+            records = await self._run_with_timeout(
+                self._read_records(session, cypher, {}), timeout=3.0
+            )
+            return [record.data() for record in records]
 
     async def ensure_indexes(self) -> None:
         """Create read-side indexes idempotently."""

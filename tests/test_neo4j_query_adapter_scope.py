@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from book_graph_rag.config import Settings
 from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
@@ -25,15 +26,32 @@ class _FakeResult:
         raise StopAsyncIteration
 
 
+class _FakeTx:
+    """Managed-transaction stand-in delegating ``run`` back to the session."""
+
+    def __init__(self, session: _FakeSession) -> None:
+        self._session = session
+
+    async def run(
+        self, query: str, parameters: dict[str, Any] | None = None
+    ) -> _FakeResult:
+        return await self._session.run(query, parameters)
+
+
 class _FakeSession:
     """Records the last query and parameters passed to ``run``."""
 
     def __init__(self) -> None:
         self.queries: list[tuple[str, dict[str, Any]]] = []
 
-    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
+    async def run(
+        self, query: str, parameters: dict[str, Any] | None = None
+    ) -> _FakeResult:
         self.queries.append((query, parameters or {}))
         return _FakeResult()
+
+    async def execute_read(self, tx_func: Any, *args: Any, **kwargs: Any) -> Any:
+        return await tx_func(_FakeTx(self), *args, **kwargs)
 
     async def __aenter__(self) -> _FakeSession:
         return self
@@ -48,15 +66,16 @@ class _FakeDriver:
     def __init__(self) -> None:
         self._session = _FakeSession()
 
-    def session(self) -> _FakeSession:
+    def session(self, **config: Any) -> _FakeSession:
         return self._session
 
 
 class _TestableAdapter(Neo4jQueryAdapter):
     """Neo4jQueryAdapter with a fake driver for unit testing."""
 
-    def __init__(self, driver: _FakeDriver) -> None:  # noqa: D417
+    def __init__(self, driver: _FakeDriver, settings: Settings) -> None:  # noqa: D417
         self._driver = driver
+        self._settings = settings
 
 
 @pytest.fixture
@@ -66,7 +85,14 @@ def driver() -> _FakeDriver:
 
 @pytest.fixture
 def adapter(driver: _FakeDriver) -> _TestableAdapter:
-    return _TestableAdapter(driver)
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+        }
+    )
+    return _TestableAdapter(driver, settings)
 
 
 @pytest.fixture

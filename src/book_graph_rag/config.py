@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     neo4j_user: str
     neo4j_password: SecretStr
     neo4j_database: str = "neo4j"
+    # Dedicated read database for the MCP query path (least-privilege read role).
+    # Routed with READ_ACCESS by Neo4jQueryAdapter; keep decoupled from the
+    # write-side ``neo4j_database`` so reads can target a read replica/role.
+    neo4j_read_database: str = "neo4j"
     # Graph construction and community summaries use this independent provider.
     graph_llm_api_key: SecretStr | None = None  # None for local providers
     graph_llm_base_url: str = ""
