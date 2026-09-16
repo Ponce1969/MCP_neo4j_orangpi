@@ -1,0 +1,66 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-E.1 allowlisted Cypher subset/IR validator",
+  "budget_max_changed_lines": 850,
+  "changed_lines": 614,
+  "commits": [
+    "4826703",
+    "73fd00c",
+    "0862367"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "result": "39 failed (collection ImportError: cannot import name 'StructuralPolicyViolationError') before implementation — RED observed for the structural validator contract on the pre-implementation tree"
+    },
+    "green": {
+      "result": "39 passed after production implementation (tests/test_structural_cypher_policy.py)"
+    },
+    "triangulate": "write keywords x5 (parametrized CREATE/SET/DELETE/MERGE/DETACH), procedures x3 (db.*, apoc.*, unapproved CALL), depth forms (*, *1.., *2, *1..3, *..3), dynamic label vs relationship type, string vs numeric literal, unknown function, backtick, empty/unterminated inputs",
+    "refactor": "no refactor beyond the initial implementation; parser kept as hand-rolled tokenizer + recursive descent (stdlib only, no third-party Cypher parser)"
+  },
+  "commands": [
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy src",
+      "exit_code": 0,
+      "result": "Success: no issues found in 119 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "Arquitectura Hexagonal validada correctamente"
+    },
+    {
+      "command": "uv run pytest tests/test_structural_cypher_policy.py -q",
+      "exit_code": 0,
+      "result": "39 passed"
+    },
+    {
+      "command": "uv run pytest tests -q --ignore=tests/integration -x -k 'not integration'",
+      "exit_code": 0,
+      "result": "1211 passed, 2 deselected"
+    }
+  ],
+  "evidence_goal_status": {
+    "fail_closed_unsupported": "StructuralCypherPolicy.validate rejects writes (CREATE/SET/DELETE/MERGE/DETACH), admin/APOC procedures (CALL db.*, apoc.*, any unapproved CALL), LOAD CSV, FOREACH, unbounded paths (variable-length relationships without explicit upper bound), unsupported subqueries, dynamic labels/types/identifiers, and WHERE (outside the explicit allowlist); fails closed on malformed/empty/unterminated input",
+    "allowlisted_subset": "Approved subset parsed and accepted: MATCH/OPTIONAL MATCH/WITH/RETURN/ORDER BY/LIMIT with bound parameters, approved read functions, bounded relationship patterns with explicit depth, no literal injection points",
+    "security_decision_not_regex": "The validator is a tokenizer + recursive-descent parser producing a structured parse (stdlib only); regex is not the security decision",
+    "production_untouched": "No connection to bolt://100.106.85.109:7687; testcontainers not used in this unit task"
+  },
+  "followups": [
+    "validate() returns None — the structured IR is an internal parse artifact, not exposed; T-E.2 (parameter binding and scope proof checks) may need the port to expose parsed structure or params for downstream scope proof",
+    "WHERE clause is rejected (not in the explicit clause allowlist) — confirm with maintainer whether a strict allowlist THAT is intended for T-E.2 scope-predicate binding",
+    "Pre-existing dirty file .windsurf/workflows/sdd-new.md was preserved untouched (not part of this attempt)"
+  ],
+  "notes": [
+    "Executor: gentle-ai-worker, single run without stalls; sdd-apply phase agent remains blocked by native discovery guard, fallback used per session anchor",
+    "Diff split into 3 commits <=400 lines each: contract (32), validator (393), tests (189)"
+  ]
+}
