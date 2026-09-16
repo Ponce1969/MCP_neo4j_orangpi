@@ -1,0 +1,68 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-E.2 parameter binding and scope proof checks",
+  "budget_max_changed_lines": 900,
+  "changed_lines": 391,
+  "commits": [
+    "9ab1efb",
+    "279e54a",
+    "3a865ff"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "result": "ImportError for missing StructuralValidationResult (pre-implementation tree); triangulate RED: test_rejects_query_without_scope_predicate_when_required failed because the test path did not pass require_scope_proof=True — test corrected, then passed"
+    },
+    "green": {
+      "result": "62 passed after implementation (tests/test_structural_cypher_policy.py: 39 existing + 23 new)"
+    },
+    "triangulate": "parametrized 7 WHERE operator forms (=, <>, <, <=, >, >=, IN); distinct tests for literal/numeric literal, nested AND, nested OR, parenthesized, function-call LHS/RHS, unknown property, dynamic property, missing param, no-scope-predicate, EXPLAIN absent/present",
+    "refactor": "none beyond initial implementation"
+  },
+  "commands": [
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy src",
+      "exit_code": 0,
+      "result": "Success: no issues found in 119 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "Arquitectura Hexagonal validada correctamente"
+    },
+    {
+      "command": "uv run pytest tests/test_structural_cypher_policy.py -q",
+      "exit_code": 0,
+      "result": "62 passed"
+    },
+    {
+      "command": "uv run pytest tests -q --ignore=tests/integration -x -k 'not integration'",
+      "exit_code": 0,
+      "result": "1234 passed, 2 deselected"
+    }
+  ],
+  "evidence_goal_status": {
+    "bound_where": "WHERE admitted ONLY as single comparisons of valid identifiers against typed $params (=, <>, <, <=, >, >=, IN); direct literals rejected inside WHERE",
+    "no_nested_where": "nested AND/OR, parenthesized sub-expressions and function calls inside WHERE rejected (fail-closed)",
+    "scope_proof": "SCOPE_KEYS_BY_LABEL in domain (Chunk→{book_id}, Entity→{id}); validate(..., require_scope_proof=True) rejects queries without a scope predicate referencing an allowed scope key of a parsed pattern variable",
+    "explain_gate": "require_explain(query, *, explain_applied) is a distinct explicit check; EXPLAIN absence is rejected when the flow requires it",
+    "production_untouched": "No connection to bolt://100.106.85.109:7687; testcontainers not used in this unit task"
+  },
+  "followups": [
+    "Executor (T-E.3/F) must call validate(..., require_scope_proof=True) to enforce mandatory scope binding on the dynamic query path (opt-in default False preserves T-E.1 acceptance of bare read queries)",
+    "WHERE operator set =, <>, <, <=, >, >=, IN — confirm it matches the maintainer's 'comparisons' intent (examples were = and IN as 'e.g.')",
+    "Pre-existing dirty file .windsurf/workflows/sdd-new.md untouched"
+  ],
+  "notes": [
+    "Executor: gentle-ai-worker, single run without stalls; sdd-apply phase agent remains blocked by native discovery guard, fallback used per session anchor",
+    "Maintainer decision: WHERE bindeado accepted with strict bound-param rule",
+    "Diff split into 3 commits <=400 lines each: contract (71), validator (165), tests (141)"
+  ]
+}
