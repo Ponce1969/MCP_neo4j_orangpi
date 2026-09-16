@@ -276,6 +276,38 @@ class ScopeContext(BaseModel):
         ).decode("utf-8")
 
 
+# ── Allowed scope keys ─────────────────────────────────────────────────────────
+
+
+#: Node labels mapped to the property names that are valid scope keys for a bound
+#: WHERE predicate. These reuse the graph schema property names that already exist
+#: (``Chunk.book_id`` — the namespaced book id — and ``Entity.id`` — the namespaced
+#: entity id). No other property may be compared inside a WHERE clause.
+SCOPE_KEYS_BY_LABEL: dict[str, frozenset[str]] = {
+    "Chunk": frozenset({"book_id"}),
+    "Entity": frozenset({"id"}),
+}
+
+
+class ScopeProof(BaseModel):
+    """Proof that a WHERE predicate binds a matched node to a ``$param``.
+
+    A scope proof is ``<variable>.<property> <operator> $<parameter>`` where
+    ``variable`` is a node variable from the parsed MATCH pattern, ``property`` is
+    an allowed scope key for the variable's label (see ``SCOPE_KEYS_BY_LABEL``),
+    and the compared value is a bound parameter — never a literal or a nested
+    expression.
+    """
+
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    variable: str
+    label: str
+    property: str
+    parameter: str
+    operator: str
+
+
 # ── Query fingerprint ────────────────────────────────────────────────────────
 
 
