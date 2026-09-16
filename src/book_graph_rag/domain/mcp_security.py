@@ -53,6 +53,17 @@ class UnsupportedQueryError(McpSecurityError):
     _error_code = "unsupported_query"
 
 
+class StructuralPolicyViolationError(UnsupportedQueryError):
+    """Raised when dynamic Cypher cannot be proven within the structural allowlist.
+
+    Subclasses ``UnsupportedQueryError`` so existing allowlist-rejection handlers
+    keep working, while the more specific ``structural_policy_violation`` code lets
+    callers distinguish a structural parse/prove failure from a generic rejection.
+    """
+
+    _error_code = "structural_policy_violation"
+
+
 class PolicyViolationError(McpSecurityError):
     """Raised when a request violates an active security policy."""
 

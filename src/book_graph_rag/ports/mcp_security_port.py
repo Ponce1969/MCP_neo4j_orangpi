@@ -62,3 +62,24 @@ class ResourceBudgetPort(abc.ABC):
             yield lease
         finally:
             await self.release(lease)
+
+
+class StructuralCypherValidator(abc.ABC):
+    """Structural allowlist validator for dynamic Cypher (T-E.1).
+
+    This port is the security decision for the dynamic-query path. Implementations
+    parse a query into a restricted, structured IR and reject anything outside the
+    approved read-only subset. They never rely on regex denylists: unknown or
+    unparseable input must fail closed via ``StructuralPolicyViolationError``.
+    """
+
+    @abc.abstractmethod
+    def validate(self, query: str) -> None:
+        """Validate ``query`` against the structural allowlist.
+
+        Raises ``StructuralPolicyViolationError`` when the query cannot be proven
+        to lie inside the approved subset (writes, procedures, subqueries,
+        unbounded paths, dynamic labels/types, literal injection points, or any
+        input the parser cannot prove). Returns ``None`` on success.
+        """
+        ...
