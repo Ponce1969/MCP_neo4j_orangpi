@@ -15,11 +15,22 @@ from book_graph_rag.domain.mcp_security import (
     UnsupportedQueryError,
 )
 from book_graph_rag.infrastructure.structural_cypher_policy import StructuralCypherPolicy
-from book_graph_rag.ports.mcp_security_port import StructuralCypherValidator
+from book_graph_rag.ports.mcp_security_port import (
+    StructuralCypherValidator,
+    StructuralValidationResult,
+)
 
 
 def _validate(query: str) -> None:
     StructuralCypherPolicy().validate(query)
+
+
+def _validate_result(
+    query: str, *, require_scope_proof: bool = False
+) -> StructuralValidationResult:
+    return StructuralCypherPolicy().validate(
+        query, require_scope_proof=require_scope_proof
+    )
 
 
 def test_structural_policy_error_is_unsupported_query_subtype() -> None:
@@ -187,3 +198,132 @@ def test_rejects_backtick_escaped_identifier() -> None:
 def test_rejects_unsupported_clause_keyword() -> None:
     with pytest.raises(StructuralPolicyViolationError, match="unsupported clause"):
         _validate("MATCH (n) YIELD n RETURN n")
+
+
+# ── T-E.2: bound WHERE, scope proof, and the EXPLAIN gate ──────────────────────
+
+
+def test_accepts_where_scope_equality() -> None:
+    result = _validate_result("MATCH (n:Chunk) WHERE n.book_id = $book_id RETURN n")
+    assert result.explain_required is True
+    assert result.scope_bound is True
+    assert len(result.scope_proofs) == 1
+    proof = result.scope_proofs[0]
+    assert proof.variable == "n"
+    assert proof.label == "Chunk"
+    assert proof.property == "book_id"
+    assert proof.parameter == "$book_id"
+    assert proof.operator == "="
+
+
+def test_accepts_where_scope_in() -> None:
+    result = _validate_result("MATCH (e:Entity) WHERE e.id IN $scope_ids RETURN e")
+    assert result.scope_bound is True
+    assert len(result.scope_proofs) == 1
+    assert result.scope_proofs[0].property == "id"
+    assert result.scope_proofs[0].operator == "IN"
+    assert result.scope_proofs[0].parameter == "$scope_ids"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "MATCH (n:Chunk) WHERE n.book_id = $book_id RETURN n",
+        "MATCH (n:Chunk) WHERE n.book_id <> $book_id RETURN n",
+        "MATCH (n:Chunk) WHERE n.book_id < $book_id RETURN n",
+        "MATCH (n:Chunk) WHERE n.book_id <= $book_id RETURN n",
+        "MATCH (n:Chunk) WHERE n.book_id > $book_id RETURN n",
+        "MATCH (n:Chunk) WHERE n.book_id >= $book_id RETURN n",
+        "MATCH (e:Entity) WHERE e.id IN $scope_ids RETURN e",
+    ],
+)
+def test_accepts_multiple_where_comparison_forms(query: str) -> None:
+    result = StructuralCypherPolicy().validate(query)
+    assert result.scope_bound is True
+    assert len(result.scope_proofs) == 1
+
+
+def test_accepts_scoped_query_when_scope_proof_required() -> None:
+    result = _validate_result(
+        "MATCH (n:Chunk) WHERE n.book_id = $book_id RETURN n",
+        require_scope_proof=True,
+    )
+    assert result.scope_bound is True
+
+
+def test_rejects_query_without_scope_predicate_when_required() -> None:
+    with pytest.raises(StructuralPolicyViolationError, match="scope"):
+        _validate_result(
+            "MATCH (n:Chunk) RETURN n",
+            require_scope_proof=True,
+        )
+
+
+def test_rejects_where_string_literal() -> None:
+    with pytest.raises(StructuralPolicyViolationError, match="literal"):
+        _validate("MATCH (n:Chunk) WHERE n.book_id = 'x' RETURN n")
+
+
+def test_rejects_where_numeric_literal() -> None:
+    with pytest.raises(StructuralPolicyViolationError, match="literal"):
+        _validate("MATCH (n:Chunk) WHERE n.book_id = 5 RETURN n")
+
+
+def test_rejects_where_nested_and() -> None:
+    with pytest.raises(StructuralPolicyViolationError, match="AND"):
+        _validate("MATCH (n:Chunk) WHERE n.book_id = $a AND n.book_id = $b RETURN n")
+
+
+def test_rejects_where_nested_or() -> None:
+    with pytest.raises(StructuralPolicyViolationError, match="OR"):
+        _validate("MATCH (n:Chunk) WHERE n.book_id = $a OR n.book_id = $b RETURN n")
+
+
+def test_rejects_where_parenthesized_expression() -> None:
+    with pytest.raises(StructuralPolicyViolationError, match="WHERE"):
+        _validate("MATCH (n:Chunk) WHERE (n.book_id = $a) RETURN n")
+
+
+def test_rejects_where_function_call_rhs() -> None:
+    with pytest.raises(StructuralPolicyViolationError, match="function"):
+        _validate("MATCH (n:Chunk) WHERE n.book_id = toString($book_id) RETURN n")
+
+
+def test_rejects_where_function_call_lhs() -> None:
+    with pytest.raises(StructuralPolicyViolationError, match="function"):
+        _validate("MATCH (n:Chunk) WHERE toLower(n.name) = $x RETURN n")
+
+
+def test_rejects_where_unknown_property() -> None:
+    with pytest.raises(StructuralPolicyViolationError, match="scope key"):
+        _validate("MATCH (n:Chunk) WHERE n.name = $name RETURN n")
+
+
+def test_rejects_where_dynamic_property() -> None:
+    with pytest.raises(StructuralPolicyViolationError, match="WHERE"):
+        _validate("MATCH (n:Chunk) WHERE n[$key] = $value RETURN n")
+
+
+def test_rejects_where_missing_param_binding() -> None:
+    with pytest.raises(StructuralPolicyViolationError, match="param"):
+        _validate("MATCH (n:Chunk) WHERE n.book_id = other_var RETURN n")
+
+
+def test_require_explain_rejects_when_not_applied() -> None:
+    policy = StructuralCypherPolicy()
+    with pytest.raises(StructuralPolicyViolationError, match="EXPLAIN"):
+        policy.require_explain(
+            "MATCH (n:Chunk) WHERE n.book_id = $book_id RETURN n",
+            explain_applied=False,
+        )
+
+
+def test_require_explain_accepts_when_applied() -> None:
+    policy = StructuralCypherPolicy()
+    assert (
+        policy.require_explain(
+            "MATCH (n:Chunk) WHERE n.book_id = $book_id RETURN n",
+            explain_applied=True,
+        )
+        is None
+    )
