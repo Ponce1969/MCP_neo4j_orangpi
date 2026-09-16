@@ -13,8 +13,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from book_graph_rag.domain.mcp_security import StructuralPolicyViolationError
-from book_graph_rag.ports.mcp_security_port import StructuralCypherValidator
+from book_graph_rag.domain.mcp_security import (
+    SCOPE_KEYS_BY_LABEL,
+    ScopeProof,
+    StructuralPolicyViolationError,
+)
+from book_graph_rag.ports.mcp_security_port import (
+    StructuralCypherValidator,
+    StructuralValidationResult,
+)
 
 _APPROVED_FUNCTIONS = frozenset(
     {
@@ -116,6 +123,17 @@ def _validate_clause_order(clauses: list[str]) -> None:
         and clauses.index("LIMIT") < clauses.index("ORDER BY")
     ):
         raise StructuralPolicyViolationError("LIMIT must follow ORDER BY")
+    if "WHERE" in clauses:
+        where_idx = clauses.index("WHERE")
+        if where_idx == 0:
+            raise StructuralPolicyViolationError("WHERE must follow MATCH")
+        for clause in clauses[:where_idx]:
+            if clause not in ("MATCH", "OPTIONAL MATCH"):
+                raise StructuralPolicyViolationError(
+                    "WHERE must directly follow MATCH or OPTIONAL MATCH"
+                )
+        if return_idx < where_idx:
+            raise StructuralPolicyViolationError("WHERE must precede RETURN")
 
 
 class _Parser:
@@ -124,6 +142,8 @@ class _Parser:
     def __init__(self, tokens: list[_Token]) -> None:
         self._tokens = tokens
         self._pos = 0
+        self._node_vars: dict[str, set[str]] = {}
+        self._where_predicates: list[tuple[str, str, str, str, str]] = []
 
     def peek(self) -> _Token:
         return self._tokens[self._pos]
@@ -157,11 +177,12 @@ class _Parser:
             raise StructuralPolicyViolationError(f"expected {value} at position {token.pos}")
         self._pos += 1
 
-    def parse(self) -> None:
+    def parse(self) -> list[tuple[str, str, str, str, str]]:
         clauses: list[str] = []
         while self.peek().kind != "EOF":
             clauses.append(self._parse_clause())
         _validate_clause_order(clauses)
+        return self._where_predicates
 
     def _parse_clause(self) -> str:
         token = self.peek()
@@ -205,10 +226,107 @@ class _Parser:
         if keyword == "FOREACH":
             raise StructuralPolicyViolationError("FOREACH is not allowed")
         if keyword == "WHERE":
-            raise StructuralPolicyViolationError("WHERE clause is outside the approved subset")
+            self.advance()
+            self._parse_where()
+            return "WHERE"
         if keyword == "UNWIND":
             raise StructuralPolicyViolationError("UNWIND clause is outside the approved subset")
         raise StructuralPolicyViolationError(f"unsupported clause {keyword!r}")
+
+    def _parse_where(self) -> None:
+        var_token = self.peek()
+        if var_token.kind != "IDENT":
+            raise StructuralPolicyViolationError(
+                f"WHERE must compare a node property at position {var_token.pos}"
+            )
+        lookahead = self._tokens[self._pos + 1]
+        if lookahead.kind == "PUNCT" and lookahead.value == "(":
+            raise StructuralPolicyViolationError("function calls are not allowed in WHERE")
+        variable = var_token.value
+        labels = self._node_vars.get(variable)
+        if labels is None:
+            raise StructuralPolicyViolationError(
+                f"WHERE references unknown variable {variable!r} at position {var_token.pos}"
+            )
+        self.advance()
+        if not self._accept_punct("."):
+            raise StructuralPolicyViolationError(
+                f"WHERE must reference a property of {variable!r} (dynamic access is not allowed)"
+            )
+        prop_token = self.peek()
+        if prop_token.kind != "IDENT":
+            raise StructuralPolicyViolationError(
+                f"WHERE property access must be a static identifier at position {prop_token.pos}"
+            )
+        prop = prop_token.value
+        self.advance()
+        if not labels:
+            raise StructuralPolicyViolationError(
+                f"WHERE variable {variable!r} has no label; cannot prove a scope key"
+            )
+        allowed_labels = sorted(
+            label for label in labels
+            if prop in SCOPE_KEYS_BY_LABEL.get(label, frozenset())
+        )
+        if not allowed_labels:
+            raise StructuralPolicyViolationError(
+                f"WHERE property {prop!r} is not an allowed scope key for {variable!r}"
+            )
+        label = allowed_labels[0]
+        operator = self._parse_where_operator()
+        rhs = self.peek()
+        if rhs.kind in ("STRING", "NUMBER"):
+            raise StructuralPolicyViolationError(
+                "WHERE literal values are not allowed (bind a $param)"
+            )
+        if rhs.kind == "IDENT":
+            lookahead = self._tokens[self._pos + 1]
+            if lookahead.kind == "PUNCT" and lookahead.value == "(":
+                raise StructuralPolicyViolationError("function calls are not allowed in WHERE")
+            raise StructuralPolicyViolationError(
+                f"WHERE comparison must bind a $param at position {rhs.pos}"
+            )
+        if rhs.kind != "PARAM":
+            raise StructuralPolicyViolationError(
+                f"WHERE comparison must bind a $param at position {rhs.pos}"
+            )
+        self.advance()
+        self._where_predicates.append((variable, label, prop, operator, rhs.value))
+        lookahead = self.peek()
+        if lookahead.kind == "IDENT" and lookahead.value.upper() in ("AND", "OR"):
+            raise StructuralPolicyViolationError(
+                f"nested boolean expressions ({lookahead.value.upper()}) are not allowed in WHERE"
+            )
+
+    def _parse_where_operator(self) -> str:
+        token = self.peek()
+        if token.kind == "IDENT" and token.value.upper() == "IN":
+            self.advance()
+            return "IN"
+        if token.kind != "PUNCT":
+            raise StructuralPolicyViolationError(
+                f"unsupported comparison operator at position {token.pos}"
+            )
+        if token.value == "=":
+            self.advance()
+            return "="
+        if token.value == "<":
+            self.advance()
+            nxt = self.peek()
+            if nxt.kind == "PUNCT" and nxt.value in ("=", ">"):
+                self.advance()
+                return f"<{nxt.value}"
+            return "<"
+        if token.value == ">":
+            self.advance()
+            nxt = self.peek()
+            if nxt.kind == "PUNCT" and nxt.value == "=":
+                self.advance()
+                return ">="
+            return ">"
+        raise StructuralPolicyViolationError(
+            f"unsupported comparison operator at position {token.pos}"
+        )
 
     def _parse_pattern_list(self) -> None:
         self._parse_path_pattern()
@@ -223,21 +341,26 @@ class _Parser:
 
     def _parse_node_pattern(self) -> None:
         self._expect_punct("(")
+        variable: str | None = None
         if self.peek().kind == "IDENT":
-            self.advance()
+            variable = self.advance().value
+        labels: list[str] = []
         while self._accept_punct(":"):
-            self._parse_label("label")
+            labels.append(self._parse_label("label"))
         if self._accept_punct("{"):
             self._parse_property_map()
         self._expect_punct(")")
+        if variable is not None:
+            self._node_vars.setdefault(variable, set()).update(labels)
 
-    def _parse_label(self, context: str) -> None:
+    def _parse_label(self, context: str) -> str:
         token = self.peek()
         if token.kind == "PARAM":
             raise StructuralPolicyViolationError(f"dynamic {context} is not allowed")
         if token.kind != "IDENT":
             raise StructuralPolicyViolationError(f"expected a {context} at position {token.pos}")
         self.advance()
+        return token.value
 
     def _parse_relationship_pattern(self) -> None:
         left = self._accept_punct("<")
@@ -387,7 +510,40 @@ class _Parser:
 class StructuralCypherPolicy(StructuralCypherValidator):
     """Fail-closed structural validator for the approved read-only Cypher subset."""
 
-    def validate(self, query: str) -> None:
+    def validate(
+        self,
+        query: str,
+        *,
+        require_scope_proof: bool = False,
+    ) -> StructuralValidationResult:
         if not isinstance(query, str):
             raise StructuralPolicyViolationError("query must be a string")
-        _Parser(_tokenize(query)).parse()
+        where_predicates = _Parser(_tokenize(query)).parse()
+        scope_proofs = tuple(
+            ScopeProof(
+                variable=variable,
+                label=label,
+                property=prop,
+                parameter=parameter,
+                operator=op,
+            )
+            for (variable, label, prop, op, parameter) in where_predicates
+        )
+        if require_scope_proof and not scope_proofs:
+            raise StructuralPolicyViolationError(
+                "query has no scope predicate (a WHERE binding a node property to "
+                "a $param is required)"
+            )
+        return StructuralValidationResult(
+            explain_required=True,
+            scope_bound=bool(scope_proofs),
+            scope_proofs=scope_proofs,
+        )
+
+    def require_explain(self, query: str, *, explain_applied: bool) -> None:
+        if not isinstance(query, str):
+            raise StructuralPolicyViolationError("query must be a string")
+        if not explain_applied:
+            raise StructuralPolicyViolationError(
+                "EXPLAIN is required before execution (the query must be planned, not run, first)"
+            )
