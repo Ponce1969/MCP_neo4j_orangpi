@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 from mcp.server.fastmcp import FastMCP
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.mcp_security import (
@@ -22,6 +23,7 @@ from book_graph_rag.domain.mcp_security import (
     ToolRiskTier,
 )
 from book_graph_rag.domain.models import (
+    REDACTED_PLACEHOLDER,
     Entity,
     EntityType,
     EntityWithContext,
@@ -1603,3 +1605,182 @@ async def test_fingerprint_differs_with_key(
     assert second.query_fingerprint is not None
     assert first.query_fingerprint.fingerprint_hex != second.query_fingerprint.fingerprint_hex
     assert first.query_fingerprint.key_id == second.query_fingerprint.key_id == "v1"
+
+
+# ── logging privacy (R5, T-G.2): redaction + development-only raw logging ────
+
+
+class _ListLogHandler(logging.Handler):
+    """Collects formatted log messages for inspection."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
+
+
+_RAW_LOGGER_COUNTER = 0
+
+
+def _make_dev_raw_logger() -> tuple[logging.Logger, _ListLogHandler]:
+    global _RAW_LOGGER_COUNTER
+    _RAW_LOGGER_COUNTER += 1
+    logger = logging.getLogger(f"test.raw_query_log.{_RAW_LOGGER_COUNTER}")
+    logger.handlers = []
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+    handler = _ListLogHandler()
+    logger.addHandler(handler)
+    return logger, handler
+
+
+def test_settings_app_env_and_raw_logging_default_fail_closed() -> None:
+    """app_env defaults to production and raw logging is disabled (R5)."""
+    settings = Settings(
+        neo4j_uri="bolt://localhost",
+        neo4j_user="neo4j",
+        neo4j_password=SecretStr("secret"),
+    )
+    assert settings.app_env == "production"
+    assert settings.mcp_raw_logging_enabled is False
+
+
+def test_settings_raw_logging_fails_fast_in_production() -> None:
+    """Raw logging cannot be enabled under production settings (R5)."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            neo4j_uri="bolt://localhost",
+            neo4j_user="neo4j",
+            neo4j_password=SecretStr("secret"),
+            app_env="production",
+            mcp_raw_logging_enabled=True,
+        )
+    assert "mcp_raw_logging_enabled" in str(exc_info.value)
+
+
+def test_settings_raw_logging_fails_fast_in_test() -> None:
+    """Raw logging cannot be enabled under test settings (R5)."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            neo4j_uri="bolt://localhost",
+            neo4j_user="neo4j",
+            neo4j_password=SecretStr("secret"),
+            app_env="test",
+            mcp_raw_logging_enabled=True,
+        )
+    assert "mcp_raw_logging_enabled" in str(exc_info.value)
+
+
+def test_settings_raw_logging_allowed_in_development() -> None:
+    """Raw logging is only permitted in development (R5)."""
+    settings = Settings(
+        neo4j_uri="bolt://localhost",
+        neo4j_user="neo4j",
+        neo4j_password=SecretStr("secret"),
+        app_env="development",
+        mcp_raw_logging_enabled=True,
+    )
+    assert settings.app_env == "development"
+    assert settings.mcp_raw_logging_enabled is True
+
+
+async def test_secret_shaped_metadata_value_is_redacted_before_persistence(
+    scoped_adapter: McpServerAdapter,
+    query_logger: _FakeQueryLoggerPort,
+) -> None:
+    """A secret-shaped scalar value is redacted before reaching the log (R5)."""
+    secret = "sk-abcdefghijklmnopqrstuvwxyz123456"
+    await scoped_adapter._log(
+        tool_name="search_chunks",
+        query_type="chunk",
+        query_params={"limit": secret},
+        result_count=0,
+        entity_not_found=False,
+        duration_ms=1.0,
+    )
+
+    entry = query_logger.entries[0]
+    assert entry.query_metadata["limit"] == REDACTED_PLACEHOLDER
+    assert secret not in entry.model_dump_json()
+
+
+async def test_raw_logging_enabled_refuses_emission_outside_development(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """Raw logging enabled outside development fails closed with a typed error."""
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        require_scope=False,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
+        app_env="production",
+        raw_logging_enabled=True,
+    )
+
+    with pytest.raises(QueryFingerprintError) as exc_info:
+        await adapter.find_entity("MCP")
+
+    assert exc_info.value.error_code == "query_fingerprint"
+    assert query_logger.entries == []
+
+
+async def test_raw_logging_dev_channel_emits_raw_text_never_persisted(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """Development raw logging emits raw text only to the dev channel (R5)."""
+    dev_logger, handler = _make_dev_raw_logger()
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        require_scope=False,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
+        app_env="development",
+        raw_logging_enabled=True,
+        dev_raw_logger=dev_logger,
+    )
+    graph_query_port.search_chunks_result = [{"text": "chunk", "chunk_index": 0}]
+
+    await adapter.search_chunks("sk-abcdefghijklmnopqrstuvwxyz123456", limit=5)
+
+    assert any(
+        "sk-abcdefghijklmnopqrstuvwxyz123456" in message
+        for message in handler.messages
+    )
+    entry = query_logger.entries[0]
+    assert entry.query_metadata["query_set"] is True
+    assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in entry.model_dump_json()
+
+
+async def test_raw_logging_disabled_emits_nothing_to_dev_channel(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """With raw logging disabled the dev channel receives nothing (R5)."""
+    dev_logger, handler = _make_dev_raw_logger()
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        require_scope=False,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
+        dev_raw_logger=dev_logger,  # raw_logging_enabled defaults False
+    )
+    graph_query_port.search_chunks_result = [{"text": "chunk", "chunk_index": 0}]
+
+    await adapter.search_chunks("secret query", limit=5)
+
+    assert handler.messages == []
+    assert len(query_logger.entries) == 1
+

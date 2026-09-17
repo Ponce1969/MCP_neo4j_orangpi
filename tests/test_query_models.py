@@ -9,6 +9,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from book_graph_rag.domain.models import (
+    REDACTED_PLACEHOLDER,
     BatchEntityQuery,
     BatchSizeExceededError,
     Entity,
@@ -26,6 +27,8 @@ from book_graph_rag.domain.models import (
     Relationship,
     SimilarityQuery,
     UnsupportedQueryTypeError,
+    redact_sensitive,
+    redact_sensitive_metadata,
 )
 
 
@@ -312,3 +315,62 @@ def test_query_log_entry_error_code_is_optional() -> None:
 
     assert entry.error_code == "TimeoutError"
     assert entry.model_dump(mode="json")["error_code"] == "TimeoutError"
+
+
+# ── Logging privacy: secret redaction (R5, T-G.2) ──────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        # Realistic secret-shaped fixtures (all clearly synthetic).
+        ("sk-abcdefghijklmnopqrstuvwxyz123456", REDACTED_PLACEHOLDER),
+        ("AKIAIOSFODNN7EXAMPLE", REDACTED_PLACEHOLDER),
+        ("ghp_" + "a" * 36, REDACTED_PLACEHOLDER),
+        ("xoxb-" + "a" * 20, REDACTED_PLACEHOLDER),
+        ("eyJ" + "a" * 12 + "." + "b" * 12 + "." + "c" * 12, REDACTED_PLACEHOLDER),
+        ("Bearer abcdefghijklmnop", REDACTED_PLACEHOLDER),
+        ("Basic dXNlcjpwYXNz", REDACTED_PLACEHOLDER),
+        # Benign values pass through untouched.
+        ("hello world", "hello world"),
+        ("MCP", "MCP"),
+        ("limit", "limit"),
+    ],
+)
+def test_redact_sensitive_detects_secret_shaped_values(
+    value: str, expected: str
+) -> None:
+    """Secret-shaped values are replaced with a fixed placeholder (R5)."""
+    assert redact_sensitive(value) == expected
+
+
+def test_redact_sensitive_redacts_credential_key_names() -> None:
+    """A credential-like key redacts its value regardless of content (R5)."""
+    for key in ("api_key", "apikey", "access_token", "password", "client_secret"):
+        assert redact_sensitive("any-value", key=key) == REDACTED_PLACEHOLDER
+
+
+def test_redact_sensitive_preserves_benign_key_and_scalars() -> None:
+    """Non-sensitive keys and non-string scalars pass through unchanged."""
+    assert redact_sensitive("limit-value", key="limit") == "limit-value"
+    assert redact_sensitive(10, key="limit") == 10
+    assert redact_sensitive(True, key="include_relations") is True
+    assert redact_sensitive(None, key="cursor") is None
+
+
+def test_redact_sensitive_metadata_redacts_sensitive_entries() -> None:
+    """query_metadata redaction replaces secret values in place (R5)."""
+    metadata: dict[str, str | int | float | bool | None] = {
+        "param_count": 2,
+        "limit": 7,
+        "api_key": "sk-abcdefghijklmnopqrstuvwxyz123456",
+        "query_set": True,
+    }
+
+    assert redact_sensitive_metadata(metadata) == {
+        "param_count": 2,
+        "limit": 7,
+        "api_key": REDACTED_PLACEHOLDER,
+        "query_set": True,
+    }
+

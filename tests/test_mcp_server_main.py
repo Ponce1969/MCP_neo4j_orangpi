@@ -57,6 +57,8 @@ class _FakeMcpServerAdapter:
         budget_port: Any = None,
         hmac_key_id: str = "mcp-log-v1",
         hmac_key: Any = None,
+        app_env: str = "production",
+        raw_logging_enabled: bool = False,
     ) -> None:
         self.query_port = query_port
         self.query_logger = query_logger
@@ -68,6 +70,8 @@ class _FakeMcpServerAdapter:
         self.budget_port = budget_port
         self.hmac_key_id = hmac_key_id
         self.hmac_key = hmac_key
+        self.app_env = app_env
+        self.raw_logging_enabled = raw_logging_enabled
         self.run_sse_mock = AsyncMock()
 
     async def run_sse(self, host: str = "0.0.0.0", port: int = 8003) -> None:
@@ -136,6 +140,8 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             budget_port: Any = None,
             hmac_key_id: str = "mcp-log-v1",
             hmac_key: Any = None,
+            app_env: str = "production",
+            raw_logging_enabled: bool = False,
         ) -> None:
             super().__init__(
                 query_port,
@@ -148,6 +154,8 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
                 budget_port,
                 hmac_key_id,
                 hmac_key,
+                app_env,
+                raw_logging_enabled,
             )
             created["server_adapter"] = self
 
@@ -377,3 +385,19 @@ def test_serve_catches_runtime_error_and_exits_two(
 
     assert result.exit_code == 2
     assert "MCP server error: unexpected failure" in result.output
+
+
+def test_composition_root_passes_raw_logging_settings_to_adapter(
+    fake_settings: Settings, fake_adapters: dict[str, Any]
+) -> None:
+    """app_env and raw_logging_enabled flow from Settings into the adapter (R5)."""
+    fake_settings.app_env = "development"
+    fake_settings.mcp_raw_logging_enabled = True
+
+    runner = CliRunner()
+    runner.invoke(mcp_cli, ["serve"])
+
+    server_adapter = fake_adapters["server_adapter"]
+    assert server_adapter.app_env == "development"
+    assert server_adapter.raw_logging_enabled is True
+
