@@ -1,0 +1,71 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-G.1 HMAC-SHA256 query/prompt fingerprints with key id and metadata-only QueryLogEntry schema",
+  "budget_max_changed_lines": 950,
+  "changed_lines": 521,
+  "commits": [
+    "c716db8",
+    "8746b7c",
+    "9d3a25a"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "result": "25 failed, 21 passed, 53 errors on the 4 focused test files: TypeError (McpServerAdapter lacked hmac_key_id/hmac_key ctor params), ValidationError query_metadata Field required (schema not yet migrated), AttributeError Settings.mcp_hmac_key* missing; migrated test_query_models.py had 4 QueryLogEntry tests RED on removed query_params/error fields"
+    },
+    "green": {
+      "result": "126 focused passed (json_query_logger_adapter + query_logger_port + mcp_server_adapter + mcp_server_main + query_models) after option-A migration of 4 test_query_models.py tests to the metadata-only schema"
+    },
+    "triangulate": "fail-closed with None key and empty SecretStr; deterministic fingerprint for identical canonical payload; different key -> different digest; same key different payload -> different digest; query_fingerprint excludes prompt keys {query, question}; prompt_fingerprint covers search_chunks/search_rag/query_cypher/ask_global; persisted JSON contains no raw query/error text fields",
+    "refactor": "extracted pure module helpers _to_query_metadata and _error_code_for (McpSecurityError.error_code else type name); tests green after extraction"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/test_json_query_logger_adapter.py tests/test_query_logger_port.py tests/test_mcp_server_adapter.py tests/test_mcp_server_main.py tests/test_query_models.py -q",
+      "exit_code": 0,
+      "result": "126 passed"
+    },
+    {
+      "command": "uv run pytest tests/ -m 'not neo4j_integration' -q",
+      "exit_code": 0,
+      "result": "1336 passed, 62 deselected, 0 failed"
+    },
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy .",
+      "exit_code": 0,
+      "result": "Success: no issues found in 298 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "Arquitectura Hexagonal validada correctamente"
+    }
+  ],
+  "evidence_goal_status": {
+    "keyed_fingerprints": "QueryFingerprint.from_canonical reused (no reimplementation): HMAC-SHA256 over canonical_json payload; query_fingerprint = {tool, query_type, inputs} excluding prompt keys; prompt_fingerprint = {tool, prompt} for search_chunks/search_rag/query_cypher/ask_global; key_id mcp-log-v1 recorded",
+    "metadata_only_schema": "QueryLogEntry carries timestamp/tool_name/query_type/query_metadata/result_count/zero_results/entity_not_found/duration_ms/error_code/query_fingerprint/prompt_fingerprint; raw query_params and error text removed; persisted model_dump_json contains no raw query/prompt/error text (privacy test)",
+    "fail_closed": "McpServerAdapter._make_fingerprint raises QueryFingerprintError when mcp_hmac_key is None/empty — never degrades to plaintext logging; no global Settings validator to avoid breaking minimal Settings() tests",
+    "settings": "mcp_hmac_key_id='mcp-log-v1' and mcp_hmac_key SecretStr added to Settings; mcp_server_main wires both into McpServerAdapter",
+    "compatibility": "McpServerAdapter ctor gained hmac_key_id/hmac_key params with defaults; existing callers in mcp_server_main and test fixtures updated; response shapes unchanged",
+    "production_untouched": "No connection to bolt://100.106.85.109:7687; integration suite (testcontainers) not run this WU; no secret/credential material added to logs or fixtures"
+  },
+  "followups": [
+    "T-G.2: redact query params/errors/secrets and explicit development-only raw logging validator (error TEXT redaction intentionally deferred; schema already excludes free text)",
+    "T-G.3: retention and log migration tests; no raw fixture leakage",
+    "Empty/missing MCP_HMAC_KEY makes every MCP tool call raise at log time and can mask the original exception inside except paths — operator must configure the key; consider documenting in AGENTS.md and/or a follow-up to preserve exception context",
+    "tests/integration/test_ask_global_tool.py constructs McpServerAdapter without a key but is unaffected (ask_global logs only on its exception path); verify at T-I.1",
+    "Pre-existing dirty file .windsurf/workflows/sdd-new.md untouched"
+  ],
+  "notes": [
+    "Executor: gentle-ai-worker (bounded writer, no commit) + orchestrator gates + 3 work-unit commits to main. Option A applied: allowed edit surface expanded to tests/test_query_models.py to migrate 4 QueryLogEntry tests as a direct consequence of the R5 schema change (prior-slice practice).",
+    "Fingerprints keyed with secret so logs can correlate requests without leaking query text or keys (R5).",
+    "Changed-lines accounting 521 code-only; ledger counts the whole attempt window including this bundle (~75 lines), consistent with prior-slice budget lesson."
+  ]
+}
