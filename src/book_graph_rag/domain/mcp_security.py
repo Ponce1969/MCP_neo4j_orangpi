@@ -53,6 +53,17 @@ class UnsupportedQueryError(McpSecurityError):
     _error_code = "unsupported_query"
 
 
+class UnknownToolError(McpSecurityError):
+    """Raised when a tool name is not present in the tier registry.
+
+    The registry is a fail-closed classification boundary: any tool name that
+    does not map to a known tier is rejected before it can reach the MCP
+    adapter, so an unregistered tool can never inherit a default policy.
+    """
+
+    _error_code = "unknown_tool"
+
+
 class StructuralPolicyViolationError(UnsupportedQueryError):
     """Raised when dynamic Cypher cannot be proven within the structural allowlist.
 
