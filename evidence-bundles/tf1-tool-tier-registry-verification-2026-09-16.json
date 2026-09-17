@@ -1,0 +1,66 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-F.1 classify all 8 MCP tools into risk tiers with per-tier policy",
+  "budget_max_changed_lines": 600,
+  "changed_lines": 185,
+  "commits": [
+    "510e263"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "result": "ImportError: cannot import name 'UnknownToolError' from 'book_graph_rag.domain.mcp_security' (test referenced the typed error before the production symbol existed)"
+    },
+    "green": {
+      "result": "22/22 parametrized test cases GREEN after adding UnknownToolError + registry (13 test functions)"
+    },
+    "triangulate": "every tool maps to its expected tier AND its policy equals ResourcePolicy.default_for(tier) via canonical JSON equality; unknown tool rejected fail-closed in both tier_for and policy_for_tool; LOW-vs-HIGH policy relationship asserted explicitly; exactly-8 invariant with hardcoded adapter tool-name set",
+    "refactor": "none needed — data-driven mapping already minimal"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/test_tool_tier_registry.py tests/test_mcp_security_domain.py tests/test_structural_cypher_policy.py -q",
+      "exit_code": 0,
+      "result": "103 passed"
+    },
+    {
+      "command": "uv run pytest tests/ -m 'not neo4j_integration' -q",
+      "exit_code": 0,
+      "result": "1303 passed, 62 deselected"
+    },
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy .",
+      "exit_code": 0,
+      "result": "Success: no issues found in 298 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "Arquitectura Hexagonal validada correctamente"
+    }
+  ],
+  "evidence_goal_status": {
+    "all_8_tools_classified": "find_entity/traverse_relationships/search_chunks/list_entities/count_entities -> LOW; search_rag/ask_global -> MEDIUM; query_cypher -> HIGH (R6)",
+    "per_tier_policy": "policy_for_tool binds ResourcePolicy.default_for(tier) (LOW 30s/200/1000/4/8/60; MEDIUM 60s/100/500/3/4/30; HIGH 10s/20/100/2/1/5)",
+    "fail_closed_unknown": "UnknownToolError (subtype McpSecurityError, error_code unknown_tool) raised for any tool name outside the registry — an unregistered tool can never inherit a default policy",
+    "domain_pure": "registry is stdlib+Pydantic only, no ports/infrastructure imports (hexagonal boundary)",
+    "production_untouched": "No connection to bolt://100.106.85.109:7687; adapter/budget/scope wiring deferred to T-F.2/T-F.3"
+  },
+  "followups": [
+    "T-F.2: require scope for structured tools; preserve response compatibility and typed errors",
+    "T-F.3: connect ResourceBudgetPort + per-tier policies into McpServerAdapter; query_cypher opt-in remains fail-closed until policy passes (Settings.mcp_enable_query_cypher=False already in place from T-E.3)",
+    "Adapter wiring will surface the exact tool-name set create_server exposes — keep in sync with TOOL_TIERS (test asserts the hardcoded 8-name set)"
+  ],
+  "notes": [
+    "Executor: gentle-ai-worker, single run; sdd-apply phase agent remains blocked by native discovery guard, fallback per session anchor",
+    "Diff: registry +44, mcp_security +11 (narrow UnknownToolError only), tests +130; single commit 510e263 <=400 lines",
+    "mypy now reports 298 source files (new file included), zero issues"
+  ]
+}
