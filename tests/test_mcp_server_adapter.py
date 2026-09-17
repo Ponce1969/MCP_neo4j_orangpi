@@ -1259,3 +1259,138 @@ def test_settings_mcp_enable_query_cypher_defaults_false() -> None:
         neo4j_password=SecretStr("secret"),
     )
     assert settings.mcp_enable_query_cypher is False
+
+
+def test_settings_mcp_require_scope_defaults_true() -> None:
+    """Scope is required by default: the MCP boundary is fail-closed."""
+    settings = Settings(
+        neo4j_uri="bolt://localhost",
+        neo4j_user="neo4j",
+        neo4j_password=SecretStr("secret"),
+    )
+    assert settings.mcp_require_scope is True
+
+
+# ── server-side per-tier budget (T-F.3, R4) ─────────────────────────────────
+
+
+async def test_concurrency_exhaustion_fails_low_tool_with_typed_error_and_log(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """A saturated concurrency budget rejects a LOW tool with a typed error."""
+    budget = _RaisingBudgetPort(
+        ConcurrencyLimitExceededError("saturated concurrency", tier="low")
+    )
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        require_scope=False,
+        budget_port=budget,
+    )
+
+    with pytest.raises(ConcurrencyLimitExceededError) as exc_info:
+        await adapter.find_entity("MCP")
+
+    assert exc_info.value.error_code == "concurrency_limit_exceeded"
+    assert budget.acquire_calls == [(ToolRiskTier.LOW, "find_entity")]
+    assert graph_query_port.calls == []
+    assert len(query_logger.entries) == 1
+    entry = query_logger.entries[0]
+    assert entry.tool_name == "find_entity"
+    assert entry.error == "saturated concurrency"
+    assert entry.result_count == 0
+
+
+async def test_rate_limit_exhaustion_fails_low_tool_with_typed_error_and_log(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """A saturated rate window rejects a LOW tool with a typed error."""
+    budget = _RaisingBudgetPort(
+        RateLimitExceededError("saturated rate window", tier="low")
+    )
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        require_scope=False,
+        budget_port=budget,
+    )
+
+    with pytest.raises(RateLimitExceededError) as exc_info:
+        await adapter.find_entity("MCP")
+
+    assert exc_info.value.error_code == "rate_limit_exceeded"
+    assert budget.acquire_calls == [(ToolRiskTier.LOW, "find_entity")]
+    assert len(query_logger.entries) == 1
+    assert query_logger.entries[0].error == "saturated rate window"
+
+
+async def test_budget_exhaustion_does_not_weaken_scope_enforcement(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """Missing scope is rejected before budget acquisition (no auth weakening)."""
+    budget = _RaisingBudgetPort(
+        ConcurrencyLimitExceededError("saturated concurrency", tier="low")
+    )
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        budget_port=budget,  # require_scope defaults True
+    )
+
+    with pytest.raises(MissingScopeError) as exc_info:
+        await adapter.find_entity("MCP")
+
+    assert exc_info.value.error_code == "missing_scope"
+    assert budget.acquire_calls == []
+    assert len(query_logger.entries) == 0
+
+
+async def test_query_cypher_enabled_acquires_high_tier_budget(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """An enabled query_cypher acquires (and releases) its HIGH-tier budget."""
+    budget = _RecordingBudgetPort()
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        enable_query_cypher=True,
+        budget_port=budget,
+    )
+    await adapter.query_cypher("question")
+
+    assert budget.acquire_calls == [(ToolRiskTier.HIGH, "query_cypher")]
+    assert len(budget.release_calls) == 1
+    assert budget.release_calls[0].tier is ToolRiskTier.HIGH
+
+
+async def test_query_cypher_disabled_does_not_acquire_budget(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """The disabled query_cypher path returns before budget acquisition."""
+    budget = _RecordingBudgetPort()
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        budget_port=budget,  # enable_query_cypher defaults False
+    )
+
+    result = await adapter.query_cypher("question")
+
+    assert result["error_code"] == "policy_violation"
+    assert budget.acquire_calls == []
+    assert budget.release_calls == []
