@@ -47,6 +47,18 @@ class InvalidScopeError(McpSecurityError):
     _error_code = "invalid_scope"
 
 
+class MissingScopeError(McpSecurityError):
+    """Raised when a scope-requiring request carries no scope source.
+
+    This is the fail-closed boundary for R3: structured and dynamic requests must
+    carry a validated ``ScopeContext``. A missing ``source_id`` is rejected here,
+    before any budget is acquired or any port is contacted, so an unscoped request
+    can never reach the graph.
+    """
+
+    _error_code = "missing_scope"
+
+
 class UnsupportedQueryError(McpSecurityError):
     """Raised when a dynamic query falls outside the allowlisted subset."""
 

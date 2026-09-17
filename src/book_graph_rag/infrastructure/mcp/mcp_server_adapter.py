@@ -11,13 +11,22 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
-from book_graph_rag.domain.mcp_security import InvalidScopeError, ScopeContext
+from book_graph_rag.domain.mcp_security import (
+    InvalidScopeError,
+    MissingScopeError,
+    ScopeContext,
+)
 from book_graph_rag.domain.models import (
     EntityType,
     QueryLogEntry,
     RelationshipType,
 )
+from book_graph_rag.domain.tool_tier_registry import tier_for
+from book_graph_rag.infrastructure.mcp_resource_budget_adapter import (
+    InMemoryResourceBudgetAdapter,
+)
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
+from book_graph_rag.ports.mcp_security_port import ResourceBudgetPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
 from book_graph_rag.ports.scope_resolver_port import ScopeResolverPort
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort
@@ -51,6 +60,8 @@ class McpServerAdapter:
         global_query_use_case: GlobalQueryUseCase | None = None,
         scope_resolver: ScopeResolverPort | None = None,
         enable_query_cypher: bool = False,
+        require_scope: bool = True,
+        budget_port: ResourceBudgetPort | None = None,
     ) -> None:
         self._graph_query_port = graph_query_port
         self._query_logger = query_logger
@@ -58,6 +69,12 @@ class McpServerAdapter:
         self._global_query_use_case = global_query_use_case
         self._scope_resolver = scope_resolver
         self._enable_query_cypher = enable_query_cypher
+        self._require_scope = require_scope
+        # Fail-closed budget wiring: a misconfigured adapter must never disable
+        # per-tier concurrency/rate limits, so the default is always-on.
+        self._budget_port: ResourceBudgetPort = (
+            budget_port if budget_port is not None else InMemoryResourceBudgetAdapter()
+        )
 
     def _now(self) -> datetime:
         """Return the current UTC time (extracted for testability)."""
@@ -69,9 +86,21 @@ class McpServerAdapter:
         book_ids: list[str] | None,
         entity_types: list[str] | None,
         relationship_types: list[str] | None,
+        *,
+        tool_name: str | None = None,
     ) -> ScopeContext | None:
-        """Resolve a validated ``ScopeContext`` when ``source_id`` is provided."""
+        """Resolve a validated ``ScopeContext``, failing closed without scope.
+
+        When ``require_scope`` is enabled (the default) a missing ``source_id`` is
+        rejected with ``MissingScopeError`` before any budget is acquired or any
+        port is contacted. Legacy callers opt out explicitly via
+        ``require_scope=False``.
+        """
         if source_id is None:
+            if self._require_scope:
+                raise MissingScopeError(
+                    f"scope source_id is required for tool {tool_name!r}"
+                )
             return None
         if self._scope_resolver is None:
             raise InvalidScopeError(
@@ -122,7 +151,11 @@ class McpServerAdapter:
     ) -> dict[str, Any]:
         """Find entities by name and optional type."""
         scope = self._resolve_scope(
-            source_id, book_ids, entity_types, relationship_types
+            source_id,
+            book_ids,
+            entity_types,
+            relationship_types,
+            tool_name="find_entity",
         )
         params: dict[str, Any] = {
             "name": name,
@@ -132,9 +165,12 @@ class McpServerAdapter:
             params["source_id"] = source_id
         start = self._now()
         try:
-            entities = await self._graph_query_port.find_entity(
-                name, entity_type, scope=scope
-            )
+            async with self._budget_port.budget(
+                tier_for("find_entity"), key="find_entity"
+            ):
+                entities = await self._graph_query_port.find_entity(
+                    name, entity_type, scope=scope
+                )
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -176,7 +212,11 @@ class McpServerAdapter:
     ) -> dict[str, Any]:
         """Traverse outgoing relationships up to ``depth`` levels (clamped 0-3)."""
         scope = self._resolve_scope(
-            scope_source_id, book_ids, entity_types, relationship_types
+            scope_source_id,
+            book_ids,
+            entity_types,
+            relationship_types,
+            tool_name="traverse_relationships",
         )
         clamped_depth = max(0, min(depth, 3))
         params: dict[str, Any] = {
@@ -188,9 +228,12 @@ class McpServerAdapter:
             params["scope_source_id"] = scope_source_id
         start = self._now()
         try:
-            entities, relationships = await self._graph_query_port.traverse_relationships(
-                source_id, rel_type, clamped_depth, scope=scope
-            )
+            async with self._budget_port.budget(
+                tier_for("traverse_relationships"), key="traverse_relationships"
+            ):
+                entities, relationships = await self._graph_query_port.traverse_relationships(
+                    source_id, rel_type, clamped_depth, scope=scope
+                )
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -230,14 +273,23 @@ class McpServerAdapter:
     ) -> dict[str, Any]:
         """Full-text search over chunk nodes."""
         scope = self._resolve_scope(
-            source_id, book_ids, entity_types, relationship_types
+            source_id,
+            book_ids,
+            entity_types,
+            relationship_types,
+            tool_name="search_chunks",
         )
         params: dict[str, Any] = {"query": query, "limit": limit}
         if source_id is not None:
             params["source_id"] = source_id
         start = self._now()
         try:
-            chunks = await self._graph_query_port.search_chunks(query, limit, scope=scope)
+            async with self._budget_port.budget(
+                tier_for("search_chunks"), key="search_chunks"
+            ):
+                chunks = await self._graph_query_port.search_chunks(
+                    query, limit, scope=scope
+                )
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -274,16 +326,23 @@ class McpServerAdapter:
     ) -> dict[str, Any]:
         """Cursor-based pagination over entities."""
         scope = self._resolve_scope(
-            source_id, book_ids, entity_types, relationship_types
+            source_id,
+            book_ids,
+            entity_types,
+            relationship_types,
+            tool_name="list_entities",
         )
         params: dict[str, Any] = {"cursor": cursor, "page_size": page_size}
         if source_id is not None:
             params["source_id"] = source_id
         start = self._now()
         try:
-            entities, next_cursor = await self._graph_query_port.list_entities(
-                cursor, page_size, scope=scope
-            )
+            async with self._budget_port.budget(
+                tier_for("list_entities"), key="list_entities"
+            ):
+                entities, next_cursor = await self._graph_query_port.list_entities(
+                    cursor, page_size, scope=scope
+                )
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -322,14 +381,23 @@ class McpServerAdapter:
     ) -> dict[str, Any]:
         """Return the number of entities, optionally filtered by type."""
         scope = self._resolve_scope(
-            source_id, book_ids, entity_types, relationship_types
+            source_id,
+            book_ids,
+            entity_types,
+            relationship_types,
+            tool_name="count_entities",
         )
         params: dict[str, Any] = {"entity_type": entity_type}
         if source_id is not None:
             params["source_id"] = source_id
         start = self._now()
         try:
-            count = await self._graph_query_port.count_entities(entity_type, scope=scope)
+            async with self._budget_port.budget(
+                tier_for("count_entities"), key="count_entities"
+            ):
+                count = await self._graph_query_port.count_entities(
+                    entity_type, scope=scope
+                )
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -367,7 +435,11 @@ class McpServerAdapter:
     ) -> dict[str, Any]:
         """Unified RAG search: chunks + entity + optional relationships."""
         scope = self._resolve_scope(
-            source_id, book_ids, entity_types, relationship_types
+            source_id,
+            book_ids,
+            entity_types,
+            relationship_types,
+            tool_name="search_rag",
         )
         params: dict[str, Any] = {
             "query": query,
@@ -384,30 +456,54 @@ class McpServerAdapter:
         entity_not_found = False
         relationships: list[dict[str, Any]] = []
 
-        chunk_task = self._graph_query_port.search_chunks(query, limit, scope=scope)
-        entity_task = self._graph_query_port.find_entity(query, None, scope=scope)
-        chunk_result, entity_result = await asyncio.gather(
-            chunk_task, entity_task, return_exceptions=True
-        )
+        try:
+            async with self._budget_port.budget(
+                tier_for("search_rag"), key="search_rag"
+            ):
+                chunk_task = self._graph_query_port.search_chunks(
+                    query, limit, scope=scope
+                )
+                entity_task = self._graph_query_port.find_entity(
+                    query, None, scope=scope
+                )
+                chunk_result, entity_result = await asyncio.gather(
+                    chunk_task, entity_task, return_exceptions=True
+                )
 
-        if isinstance(chunk_result, Exception):
-            errors.append(str(chunk_result))
-        else:
-            chunks = chunk_result
+                if isinstance(chunk_result, Exception):
+                    errors.append(str(chunk_result))
+                else:
+                    chunks = chunk_result
 
-        if isinstance(entity_result, Exception):
-            errors.append(str(entity_result))
-        else:
-            entities = [entity.model_dump(mode="json") for entity in entity_result]
-            entity_not_found = len(entity_result) == 0
-            if entity_result and include_relations:
-                try:
-                    _, rels = await self._graph_query_port.traverse_relationships(
-                        entity_result[0].entity.id, None, 1, scope=scope
-                    )
-                    relationships = [rel.model_dump(mode="json") for rel in rels]
-                except Exception as exc:  # pragma: no cover - defensive only
-                    errors.append(str(exc))
+                if isinstance(entity_result, Exception):
+                    errors.append(str(entity_result))
+                else:
+                    entities = [
+                        entity.model_dump(mode="json") for entity in entity_result
+                    ]
+                    entity_not_found = len(entity_result) == 0
+                    if entity_result and include_relations:
+                        try:
+                            _, rels = await self._graph_query_port.traverse_relationships(
+                                entity_result[0].entity.id, None, 1, scope=scope
+                            )
+                            relationships = [
+                                rel.model_dump(mode="json") for rel in rels
+                            ]
+                        except Exception as exc:  # pragma: no cover - defensive only
+                            errors.append(str(exc))
+        except Exception as exc:
+            duration_ms = (self._now() - start).total_seconds() * 1000
+            await self._log(
+                tool_name="search_rag",
+                query_type="rag",
+                query_params=params,
+                result_count=0,
+                entity_not_found=False,
+                duration_ms=duration_ms,
+                error=str(exc),
+            )
+            raise
 
         total_results = len(entities) + len(relationships) + len(chunks)
         duration_ms = (self._now() - start).total_seconds() * 1000
@@ -460,7 +556,10 @@ class McpServerAdapter:
             }
 
         try:
-            result = await self._text2cypher_port.generate_and_run(question)
+            async with self._budget_port.budget(
+                tier_for("query_cypher"), key="query_cypher"
+            ):
+                result = await self._text2cypher_port.generate_and_run(question)
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -512,17 +611,39 @@ class McpServerAdapter:
             raise ValueError(
                 f"detail_level must be between 0 and 3, got {detail_level}"
             )
+
+        # Enforce the fail-closed scope boundary before any LLM-mediated call.
+        # The community read path is not scope-aware in this slice, but the
+        # request must still carry a validated scope.
+        self._resolve_scope(
+            source_id,
+            book_ids,
+            entity_types,
+            relationship_types,
+            tool_name="ask_global",
+        )
+
         if self._global_query_use_case is None:
             raise RuntimeError("GlobalQueryUseCase is not configured")
 
-        # Resolve scope for logging/validation, but the community read path is
-        # not scope-aware in this slice.
-        if source_id is not None:
-            self._resolve_scope(
-                source_id, book_ids, entity_types, relationship_types
+        start = self._now()
+        try:
+            async with self._budget_port.budget(
+                tier_for("ask_global"), key="ask_global"
+            ):
+                return await self._global_query_use_case.ask(question, detail_level)
+        except Exception as exc:
+            duration_ms = (self._now() - start).total_seconds() * 1000
+            await self._log(
+                tool_name="ask_global",
+                query_type="global",
+                query_params={"question": question, "detail_level": detail_level},
+                result_count=0,
+                entity_not_found=False,
+                duration_ms=duration_ms,
+                error=str(exc),
             )
-
-        return await self._global_query_use_case.ask(question, detail_level)
+            raise
 
     def create_server(self, host: str = "0.0.0.0", port: int = 8003) -> FastMCP:
         """Return a configured FastMCP instance with the 8 tools registered."""

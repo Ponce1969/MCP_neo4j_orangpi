@@ -120,6 +120,10 @@ class Settings(BaseSettings):
     # It must be explicitly enabled; when disabled the MCP boundary returns a
     # typed policy_violation without contacting the LLM or the graph.
     mcp_enable_query_cypher: bool = False
+    # Fail-closed scope boundary (R3): every structured or LLM-mediated request
+    # must carry a validated ScopeContext. Legacy unscoped callers opt out by
+    # setting this to False explicitly.
+    mcp_require_scope: bool = True
 
     # ── Text2Cypher fallback (REQ-GR.4) ───────────────────────────────────
     text2cypher_timeout: int = 10  # seconds, whole pipeline budget

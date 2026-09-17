@@ -17,6 +17,9 @@ from book_graph_rag.infrastructure.logging.json_query_logger_adapter import (
     JsonFileQueryLoggerAdapter,
 )
 from book_graph_rag.infrastructure.mcp.mcp_server_adapter import McpServerAdapter
+from book_graph_rag.infrastructure.mcp_resource_budget_adapter import (
+    InMemoryResourceBudgetAdapter,
+)
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.infrastructure.text2cypher_adapter import Text2CypherAdapter
 
@@ -54,6 +57,8 @@ async def _run_server(settings: Settings) -> None:
                     global_query_use_case=global_query_use_case,
                     scope_resolver=scope_resolver,
                     enable_query_cypher=settings.mcp_enable_query_cypher,
+                    require_scope=settings.mcp_require_scope,
+                    budget_port=InMemoryResourceBudgetAdapter(),
                 )
                 click.echo(f"MCP server starting on port {settings.mcp_port}")
                 await server_adapter.run_sse(host="0.0.0.0", port=settings.mcp_port)
