@@ -1,0 +1,70 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-E.3 mutation-resistant policy matrix and query_cypher disabled path",
+  "budget_max_changed_lines": 950,
+  "changed_lines": 425,
+  "commits": [
+    "75028b6",
+    "3e93040",
+    "c8b4027"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "result": "test_settings_mcp_enable_query_cypher_defaults_false RED (AttributeError: no attribute 'mcp_enable_query_cypher'); test_text2cypher_rejects_missing_scope_proof RED (DID NOT RAISE StructuralPolicyViolationError); test_text2cypher_rejects_dynamic_label RED (DID NOT RAISE); test_text2cypher_wires_validator_before_explain_and_execute RED (TypeError: unexpected kwarg 'validator')"
+    },
+    "green": {
+      "result": "19 mutation-matrix tests + 3 wiring tests + 2 disabled-path/settings tests GREEN; full unit suite 1281 passed after orchestrator applied the 4-line fake-adapter kwarg fix in tests/test_mcp_server_main.py"
+    },
+    "triangulate": "mutation matrix data-driven over 14 canonical accepted queries covering every parse path; deterministic syntactic mutations (write keyword, CALL, LOAD CSV, FOREACH, dynamic label, literal in property map, literal in WHERE, nested AND/OR, function call in WHERE, unbounded [*], bare * depth, unknown WHERE variable) each assert the expected rejection reason fragment; scope-stripping fail-closed under require_scope_proof=True",
+    "refactor": "regex _ensure_read_only retained as diagnostic prefilter only; structural validator is the decision"
+  },
+  "commands": [
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy .",
+      "exit_code": 0,
+      "result": "Success: no issues found in 296 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "Arquitectura Hexagonal validada correctamente"
+    },
+    {
+      "command": "uv run pytest tests/test_structural_cypher_policy.py tests/test_structural_cypher_policy_mutations.py tests/test_text2cypher_adapter.py tests/test_mcp_server_adapter.py -q",
+      "exit_code": 0,
+      "result": "187 passed (focused WU3 run)"
+    },
+    {
+      "command": "uv run pytest tests/ -m 'not neo4j_integration' -q",
+      "exit_code": 0,
+      "result": "1281 passed, 62 deselected (full unit suite)"
+    }
+  ],
+  "evidence_goal_status": {
+    "mutation_matrix": "19 data-driven tests prove every adversarial mutation of accepted queries fails closed with the expected reason fragment; scope-stripping fails closed under require_scope_proof=True",
+    "wired_validator": "Text2CypherAdapter injects StructuralCypherValidator (defaults to StructuralCypherPolicy, fail-closed); validate(cypher, require_scope_proof=True) + require_explain(cypher, explain_applied=True) run immediately after generation, before EXPLAIN/execute",
+    "disabled_path": "Settings.mcp_enable_query_cypher defaults False; mcp_server_main passes it through; disabled branch never contacts the text2cypher port or the graph (exploding port double test) and returns typed policy_violation",
+    "prefilter_only": "regex _WRITE_KEYWORDS_RE remains a diagnostic prefilter; the structural allowlist is the security decision (spec R2)",
+    "production_untouched": "No connection to bolt://100.106.85.109:7687; testcontainers integration not run this WU (unit + wiring priority per plan)"
+  },
+  "followups": [
+    "tests/test_mcp_server_main.py fake adapters updated with enable_query_cypher kwarg by the orchestrator (outside worker surfaces) — 10/10 passing",
+    "Integration (testcontainers) for the wired dynamic path remains for T-I.1 full matrix — not run in WU3",
+    "Confirm WHERE operator set (=, <>, <, <=, >, >=, IN) matches maintainer intent",
+    "Pre-existing dirty file .windsurf/workflows/sdd-new.md untouched"
+  ],
+  "notes": [
+    "Executor: gentle-ai-worker, single run without stalls; sdd-apply phase agent remains blocked by native discovery guard, fallback used per session anchor",
+    "Worker surfaced 5 failures in tests/test_mcp_server_main.py outside its allowed surfaces (fake __init__ missing the new kwarg); orchestrator applied the mechanical fix, then full suite green",
+    "Pre-existing mypy func-returns-value in tests/test_structural_cypher_policy.py fixed in the same WU (file was in allowed surfaces)",
+    "Diff split into 3 commits <=400 lines each: mutation matrix (216), validator wiring + fixtures (118/29), config/mcp flag + tests (55/7)"
+  ]
+}
