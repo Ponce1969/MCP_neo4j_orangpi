@@ -233,7 +233,7 @@ def test_query_log_entry_requires_all_fields() -> None:
         timestamp=now,
         tool_name="find_entity",
         query_type="entity",
-        query_params={"name": "FastMCP"},
+        query_metadata={"name_set": True, "param_count": 1},
         result_count=1,
         zero_results=False,
         entity_not_found=False,
@@ -243,12 +243,14 @@ def test_query_log_entry_requires_all_fields() -> None:
     assert entry.timestamp == now
     assert entry.tool_name == "find_entity"
     assert entry.query_type == "entity"
-    assert entry.query_params == {"name": "FastMCP"}
+    assert entry.query_metadata == {"name_set": True, "param_count": 1}
     assert entry.result_count == 1
     assert entry.zero_results is False
     assert entry.entity_not_found is False
     assert entry.duration_ms == 45.2
-    assert entry.error is None
+    assert entry.error_code is None
+    assert entry.query_fingerprint is None
+    assert entry.prompt_fingerprint is None
 
 
 def test_query_log_entry_flags_are_boolean() -> None:
@@ -257,7 +259,7 @@ def test_query_log_entry_flags_are_boolean() -> None:
         timestamp=datetime.now(tz=UTC),
         tool_name="find_entity",
         query_type="entity",
-        query_params={"name": "Missing"},
+        query_metadata={"name_set": True, "param_count": 1},
         result_count=0,
         zero_results=True,
         entity_not_found=True,
@@ -277,36 +279,36 @@ def test_query_log_entry_serializes_to_iso_timestamp() -> None:
         timestamp=now,
         tool_name="search_chunks",
         query_type="search",
-        query_params={"query": "MCP", "limit": 10},
+        query_metadata={"query_set": True, "limit": 10, "param_count": 2},
         result_count=3,
         zero_results=False,
         entity_not_found=False,
         duration_ms=33.0,
-        error=None,
+        error_code=None,
     )
 
     payload = entry.model_dump(mode="json")
 
     assert payload["timestamp"] == "2026-06-22T14:30:00Z"
     assert payload["tool_name"] == "search_chunks"
-    assert payload["query_params"] == {"query": "MCP", "limit": 10}
+    assert payload["query_metadata"] == {"query_set": True, "limit": 10, "param_count": 2}
     assert payload["result_count"] == 3
-    assert payload["error"] is None
+    assert payload["error_code"] is None
 
 
-def test_query_log_entry_error_is_optional_string() -> None:
-    """error accepts a string message and serializes it."""
+def test_query_log_entry_error_code_is_optional() -> None:
+    """error_code accepts a stable code and serializes it (R5)."""
     entry = QueryLogEntry(
         timestamp=datetime.now(tz=UTC),
         tool_name="search_chunks",
         query_type="search",
-        query_params={"query": "MCP"},
+        query_metadata={"query_set": True, "param_count": 1},
         result_count=0,
         zero_results=True,
         entity_not_found=False,
         duration_ms=0.0,
-        error="Neo4j connection timeout",
+        error_code="TimeoutError",
     )
 
-    assert entry.error == "Neo4j connection timeout"
-    assert entry.model_dump(mode="json")["error"] == "Neo4j connection timeout"
+    assert entry.error_code == "TimeoutError"
+    assert entry.model_dump(mode="json")["error_code"] == "TimeoutError"

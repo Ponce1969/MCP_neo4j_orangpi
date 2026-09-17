@@ -67,7 +67,7 @@ async def test_fake_query_logger_port_logs_entry() -> None:
         timestamp=datetime.now(tz=UTC),
         tool_name="find_entity",
         query_type="entity",
-        query_params={"name": "MCP"},
+        query_metadata={"name_set": True, "param_count": 1},
         result_count=0,
         zero_results=True,
         entity_not_found=True,
