@@ -9,15 +9,21 @@ import pytest
 from pydantic import SecretStr
 
 from book_graph_rag.config import Settings
+from book_graph_rag.domain.mcp_security import StructuralPolicyViolationError
 from book_graph_rag.domain.models import (
     CypherGenerationError,
     Text2CypherTimeoutError,
     UnsafeCypherQueryError,
 )
+from book_graph_rag.infrastructure.structural_cypher_policy import StructuralCypherPolicy
 from book_graph_rag.infrastructure.text2cypher_adapter import Text2CypherAdapter
 from book_graph_rag.ports.cypher_generator_port import (
     CypherFailureContext,
     CypherGeneratorPort,
+)
+from book_graph_rag.ports.mcp_security_port import (
+    StructuralCypherValidator,
+    StructuralValidationResult,
 )
 from book_graph_rag.ports.text2cypher_port import (
     Text2CypherPort,
@@ -135,7 +141,10 @@ class _FakeCypherGenerator(CypherGeneratorPort):
     """Records calls and returns configurable Cypher strings."""
 
     def __init__(self, cyphers: list[str] | None = None) -> None:
-        self._cyphers = list(cyphers or ["MATCH (n) RETURN n LIMIT 100"])
+        self._cyphers = list(
+            cyphers
+            or ["MATCH (c:Chunk) WHERE c.book_id = $book_id RETURN c LIMIT 100"]
+        )
         self.calls: list[tuple[str, str, CypherFailureContext | None]] = []
 
     async def generate_cypher(
@@ -169,6 +178,28 @@ class _FakeExecutor:
         return self.rows
 
 
+class _SpyValidator(StructuralCypherValidator):
+    """Recording validator that delegates to the real structural policy."""
+
+    def __init__(self) -> None:
+        self._inner = StructuralCypherPolicy()
+        self.validate_calls: list[tuple[str, bool]] = []
+        self.require_explain_calls: list[tuple[str, bool]] = []
+
+    def validate(
+        self,
+        query: str,
+        *,
+        require_scope_proof: bool = False,
+    ) -> StructuralValidationResult:
+        self.validate_calls.append((query, require_scope_proof))
+        return self._inner.validate(query, require_scope_proof=require_scope_proof)
+
+    def require_explain(self, query: str, *, explain_applied: bool) -> None:
+        self.require_explain_calls.append((query, explain_applied))
+        self._inner.require_explain(query, explain_applied=explain_applied)
+
+
 @pytest.fixture
 def settings() -> Settings:
     return Settings.model_validate(
@@ -188,7 +219,9 @@ async def test_text2cypher_happy_path_returns_rows_and_apoc_schema(
     settings: Settings,
 ) -> None:
     """APOC schema succeeds, cypher passes EXPLAIN, executes, returns rows."""
-    generator = _FakeCypherGenerator(["MATCH (e:Entity) RETURN e LIMIT 100"])
+    generator = _FakeCypherGenerator(
+        ["MATCH (e:Entity) WHERE e.id = $id RETURN e LIMIT 100"]
+    )
     executor = _FakeExecutor()
     executor.apoc_result = [
         {"label": "Entity", "relationships": ["RELATED"], "property": "name"}
@@ -199,7 +232,7 @@ async def test_text2cypher_happy_path_returns_rows_and_apoc_schema(
     result = await adapter.generate_and_run("find entities")
 
     assert result.question == "find entities"
-    assert result.cypher == "MATCH (e:Entity) RETURN e LIMIT 100"
+    assert result.cypher == "MATCH (e:Entity) WHERE e.id = $id RETURN e LIMIT 100"
     assert result.rows == [{"e": {"name": "MCP"}}]
     assert result.schema_source == "apoc"
     assert result.retries == 0
@@ -209,7 +242,9 @@ async def test_text2cypher_apoc_failure_falls_back_to_hardcoded_schema(
     settings: Settings,
 ) -> None:
     """When APOC raises, the adapter uses the hardcoded schema."""
-    generator = _FakeCypherGenerator(["MATCH (c:Chunk) RETURN c LIMIT 100"])
+    generator = _FakeCypherGenerator(
+        ["MATCH (c:Chunk) WHERE c.book_id = $book_id RETURN c LIMIT 100"]
+    )
     executor = _FakeExecutor()
     executor.apoc_result = RuntimeError("APOC unavailable")
     executor.rows = [{"c": {"text": "chunk"}}]
@@ -257,12 +292,8 @@ async def test_text2cypher_self_heals_on_explain_failure(
     settings: Settings,
 ) -> None:
     """First EXPLAIN fails, second succeeds; adapter retries once."""
-    generator = _FakeCypherGenerator(
-        [
-            "MATCH (e:Entitty) RETURN e LIMIT 100",
-            "MATCH (e:Entity) RETURN e LIMIT 100",
-        ]
-    )
+    cypher = "MATCH (e:Entity) WHERE e.id = $id RETURN e LIMIT 100"
+    generator = _FakeCypherGenerator([cypher, cypher])
     executor = _FakeExecutor()
     executor.explain_should_fail = [RuntimeError("label not found")]
     executor.rows = [{"e": {"name": "Agent"}}]
@@ -270,12 +301,12 @@ async def test_text2cypher_self_heals_on_explain_failure(
     adapter = Text2CypherAdapter(executor, generator, settings)
     result = await adapter.generate_and_run("find entities")
 
-    assert result.cypher == "MATCH (e:Entity) RETURN e LIMIT 100"
+    assert result.cypher == cypher
     assert result.retries == 1
     assert len(executor.explain_calls) == 2
-    assert executor.execute_read_calls[-1] == "MATCH (e:Entity) RETURN e LIMIT 100"
+    assert executor.execute_read_calls[-1] == cypher
     assert generator.calls[1][2] == CypherFailureContext(
-        failed_cypher="MATCH (e:Entitty) RETURN e LIMIT 100",
+        failed_cypher=cypher,
         error_message="label not found",
     )
 
@@ -284,13 +315,8 @@ async def test_text2cypher_exhausted_retries_raises_generation_error(
     settings: Settings,
 ) -> None:
     """Two EXPLAIN failures in a row result in CypherGenerationError."""
-    generator = _FakeCypherGenerator(
-        [
-            "MATCH (e:Entitty) RETURN e LIMIT 100",
-            "MATCH (e:Entitty) RETURN e LIMIT 100",
-            "MATCH (e:Entitty) RETURN e LIMIT 100",
-        ]
-    )
+    cypher = "MATCH (e:Entity) WHERE e.id = $id RETURN e LIMIT 100"
+    generator = _FakeCypherGenerator([cypher, cypher, cypher])
     executor = _FakeExecutor()
     executor.explain_should_fail = [
         RuntimeError("label not found"),
@@ -304,7 +330,7 @@ async def test_text2cypher_exhausted_retries_raises_generation_error(
         await adapter.generate_and_run("find entities")
 
     assert len(executor.explain_calls) == 3
-    assert "MATCH (e:Entitty) RETURN e LIMIT 100" not in executor.execute_read_calls
+    assert cypher not in executor.execute_read_calls
 
 
 async def test_text2cypher_timeout_raises_domain_error(
@@ -338,13 +364,8 @@ async def test_text2cypher_result_returns_last_cypher_on_exhausted_retries(
     settings: Settings,
 ) -> None:
     """On exhaustion the result carries the last generated cypher for debugging."""
-    generator = _FakeCypherGenerator(
-        [
-            "MATCH (e:Entitty) RETURN e LIMIT 100",
-            "MATCH (e:Entitty) RETURN e LIMIT 100",
-            "MATCH (e:Entitty) RETURN e LIMIT 100",
-        ]
-    )
+    cypher = "MATCH (e:Entity) WHERE e.id = $id RETURN e LIMIT 100"
+    generator = _FakeCypherGenerator([cypher, cypher, cypher])
     executor = _FakeExecutor()
     executor.explain_should_fail = [
         RuntimeError("first"),
@@ -357,4 +378,59 @@ async def test_text2cypher_result_returns_last_cypher_on_exhausted_retries(
     with pytest.raises(CypherGenerationError) as exc_info:
         await adapter.generate_and_run("find entities")
 
-    assert "MATCH (e:Entitty) RETURN e LIMIT 100" in str(exc_info.value)
+    assert cypher in str(exc_info.value)
+
+
+# ── Structural validation wiring (T-E.3 part 2) ──────────────────────────────
+
+
+async def test_text2cypher_rejects_missing_scope_proof(
+    settings: Settings,
+) -> None:
+    """Generated output without a WHERE scope predicate fails closed."""
+    generator = _FakeCypherGenerator(["MATCH (c:Chunk) RETURN c LIMIT 100"])
+    executor = _FakeExecutor()
+
+    adapter = Text2CypherAdapter(executor, generator, settings)
+
+    with pytest.raises(StructuralPolicyViolationError, match="scope"):
+        await adapter.generate_and_run("find chunks")
+
+    assert executor.explain_calls == []
+    assert "MATCH (c:Chunk) RETURN c LIMIT 100" not in executor.execute_read_calls
+
+
+async def test_text2cypher_rejects_dynamic_label(
+    settings: Settings,
+) -> None:
+    """Generated output with a dynamic label is rejected before EXPLAIN/execute."""
+    generator = _FakeCypherGenerator(["MATCH (n:$label) RETURN n"])
+    executor = _FakeExecutor()
+
+    adapter = Text2CypherAdapter(executor, generator, settings)
+
+    with pytest.raises(StructuralPolicyViolationError, match="dynamic label"):
+        await adapter.generate_and_run("find anything")
+
+    assert executor.explain_calls == []
+    assert "MATCH (n:$label) RETURN n" not in executor.execute_read_calls
+
+
+async def test_text2cypher_wires_validator_before_explain_and_execute(
+    settings: Settings,
+) -> None:
+    """Structural validation and the EXPLAIN gate run before execution."""
+    cypher = "MATCH (c:Chunk) WHERE c.book_id = $book_id RETURN c LIMIT $limit"
+    validator = _SpyValidator()
+    generator = _FakeCypherGenerator([cypher])
+    executor = _FakeExecutor()
+    executor.rows = [{"c": {"book_id": "ns:book"}}]
+
+    adapter = Text2CypherAdapter(executor, generator, settings, validator=validator)
+    result = await adapter.generate_and_run("find chunks")
+
+    assert validator.validate_calls == [(cypher, True)]
+    assert validator.require_explain_calls == [(cypher, True)]
+    assert executor.explain_calls == [cypher]
+    assert executor.execute_read_calls[-1] == cypher
+    assert result.rows == [{"c": {"book_id": "ns:book"}}]

@@ -13,10 +13,12 @@ from book_graph_rag.domain.models import (
     Text2CypherTimeoutError,
     UnsafeCypherQueryError,
 )
+from book_graph_rag.infrastructure.structural_cypher_policy import StructuralCypherPolicy
 from book_graph_rag.ports.cypher_generator_port import (
     CypherFailureContext,
     CypherGeneratorPort,
 )
+from book_graph_rag.ports.mcp_security_port import StructuralCypherValidator
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort, Text2CypherResult
 
 _HARDCODED_SCHEMA = """\
@@ -71,10 +73,14 @@ class Text2CypherAdapter(Text2CypherPort):
         executor: _CypherExecutor,
         generator: CypherGeneratorPort,
         settings: Settings,
+        validator: StructuralCypherValidator | None = None,
     ) -> None:
         self._executor = executor
         self._generator = generator
         self._timeout = settings.text2cypher_timeout
+        # The structural allowlist is the security decision for the dynamic path;
+        # it defaults to the fail-closed policy when no validator is injected.
+        self._validator = validator or StructuralCypherPolicy()
 
     async def generate_and_run(self, question: str) -> Text2CypherResult:
         """Run the full pipeline and return the result."""
@@ -142,7 +148,14 @@ class Text2CypherAdapter(Text2CypherPort):
 
         while retries <= _MAX_RETRIES:
             cypher = await self._generator.generate_cypher(schema, question, failure)
+            # Diagnostic prefilter (regex denylist) — NOT the security decision.
             self._ensure_read_only(cypher)
+            # Structural allowlist is the security decision: the query must be
+            # provable inside the approved subset with a scope predicate.
+            self._validator.validate(cypher, require_scope_proof=True)
+            # The EXPLAIN gate is armed for this path; the real EXPLAIN below
+            # satisfies it immediately after validation.
+            self._validator.require_explain(cypher, explain_applied=True)
 
             try:
                 await self._executor.explain(cypher)
