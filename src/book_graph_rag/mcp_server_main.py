@@ -53,6 +53,7 @@ async def _run_server(settings: Settings) -> None:
                     text2cypher_adapter,
                     global_query_use_case=global_query_use_case,
                     scope_resolver=scope_resolver,
+                    enable_query_cypher=settings.mcp_enable_query_cypher,
                 )
                 click.echo(f"MCP server starting on port {settings.mcp_port}")
                 await server_adapter.run_sse(host="0.0.0.0", port=settings.mcp_port)

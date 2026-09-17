@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 from mcp.server.fastmcp import FastMCP
+from pydantic import SecretStr
 
+from book_graph_rag.config import Settings
 from book_graph_rag.domain.mcp_security import InvalidScopeError, ScopeContext
 from book_graph_rag.domain.models import (
     Entity,
@@ -164,6 +166,15 @@ class _FakeText2CypherPort(Text2CypherPort):
     async def generate_and_run(self, question: str) -> Text2CypherResult:
         self.calls.append(question)
         return self._result
+
+
+class _ExplodingText2CypherPort(Text2CypherPort):
+    """Fails the test if ``generate_and_run`` is ever invoked."""
+
+    async def generate_and_run(self, question: str) -> Text2CypherResult:
+        raise AssertionError(
+            "query_cypher must never contact the text2cypher port when disabled"
+        )
 
 
 class _FakeScopeResolverPort(ScopeResolverPort):
@@ -944,3 +955,30 @@ async def test_query_cypher_disabled_by_default_does_not_call_text2cypher(
     await adapter.query_cypher("what patterns mitigate security risks?")
 
     assert text2cypher_port.calls == []
+
+
+async def test_query_cypher_disabled_never_contacts_text2cypher_or_graph(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+) -> None:
+    """Disabled path uses an exploding port double and must never touch it."""
+    exploding_port = _ExplodingText2CypherPort()
+    adapter = McpServerAdapter(graph_query_port, query_logger, exploding_port)
+
+    result = await adapter.query_cypher("what patterns mitigate security risks?")
+
+    assert result["error_code"] == "policy_violation"
+    assert result["cypher"] is None
+    assert result["rows"] == []
+    assert graph_query_port.calls == []
+    assert len(query_logger.entries) == 1
+
+
+def test_settings_mcp_enable_query_cypher_defaults_false() -> None:
+    """The dynamic-query MCP tool is fail-closed by default."""
+    settings = Settings(
+        neo4j_uri="bolt://localhost",
+        neo4j_user="neo4j",
+        neo4j_password=SecretStr("secret"),
+    )
+    assert settings.mcp_enable_query_cypher is False

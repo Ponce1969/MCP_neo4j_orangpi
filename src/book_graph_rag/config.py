@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     mcp_port: int = 8003
     mcp_log_path: Path = Path("logs/mcp_queries.jsonl")
     mcp_log_retention_days: int = 7
+    # Dynamic text-to-Cypher tool (query_cypher) is fail-closed by default.
+    # It must be explicitly enabled; when disabled the MCP boundary returns a
+    # typed policy_violation without contacting the LLM or the graph.
+    mcp_enable_query_cypher: bool = False
 
     # ── Text2Cypher fallback (REQ-GR.4) ───────────────────────────────────
     text2cypher_timeout: int = 10  # seconds, whole pipeline budget

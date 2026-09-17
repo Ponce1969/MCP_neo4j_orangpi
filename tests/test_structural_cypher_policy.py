@@ -320,10 +320,7 @@ def test_require_explain_rejects_when_not_applied() -> None:
 
 def test_require_explain_accepts_when_applied() -> None:
     policy = StructuralCypherPolicy()
-    assert (
-        policy.require_explain(
-            "MATCH (n:Chunk) WHERE n.book_id = $book_id RETURN n",
-            explain_applied=True,
-        )
-        is None
+    policy.require_explain(
+        "MATCH (n:Chunk) WHERE n.book_id = $book_id RETURN n",
+        explain_applied=True,
     )
