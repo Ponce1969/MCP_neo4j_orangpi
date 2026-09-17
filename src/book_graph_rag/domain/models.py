@@ -18,6 +18,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from book_graph_rag.domain.mcp_security import QueryFingerprint
+
 # ── Editorial entities (inherited book structure, frozen) ────────────────────
 
 
@@ -272,24 +274,28 @@ class GraphQueryResult(BaseModel):
 
 
 class QueryLogEntry(BaseModel):
-    """Structured log entry for an MCP tool execution.
+    """Metadata-only structured log entry for an MCP tool execution (R5).
 
-    Captures the signals needed for 07.2 gap analysis: which tool was called,
-    what kind of query it represents, the input parameters, how many results
-    were returned, whether the query produced zero results or a missing entity,
-    how long it took, and any error that occurred.
+    The persisted schema never carries raw query, prompt, or error text.
+    Free-text inputs are replaced by keyed HMAC-SHA256 fingerprints
+    (``query_fingerprint`` and ``prompt_fingerprint``) and failures are reduced
+    to a stable ``error_code``. ``query_metadata`` holds only non-sensitive
+    scalar metadata (presence flags and configuration knobs), never the values
+    of the actual query.
     """
 
     model_config = ConfigDict()
     timestamp: datetime
     tool_name: str
     query_type: str
-    query_params: dict[str, Any]
+    query_metadata: dict[str, str | int | float | bool | None]
     result_count: int
     zero_results: bool
     entity_not_found: bool
     duration_ms: float
-    error: str | None = None
+    error_code: str | None = None
+    query_fingerprint: QueryFingerprint | None = None
+    prompt_fingerprint: QueryFingerprint | None = None
 
 
 # ── Community summary models (GraphRAG global-query layer) ───────────────────

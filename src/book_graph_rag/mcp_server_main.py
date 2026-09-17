@@ -59,6 +59,8 @@ async def _run_server(settings: Settings) -> None:
                     enable_query_cypher=settings.mcp_enable_query_cypher,
                     require_scope=settings.mcp_require_scope,
                     budget_port=InMemoryResourceBudgetAdapter(),
+                    hmac_key_id=settings.mcp_hmac_key_id,
+                    hmac_key=settings.mcp_hmac_key,
                 )
                 click.echo(f"MCP server starting on port {settings.mcp_port}")
                 await server_adapter.run_sse(host="0.0.0.0", port=settings.mcp_port)

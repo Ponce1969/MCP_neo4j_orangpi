@@ -116,6 +116,11 @@ class Settings(BaseSettings):
     mcp_port: int = 8003
     mcp_log_path: Path = Path("logs/mcp_queries.jsonl")
     mcp_log_retention_days: int = 7
+    # Keyed HMAC-SHA256 query/prompt log fingerprints (R5). Fail-closed: an
+    # empty ``mcp_hmac_key`` raises a typed QueryFingerprintError at fingerprint
+    # time — never plaintext logging. The key is a SecretStr and never logged.
+    mcp_hmac_key_id: str = "mcp-log-v1"
+    mcp_hmac_key: SecretStr = SecretStr("")
     # Dynamic text-to-Cypher tool (query_cypher) is fail-closed by default.
     # It must be explicitly enabled; when disabled the MCP boundary returns a
     # typed policy_violation without contacting the LLM or the graph.

@@ -9,11 +9,15 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
+from pydantic import SecretStr
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.domain.mcp_security import (
     InvalidScopeError,
+    McpSecurityError,
     MissingScopeError,
+    QueryFingerprint,
+    QueryFingerprintError,
     ScopeContext,
 )
 from book_graph_rag.domain.models import (
@@ -35,6 +39,47 @@ from book_graph_rag.ports.text2cypher_port import Text2CypherPort
 def _tool_content(payload: dict[str, Any]) -> list[TextContent]:
     """Serialize a dict result into MCP text content."""
     return [TextContent(type="text", text=json.dumps(payload, indent=2))]
+
+
+#: Free-text prompt keys are never persisted or included in the structured query
+#: fingerprint; they are routed to the keyed prompt fingerprint instead (R5).
+_PROMPT_KEYS: frozenset[str] = frozenset({"query", "question"})
+
+#: Non-sensitive scalar configuration knobs that may be persisted as metadata.
+_METADATA_SCALAR_KEYS: frozenset[str] = frozenset({
+    "limit",
+    "depth",
+    "cursor",
+    "page_size",
+    "include_relations",
+    "detail_level",
+})
+
+
+def _to_query_metadata(
+    params: dict[str, Any],
+) -> dict[str, str | int | float | bool | None]:
+    """Reduce raw query inputs to non-sensitive metadata (R5).
+
+    Free-text and identifier values are replaced by presence flags; only
+    non-sensitive configuration scalars are persisted as values.
+    """
+    metadata: dict[str, str | int | float | bool | None] = {
+        "param_count": len(params),
+    }
+    for key, value in params.items():
+        if key in _METADATA_SCALAR_KEYS:
+            metadata[key] = value
+        else:
+            metadata[f"{key}_set"] = value is not None
+    return metadata
+
+
+def _error_code_for(exc: BaseException) -> str:
+    """Return a stable, non-secret error code for a raised exception."""
+    if isinstance(exc, McpSecurityError):
+        return exc.error_code
+    return type(exc).__name__
 
 
 class McpServerAdapter:
@@ -62,6 +107,8 @@ class McpServerAdapter:
         enable_query_cypher: bool = False,
         require_scope: bool = True,
         budget_port: ResourceBudgetPort | None = None,
+        hmac_key_id: str = "mcp-log-v1",
+        hmac_key: SecretStr | None = None,
     ) -> None:
         self._graph_query_port = graph_query_port
         self._query_logger = query_logger
@@ -75,6 +122,10 @@ class McpServerAdapter:
         self._budget_port: ResourceBudgetPort = (
             budget_port if budget_port is not None else InMemoryResourceBudgetAdapter()
         )
+        # Keyed log-fingerprint wiring (R5). A missing/empty key raises a typed
+        # QueryFingerprintError at fingerprint time, never plaintext logging.
+        self._hmac_key_id = hmac_key_id
+        self._hmac_key = hmac_key
 
     def _now(self) -> datetime:
         """Return the current UTC time (extracted for testability)."""
@@ -114,6 +165,17 @@ class McpServerAdapter:
             relationship_types=tuple(relationship_types or ()),
         )
 
+    def _make_fingerprint(self, payload: dict[str, Any]) -> QueryFingerprint:
+        """Compute a keyed query/prompt fingerprint, failing closed without a key."""
+        key = self._hmac_key
+        if key is None or not key.get_secret_value():
+            raise QueryFingerprintError(
+                "mcp_hmac_key is empty or missing; refusing to log without fingerprinting"
+            )
+        return QueryFingerprint.from_canonical(
+            self._hmac_key_id, key.get_secret_value(), payload
+        )
+
     async def _log(
         self,
         *,
@@ -123,19 +185,33 @@ class McpServerAdapter:
         result_count: int,
         entity_not_found: bool,
         duration_ms: float,
-        error: str | None = None,
+        error_code: str | None = None,
+        prompt: str | None = None,
     ) -> None:
-        """Build and persist a ``QueryLogEntry``."""
+        """Build and persist a metadata-only ``QueryLogEntry`` (R5)."""
+        fingerprint_inputs = {
+            key: value
+            for key, value in query_params.items()
+            if key not in _PROMPT_KEYS
+        }
         entry = QueryLogEntry(
             timestamp=self._now(),
             tool_name=tool_name,
             query_type=query_type,
-            query_params=query_params,
+            query_metadata=_to_query_metadata(query_params),
             result_count=result_count,
             zero_results=result_count == 0,
             entity_not_found=entity_not_found,
             duration_ms=duration_ms,
-            error=error,
+            error_code=error_code,
+            query_fingerprint=self._make_fingerprint(
+                {"tool": tool_name, "query_type": query_type, "inputs": fingerprint_inputs}
+            ),
+            prompt_fingerprint=(
+                self._make_fingerprint({"tool": tool_name, "prompt": prompt})
+                if prompt is not None
+                else None
+            ),
         )
         await self._query_logger.log_query(entry)
 
@@ -180,7 +256,7 @@ class McpServerAdapter:
                 result_count=0,
                 entity_not_found=True,
                 duration_ms=duration_ms,
-                error=str(exc),
+                error_code=_error_code_for(exc),
             )
             raise
 
@@ -243,7 +319,7 @@ class McpServerAdapter:
                 result_count=0,
                 entity_not_found=False,
                 duration_ms=duration_ms,
-                error=str(exc),
+                error_code=_error_code_for(exc),
             )
             raise
 
@@ -299,7 +375,8 @@ class McpServerAdapter:
                 result_count=0,
                 entity_not_found=False,
                 duration_ms=duration_ms,
-                error=str(exc),
+                error_code=_error_code_for(exc),
+                prompt=query,
             )
             raise
 
@@ -311,6 +388,7 @@ class McpServerAdapter:
             result_count=len(chunks),
             entity_not_found=False,
             duration_ms=duration_ms,
+            prompt=query,
         )
         return {"chunks": chunks}
 
@@ -352,7 +430,7 @@ class McpServerAdapter:
                 result_count=0,
                 entity_not_found=False,
                 duration_ms=duration_ms,
-                error=str(exc),
+                error_code=_error_code_for(exc),
             )
             raise
 
@@ -407,7 +485,7 @@ class McpServerAdapter:
                 result_count=0,
                 entity_not_found=False,
                 duration_ms=duration_ms,
-                error=str(exc),
+                error_code=_error_code_for(exc),
             )
             raise
 
@@ -501,7 +579,8 @@ class McpServerAdapter:
                 result_count=0,
                 entity_not_found=False,
                 duration_ms=duration_ms,
-                error=str(exc),
+                error_code=_error_code_for(exc),
+                prompt=query,
             )
             raise
 
@@ -514,6 +593,7 @@ class McpServerAdapter:
             result_count=total_results,
             entity_not_found=entity_not_found,
             duration_ms=duration_ms,
+            prompt=query,
         )
         return {
             "query": query,
@@ -543,7 +623,8 @@ class McpServerAdapter:
                 result_count=0,
                 entity_not_found=False,
                 duration_ms=duration_ms,
-                error=error,
+                error_code="policy_violation",
+                prompt=question,
             )
             return {
                 "question": question,
@@ -569,7 +650,8 @@ class McpServerAdapter:
                 result_count=0,
                 entity_not_found=False,
                 duration_ms=duration_ms,
-                error=str(exc),
+                error_code=_error_code_for(exc),
+                prompt=question,
             )
             raise
 
@@ -581,6 +663,7 @@ class McpServerAdapter:
             result_count=len(result.rows),
             entity_not_found=False,
             duration_ms=duration_ms,
+            prompt=question,
         )
         return {
             "question": result.question,
@@ -641,7 +724,8 @@ class McpServerAdapter:
                 result_count=0,
                 entity_not_found=False,
                 duration_ms=duration_ms,
-                error=str(exc),
+                error_code=_error_code_for(exc),
+                prompt=question,
             )
             raise
 
