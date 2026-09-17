@@ -1,0 +1,69 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-G.2 redact query params/errors/secrets and explicit development-only raw logging validator",
+  "budget_max_changed_lines": 950,
+  "changed_lines": 434,
+  "commits": [
+    "d798b83",
+    "c36cc1f"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "result": "ImportError: cannot import name 'REDACTED_PLACEHOLDER' from 'book_graph_rag.domain.models' in test_query_models.py and test_mcp_server_adapter.py (2 collection errors) before implementation"
+    },
+    "green": {
+      "result": "148 focused passed (126 pre-existing + 22 new) across test_query_models, test_query_logger_port, test_json_query_logger_adapter, test_mcp_server_adapter, test_mcp_server_main; config regression test_config.py 45 passed"
+    },
+    "triangulate": "redaction value patterns (sk-, AKIA, ghp_/ghu_, xox, JWT eyJ, Bearer/Basic) and key names (api_key, token, secret, password, authorization, bearer, private_key, client_secret); recursive dict/list; benign scalars passthrough; Settings validator prod/test fail + dev allow + default green; adapter refuse/emit/disabled paths; redaction applied in _log before persistence",
+    "refactor": "extracted redact_sensitive/redact_sensitive_metadata as pure domain helpers; raw dev channel _emit_raw_log runs BEFORE fingerprinting/persistence so a misconfigured adapter persists nothing"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/test_query_models.py tests/test_query_logger_port.py tests/test_json_query_logger_adapter.py tests/test_mcp_server_adapter.py tests/test_mcp_server_main.py -q",
+      "exit_code": 0,
+      "result": "148 passed"
+    },
+    {
+      "command": "uv run pytest tests/ -m 'not neo4j_integration' -q",
+      "exit_code": 0,
+      "result": "1358 passed, 62 deselected, 0 failed"
+    },
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed (2 import-sort fixes applied by orchestrator)"
+    },
+    {
+      "command": "uv run mypy .",
+      "exit_code": 0,
+      "result": "Success: no issues found in 298 source files (orchestrator fixed one test arg-type: search_chunks limit str)"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "Arquitectura Hexagonal validada correctamente"
+    }
+  ],
+  "evidence_goal_status": {
+    "secret_redaction": "redact_sensitive/redact_sensitive_metadata pure helpers in domain/models.py (stdlib re only): credential-like key names + value patterns replaced with <redacted>; recursive over dict/list; applied to query_metadata and error_code in _log before persistence; persisted JSON contains no secret-shaped values (test with realistic fixtures)",
+    "dev_only_raw_logging": "app_env: Literal[development,production,test] default production (fail-closed) + mcp_raw_logging_enabled default False; Settings @model_validator raises ValueError when raw_logging_enabled=True and app_env in {production,test} — raw logging is development-only; defaults keep minimal Settings() green",
+    "adapter_fail_closed": "McpServerAdapter gains app_env/raw_logging_enabled/dev_raw_logger; _emit_raw_log raises QueryFingerprintError unless raw_logging_enabled AND app_env==development, before fingerprint/persist; QueryLogEntry schema stays metadata-only — raw text never enters JSONL schema",
+    "wiring": "mcp_server_main passes settings.app_env + settings.mcp_raw_logging_enabled into adapter",
+    "production_untouched": "No connection to bolt://100.106.85.109:7687; integration suite not run this WU; no secrets/credentials in logs or fixtures"
+  },
+  "followups": [
+    "T-G.3: retention and log migration tests; no raw fixture leakage (next)",
+    "Direct adapter construction can bypass the Settings validator: production-configured adapter with raw_logging_enabled=True fails closed via _emit_raw_log QueryFingerprintError — documented defense-in-depth",
+    "Empty/missing MCP_HMAC_KEY still masks original exception in error paths (T-G.1 follow-up, still open)",
+    "tests/integration/test_ask_global_tool.py unaffected by new defaulted adapter params (keyword-only construction); verify at T-I.1",
+    "Pre-existing dirty file .windsurf/workflows/sdd-new.md untouched"
+  ],
+  "notes": [
+    "Executor: gentle-ai-worker (bounded writer, no commit) + orchestrator gates (2 minor fixes: ruff import sort, mypy test arg-type) + 2 work-unit commits to main.",
+    "Changed-lines accounting: 434 code-only (163 src + 271 tests); ledger counts whole window including this bundle (~75 lines).",
+    "Redaction is defense in depth: metadata is intentionally non-sensitive but redaction cannot be bypassed."
+  ]
+}
