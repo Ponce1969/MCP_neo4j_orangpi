@@ -1,0 +1,75 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-F.2+T-F.3 scope requirement and per-tier budget wiring in MCP adapter",
+  "budget_max_changed_lines": 950,
+  "changed_lines": 831,
+  "commits": [
+    "e150891",
+    "692bcda",
+    "aad4560",
+    "6363366"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "result": "MissingScopeError ImportError (domain taxonomy test); 9 scope tests RED (MissingScopeError not raised / TypeError unexpected kwarg 'require_scope'); test_settings_mcp_require_scope_defaults_true RED (AttributeError); 5 budget tests RED (TypeError unexpected kwarg 'budget_port')"
+    },
+    "green": {
+      "result": "93 focused (adapter+main+domain) GREEN; full unit 1326 passed, 62 deselected, 0 failed (after orchestrator-approved update of 3 stale ask_global integration tests in tests/integration/test_ask_global_tool.py to pass a scope per R3)"
+    },
+    "triangulate": "missing-scope parametrized over 7 scope-requiring tools; scope flow-through over 6 tools (port records include ScopeContext); require_scope=False legacy escape hatch; InvalidScopeError for unresolvable source_id; concurrency vs rate exhaustion on LOW tool; scope-before-budget ordering test; query_cypher enabled acquires HIGH budget vs disabled never acquires",
+    "refactor": "search_rag/ask_global restructured so budget lease wraps the port call and every failure logs exactly one entry"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/test_mcp_server_adapter.py tests/test_mcp_server_main.py tests/test_mcp_security_domain.py -q",
+      "exit_code": 0,
+      "result": "93 passed"
+    },
+    {
+      "command": "uv run pytest tests/integration/test_ask_global_tool.py -q",
+      "exit_code": 0,
+      "result": "5 passed (fakes-based, no container required)"
+    },
+    {
+      "command": "uv run pytest tests/ -m 'not neo4j_integration' -q",
+      "exit_code": 0,
+      "result": "1326 passed, 62 deselected"
+    },
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy .",
+      "exit_code": 0,
+      "result": "Success: no issues found in 298 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "Arquitectura Hexagonal validada correctamente"
+    }
+  ],
+  "evidence_goal_status": {
+    "scope_required": "MissingScopeError (error_code missing_scope) raised by _resolve_scope when require_scope=True (default) and source_id is None — before any budget acquisition or port contact; applied to 5 LOW tools + search_rag + ask_global (R3)",
+    "response_compatibility": "tool response shapes unchanged when scope present; typed errors (MissingScopeError/InvalidScopeError) propagate; require_scope=False preserves the legacy unscoped path explicitly",
+    "budget_wired": "all 8 tools acquire per-tier budget leases (tier_for from T-F.1 registry, key = tool name) wrapping the port call; budget_port defaults to always-on InMemoryResourceBudgetAdapter (fail-closed: misconfig never disables limits)",
+    "no_authorization_weakening": "scope resolution precedes budget acquisition — exhaustion never bypasses scope enforcement (ordering test); query_cypher disabled path returns before acquire",
+    "settings": "mcp_require_scope=True and mcp_enable_query_cypher=False defaults; mcp_server_main passes require_scope + explicit budget_port",
+    "production_untouched": "No connection to bolt://100.106.85.109:7687; testcontainers integration suite not run this WU"
+  },
+  "followups": [
+    "Full testcontainers integration matrix (real Neo4j) for the wired adapter — planned for T-I.1",
+    "ask_global community read path is scope-aware at the boundary but the community path internals are documented not yet scope-aware in this slice — verify in T-I.1/T-F follow-ups",
+    "Pre-existing dirty file .windsurf/workflows/sdd-new.md untouched"
+  ],
+  "notes": [
+    "Executor: gentle-ai-worker + one orchestrator-approved continuation to update 3 stale ask_global integration tests (surface expanded to tests/integration/test_ask_global_tool.py only)",
+    "Orchestrator split the adapter tests into 3 commits <=400 lines each (scope 403 incl. fixture churn, budget 135, wiring 47); src commit 192; total 831 vs budget 950",
+    "budget_port default = InMemoryResourceBudgetAdapter() with default per-tier policies (ResourcePolicy.default_for), matching T-D.2/T-D.3 semantics"
+  ]
+}
