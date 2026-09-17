@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from book_graph_rag.domain.mcp_security import (
     InvalidScopeError,
     McpSecurityError,
+    MissingScopeError,
     PolicyViolationError,
     QueryFingerprint,
     ResourceExhaustedError,
@@ -146,6 +147,7 @@ def test_query_fingerprint_rejects_malformed_hex() -> None:
 def test_typed_security_errors_are_distinguishable() -> None:
     """Each security error carries a stable code for typed handling."""
     assert issubclass(InvalidScopeError, McpSecurityError)
+    assert issubclass(MissingScopeError, McpSecurityError)
     assert issubclass(UnsupportedQueryError, McpSecurityError)
     assert issubclass(PolicyViolationError, McpSecurityError)
     assert issubclass(ResourceExhaustedError, McpSecurityError)
@@ -153,6 +155,9 @@ def test_typed_security_errors_are_distinguishable() -> None:
     err = InvalidScopeError("bad scope", scope_id="book:other")
     assert err.error_code == "invalid_scope"
     assert err.scope_id == "book:other"
+
+    missing = MissingScopeError("missing scope for tool 'find_entity'")
+    assert missing.error_code == "missing_scope"
 
 
 def test_resource_policy_defaults_are_secure() -> None:

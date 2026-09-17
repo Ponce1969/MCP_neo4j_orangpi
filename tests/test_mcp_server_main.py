@@ -53,6 +53,8 @@ class _FakeMcpServerAdapter:
         global_query_use_case: Any | None = None,
         scope_resolver: Any | None = None,
         enable_query_cypher: bool = False,
+        require_scope: bool = True,
+        budget_port: Any = None,
     ) -> None:
         self.query_port = query_port
         self.query_logger = query_logger
@@ -60,6 +62,8 @@ class _FakeMcpServerAdapter:
         self.global_query_use_case = global_query_use_case
         self.scope_resolver = scope_resolver
         self.enable_query_cypher = enable_query_cypher
+        self.require_scope = require_scope
+        self.budget_port = budget_port
         self.run_sse_mock = AsyncMock()
 
     async def run_sse(self, host: str = "0.0.0.0", port: int = 8003) -> None:
@@ -124,6 +128,8 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             global_query_use_case: Any | None = None,
             scope_resolver: Any | None = None,
             enable_query_cypher: bool = False,
+            require_scope: bool = True,
+            budget_port: Any = None,
         ) -> None:
             super().__init__(
                 query_port,
@@ -132,6 +138,8 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
                 global_query_use_case,
                 scope_resolver,
                 enable_query_cypher,
+                require_scope,
+                budget_port,
             )
             created["server_adapter"] = self
 
@@ -213,6 +221,8 @@ def test_composition_root_creates_components_in_order(
     assert server_adapter.query_logger is query_logger
     assert server_adapter.text2cypher_port is text2cypher_adapter
     assert server_adapter.global_query_use_case is not None
+    assert server_adapter.require_scope is True
+    assert server_adapter.budget_port is not None
     assert text2cypher_adapter.query_adapter is query_adapter
     assert text2cypher_adapter.llm_adapter is llm_adapter
     assert text2cypher_adapter.settings is fake_settings

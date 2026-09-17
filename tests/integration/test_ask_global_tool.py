@@ -9,11 +9,13 @@ from mcp.types import TextContent
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.domain.mcp_security import ScopeContext
+from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.infrastructure.mcp.mcp_server_adapter import McpServerAdapter
 from book_graph_rag.ports.community_read_port import CommunityReadPort
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
 from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
+from book_graph_rag.ports.scope_resolver_port import ScopeResolverPort
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort
 
 
@@ -61,6 +63,25 @@ class _FakeGlobalQueryUseCase(GlobalQueryUseCase):
     async def ask(self, question: str, detail_level: int) -> dict[str, Any]:
         self.calls.append((question, detail_level))
         return self.response
+
+
+class _FakeScopeResolverPort(ScopeResolverPort):
+    """Resolves any provided source_id to a default book scope (R3)."""
+
+    def resolve(
+        self,
+        source_id: str,
+        *,
+        book_ids: tuple[str, ...] = (),
+        entity_types: tuple[str, ...] = (),
+        relationship_types: tuple[str, ...] = (),
+    ) -> ScopeContext:
+        return ScopeContext(
+            source=SourceNamespace(corpus="book", source="default"),
+            book_ids=book_ids,
+            entity_types=entity_types,
+            relationship_types=relationship_types,
+        )
 
 
 class _FakeQueryLoggerPort(QueryLoggerPort):
@@ -133,6 +154,7 @@ def adapter(global_use_case: _FakeGlobalQueryUseCase) -> McpServerAdapter:
         query_logger=_FakeQueryLoggerPort(),
         text2cypher_port=_FakeText2CypherPort(),
         global_query_use_case=global_use_case,
+        scope_resolver=_FakeScopeResolverPort(),
     )
 
 
@@ -167,7 +189,8 @@ async def test_ask_global_returns_answer_with_citations(
     }
 
     result = await server.call_tool(
-        "ask_global", {"question": "what is MCP?", "detail_level": 2}
+        "ask_global",
+        {"question": "what is MCP?", "detail_level": 2, "source_id": "book:default"},
     )
 
     assert isinstance(result, tuple)
@@ -187,7 +210,10 @@ async def test_ask_global_passes_question_and_detail_level_to_use_case(
     """The tool forwards the question and detail_level to the use case."""
     server = adapter.create_server()
 
-    await server.call_tool("ask_global", {"question": "patterns?", "detail_level": 1})
+    await server.call_tool(
+        "ask_global",
+        {"question": "patterns?", "detail_level": 1, "source_id": "book:default"},
+    )
 
     assert global_use_case.calls == [("patterns?", 1)]
 
@@ -203,7 +229,10 @@ async def test_ask_global_returns_error_when_no_summaries(
         "citations": [],
     }
 
-    result = await server.call_tool("ask_global", {"question": "what?", "detail_level": 0})
+    result = await server.call_tool(
+        "ask_global",
+        {"question": "what?", "detail_level": 0, "source_id": "book:default"},
+    )
 
     assert isinstance(result, tuple)
     content = result[0]
