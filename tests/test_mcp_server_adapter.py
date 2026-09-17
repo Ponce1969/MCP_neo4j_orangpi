@@ -16,6 +16,7 @@ from book_graph_rag.domain.mcp_security import (
     InvalidScopeError,
     McpSecurityError,
     MissingScopeError,
+    QueryFingerprintError,
     RateLimitExceededError,
     ScopeContext,
     ToolRiskTier,
@@ -255,6 +256,10 @@ class _RecordingBudgetPort(ResourceBudgetPort):
         self.release_calls.append(lease)
 
 
+_TEST_HMAC_KEY_ID = "test-v1"
+_TEST_HMAC_KEY = SecretStr("test-hmac-secret")
+
+
 @pytest.fixture
 def graph_query_port() -> _FakeGraphQueryPort:
     return _FakeGraphQueryPort()
@@ -281,7 +286,13 @@ def adapter(
     query_logger: _FakeQueryLoggerPort,
     text2cypher_port: _FakeText2CypherPort,
 ) -> McpServerAdapter:
-    return McpServerAdapter(graph_query_port, query_logger, text2cypher_port)
+    return McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
+    )
 
 
 @pytest.fixture
@@ -296,6 +307,8 @@ def scoped_adapter(
         query_logger,
         text2cypher_port,
         scope_resolver=scope_resolver,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
     )
 
 
@@ -391,7 +404,7 @@ async def test_find_entity_error_is_propagated_and_logged(
 
     entry = query_logger.entries[0]
     assert entry.tool_name == "find_entity"
-    assert entry.error == "neo4j timeout"
+    assert entry.error_code == "TimeoutError"
     assert entry.zero_results is True
     assert entry.result_count == 0
 
@@ -609,7 +622,7 @@ async def test_log_entry_contains_timestamp_and_duration(
     assert entry.duration_ms >= 0.0
 
 
-async def test_log_entry_query_params_match_tool_inputs(
+async def test_log_entry_query_metadata_matches_tool_inputs(
     scoped_adapter: McpServerAdapter, query_logger: _FakeQueryLoggerPort
 ) -> None:
     await scoped_adapter.find_entity(
@@ -617,11 +630,14 @@ async def test_log_entry_query_params_match_tool_inputs(
     )
 
     entry = query_logger.entries[0]
-    assert entry.query_params == {
-        "name": "MCP",
-        "entity_type": "mcp",
-        "source_id": "book:default",
+    assert entry.query_metadata == {
+        "param_count": 3,
+        "name_set": True,
+        "entity_type_set": True,
+        "source_id_set": True,
     }
+    assert entry.query_fingerprint is not None
+    assert "MCP" not in entry.model_dump_json()
 
 
 # ── run_sse ──────────────────────────────────────────────────────────────────
@@ -868,17 +884,21 @@ async def test_search_rag_logs_query_entry_with_correct_fields(
     entry = query_logger.entries[0]
     assert entry.tool_name == "search_rag"
     assert entry.query_type == "rag"
-    assert entry.query_params == {
-        "query": "MCP",
+    assert entry.query_metadata == {
+        "param_count": 4,
+        "query_set": True,
         "limit": 7,
         "include_relations": True,
-        "source_id": "book:default",
+        "source_id_set": True,
     }
     assert entry.result_count == 3
     assert entry.zero_results is False
     assert entry.entity_not_found is False
-    assert entry.error is None
+    assert entry.error_code is None
+    assert entry.query_fingerprint is not None
+    assert entry.prompt_fingerprint is not None
     assert entry.duration_ms >= 0.0
+    assert "MCP" not in entry.model_dump_json()
 
 
 # ── query_cypher ─────────────────────────────────────────────────────────────
@@ -895,6 +915,8 @@ async def test_query_cypher_returns_text2cypher_result(
         query_logger,
         text2cypher_port,
         enable_query_cypher=True,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
     )
     text2cypher_port._result = Text2CypherResult(
         question="what patterns mitigate security risks?",
@@ -927,6 +949,8 @@ async def test_query_cypher_logs_entry_with_text2cypher_query_type(
         query_logger,
         text2cypher_port,
         enable_query_cypher=True,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
     )
     await adapter.query_cypher("what patterns mitigate security risks?")
 
@@ -934,10 +958,12 @@ async def test_query_cypher_logs_entry_with_text2cypher_query_type(
     entry = query_logger.entries[0]
     assert entry.tool_name == "query_cypher"
     assert entry.query_type == "text2cypher"
-    assert entry.query_params == {"question": "what patterns mitigate security risks?"}
+    assert entry.query_metadata == {"param_count": 1, "question_set": True}
     assert entry.result_count == 0
     assert entry.duration_ms >= 0.0
-    assert entry.error is None
+    assert entry.error_code is None
+    assert entry.prompt_fingerprint is not None
+    assert "what patterns mitigate security risks?" not in entry.model_dump_json()
 
 
 async def test_query_cypher_error_is_logged_and_propagated(
@@ -951,6 +977,8 @@ async def test_query_cypher_error_is_logged_and_propagated(
         query_logger,
         text2cypher_port,
         enable_query_cypher=True,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
     )
     text2cypher_port.generate_and_run = AsyncMock(  # type: ignore[method-assign]
         side_effect=RuntimeError("pipeline failed")
@@ -962,7 +990,7 @@ async def test_query_cypher_error_is_logged_and_propagated(
     entry = query_logger.entries[0]
     assert entry.tool_name == "query_cypher"
     assert entry.query_type == "text2cypher"
-    assert entry.error == "pipeline failed"
+    assert entry.error_code == "RuntimeError"
     assert entry.result_count == 0
 
 
@@ -1025,11 +1053,11 @@ async def test_search_rag_propagates_scope_to_all_subqueries(
     assert calls[2][1]["scope"].book_ids == ("book-1",)
 
 
-async def test_scope_params_are_logged_in_query_params(
+async def test_scope_params_are_logged_in_query_metadata(
     scoped_adapter: McpServerAdapter,
     query_logger: _FakeQueryLoggerPort,
 ) -> None:
-    """Scope source_id is included in the logged query_params."""
+    """Scope source_id presence is logged as metadata, never as a raw value."""
     await scoped_adapter.count_entities(
         entity_type="agent",
         source_id="book:default",
@@ -1037,10 +1065,12 @@ async def test_scope_params_are_logged_in_query_params(
     )
 
     entry = query_logger.entries[0]
-    assert entry.query_params == {
-        "entity_type": "agent",
-        "source_id": "book:default",
+    assert entry.query_metadata == {
+        "param_count": 2,
+        "entity_type_set": True,
+        "source_id_set": True,
     }
+    assert "book:default" not in entry.model_dump_json()
 
 
 # ── scope requirement (T-F.2, R3 fail-closed) ────────────────────────────────
@@ -1147,6 +1177,8 @@ async def test_ask_global_resolves_scope_before_use_case_check(
         query_logger,
         text2cypher_port,
         scope_resolver=scope_resolver,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
     )
 
     with pytest.raises(RuntimeError, match="not configured"):
@@ -1170,7 +1202,12 @@ async def test_require_scope_false_allows_unscoped_find_entity(
 ) -> None:
     """require_scope=False preserves the legacy unscoped path."""
     adapter = McpServerAdapter(
-        graph_query_port, query_logger, text2cypher_port, require_scope=False
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        require_scope=False,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
     )
     entity = _entity("MCP", entity_id="e1", entity_type="mcp")
     graph_query_port.find_entity_result = [entity]
@@ -1197,6 +1234,8 @@ async def test_unresolvable_source_id_raises_invalid_scope_under_require_scope_t
         query_logger,
         text2cypher_port,
         scope_resolver=resolver,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
     )
 
     with pytest.raises(InvalidScopeError) as exc_info:
@@ -1221,7 +1260,7 @@ async def test_query_cypher_disabled_by_default_returns_typed_error(
     assert result["rows"] == []
     assert result["cypher"] is None
     entry = query_logger.entries[0]
-    assert entry.error == "query_cypher is disabled by default"
+    assert entry.error_code == "policy_violation"
 
 
 async def test_query_cypher_disabled_by_default_does_not_call_text2cypher(
@@ -1240,7 +1279,13 @@ async def test_query_cypher_disabled_never_contacts_text2cypher_or_graph(
 ) -> None:
     """Disabled path uses an exploding port double and must never touch it."""
     exploding_port = _ExplodingText2CypherPort()
-    adapter = McpServerAdapter(graph_query_port, query_logger, exploding_port)
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        exploding_port,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
+    )
 
     result = await adapter.query_cypher("what patterns mitigate security risks?")
 
@@ -1271,6 +1316,17 @@ def test_settings_mcp_require_scope_defaults_true() -> None:
     assert settings.mcp_require_scope is True
 
 
+def test_settings_mcp_hmac_key_defaults_empty_fail_closed() -> None:
+    """The HMAC key defaults to empty so fingerprinting fails closed (R5)."""
+    settings = Settings(
+        neo4j_uri="bolt://localhost",
+        neo4j_user="neo4j",
+        neo4j_password=SecretStr("secret"),
+    )
+    assert settings.mcp_hmac_key.get_secret_value() == ""
+    assert settings.mcp_hmac_key_id == "mcp-log-v1"
+
+
 # ── server-side per-tier budget (T-F.3, R4) ─────────────────────────────────
 
 
@@ -1289,6 +1345,8 @@ async def test_concurrency_exhaustion_fails_low_tool_with_typed_error_and_log(
         text2cypher_port,
         require_scope=False,
         budget_port=budget,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
     )
 
     with pytest.raises(ConcurrencyLimitExceededError) as exc_info:
@@ -1300,7 +1358,7 @@ async def test_concurrency_exhaustion_fails_low_tool_with_typed_error_and_log(
     assert len(query_logger.entries) == 1
     entry = query_logger.entries[0]
     assert entry.tool_name == "find_entity"
-    assert entry.error == "saturated concurrency"
+    assert entry.error_code == "concurrency_limit_exceeded"
     assert entry.result_count == 0
 
 
@@ -1319,6 +1377,8 @@ async def test_rate_limit_exhaustion_fails_low_tool_with_typed_error_and_log(
         text2cypher_port,
         require_scope=False,
         budget_port=budget,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
     )
 
     with pytest.raises(RateLimitExceededError) as exc_info:
@@ -1327,7 +1387,7 @@ async def test_rate_limit_exhaustion_fails_low_tool_with_typed_error_and_log(
     assert exc_info.value.error_code == "rate_limit_exceeded"
     assert budget.acquire_calls == [(ToolRiskTier.LOW, "find_entity")]
     assert len(query_logger.entries) == 1
-    assert query_logger.entries[0].error == "saturated rate window"
+    assert query_logger.entries[0].error_code == "rate_limit_exceeded"
 
 
 async def test_budget_exhaustion_does_not_weaken_scope_enforcement(
@@ -1344,6 +1404,8 @@ async def test_budget_exhaustion_does_not_weaken_scope_enforcement(
         query_logger,
         text2cypher_port,
         budget_port=budget,  # require_scope defaults True
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
     )
 
     with pytest.raises(MissingScopeError) as exc_info:
@@ -1367,6 +1429,8 @@ async def test_query_cypher_enabled_acquires_high_tier_budget(
         text2cypher_port,
         enable_query_cypher=True,
         budget_port=budget,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
     )
     await adapter.query_cypher("question")
 
@@ -1387,6 +1451,8 @@ async def test_query_cypher_disabled_does_not_acquire_budget(
         query_logger,
         text2cypher_port,
         budget_port=budget,  # enable_query_cypher defaults False
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
     )
 
     result = await adapter.query_cypher("question")
@@ -1394,3 +1460,146 @@ async def test_query_cypher_disabled_does_not_acquire_budget(
     assert result["error_code"] == "policy_violation"
     assert budget.acquire_calls == []
     assert budget.release_calls == []
+
+
+# ── logging privacy (R5, T-G.1) ─────────────────────────────────────────────
+
+
+async def test_missing_hmac_key_fails_closed_with_typed_error(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """A missing HMAC key must raise QueryFingerprintError, never log plaintext."""
+    adapter = McpServerAdapter(
+        graph_query_port, query_logger, text2cypher_port, require_scope=False
+    )
+
+    with pytest.raises(QueryFingerprintError) as exc_info:
+        await adapter.find_entity("MCP")
+
+    assert exc_info.value.error_code == "query_fingerprint"
+    assert query_logger.entries == []
+
+
+async def test_empty_hmac_key_fails_closed_with_typed_error(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """A configured-but-blank HMAC key also fails closed."""
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        require_scope=False,
+        hmac_key=SecretStr(""),
+    )
+
+    with pytest.raises(QueryFingerprintError) as exc_info:
+        await adapter.find_entity("MCP")
+
+    assert exc_info.value.error_code == "query_fingerprint"
+    assert query_logger.entries == []
+
+
+async def test_find_entity_logs_metadata_only_entry_with_query_fingerprint(
+    scoped_adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+) -> None:
+    """A structured tool logs a keyed query fingerprint and metadata-only entry."""
+    entity = _entity("MCP", entity_id="e1", entity_type="mcp")
+    graph_query_port.find_entity_result = [entity]
+
+    await scoped_adapter.find_entity("MCP", entity_type="mcp", source_id="book:default")
+
+    entry = query_logger.entries[0]
+    assert entry.query_fingerprint is not None
+    assert entry.query_fingerprint.key_id == _TEST_HMAC_KEY_ID
+    assert entry.query_fingerprint.algorithm == "hmac-sha256"
+    assert len(entry.query_fingerprint.fingerprint_hex) == 64
+    assert entry.prompt_fingerprint is None
+    assert entry.query_metadata["name_set"] is True
+    assert "name" not in entry.query_metadata
+    assert "MCP" not in entry.model_dump_json()
+
+
+async def test_search_rag_logs_prompt_fingerprint_and_metadata_only(
+    scoped_adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+) -> None:
+    """A prompt-bearing tool logs a keyed prompt fingerprint, never raw text."""
+    entity = _entity("MCP", entity_id="e1", entity_type="mcp")
+    graph_query_port.find_entity_result = [entity]
+    graph_query_port.search_chunks_result = [{"text": "secret chunk", "chunk_index": 0}]
+
+    await scoped_adapter.search_rag(
+        "secret prompt text", limit=7, include_relations=False, source_id="book:default"
+    )
+
+    entry = query_logger.entries[0]
+    assert entry.prompt_fingerprint is not None
+    assert entry.prompt_fingerprint.key_id == _TEST_HMAC_KEY_ID
+    assert entry.query_fingerprint is not None
+    dumped = entry.model_dump_json()
+    assert "secret prompt text" not in dumped
+    assert "secret chunk" not in dumped
+    assert entry.query_metadata["query_set"] is True
+    assert entry.query_metadata["limit"] == 7
+
+
+async def test_fingerprint_is_deterministic_for_identical_inputs(
+    scoped_adapter: McpServerAdapter,
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+) -> None:
+    """Identical inputs produce an identical query fingerprint."""
+    entity = _entity("MCP", entity_id="e1", entity_type="mcp")
+    graph_query_port.find_entity_result = [entity]
+
+    await scoped_adapter.find_entity("MCP", entity_type="mcp", source_id="book:default")
+    await scoped_adapter.find_entity("MCP", entity_type="mcp", source_id="book:default")
+
+    first, second = query_logger.entries
+    assert first.query_fingerprint is not None
+    assert second.query_fingerprint is not None
+    assert first.query_fingerprint.fingerprint_hex == second.query_fingerprint.fingerprint_hex
+
+
+async def test_fingerprint_differs_with_key(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+    scope_resolver: _FakeScopeResolverPort,
+) -> None:
+    """Different HMAC keys produce different fingerprints for the same input."""
+    entity = _entity("MCP", entity_id="e1", entity_type="mcp")
+    graph_query_port.find_entity_result = [entity]
+
+    adapter_a = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        scope_resolver=scope_resolver,
+        hmac_key=SecretStr("key-a"),
+        hmac_key_id="v1",
+    )
+    adapter_b = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        scope_resolver=scope_resolver,
+        hmac_key=SecretStr("key-b"),
+        hmac_key_id="v1",
+    )
+
+    await adapter_a.find_entity("MCP", source_id="book:default")
+    await adapter_b.find_entity("MCP", source_id="book:default")
+
+    first, second = query_logger.entries
+    assert first.query_fingerprint is not None
+    assert second.query_fingerprint is not None
+    assert first.query_fingerprint.fingerprint_hex != second.query_fingerprint.fingerprint_hex
+    assert first.query_fingerprint.key_id == second.query_fingerprint.key_id == "v1"

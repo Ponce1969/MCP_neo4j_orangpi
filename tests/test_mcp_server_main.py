@@ -55,6 +55,8 @@ class _FakeMcpServerAdapter:
         enable_query_cypher: bool = False,
         require_scope: bool = True,
         budget_port: Any = None,
+        hmac_key_id: str = "mcp-log-v1",
+        hmac_key: Any = None,
     ) -> None:
         self.query_port = query_port
         self.query_logger = query_logger
@@ -64,6 +66,8 @@ class _FakeMcpServerAdapter:
         self.enable_query_cypher = enable_query_cypher
         self.require_scope = require_scope
         self.budget_port = budget_port
+        self.hmac_key_id = hmac_key_id
+        self.hmac_key = hmac_key
         self.run_sse_mock = AsyncMock()
 
     async def run_sse(self, host: str = "0.0.0.0", port: int = 8003) -> None:
@@ -130,6 +134,8 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             enable_query_cypher: bool = False,
             require_scope: bool = True,
             budget_port: Any = None,
+            hmac_key_id: str = "mcp-log-v1",
+            hmac_key: Any = None,
         ) -> None:
             super().__init__(
                 query_port,
@@ -140,6 +146,8 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
                 enable_query_cypher,
                 require_scope,
                 budget_port,
+                hmac_key_id,
+                hmac_key,
             )
             created["server_adapter"] = self
 
@@ -226,6 +234,21 @@ def test_composition_root_creates_components_in_order(
     assert text2cypher_adapter.query_adapter is query_adapter
     assert text2cypher_adapter.llm_adapter is llm_adapter
     assert text2cypher_adapter.settings is fake_settings
+
+
+def test_composition_root_passes_hmac_settings_to_adapter(
+    fake_settings: Settings, fake_adapters: dict[str, Any]
+) -> None:
+    """The HMAC key id and key flow from Settings into McpServerAdapter (R5)."""
+    fake_settings.mcp_hmac_key_id = "mcp-log-v2"
+    fake_settings.mcp_hmac_key = SecretStr("top-secret-key")  # pragma: allowlist secret
+
+    runner = CliRunner()
+    runner.invoke(mcp_cli, ["serve"])
+
+    server_adapter = fake_adapters["server_adapter"]
+    assert server_adapter.hmac_key_id == "mcp-log-v2"
+    assert server_adapter.hmac_key == fake_settings.mcp_hmac_key
 
 
 def test_lifecycle_closes_driver_and_logger_on_shutdown(
