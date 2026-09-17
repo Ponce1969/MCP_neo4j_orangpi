@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
@@ -24,6 +25,8 @@ from book_graph_rag.domain.models import (
     EntityType,
     QueryLogEntry,
     RelationshipType,
+    redact_sensitive,
+    redact_sensitive_metadata,
 )
 from book_graph_rag.domain.tool_tier_registry import tier_for
 from book_graph_rag.infrastructure.mcp_resource_budget_adapter import (
@@ -44,6 +47,10 @@ def _tool_content(payload: dict[str, Any]) -> list[TextContent]:
 #: Free-text prompt keys are never persisted or included in the structured query
 #: fingerprint; they are routed to the keyed prompt fingerprint instead (R5).
 _PROMPT_KEYS: frozenset[str] = frozenset({"query", "question"})
+
+#: Logger name for the development-only raw query channel (R5). This channel is
+#: opt-in AND development-only; it never feeds the persisted JSONL schema.
+_RAW_QUERY_LOGGER_NAME = "book_graph_rag.mcp.raw_query_log"
 
 #: Non-sensitive scalar configuration knobs that may be persisted as metadata.
 _METADATA_SCALAR_KEYS: frozenset[str] = frozenset({
@@ -109,6 +116,9 @@ class McpServerAdapter:
         budget_port: ResourceBudgetPort | None = None,
         hmac_key_id: str = "mcp-log-v1",
         hmac_key: SecretStr | None = None,
+        app_env: Literal["development", "production", "test"] = "production",
+        raw_logging_enabled: bool = False,
+        dev_raw_logger: logging.Logger | None = None,
     ) -> None:
         self._graph_query_port = graph_query_port
         self._query_logger = query_logger
@@ -126,6 +136,16 @@ class McpServerAdapter:
         # QueryFingerprintError at fingerprint time, never plaintext logging.
         self._hmac_key_id = hmac_key_id
         self._hmac_key = hmac_key
+        # Development-only raw logging (R5). Raw text may only flow to the
+        # separate dev channel when the flag AND app_env == "development" hold;
+        # emission is refused (fail-closed) otherwise at _emit_raw_log time.
+        self._app_env = app_env
+        self._raw_logging_enabled = raw_logging_enabled
+        self._dev_raw_logger: logging.Logger = (
+            dev_raw_logger
+            if dev_raw_logger is not None
+            else logging.getLogger(_RAW_QUERY_LOGGER_NAME)
+        )
 
     def _now(self) -> datetime:
         """Return the current UTC time (extracted for testability)."""
@@ -176,6 +196,44 @@ class McpServerAdapter:
             self._hmac_key_id, key.get_secret_value(), payload
         )
 
+    def _emit_raw_log(
+        self,
+        *,
+        tool_name: str,
+        query_type: str,
+        query_params: dict[str, Any],
+        prompt: str | None = None,
+        error_code: str | None = None,
+    ) -> None:
+        """Emit raw query text to the development-only raw channel (R5).
+
+        Raw logging is opt-in (``raw_logging_enabled``) AND development-only
+        (``app_env == "development"``). When the flag is set under any other
+        environment this refuses (fail-closed) with a typed
+        ``QueryFingerprintError``, mirroring the fingerprint fail-closed path, so
+        raw text can never flow into a non-development log. The raw text never
+        enters the persisted ``QueryLogEntry`` JSONL schema.
+        """
+        if not self._raw_logging_enabled:
+            return
+        if self._app_env != "development":
+            raise QueryFingerprintError(
+                "raw query logging is development-only; refusing to emit raw "
+                f"query text under app_env={self._app_env!r}"
+            )
+        self._dev_raw_logger.info(
+            json.dumps(
+                {
+                    "tool": tool_name,
+                    "query_type": query_type,
+                    "params": query_params,
+                    "prompt": prompt,
+                    "error_code": error_code,
+                },
+                default=str,
+            )
+        )
+
     async def _log(
         self,
         *,
@@ -189,6 +247,16 @@ class McpServerAdapter:
         prompt: str | None = None,
     ) -> None:
         """Build and persist a metadata-only ``QueryLogEntry`` (R5)."""
+        # Raw query text may only flow to the development-only channel; it is
+        # refused (fail-closed) under any other app_env. This runs before the
+        # metadata entry is built so a misconfigured adapter persists nothing.
+        self._emit_raw_log(
+            tool_name=tool_name,
+            query_type=query_type,
+            query_params=query_params,
+            prompt=prompt,
+            error_code=error_code,
+        )
         fingerprint_inputs = {
             key: value
             for key, value in query_params.items()
@@ -198,12 +266,12 @@ class McpServerAdapter:
             timestamp=self._now(),
             tool_name=tool_name,
             query_type=query_type,
-            query_metadata=_to_query_metadata(query_params),
+            query_metadata=redact_sensitive_metadata(_to_query_metadata(query_params)),
             result_count=result_count,
             zero_results=result_count == 0,
             entity_not_found=entity_not_found,
             duration_ms=duration_ms,
-            error_code=error_code,
+            error_code=redact_sensitive(error_code) if error_code is not None else None,
             query_fingerprint=self._make_fingerprint(
                 {"tool": tool_name, "query_type": query_type, "inputs": fingerprint_inputs}
             ),

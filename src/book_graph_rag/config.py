@@ -129,6 +129,13 @@ class Settings(BaseSettings):
     # must carry a validated ScopeContext. Legacy unscoped callers opt out by
     # setting this to False explicitly.
     mcp_require_scope: bool = True
+    # Raw query logging is development-only (R5). The persisted JSONL schema is
+    # metadata-only; raw text may only flow to a separate dev channel when BOTH
+    # ``mcp_raw_logging_enabled`` and ``app_env == "development"`` hold. The
+    # ``_validate_raw_logging_is_development_only`` validator makes this
+    # impossible under production/test settings. Fail-closed defaults: off.
+    app_env: Literal["development", "production", "test"] = "production"
+    mcp_raw_logging_enabled: bool = False
 
     # ── Text2Cypher fallback (REQ-GR.4) ───────────────────────────────────
     text2cypher_timeout: int = 10  # seconds, whole pipeline budget
@@ -430,5 +437,19 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"neo4j_max_traversal_nodes ({self.neo4j_max_traversal_nodes}) "
                 f"must be >= neo4j_max_traversal_rows ({self.neo4j_max_traversal_rows})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_raw_logging_is_development_only(self) -> "Settings":
+        """Raw query logging may only ever be enabled in development (R5).
+
+        This is the fail-fast, fail-closed gate that makes raw logging impossible
+        under production or test settings regardless of environment variables.
+        """
+        if self.mcp_raw_logging_enabled and self.app_env in {"production", "test"}:
+            raise ValueError(
+                "mcp_raw_logging_enabled is development-only; cannot be enabled "
+                f"when app_env={self.app_env!r}"
             )
         return self

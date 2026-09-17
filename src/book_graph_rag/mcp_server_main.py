@@ -61,6 +61,8 @@ async def _run_server(settings: Settings) -> None:
                     budget_port=InMemoryResourceBudgetAdapter(),
                     hmac_key_id=settings.mcp_hmac_key_id,
                     hmac_key=settings.mcp_hmac_key,
+                    app_env=settings.app_env,
+                    raw_logging_enabled=settings.mcp_raw_logging_enabled,
                 )
                 click.echo(f"MCP server starting on port {settings.mcp_port}")
                 await server_adapter.run_sse(host="0.0.0.0", port=settings.mcp_port)

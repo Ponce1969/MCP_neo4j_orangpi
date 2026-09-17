@@ -13,6 +13,7 @@ The module contains two groups of models:
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
@@ -271,6 +272,74 @@ class GraphQueryResult(BaseModel):
 
 
 # ── Query logging models (MCP server observability, Fase 07) ─────────────────
+
+#: Placeholder substituted for secret-looking values during log redaction (R5).
+REDACTED_PLACEHOLDER = "<redacted>"
+
+#: Credential-like key names whose values must never be persisted in clear.
+_SENSITIVE_KEY_RE = re.compile(
+    r"(?i)(api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|"
+    r"auth[_-]?token|token|secret|password|passwd|pwd|credential|"
+    r"authorization|bearer|private[_-]?key|session[_-]?token|"
+    r"client[_-]?secret)"
+)
+
+#: Secret-shaped value patterns (API keys, tokens, JWTs, auth headers).
+_SECRET_VALUE_RES: tuple[re.Pattern[str], ...] = (
+    re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),  # OpenAI-style keys
+    re.compile(r"AKIA[0-9A-Z]{16}"),  # AWS access keys
+    re.compile(r"gh[pousr]_[0-9A-Za-z]{32,}"),  # GitHub tokens
+    re.compile(r"xox[baprs]-[0-9A-Za-z\-]{10,}"),  # Slack tokens
+    re.compile(  # JWT
+        r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}"
+    ),
+    re.compile(r"(?i)^bearer\s+[A-Za-z0-9._\-]{8,}"),  # Authorization header
+    re.compile(r"(?i)^basic\s+[A-Za-z0-9+/=]{8,}"),  # Basic auth header
+)
+
+
+def _is_sensitive_key(key: str) -> bool:
+    """Return True when ``key`` names a credential-like field."""
+    return bool(_SENSITIVE_KEY_RE.search(key))
+
+
+def _is_secret_value(value: str) -> bool:
+    """Return True when ``value`` looks like a secret (key, token, JWT, header)."""
+    return any(pattern.search(value) for pattern in _SECRET_VALUE_RES)
+
+
+def redact_sensitive(value: Any, *, key: str | None = None) -> Any:
+    """Recursively redact secret-looking values, returning a new structure.
+
+    Detection is key-name based (``api_key``, ``token``, ``password``, ...) and
+    value-pattern based (API keys, tokens, JWTs, and ``Bearer``/``Basic`` auth
+    headers). Matches are replaced with :data:`REDACTED_PLACEHOLDER`. The
+    function is pure and stdlib-only so the domain keeps no infra dependency.
+    """
+    if isinstance(value, dict):
+        return {k: redact_sensitive(v, key=str(k)) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact_sensitive(v) for v in value]
+    if key is not None and _is_sensitive_key(key):
+        return REDACTED_PLACEHOLDER
+    if isinstance(value, str) and _is_secret_value(value):
+        return REDACTED_PLACEHOLDER
+    return value
+
+
+def redact_sensitive_metadata(
+    metadata: dict[str, str | int | float | bool | None],
+) -> dict[str, str | int | float | bool | None]:
+    """Return ``metadata`` with sensitive values redacted (R5, defense-in-depth).
+
+    ``query_metadata`` is intentionally non-sensitive, but redaction is applied
+    anyway so it cannot be bypassed by a future caller or scalar that carries a
+    secret-looking value.
+    """
+    return {
+        key: redact_sensitive(value, key=key)
+        for key, value in metadata.items()
+    }
 
 
 class QueryLogEntry(BaseModel):
