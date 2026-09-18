@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -9,6 +10,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from book_graph_rag.domain.models import (
+    QUERY_LOG_SCHEMA_VERSION,
     REDACTED_PLACEHOLDER,
     BatchEntityQuery,
     BatchSizeExceededError,
@@ -27,6 +29,7 @@ from book_graph_rag.domain.models import (
     Relationship,
     SimilarityQuery,
     UnsupportedQueryTypeError,
+    migrate_query_log_record,
     redact_sensitive,
     redact_sensitive_metadata,
 )
@@ -374,3 +377,128 @@ def test_redact_sensitive_metadata_redacts_sensitive_entries() -> None:
         "query_set": True,
     }
 
+
+
+# ── Logging privacy: schema version + v1→v2 migration (R5, T-G.3) ──────────
+
+
+def test_query_log_entry_schema_version_defaults_to_v2() -> None:
+    """QueryLogEntry stamps schema_version=2 and persists it (R5)."""
+    entry = QueryLogEntry(
+        timestamp=datetime.now(tz=UTC),
+        tool_name="find_entity",
+        query_type="entity",
+        query_metadata={"name_set": True},
+        result_count=1,
+        zero_results=False,
+        entity_not_found=False,
+        duration_ms=45.0,
+    )
+
+    assert entry.schema_version == 2
+    assert entry.model_dump(mode="json")["schema_version"] == 2
+    assert QUERY_LOG_SCHEMA_VERSION == 2
+
+
+def _v1_record(**overrides: Any) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "timestamp": "2026-06-22T14:30:00Z",
+        "tool_name": "find_entity",
+        "query_type": "entity",
+        "query_params": {"name": "MCP", "limit": 10},
+        "result_count": 1,
+        "zero_results": False,
+        "entity_not_found": False,
+        "duration_ms": 45.0,
+        "error": None,
+    }
+    record.update(overrides)
+    return record
+
+
+def test_migrate_query_log_record_v1_maps_to_metadata_only() -> None:
+    """A v1 line is migrated to the v2 metadata-only shape (R5)."""
+    migrated = migrate_query_log_record(_v1_record(error="TimeoutError"))
+
+    assert "query_params" not in migrated
+    assert "error" not in migrated
+    assert migrated["error_code"] == "TimeoutError"
+    assert migrated["query_metadata"] == {}
+    assert migrated["schema_version"] == 2
+    assert migrated["tool_name"] == "find_entity"
+    assert migrated["result_count"] == 1
+
+
+def test_migrate_query_log_record_drops_free_text_error() -> None:
+    """A free-text v1 error is dropped, never promoted to error_code (R5)."""
+    migrated = migrate_query_log_record(
+        _v1_record(error="Neo4j connection failed: wrong credentials")
+    )
+
+    assert migrated["error_code"] is None
+    assert "Neo4j connection failed" not in json.dumps(migrated)
+
+
+def test_migrate_query_log_record_v2_passes_through() -> None:
+    """A v2 line passes through unchanged (schema_version == 2)."""
+    v2: dict[str, Any] = {
+        "timestamp": "2026-06-22T14:30:00Z",
+        "tool_name": "find_entity",
+        "query_type": "entity",
+        "query_metadata": {"name_set": True},
+        "result_count": 1,
+        "zero_results": False,
+        "entity_not_found": False,
+        "duration_ms": 45.0,
+        "error_code": None,
+        "schema_version": 2,
+    }
+
+    assert migrate_query_log_record(v2) == v2
+
+
+def test_migrate_query_log_record_v2_without_schema_version_stamps_it() -> None:
+    """A v2-shaped line without schema_version is stamped with the current one."""
+    v2: dict[str, Any] = {
+        "timestamp": "2026-06-22T14:30:00Z",
+        "tool_name": "find_entity",
+        "query_type": "entity",
+        "query_metadata": {"name_set": True},
+        "result_count": 1,
+        "zero_results": False,
+        "entity_not_found": False,
+        "duration_ms": 45.0,
+        "error_code": None,
+    }
+
+    migrated = migrate_query_log_record(v2)
+
+    assert migrated["schema_version"] == 2
+    assert "query_params" not in migrated
+
+
+def test_migrated_v1_record_contains_no_raw_or_secret_values() -> None:
+    """A migrated v1 record never carries raw query/prompt/error or secrets (R5)."""
+    secret = "sk-abcdefghijklmnopqrstuvwxyz123456"
+    assert redact_sensitive(secret) == REDACTED_PLACEHOLDER  # fixture is secret-shaped
+
+    v1 = _v1_record(
+        query_params={"query": secret, "prompt": "secret prompt text"},
+        error=f"secret error text {secret}",
+    )
+
+    migrated = migrate_query_log_record(v1)
+    entry = QueryLogEntry.model_validate(migrated)
+    serialized = entry.model_dump_json()
+    parsed = json.loads(serialized)
+
+    assert "secret prompt text" not in serialized
+    assert "secret error text" not in serialized
+    assert secret not in serialized
+    assert "query_params" not in parsed
+    assert "error" not in parsed
+    assert parsed["error_code"] is None
+    assert entry.query_metadata == {}
+    assert entry.error_code is None
+    assert entry.query_fingerprint is None
+    assert entry.prompt_fingerprint is None

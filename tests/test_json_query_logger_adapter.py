@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +16,7 @@ from book_graph_rag.domain.mcp_security import QueryFingerprint
 from book_graph_rag.domain.models import QueryLogEntry
 from book_graph_rag.infrastructure.logging.json_query_logger_adapter import (
     JsonFileQueryLoggerAdapter,
+    read_query_log,
 )
 
 
@@ -268,6 +269,7 @@ async def test_persisted_json_contains_no_raw_text_fields(
     serialized = settings.mcp_log_path.read_text()
     parsed = json.loads(serialized.strip().splitlines()[0])
     expected_keys = {
+        "schema_version",
         "timestamp",
         "tool_name",
         "query_type",
@@ -287,3 +289,201 @@ async def test_persisted_json_contains_no_raw_text_fields(
     # No raw free-text fields or values may appear anywhere in the persisted line.
     assert "query_params" not in serialized
     assert "secret prompt text" not in serialized
+
+
+# ── Retention coverage (T-G.3): zero-byte files + exact 7-day boundary ──────
+
+
+class _FrozenClock:
+    """Freeze ``datetime.now`` while delegating ``fromtimestamp`` to the real class."""
+
+    def __init__(self, now: datetime) -> None:
+        self._now = now
+
+    def now(self, tz: tzinfo | None = None) -> datetime:
+        return self._now
+
+    def fromtimestamp(self, ts: float, tz: tzinfo | None = None) -> datetime:
+        return datetime.fromtimestamp(ts, tz=tz)
+
+
+async def test_init_deletes_zero_byte_expired_rotated_file(tmp_path: Path) -> None:
+    """A zero-byte rotated file older than retention is removed (T-G.3)."""
+    base_path = tmp_path / "mcp_queries.jsonl"
+    base_path.touch()
+
+    old_date = datetime.now(tz=UTC) - timedelta(days=8)
+    rotated = tmp_path / f"{base_path.name}.{old_date.strftime('%Y-%m-%d')}"
+    rotated.touch()  # zero bytes
+    old_timestamp = old_date.timestamp()
+    os.utime(rotated, (old_timestamp, old_timestamp))
+
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+            "mcp_log_path": base_path,
+            "mcp_log_retention_days": 7,
+        }
+    )
+
+    adapter = JsonFileQueryLoggerAdapter(settings)
+    await adapter.close()
+
+    assert not rotated.exists()
+    assert base_path.exists()
+
+
+async def test_init_preserves_zero_byte_rotated_file_within_retention(
+    tmp_path: Path,
+) -> None:
+    """A zero-byte rotated file within retention is preserved (T-G.3)."""
+    base_path = tmp_path / "mcp_queries.jsonl"
+    base_path.touch()
+
+    recent_date = datetime.now(tz=UTC) - timedelta(days=3)
+    rotated = tmp_path / f"{base_path.name}.{recent_date.strftime('%Y-%m-%d')}"
+    rotated.touch()  # zero bytes
+
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+            "mcp_log_path": base_path,
+            "mcp_log_retention_days": 7,
+        }
+    )
+
+    adapter = JsonFileQueryLoggerAdapter(settings)
+    await adapter.close()
+
+    assert rotated.exists()
+    assert base_path.exists()
+
+
+async def test_init_retention_boundary_exact_seven_days(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exactly 7 days old is kept; anything strictly older is removed (T-G.3)."""
+    base_path = tmp_path / "mcp_queries.jsonl"
+    base_path.touch()
+
+    frozen_now = datetime(2026, 6, 22, 12, 0, 0, tzinfo=UTC)
+    monkeypatch.setattr(
+        "book_graph_rag.infrastructure.logging.json_query_logger_adapter.datetime",
+        _FrozenClock(frozen_now),
+    )
+    cutoff = frozen_now - timedelta(days=7)
+
+    at_boundary = tmp_path / f"{base_path.name}.2026-06-15"
+    at_boundary.touch()
+    os.utime(at_boundary, (cutoff.timestamp(), cutoff.timestamp()))
+
+    just_older = tmp_path / f"{base_path.name}.2026-06-14"
+    just_older.touch()
+    older_ts = (cutoff - timedelta(seconds=1)).timestamp()
+    os.utime(just_older, (older_ts, older_ts))
+
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+            "mcp_log_path": base_path,
+            "mcp_log_retention_days": 7,
+        }
+    )
+
+    adapter = JsonFileQueryLoggerAdapter(settings)
+    await adapter.close()
+
+    assert at_boundary.exists()
+    assert not just_older.exists()
+    assert base_path.exists()
+
+
+# ── Log reader + v1→v2 migration (T-G.3) ────────────────────────────────────
+
+
+def test_read_query_log_reads_v2_entries(tmp_path: Path) -> None:
+    """read_query_log parses v2 lines into QueryLogEntry instances."""
+    entry = _make_entry()
+    path = tmp_path / "mcp_queries.jsonl"
+    path.write_text(entry.model_dump_json() + "\n", encoding="utf-8")
+
+    result = read_query_log(path)
+
+    assert result.skipped_lines == 0
+    assert len(result.entries) == 1
+    assert result.entries[0].model_dump(mode="json") == entry.model_dump(mode="json")
+    assert result.entries[0].schema_version == 2
+
+
+def test_read_query_log_migrates_v1_lines(tmp_path: Path) -> None:
+    """read_query_log migrates legacy v1 lines to the metadata-only schema."""
+    v1 = json.dumps(
+        {
+            "timestamp": "2026-06-22T14:30:00Z",
+            "tool_name": "find_entity",
+            "query_type": "entity",
+            "query_params": {"name": "MCP", "limit": 10},
+            "result_count": 1,
+            "zero_results": False,
+            "entity_not_found": False,
+            "duration_ms": 45.0,
+            "error": "TimeoutError",
+        }
+    )
+    path = tmp_path / "mcp_queries.jsonl"
+    path.write_text(v1 + "\n", encoding="utf-8")
+
+    result = read_query_log(path)
+
+    assert result.skipped_lines == 0
+    entry = result.entries[0]
+    assert entry.error_code == "TimeoutError"
+    assert entry.query_metadata == {}
+    assert entry.query_fingerprint is None
+    assert entry.prompt_fingerprint is None
+    assert entry.schema_version == 2
+    assert entry.tool_name == "find_entity"
+
+
+def test_read_query_log_skips_malformed_lines_and_counts_them(tmp_path: Path) -> None:
+    """Malformed lines are skipped and counted, never blocking the read."""
+    path = tmp_path / "mcp_queries.jsonl"
+    path.write_text(
+        "not-json\n"
+        + _make_entry().model_dump_json() + "\n"
+        + "{invalid json\n"
+        + "[]\n"
+        + "\n",  # blank line is ignored silently
+        encoding="utf-8",
+    )
+
+    result = read_query_log(path)
+
+    assert result.skipped_lines == 3
+    assert len(result.entries) == 1
+
+
+def test_read_query_log_missing_file_returns_empty(tmp_path: Path) -> None:
+    """A missing log file yields an empty result, not an error."""
+    result = read_query_log(tmp_path / "does_not_exist.jsonl")
+
+    assert result.entries == []
+    assert result.skipped_lines == 0
+
+
+def test_read_query_log_never_modifies_source(tmp_path: Path) -> None:
+    """Reading is strictly read-only: the source bytes are unchanged (T-G.3)."""
+    content = _make_entry().model_dump_json() + "\n"
+    path = tmp_path / "mcp_queries.jsonl"
+    path.write_text(content, encoding="utf-8")
+    before = path.read_text(encoding="utf-8")
+
+    read_query_log(path)
+
+    assert path.read_text(encoding="utf-8") == before
