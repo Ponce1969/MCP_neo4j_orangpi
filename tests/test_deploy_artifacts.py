@@ -62,6 +62,23 @@ def test_deploy_readme_contains_key_steps(deploy_dir: Path) -> None:
     assert "journalctl -u mcp-server -f" in content
 
 
+def test_systemd_service_binds_private_interface_only(deploy_dir: Path) -> None:
+    """The service unit binds MCP to a private/Tailscale interface (R7)."""
+    service_path = deploy_dir / "mcp-server.service"
+    content = service_path.read_text(encoding="utf-8")
+
+    assert "Environment=MCP_BIND_HOST=100.106.85.109" in content  # no-external-endpoints-allow
+    assert "MCP_BIND_HOST=0.0.0.0" not in content
+
+
+def test_deploy_readme_documents_private_bind(deploy_dir: Path) -> None:
+    """README documents the private/Tailscale MCP_BIND_HOST requirement."""
+    readme_path = deploy_dir / "README.md"
+    content = readme_path.read_text(encoding="utf-8")
+
+    assert "MCP_BIND_HOST" in content
+
+
 def test_env_example_includes_mcp_settings(env_example: Path) -> None:
     """.env.example documents the MCP settings added in Fase 07."""
     content = env_example.read_text(encoding="utf-8")

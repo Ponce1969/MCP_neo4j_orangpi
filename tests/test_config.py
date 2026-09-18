@@ -88,6 +88,7 @@ def test_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.query_llm_model_name == ""
     assert settings.query_llm_api_key is None
     assert settings.mcp_port == 8003
+    assert settings.mcp_bind_host == "127.0.0.1"
     assert settings.mcp_log_path == Path("logs/mcp_queries.jsonl")
     assert settings.mcp_log_retention_days == 7
     assert settings.summary_max_concurrency == 3
@@ -747,4 +748,88 @@ def test_settings_embedding_input_variant_rejects_invalid_value(
         Settings.model_validate(data)
 
     assert "embedding_input_variant" in str(exc_info.value)
+
+
+# ── MCP bind host (R7 fail-closed transport) ────────────────────────────────
+
+
+def test_settings_mcp_bind_host_defaults_localhost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """mcp_bind_host defaults to 127.0.0.1 (fail-closed, never public)."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+        }
+    )
+
+    assert settings.mcp_bind_host == "127.0.0.1"
+
+
+@pytest.mark.parametrize("wildcard", ["0.0.0.0", "::", ""])
+def test_settings_production_rejects_wildcard_bind_host(
+    wildcard: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Production must never bind to a public/wildcard address (R7)."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "app_env": "production",
+        "mcp_bind_host": wildcard,
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "mcp_bind_host" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("app_env", ["development", "test"])
+def test_settings_non_production_allows_wildcard_bind_host(
+    app_env: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Wildcard binds are an explicit choice only outside production."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+            "app_env": app_env,
+            "mcp_bind_host": "0.0.0.0",
+        }
+    )
+
+    assert settings.mcp_bind_host == "0.0.0.0"
+
+
+def test_settings_production_allows_private_bind_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Production accepts a private/Tailscale interface address (R7)."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+            "app_env": "production",
+            "mcp_bind_host": "100.106.85.109",  # no-external-endpoints-allow
+        }
+    )
+
+    assert settings.mcp_bind_host == "100.106.85.109"  # no-external-endpoints-allow
 

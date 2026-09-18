@@ -217,7 +217,7 @@ def test_serve_command_starts_server(
     assert result.exit_code == 0, result.output
     assert "MCP server starting on port 8003" in result.output
     server_adapter = fake_adapters["server_adapter"]
-    server_adapter.run_sse_mock.assert_awaited_once_with(host="0.0.0.0", port=8003)
+    server_adapter.run_sse_mock.assert_awaited_once_with(host="127.0.0.1", port=8003)
 
 
 def test_composition_root_creates_components_in_order(
@@ -292,7 +292,31 @@ def test_serve_uses_custom_mcp_port(
     assert result.exit_code == 0, result.output
     assert "MCP server starting on port 9000" in result.output
     fake_adapters["server_adapter"].run_sse_mock.assert_awaited_once_with(
-        host="0.0.0.0", port=9000
+        host="127.0.0.1", port=9000
+    )
+
+
+def test_serve_passes_configured_bind_host(
+    fake_settings: Settings,
+    fake_adapters: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The configured mcp_bind_host is passed to run_sse (no hardcoded 0.0.0.0)."""
+    fake_settings.mcp_bind_host = "100.106.85.109"  # no-external-endpoints-allow
+
+    class _FakeSettingsType:
+        @classmethod
+        def model_validate(cls, data: object) -> Settings:
+            return fake_settings
+
+    monkeypatch.setattr("book_graph_rag.mcp_server_main.Settings", _FakeSettingsType)
+
+    runner = CliRunner()
+    result = runner.invoke(mcp_cli, ["serve"])
+
+    assert result.exit_code == 0, result.output
+    fake_adapters["server_adapter"].run_sse_mock.assert_awaited_once_with(
+        host="100.106.85.109", port=8003  # no-external-endpoints-allow
     )
 
 
