@@ -1,0 +1,75 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-H.1 Tailscale/private bind configuration and fail-fast secure defaults; reject production 0.0.0.0",
+  "budget_max_changed_lines": 900,
+  "changed_lines": 175,
+  "commits": [
+    "41edcc0",
+    "be67beb"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "result": "13 failed / 59 passed on focused files: Settings.mcp_bind_host AttributeError/default assertions; production wildcard acceptance (expected ValidationError); mcp_server_main still passed 0.0.0.0; deploy contract missing"
+    },
+    "green": {
+      "result": "151 focused passed (config 151 + mcp_server_main + deploy_artifacts + adapter); full unit 1382 passed, 62 deselected, 0 failed"
+    },
+    "triangulate": "wildcard 0.0.0.0/::/empty rejected in production; dev/test permit explicit wildcard; production accepts private IP; default 127.0.0.1; serve passes configured bind host",
+    "refactor": "_WILDCARD_BIND_HOSTS constant; validator placement in Settings; adapter defaults left backward-compatible (policy lives in config + caller)"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/test_config.py tests/test_mcp_server_main.py tests/test_deploy_artifacts.py tests/test_mcp_server_adapter.py -q",
+      "exit_code": 0,
+      "result": "151 passed"
+    },
+    {
+      "command": "uv run pytest tests/ -m 'not neo4j_integration' -q",
+      "exit_code": 0,
+      "result": "1382 passed, 62 deselected, 0 failed"
+    },
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy .",
+      "exit_code": 0,
+      "result": "Success: no issues found in 298 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "Arquitectura Hexagonal validada correctamente"
+    },
+    {
+      "command": "uv run pytest tests/unit/test_no_external_endpoints.py -q",
+      "exit_code": 0,
+      "result": "1 passed (guard restored via no-external-endpoints-allow pragmas on legitimate private-IP fixtures)"
+    }
+  ],
+  "evidence_goal_status": {
+    "private_bind_default": "mcp_bind_host: str = '127.0.0.1' — loopback fail-closed, never 0.0.0.0 by default",
+    "production_wildcard_rejected": "Settings model_validator raises ValueError when app_env=production and mcp_bind_host in {'0.0.0.0','::',''} — fail-fast, production can never bind public",
+    "dev_test_stance": "wildcard permitted as explicit non-production choice (tested) — local/CI access legitimately needs it; gate scoped to production only",
+    "wiring": "mcp_server_main passes settings.mcp_bind_host to run_sse (hardcoded 0.0.0.0 removed); adapter defaults left backward-compatible",
+    "deploy_contract": "systemd unit adds Environment=MCP_BIND_HOST=100.106.85.109 (Environment overrides EnvironmentFile — enforcement regardless of .env); README documents R7 binding + fixed verification curl; .env.example documents MCP_BIND_HOST (orchestrator addition)",
+    "production_untouched": "No connection to bolt://100.106.85.109:7687 or any remote host; unit tests only, no testcontainers"
+  },
+  "followups": [
+    "T-H.2: deployment unit/config contract tests; no live deployment from tests (next)",
+    "Pre-existing bookgraph (service) vs gonzalo (README) user/path mismatch left untouched (out of scope)",
+    "Empty/missing MCP_HMAC_KEY still masks original exception in error paths (open)",
+    "Full testcontainers integration matrix + dynamic path wired — T-I.1",
+    "Pre-existing dirty file .windsurf/workflows/sdd-new.md untouched"
+  ],
+  "notes": [
+    "Executor: gentle-ai-worker (bounded writer, no commit) + orchestrator full gates + 2 work-unit commits to main. Orchestrator added MCP_BIND_HOST to .env.example and no-external-endpoints-allow pragmas (guard restoration).",
+    "Changed-lines accounting: 175 code-only (47 src+deploy + 128 tests); ledger counts whole window including this bundle.",
+    "The systemd Environment= directive takes precedence over EnvironmentFile= per systemd ordering — defense-in-depth for the production unit."
+  ]
+}
