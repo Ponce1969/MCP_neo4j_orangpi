@@ -65,7 +65,9 @@ async def _run_server(settings: Settings) -> None:
                     raw_logging_enabled=settings.mcp_raw_logging_enabled,
                 )
                 click.echo(f"MCP server starting on port {settings.mcp_port}")
-                await server_adapter.run_sse(host="0.0.0.0", port=settings.mcp_port)
+                await server_adapter.run_sse(
+                    host=settings.mcp_bind_host, port=settings.mcp_port
+                )
             finally:
                 await query_logger.close()
         finally:

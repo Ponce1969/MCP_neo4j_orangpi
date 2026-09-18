@@ -9,6 +9,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _SEMVER_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 _ISO_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+# R7: wildcard/public bind addresses that must never be used in production.
+_WILDCARD_BIND_HOSTS = frozenset({"0.0.0.0", "::", ""})
+
 LLMRole = Literal["graph", "query"]
 
 _APPROVED_EMBEDDING_MODELS = frozenset({
@@ -114,6 +117,10 @@ class Settings(BaseSettings):
 
     # ── MCP server (Fase 07) ────────────────────────────────────────────
     mcp_port: int = 8003
+    # R7: the MCP SSE server binds to this interface. Fail-closed default is
+    # loopback (127.0.0.1). Production must bind a private/Tailscale address;
+    # a public/wildcard address (0.0.0.0/::/empty) is rejected at startup.
+    mcp_bind_host: str = "127.0.0.1"
     mcp_log_path: Path = Path("logs/mcp_queries.jsonl")
     mcp_log_retention_days: int = 7
     # Keyed HMAC-SHA256 query/prompt log fingerprints (R5). Fail-closed: an
@@ -451,5 +458,21 @@ class Settings(BaseSettings):
             raise ValueError(
                 "mcp_raw_logging_enabled is development-only; cannot be enabled "
                 f"when app_env={self.app_env!r}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_bind_host_is_private_in_production(self) -> "Settings":
+        """Reject public/wildcard MCP binds in production (R7 fail-closed).
+
+        Production must only bind a private/Tailscale interface so the SSE
+        server is never reachable from the public network. Development and test
+        may explicitly choose a wildcard bind (e.g. 0.0.0.0 for local access),
+        which is why the gate is scoped to ``app_env == "production"``.
+        """
+        if self.app_env == "production" and self.mcp_bind_host in _WILDCARD_BIND_HOSTS:
+            raise ValueError(
+                f"mcp_bind_host ({self.mcp_bind_host!r}) must be a private/Tailscale "
+                "interface address in production; never 0.0.0.0, ::, or empty"
             )
         return self

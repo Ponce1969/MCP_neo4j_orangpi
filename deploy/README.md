@@ -6,6 +6,18 @@ This folder contains the systemd unit file for running the Book Graph RAG MCP se
 
 - `mcp-server.service` — systemd unit that starts `book-graph-rag-mcp serve` on boot.
 
+## Network binding (R7)
+
+The MCP SSE server must only ever listen on a **private/Tailscale interface**, never
+on a public address. The service unit sets `Environment=MCP_BIND_HOST=100.106.85.109`
+(the Orange Pi's Tailscale IP), which overrides any `MCP_BIND_HOST` in the `.env`
+EnvironmentFile and takes precedence in systemd. The application also fail-fast rejects
+a wildcard bind (`0.0.0.0`, `::`, or empty) whenever `APP_ENV=production`, so the server
+can never accidentally expose the MCP boundary to the public network.
+
+When the Tailscale IP changes, update the `Environment=MCP_BIND_HOST=...` line in
+`deploy/mcp-server.service` and re-run `sudo systemctl daemon-reload`.
+
 ## Prerequisites
 
 - The repo is cloned at `/home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi`.
@@ -58,7 +70,7 @@ This folder contains the systemd unit file for running the Book Graph RAG MCP se
 From the Pi or any Tailscale-connected peer:
 
 ```bash
-curl http://localhost:8003/sse
+curl http://100.106.85.109:8003/sse
 ```
 
 You should see an SSE stream response.
