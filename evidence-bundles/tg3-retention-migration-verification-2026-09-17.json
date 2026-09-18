@@ -1,0 +1,69 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-G.3 retention and log migration tests; no raw fixture leakage",
+  "budget_max_changed_lines": 750,
+  "changed_lines": 423,
+  "commits": [
+    "a3d3e45",
+    "f65d8fa"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "result": "ImportError cannot import name 'QUERY_LOG_SCHEMA_VERSION' from 'book_graph_rag.domain.models' (test_query_models.py) and ImportError cannot import name 'read_query_log' from 'book_graph_rag.infrastructure.logging.json_query_logger_adapter' (test_json_query_logger_adapter.py) — 2 collection errors before implementation"
+    },
+    "green": {
+      "result": "162 focused passed across test_query_models/test_json_query_logger_adapter/test_query_logger_port/test_mcp_server_adapter/test_mcp_server_main (57 baseline + 14 new + updates)"
+    },
+    "triangulate": "v1 class-name error promoted to error_code; v1 free-text error dropped to None (v1 stored raw str(exc) — key finding); v2 pass-through; v2-without-version stamped; malformed skip-and-count (3 shapes); missing file empty; read-only invariant; zero-byte expired removed vs kept; exact 7-day boundary with frozen clock",
+    "refactor": "migrate_query_log_record pure in domain; read_query_log + QueryLogReadResult dataclass in infra (ports unchanged)"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/test_query_models.py tests/test_json_query_logger_adapter.py tests/test_query_logger_port.py tests/test_mcp_server_adapter.py tests/test_mcp_server_main.py -q",
+      "exit_code": 0,
+      "result": "162 passed"
+    },
+    {
+      "command": "uv run pytest tests/ -m 'not neo4j_integration' -q",
+      "exit_code": 0,
+      "result": "1372 passed, 62 deselected, 0 failed"
+    },
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy .",
+      "exit_code": 0,
+      "result": "Success: no issues found in 298 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "Arquitectura Hexagonal validada correctamente"
+    }
+  ],
+  "evidence_goal_status": {
+    "schema_versioning": "QueryLogEntry.schema_version: int = QUERY_LOG_SCHEMA_VERSION (=2), first field after model_config; default keeps all existing v2 constructions green",
+    "migration": "migrate_query_log_record pure in domain: v1 detected by query_params/error presence; query_params DROPPED (never mapped to metadata), error promoted to error_code only when bare class-name (^[A-Za-z_][A-Za-z0-9_]*$), free-text dropped to None; fingerprints None; read_query_log in infra: skip-with-count malformed lines, missing file empty, read-only (source never modified)",
+    "retention": "existing rotation/cleanup behavior proven: base preserved older than retention, rotated expired removed, newer kept; new matrix adds zero-byte expired removed vs within-retention kept, exact 7-day boundary (frozen clock)",
+    "no_raw_leakage": "schema_version default; v1→metadata-only mapping; free-text error dropped; v2 pass-through; migrated v1 carries no raw query/prompt/error text and no secret-shaped values (proven via redact_sensitive → REDACTED_PLACEHOLDER)",
+    "production_untouched": "No connection to bolt://100.106.85.109:7687; unit-only, no testcontainers this WU"
+  },
+  "followups": [
+    "Slice G COMPLETE (T-G.1/T-G.2/T-G.3). Next: Slice H (T-H.1 Tailscale/private bind fail-fast; T-H.2 deployment unit/config contract tests)",
+    "v1 error free-text promotion only for bare identifiers is deliberate privacy-lossy: historical logs with prose-wrapped class names lose the class (safe choice, documented)",
+    "Empty/missing MCP_HMAC_KEY still masks original exception in error paths (open follow-up)",
+    "Full testcontainers integration matrix + dynamic path wired — T-I.1",
+    "Pre-existing dirty file .windsurf/workflows/sdd-new.md untouched"
+  ],
+  "notes": [
+    "Executor: gentle-ai-worker (bounded writer, no commit) + orchestrator full gates + 2 work-unit commits to main. No out-of-surface issues this WU.",
+    "Changed-lines accounting: 423 code-only (94 src + 329 tests); ledger counts whole window including this bundle.",
+    "Retention behaviour pre-existed since earlier phase; this WU completed the test matrix and added the migration/reader capability."
+  ]
+}
