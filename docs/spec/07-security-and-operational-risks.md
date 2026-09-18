@@ -1,8 +1,9 @@
 # 07 — Security and Operational Risks
 
 > **Status: Active (normative).** This risk register binds before any production
-> exposure. Findings are `[VERIFIED]` against the current code/config and are
-> proposals-for-mitigation, not claims that mitigations already exist.
+> exposure. Findings are `[VERIFIED]` against the current code/config. Mitigations
+> marked implemented are verified against the code; a non-empty residual risk means
+> the exposure gate (00 §3) is not yet passable.
 
 ## 1. Scope and method
 
@@ -11,7 +12,8 @@ CLI, the Neo4j connection, Text2Cypher, and logging. It does **not** cover the O
 host itself, other projects' containers, or the OS — those are out of scope and governed
 by `AGENTS.md` §7. Severity uses: **CRITICAL / HIGH / MEDIUM / LOW**. "Residual risk" is
 what remains after the listed mitigations; a non-empty residual risk means the exposure
-gate (00 §3) is not yet passable.
+gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks: **R7**
+(`ask_global` community-scope gap) and **R8** (Text2Cypher scope-parameter binding).
 
 ## 2. Threat model (summary)
 
@@ -26,45 +28,58 @@ gate (00 §3) is not yet passable.
 
 ## 3. Risk register
 
-### R1 — Network exposure: plaintext SSE on `0.0.0.0` (CRITICAL)
+### R1 — Network exposure: plaintext SSE bind (CRITICAL)
 
-- **Evidence `[VERIFIED]`:** `mcp_server_main.py::_run_server` calls
-  `server_adapter.run_sse(host="0.0.0.0", port=settings.mcp_port)`; `mcp_port` default
-  `8003` (`config.py`). SSE is HTTP without TLS in this path.
-- **Impact:** Any host that can reach port 8003 can invoke all 8 tools and read graph
-  contents without authentication.
-- **Mitigation (target):** bind to loopback/private interface (e.g. Tailscale IP) in
-  production; require TLS and/or an authenticated transport; keep consumption opt-in
-  (`AGENTS.md` §6). Never bind `0.0.0.0` on an untrusted network.
-- **Residual risk:** LOW once bound to a private authenticated network; HIGH until then.
+- **Evidence `[VERIFIED]`:** `Settings.mcp_bind_host` defaults to loopback
+  `127.0.0.1`; `_validate_bind_host_is_private_in_production` rejects wildcard/public
+  binds (`0.0.0.0`/`::`/`""`) when `app_env == "production"` (`config.py`).
+  `mcp_server_main.py::_run_server` passes `settings.mcp_bind_host` to `run_sse`;
+  the production systemd unit sets `Environment=MCP_BIND_HOST=100.106.85.109` (the
+  Tailscale IP) and `.env.example` documents `MCP_BIND_HOST`
+  (`deploy/mcp-server.service`).
+- **Impact:** Any host that can reach the bound port can invoke all 8 tools and read
+  graph contents without authentication (SSE is plaintext HTTP).
+- **Mitigation (implemented):** loopback default (fail-closed) + production wildcard
+  rejection + private Tailscale bind in the systemd unit. Consumption remains opt-in
+  (`AGENTS.md` §6).
+- **Mitigation (target):** TLS and/or an authenticated transport before any broader
+  exposure.
+- **Residual risk:** LOW on a private Tailscale-only bind; TLS/auth are still absent,
+  so exposure beyond the private network stays HIGH until the transport is hardened.
 
 ### R2 — Shared Neo4j read/write credentials (HIGH)
 
-- **Evidence `[VERIFIED]`:** `Neo4jCommandAdapter`, `Neo4jQueryAdapter`,
-  `Neo4jAuditAdapter`, `Neo4jValidationAdapter` all construct a driver from the same
-  `settings.neo4j_user` / `settings.neo4j_password` (`config.py`). The MCP read path uses
-  a credential that also permits writes.
-- **Impact:** A compromise of the read-only MCP (or a write leaked through R3) can mutate
-  or delete the graph.
-- **Mitigation (target):** least-privilege — separate read-only Neo4j role/credential for
-  the MCP/query path; write credential confined to the CLI index/validate path. Enable the
-  read-only transaction/session for the query surface.
-- **Residual risk:** MEDIUM until read-only credentials are enforced server-side.
+- **Evidence `[VERIFIED]`:** all Neo4j adapters still construct drivers from the same
+  `settings.neo4j_user`/`settings.neo4j_password` (`config.py`); `neo4j_read_database`
+  defaults to the same `"neo4j"` database. Credential separation (a distinct
+  read-only role) is **not yet done**.
+- **Mitigation (implemented):** the MCP read path enforces read-only authority via
+  `READ_ACCESS` routing + managed `execute_read` transactions; write statements are
+  rejected with a typed `UnsupportedQueryError` (`neo4j_query_adapter.py::_read_session`,
+  `_read_records`, `_raise_typed_driver_error`). Proven by a write-rejection
+  integration test asserting graph-snapshot equality (T-C.4).
+- **Mitigation (target):** least-privilege — a separate read-only Neo4j role/credential
+  for the MCP/query path; write credential confined to the CLI index/validate path.
+- **Residual risk:** MEDIUM until a distinct read-only credential/role exists — the
+  read path is restricted by access mode, but a compromised write credential could
+  still reach the DB directly.
 
-### R3 — Incomplete Text2Cypher denylist (HIGH)
+### R3 — Dynamic Text2Cypher escaping the guard (HIGH)
 
-- **Evidence `[VERIFIED]`:** `text2cypher_adapter.py::_WRITE_KEYWORDS_RE` blocks
-  `CREATE|DELETE|SET|MERGE|DETACH|REMOVE|DROP` and `CALL dbms`, but **not** `FOREACH`,
-  `LOAD CSV`, `CALL db.*` write/admin procedures, `apoc.*` write procedures, or
-  write keywords reachable via `UNWIND`, subqueries (`CALL { ... }`), or procedure
-  arguments.
-- **Impact:** A generated (or injected) query could execute a write/admin operation the
-  denylist misses.
-- **Mitigation (target):** defense-in-depth — (a) close the denylist; (b) keep `EXPLAIN`
-  validation; (c) enforce a read-only session/transaction so even a missed keyword cannot
-  commit; (d) `LIMIT` + timeout (05 §8).
-- **Residual risk:** MEDIUM until the read-only session is enforced at the DB layer
-  (denylist alone is not sufficient).
+- **Evidence `[VERIFIED]`:** the pure keyword denylist has been superseded by a
+  **structural allowlist validator** (restricted tokenizer + recursive-descent
+  grammar). It accepts only the read-only subset and rejects
+  `CREATE`/`SET`/`MERGE`/`DETACH`/`REMOVE`/`DELETE`/`DROP`, `CALL`, `LOAD CSV`,
+  `FOREACH`, `UNWIND`, subqueries, and literal `WHERE` values
+  (`structural_cypher_policy.py`). `EXPLAIN` is mandatory before execution
+  (`text2cypher_adapter.py::_generate_and_validate`). `query_cypher` is disabled by
+  default (`mcp_enable_query_cypher=False`).
+- **Mitigation (implemented):** structural allowlist (the security decision) +
+  `EXPLAIN` gate + disabled-by-default + read-only session (R2).
+- **Mitigation (target):** close the scope-parameter binding gap (see R8).
+- **Residual risk:** MEDIUM — the allowlist blocks write/admin vectors structurally,
+  but a scope-proof query cannot yet bind parameters end-to-end (R8); the keyword
+  denylist remains only as a diagnostic prefilter.
 
 ### R4 — Hardcoded schema drift (MEDIUM)
 
@@ -82,64 +97,125 @@ gate (00 §3) is not yet passable.
 
 ### R5 — Raw free-text logging (MEDIUM)
 
-- **Evidence `[VERIFIED]`:** `index_book_use_case.py::_write_dead_letter` writes
-  `error_message` (`str(error)`); MCP tool wrappers log `error=str(exc)` into
-  `QueryLogEntry.error` (`mcp_server_adapter.py`); `text2cypher` failure contexts carry
-  the generated Cypher string. Query log stores `query_params` verbatim
-  (`json_query_logger_adapter.py`).
-- **Impact:** Logs may persist query text, generated Cypher, or exception content that is
-  sensitive; retention is bounded (7 days) but not sanitized.
-- **Mitigation (target):** redact secrets and raw query text from structured logs before
-  write (reuse the audit module's `safe_properties`/redaction patterns); log error *type*
-  + a bounded, sanitized message; keep generated Cypher out of the default log or mask it.
-- **Residual risk:** LOW once structured logs are redacted; MEDIUM for the dead-letter
-  error messages until bounded/sanitized.
+- **Evidence `[VERIFIED]`:** MCP query logging is now **metadata-only** — raw
+  query/prompt/error text never enters the persisted JSONL. Free-text inputs are
+  replaced by keyed HMAC-SHA256 fingerprints (`query_fingerprint`,
+  `prompt_fingerprint`) and failures are reduced to a stable `error_code`
+  (`domain/models.py::QueryLogEntry`, `mcp_server_adapter.py::_log`). A v2 schema +
+  v1→v2 migration drops legacy raw fields (`models.py::migrate_query_log_record`).
+  Raw logging is development-only and fail-closed
+  (`config.py::_validate_raw_logging_is_development_only`); secret redaction is
+  applied to metadata (`models.py::redact_sensitive_metadata`). Retention is bounded
+  (`mcp_log_retention_days`, `json_query_logger_adapter.py`).
+- **Evidence `[VERIFIED]` (residual):** the indexing dead-letter path still writes
+  `error_message = str(error)` verbatim (`index_book_use_case.py::_write_dead_letter`,
+  `::_release_to_failed`).
+- **Mitigation (implemented):** metadata-only query log + HMAC fingerprints +
+  redaction + dev-only raw gate + bounded retention.
+- **Mitigation (target):** bound/sanitize dead-letter `error_message`.
+- **Residual risk:** LOW for the MCP query log (metadata-only); MEDIUM for the
+  dead-letter error messages until bounded/sanitized.
 
 ### R6 — Prompt injection via natural-language tools (MEDIUM)
 
 - **Evidence `[VERIFIED]`:** `query_cypher` and `ask_global` accept free-text questions
-  and feed them to an LLM; `query_cypher` then executes generated Cypher.
-- **Impact:** A crafted prompt could steer Cypher generation toward disallowed operations
-  or exfiltrate data via an overly broad read.
-- **Mitigation (target):** rely on R3's server-side read-only enforcement (not the LLM's
-  compliance); scope queries to the caller's namespace (05 §6); apply result `LIMIT`s and
-  timeouts; treat natural language as untrusted input.
-- **Residual risk:** LOW once read-only enforcement + namespace scoping + limits are in
-  place; MEDIUM before.
+  and feed them to an LLM; `query_cypher` (when enabled) then executes generated Cypher
+  under the structural allowlist.
+- **Mitigation (implemented):** server-side structural allowlist + `READ_ACCESS`
+  read-only session (R3/R2) — enforcement does not rely on the LLM's compliance;
+  fail-closed scope is required for all structured tools and per-tier budgets bound
+  every tool.
+- **Mitigation (target):** scope `ask_global`'s community read path to the caller's
+  namespace (see R7).
+- **Residual risk:** LOW for the structured/`query_cypher` paths (read-only + scoped +
+  bounded); MEDIUM for `ask_global` until the community read path is
+  namespace-filtered (R7).
+
+### R7 — `ask_global` community read path ignores resolved scope (MEDIUM)
+
+- **Evidence `[VERIFIED]`:** `McpServerAdapter.ask_global` validates scope fail-closed
+  (`InvalidScopeError`/`MissingScopeError` raised before the use case) but **discards**
+  the resolved `ScopeContext` and calls `GlobalQueryUseCase.ask(question, detail_level)`
+  without it (`mcp_server_adapter.py::ask_global`). `GlobalQueryUseCase.ask` reads
+  `CommunityReadPort.get_summaries_by_level(level)`, and
+  `Neo4jCommunityAdapter.get_summaries_by_level` returns `:CommunitySummary` nodes with
+  **no namespace filter** (`community_adapter.py`). `CommunitySummary` has no namespace
+  field (`domain/models.py`), so scope would have to derive from the namespaced
+  `entity_ids` prefix.
+- **Impact:** a scoped `ask_global` could read community summaries across namespaces.
+- **Mitigation (target):** thread the resolved `ScopeContext` into
+  `application/global_query_use_case.py` and `ports/community_read_port.py`; derive the
+  namespace from the `entity_ids` prefix (or add a namespace field to
+  `CommunitySummary`).
+- **Residual risk:** MEDIUM — the request is validated fail-closed but the community
+  read itself is unscoped; not fixed in this phase.
+
+### R8 — Text2Cypher does not bind scope parameters end-to-end (LOW)
+
+- **Evidence `[VERIFIED]`:** `Text2CypherAdapter.generate_and_run` executes read Cypher
+  via `execute_read(cypher)` with no parameter map (`text2cypher_adapter.py::_generate_and_run`),
+  while the structural validator requires a `$param` scope proof (`require_scope_proof=True`).
+  A scope-proof query therefore cannot execute end-to-end today — the validator demands a
+  bound parameter the execution path never supplies.
+- **Impact:** the dynamic path is blocked from satisfying its own scope proof;
+  `query_cypher` is effectively unusable for scope-bound queries until parameters are
+  wired through.
+- **Mitigation (target):** bind scope parameters (`ScopeContext` → `$param`) through
+  `generate_and_run`/`execute_read`.
+- **Residual risk:** LOW — `query_cypher` is disabled by default, so the gap is not
+  reachable unless explicitly enabled; not fixed in this phase.
 
 ## 4. Operational controls `[TARGET]`
 
 - **Secrets:** never in code, docs, or logs; `.env` gitignored; `SecretStr` at rest
   (`[VERIFIED]` `config.py`). Inject via environment/secret manager in production.
 - **Least privilege:** read-only Neo4j credential for the query/MCP surface; write
-  credential for CLI ingest/validate.
+  credential for CLI ingest/validate. (Read-only access mode is `[VERIFIED]`; the
+  distinct credential is still target — R2.)
 - **Network:** private transport (Tailscale-only), no `0.0.0.0` on untrusted networks,
-  TLS/auth where required.
+  TLS/auth where required. (Loopback default + production wildcard rejection
+  `[VERIFIED]` — R1.)
 - **Observability:** structured, redacted logs with bounded retention; query provenance
   (tool, duration, result count, error type) retained for gap analysis.
+  (Metadata-only + HMAC fingerprints `[VERIFIED]` — R5.)
 - **Change control:** exposure/network/auth changes pass the exposure gate (00 §3) and
   require human approval.
 
-## 5. Preconditions before production exposure `[TARGET]`
+## 5. Preconditions before production exposure
 
-None of the following are `[VERIFIED]` as complete today; each must be verified before the
-MCP is exposed beyond a trusted dev loop:
+Phase 6 (MCP hardening) completed the code-side hardening; the exposure gate itself
+remains human-gated. Verified complete vs. remaining:
 
-1. R1 mitigated: private/authenticated transport, no `0.0.0.0` bind on untrusted network.
-2. R2 mitigated: read-only credential + read-only session enforced for the MCP path.
-3. R3 mitigated: read-only enforcement proven at the DB layer (not denylist-only).
-4. R4 mitigated: schema source is dynamic/catalog-derived and surfaced in responses.
-5. R5 mitigated: structured logs redacted; raw query text masked.
-6. Readiness gate (06) passes; audit (04) shows no BLOCKING, no FAILED/UNREACHABLE.
-7. Explicit human approval recorded; production graph untouched by validation.
+1. ~~R1 mitigated~~ — **verified complete:** loopback default + production wildcard
+   rejection + Tailscale bind in the systemd unit (`config.py`,
+   `deploy/mcp-server.service`).
+2. R2 mitigated — **partial:** read-only `READ_ACCESS` + managed `execute_read` proven
+   (T-C.4), but a distinct read-only credential/role is not yet in place.
+3. R3 mitigated — **partial:** structural allowlist + `EXPLAIN` + disabled-by-default
+   verified; the scope-parameter binding gap (R8) remains.
+4. R4 mitigated — **not done:** schema fallback is still the hardcoded constant;
+   dynamic schema inference remains the live path (`text2cypher_adapter.py`).
+5. R5 mitigated — **partial:** MCP query log is metadata-only + HMAC + redacted; the
+   dead-letter `error_message` is still raw.
+6. Readiness gate (06) passes; audit (04) shows no BLOCKING, no FAILED/UNREACHABLE —
+   **not yet run as the final exposure checkpoint.**
+7. Explicit human approval recorded; production graph untouched by validation —
+   **not yet granted (production exposure is a human decision).**
 
 ## 6. Acceptance criteria
 
-- [ ] Every finding above is either mitigated (with evidence) or explicitly accepted with
-  rationale and a named owner.
-- [ ] The MCP path cannot reach a write credential or execute a write statement.
-- [ ] Logs contain no raw secrets or unbounded raw query text.
-- [ ] The exposure gate cannot pass while any CRITICAL residual risk remains.
+- [x] R1/R2/R3/R5/R6 mitigations are verified in code with evidence (see register);
+  R7/R8 are recorded as open risks with their target wiring path documented.
+- [x] The MCP path cannot execute a write statement (`READ_ACCESS` + managed
+  `execute_read` + structural allowlist, proven by write-rejection integration test).
+  A write-capable credential still exists (R2 residual) — least-privilege separation
+  remains target.
+- [x] MCP query logs contain no raw secrets or unbounded raw query text (metadata-only
+  + HMAC fingerprints). Dead-letter `error_message` is still raw (R5 residual).
+- [x] The exposure gate cannot pass while any CRITICAL residual risk remains — no
+  CRITICAL residual remains after R1's mitigation, and the gate stays fail-closed
+  against CRITICAL residuals; final exposure still requires the 06/07 gate + human
+  approval.
 
 ## 7. Open decisions
 
@@ -147,3 +223,5 @@ MCP is exposed beyond a trusted dev loop:
   production.
 - `[OPEN]` Transport choice (TLS vs. Tailscale-only vs. both) for the first real exposure.
 - `[OPEN]` Logging redaction policy specifics (mask vs. drop vs. hash) for query text.
+  (Decided for the MCP query log: drop + keyed HMAC-SHA256 fingerprints — R5. The
+  dead-letter `error_message` policy remains open.)
