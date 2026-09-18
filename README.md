@@ -10,13 +10,14 @@
 
 ---
 
-## Current status — 2026-09-11
+## Current status — 2026-09-18
 
 Phase 5 (evaluation and readiness) is complete, verified, archived, and
-**deployed to the Orange Pi 5 Plus**. The repository now contains the indexer,
-read-only evaluation/readiness gates, and the MCP SSE server used to expose the
-loaded graph. The next roadmap step is MCP hardening before guarded external
-exposure; deployment alone does not close that gate.
+**deployed to the Orange Pi 5 Plus**. Phase 6 (MCP hardening) is **implemented**
+through T-I.1 (24/26 tasks): server-side namespace scoping, read-only authority,
+structural Cypher allowlist, tiered budgets, private bind, and metadata-only HMAC
+query logs. Guarded external exposure (Phase 7) still requires the 06/07 gate and
+an explicit human decision; deployment alone does not close that gate.
 
 | Area | Current state | Evidence / location |
 |---|---|---|
@@ -26,7 +27,7 @@ exposure; deployment alone does not close that gate.
 | Phase 3 — Semantic resolution | complete with W1 follow-up | `docs/spec/03-semantic-entity-resolution.md` |
 | Phase 4 — Scoped audit and gates | complete | `book-graph-rag audit` / `gate` |
 | Phase 5 — Evaluation and readiness | complete and archived | `docs/spec/06-evaluation-and-readiness.md`, `data/evaluation/` |
-| Phase 6 — MCP hardening | pending | security and read-only exposure hardening |
+| Phase 6 — MCP hardening | implemented (24/26) | allowlist, scope, read-only session, budgets, HMAC logs, private bind |
 | Phase 7 — Guarded exposure | pending approval | production exposure gate |
 | Orange Pi MCP service | running | `mcp-server.service`, SSE on port `8003` |
 | Neo4j production graph | healthy | Docker service `bookgraph-neo4j` |
@@ -48,9 +49,9 @@ exposure; deployment alone does not close that gate.
 ## What this is — and what it is **not** yet
 
 This repository is an indexer, evaluation/readiness gate, and MCP server for a
-Neo4j knowledge graph. MCP service operation is deployed; MCP hardening and the
-final guarded exposure gate are still pending. The graph is never mutated by
-evaluation or readiness checks.
+Neo4j knowledge graph. MCP service operation is deployed and MCP hardening is
+implemented; the final guarded exposure gate is still pending. The graph is never
+mutated by evaluation or readiness checks.
 
 ---
 
@@ -358,13 +359,44 @@ deploy/                       # systemd unit and Orange Pi deployment notes
 
 ---
 
+## MCP hardening (Phase 6) — implemented
+
+Enforced at the MCP boundary (verified against `src/`):
+
+- **Server-side scope:** `source_id` is validated against the namespace catalog and
+  propagated as a `ScopeContext` through all 8 structured tools; scope is required
+  and cross-namespace traversal is blocked.
+- **Read-only authority:** the query path runs through `READ_ACCESS` + managed
+  `execute_read`; write statements are rejected with a typed error (proven by a
+  write-rejection integration test).
+- **Structural Cypher policy:** `query_cypher` is disabled by default; when enabled,
+  only a read-only allowlisted subset is accepted (no keyword denylist) and `EXPLAIN`
+  is mandatory.
+- **Tiered budgets:** per-tool LOW/MEDIUM/HIGH concurrency/rate limits plus hard
+  row/node/traversal caps, failing with typed errors.
+- **Private bind:** `mcp_bind_host` defaults to `127.0.0.1`; production rejects
+  wildcard/public binds; the systemd unit binds the Tailscale IP.
+- **HMAC logs:** the query log is metadata-only — raw query/prompt/error text never
+  enters the JSONL; requests are correlated via keyed HMAC-SHA256 fingerprints.
+
+Known open risks (recorded in `docs/spec/07`): `ask_global` validates scope but does
+not yet thread it into the community read path (cross-namespace summaries possible);
+Text2Cypher requires a scope proof but does not yet bind `$param` values end-to-end.
+Production exposure still requires the 06/07 readiness/security gate and an explicit
+human decision.
+
+---
+
 ## Roadmap
 
 - **Phase 05 — Evaluation and readiness:** complete and archived. The readiness
   gate is mechanism-first and remains `INCOMPLETE` until numeric thresholds are
   finalized from project-owned baselines.
-- **Phase 06 — MCP hardening:** pending. Complete the security, permissions,
-  logging/redaction, and read-only exposure hardening before broad use.
+- **Phase 06 — MCP hardening:** implemented through T-I.1 (24/26 tasks). Server-side
+  namespace scoping, read-only authority, structural Cypher allowlist, tiered
+  concurrency/rate budgets, private fail-closed bind, and metadata-only HMAC query
+  logs are in place. Two open risks remain (see the note below): `ask_global`
+  community-scope wiring and Text2Cypher scope-parameter binding.
 - **Phase 07 — Guarded exposure:** pending explicit approval and all readiness /
   security preconditions. The MCP service is deployed, but deployment is not
   equivalent to approval for unrestricted exposure.
