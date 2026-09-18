@@ -1,0 +1,68 @@
+{
+  "schema": "gentle-ai.attempt-evidence/v1",
+  "change": "phase-6-mcp-hardening",
+  "work_unit": "T-H.2 deployment unit/config contract tests; no live deployment from tests",
+  "budget_max_changed_lines": 700,
+  "changed_lines": 245,
+  "commits": [
+    "740eaaf"
+  ],
+  "tdd": {
+    "strict_tdd": true,
+    "runner": "uv run pytest",
+    "red": {
+      "result": "test_no_live_deployment_in_deploy_tests_or_scripts failed: 12 references listed (deploy/README.md lines 19,46,47,53,59,73,83,84 systemctl x7 + curl x1; tests/test_deploy_artifacts.py 151-154 systemctl x4)"
+    },
+    "green": {
+      "result": "13 passed after pragma edits; after triangulate/refactor 90 passed focused (deploy_artifacts + config + mcp_server_main + no_external_endpoints); extended run 96 passed incl. readme_agents_phase5"
+    },
+    "triangulate": "_line_live_deployment_violation pure helper with 11 parametrized cases (8 positive + 3 negative) so deleting any single rule fails the suite",
+    "refactor": "detection logic extracted to _line_live_deployment_violation; pragma policy line-level no-live-deployment-allow"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/test_deploy_artifacts.py tests/test_config.py tests/test_mcp_server_main.py tests/unit/test_no_external_endpoints.py tests/unit/test_readme_agents_phase5.py -q",
+      "exit_code": 0,
+      "result": "96 passed"
+    },
+    {
+      "command": "uv run pytest tests/ -m 'not neo4j_integration' -q",
+      "exit_code": 0,
+      "result": "1399 passed, 62 deselected, 0 failed"
+    },
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run mypy .",
+      "exit_code": 0,
+      "result": "Success: no issues found in 298 source files"
+    },
+    {
+      "command": "uv run python scripts/validate_architecture.py",
+      "exit_code": 0,
+      "result": "Arquitectura Hexagonal validada correctamente"
+    }
+  ],
+  "evidence_goal_status": {
+    "cli_entrypoint_consistent": "pyproject.toml [project.scripts] book-graph-rag-mcp = book_graph_rag.mcp_server_main:main matches service ExecStart 'uv run book-graph-rag-mcp serve' and mcp_cli 'serve' — NO mismatch (test pins it)",
+    "contract_coherence": "EnvironmentFile points to repo .env layout; .env.example documents all service-advertised MCP_* settings (MCP_BIND_HOST, MCP_PORT, MCP_LOG_PATH, MCP_LOG_RETENTION_DAYS); Settings accepts advertised production values",
+    "no_live_deployment": "guard scans deploy/, tests/, scripts/ for ssh/systemctl/docker exec/docker compose/scp/rsync/curl-to-production; line-level no-live-deployment-allow pragmas on documented install/rollback/verification commands only; bare docker allowed (testcontainers)",
+    "production_untouched": "No connection to bolt://100.106.85.109:7687 or any remote host; no SSH/systemctl/docker executed; unit tests only"
+  },
+  "followups": [
+    "SLICE H COMPLETE (T-H.1+T-H.2). Next: Slice I (T-I.1 integration matrix, T-I.2 spec sync, T-I.3 cumulative gates)",
+    "PRE-EXISTING: deploy README documents user gonzalo/paths /home/gonzalo/ while mcp-server.service uses User=bookgraph//home/bookgraph/ — mismatch needs HUMAN decision, out of this task's scope",
+    ".env.example lacks MCP_HMAC_KEY documentation — fail-closed at fingerprint time (not a Settings contract violation) but operators must set it or every MCP tool call fails at log time",
+    "Empty/missing MCP_HMAC_KEY still masks original exception in error paths (open)",
+    "Full testcontainers integration matrix + dynamic path wired — T-I.1",
+    "Pre-existing dirty file .windsurf/workflows/sdd-new.md untouched"
+  ],
+  "notes": [
+    "Executor: gentle-ai-worker (bounded writer, no commit) + orchestrator full gates + 1 work-unit commit to main. deploy/mcp-server.service and config.py untouched (already consistent).",
+    "Changed-lines accounting: 245 (232 tests + 13 README pragma/prose); ledger counts whole window including this bundle.",
+    "The no-live-deployment guard is mutation-resistant: parametrized 11 cases prevent rule deletion without test failure."
+  ]
+}
