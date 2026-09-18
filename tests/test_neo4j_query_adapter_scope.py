@@ -182,6 +182,17 @@ async def test_traverse_relationships_binds_relationship_types(
     assert params["scope_rel_types"] == ["enables", "requires"]
 
 
+async def test_traverse_relationships_binds_namespace_prefix(
+    adapter: _TestableAdapter, scope: ScopeContext
+) -> None:
+    """Traversal binds the entity namespace across every node in the path."""
+    await adapter.traverse_relationships("e1", None, 1, scope=scope)
+
+    query, params = adapter._driver._session.queries[-1]
+    assert "ALL(n IN nodes(p) WHERE n.id STARTS WITH $scope_prefix)" in query
+    assert params["scope_prefix"] == "book:default:"
+
+
 async def test_traverse_relationships_without_scope_omits_rel_filter(
     adapter: _TestableAdapter,
 ) -> None:

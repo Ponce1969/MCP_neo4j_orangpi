@@ -1037,9 +1037,9 @@ async def test_list_entities_first_page(adapter: Neo4jQueryAdapter) -> None:
 
     assert len(entities) == 1
     assert entities[0].entity.id == "e1"
-    assert next_cursor == 101
+    assert next_cursor == 102
     query, params = session.queries[0]
-    assert "WHERE id(n) > $cursor" in query
+    assert "WHERE id(n) >= $cursor" in query
     assert "ORDER BY id(n)" in query
     assert "SKIP" not in query
     assert params["cursor"] == 0
@@ -1047,14 +1047,14 @@ async def test_list_entities_first_page(adapter: Neo4jQueryAdapter) -> None:
 
 
 async def test_list_entities_second_page(adapter: Neo4jQueryAdapter) -> None:
-    """Cursor pagination advances using the last internal Neo4j id."""
+    """Cursor pagination advances past the last internal Neo4j id."""
     node = _node({"id": "e2", "name": "Entity 2", "type": "concept"})
     session = _make_session([_FakeRecord({"n": node, "internal_id": 202})])
     adapter._driver = _FakeDriver(session)
 
     entities, next_cursor = await adapter.list_entities(101, 50)
 
-    assert next_cursor == 202
+    assert next_cursor == 203
     query, params = session.queries[0]
     assert params["cursor"] == 101
     assert "SKIP" not in query

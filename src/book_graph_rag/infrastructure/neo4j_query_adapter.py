@@ -186,17 +186,24 @@ class Neo4jQueryAdapter(GraphQueryPort):
         ``node``) so each query shape binds only the variables it defines.
 
         The validated ``scope.source`` namespace is bound as an ``Entity.id``
-        prefix predicate (``n.id STARTS WITH $scope_prefix``) and a chunk book
-        id predicate (``node.book_id = $scope_source_id``).
+        prefix predicate (``n.id STARTS WITH $scope_prefix``), a chunk book
+        id predicate (``node.book_id = $scope_source_id``), and a path-namespace
+        predicate (``ALL(n IN nodes(p) WHERE n.id STARTS WITH $scope_prefix)``)
+        so relationship traversals can never cross into another namespace.
         """
         if scope is None:
-            return {}, {"entity": "", "path": "", "chunk": ""}
+            return {}, {"entity": "", "path": "", "chunk": "", "traversal": ""}
         params: dict[str, Any] = {}
-        clauses: dict[str, list[str]] = {"entity": [], "path": [], "chunk": []}
+        clauses: dict[str, list[str]] = {
+            "entity": [], "path": [], "chunk": [], "traversal": [],
+        }
         params["scope_prefix"] = f"{scope.source.source_id}:"
         params["scope_source_id"] = scope.source.source_id
         clauses["entity"].append("n.id STARTS WITH $scope_prefix")
         clauses["chunk"].append("node.book_id = $scope_source_id")
+        clauses["traversal"].append(
+            "ALL(n IN nodes(p) WHERE n.id STARTS WITH $scope_prefix)"
+        )
         if scope.entity_types:
             params["scope_entity_types"] = list(scope.entity_types)
             clauses["entity"].append("n.type IN $scope_entity_types")
@@ -420,6 +427,11 @@ class Neo4jQueryAdapter(GraphQueryPort):
         path_clause = scope_clauses["path"]
         if path_clause:
             predicates.append(path_clause)
+        # Bind the entity namespace across every node in the traversed path so
+        # a scoped traversal can never return neighbours from another namespace.
+        traversal_clause = scope_clauses["traversal"]
+        if traversal_clause:
+            predicates.append(traversal_clause)
         where_fragment = " AND ".join(predicates)
 
         query = f"""
@@ -630,7 +642,9 @@ class Neo4jQueryAdapter(GraphQueryPort):
             **scope_params,
         }
 
-        predicates = ["id(n) > $cursor"]
+        # ``>=`` plus an exclusive ``next_cursor`` (last id + 1) returns every
+        # entity exactly once: the initial cursor=0 must include internal id 0.
+        predicates = ["id(n) >= $cursor"]
         entity_clause = scope_clauses["entity"]
         if entity_clause:
             predicates.append(entity_clause)
@@ -651,7 +665,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
                 )
             )
             entities = [self._node_to_entity(record["n"]) for record in records]
-            next_cursor = records[-1]["internal_id"] if records else cursor
+            next_cursor = records[-1]["internal_id"] + 1 if records else cursor
             return entities, next_cursor
 
     async def explain(self, cypher: str, parameters: dict[str, Any] | None = None) -> None:
