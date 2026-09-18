@@ -16,7 +16,7 @@ a wildcard bind (`0.0.0.0`, `::`, or empty) whenever `APP_ENV=production`, so th
 can never accidentally expose the MCP boundary to the public network.
 
 When the Tailscale IP changes, update the `Environment=MCP_BIND_HOST=...` line in
-`deploy/mcp-server.service` and re-run `sudo systemctl daemon-reload`.
+`deploy/mcp-server.service` and re-run `sudo systemctl daemon-reload` <!-- no-live-deployment-allow -->.
 
 ## Prerequisites
 
@@ -43,20 +43,20 @@ When the Tailscale IP changes, update the `Environment=MCP_BIND_HOST=...` line i
 3. Reload systemd and enable the service:
 
    ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable mcp-server
+   sudo systemctl daemon-reload  # no-live-deployment-allow
+   sudo systemctl enable mcp-server  # no-live-deployment-allow
    ```
 
 4. Start the service:
 
    ```bash
-   sudo systemctl start mcp-server
+   sudo systemctl start mcp-server  # no-live-deployment-allow
    ```
 
 5. Check the status:
 
    ```bash
-   sudo systemctl status mcp-server
+   sudo systemctl status mcp-server  # no-live-deployment-allow
    ```
 
 6. Follow the logs:
@@ -70,7 +70,7 @@ When the Tailscale IP changes, update the `Environment=MCP_BIND_HOST=...` line i
 From the Pi or any Tailscale-connected peer:
 
 ```bash
-curl http://100.106.85.109:8003/sse
+curl http://100.106.85.109:8003/sse  # no-live-deployment-allow
 ```
 
 You should see an SSE stream response.
@@ -80,6 +80,6 @@ You should see an SSE stream response.
 To stop and disable the service:
 
 ```bash
-sudo systemctl stop mcp-server
-sudo systemctl disable mcp-server
+sudo systemctl stop mcp-server  # no-live-deployment-allow
+sudo systemctl disable mcp-server  # no-live-deployment-allow
 ```
