@@ -276,6 +276,10 @@ class GraphQueryResult(BaseModel):
 #: Placeholder substituted for secret-looking values during log redaction (R5).
 REDACTED_PLACEHOLDER = "<redacted>"
 
+#: Current persisted schema version for the query log (R5).
+#: v1 stored raw ``query_params`` and ``error``; v2 is metadata-only.
+QUERY_LOG_SCHEMA_VERSION = 2
+
 #: Credential-like key names whose values must never be persisted in clear.
 _SENSITIVE_KEY_RE = re.compile(
     r"(?i)(api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|"
@@ -342,6 +346,47 @@ def redact_sensitive_metadata(
     }
 
 
+#: A bare exception class name (``TimeoutError``) — the only legacy ``error``
+#: shape that is safe to promote verbatim to the v2 ``error_code`` field.
+_VERBATIM_CLASS_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def migrate_query_log_record(raw: dict[str, Any]) -> dict[str, Any]:
+    """Return a v2-shaped record dict, migrating a legacy v1 line when needed.
+
+    v1 lines carried raw ``query_params`` and ``error`` (``str(exc)``) fields;
+    both are free text that the v2 metadata-only contract forbids persisting.
+    The migration is intentionally lossy and never writes to the source log:
+
+    * ``query_params`` is dropped entirely (never mapped to ``query_metadata``,
+      so raw query/prompt values cannot survive).
+    * ``error`` is promoted to ``error_code`` only when it looks like a bare
+      exception class name (e.g. ``TimeoutError``); free-text messages are
+      dropped to ``None`` so no raw error text survives.
+    * fingerprints are left unset (``None``) and ``query_metadata`` defaults to
+      ``{}`` when absent.
+    * ``schema_version`` is stamped with the current version.
+
+    v2 lines (``schema_version == 2`` or absent but v2-shaped) pass through
+    unchanged except for having ``schema_version`` normalized when missing.
+    """
+    # v1 detection: presence of either legacy raw field.
+    if "query_params" not in raw and "error" not in raw:
+        migrated = dict(raw)
+        migrated.setdefault("schema_version", QUERY_LOG_SCHEMA_VERSION)
+        return migrated
+
+    migrated = {k: v for k, v in raw.items() if k not in ("query_params", "error")}
+    error = raw.get("error")
+    if isinstance(error, str) and _VERBATIM_CLASS_NAME_RE.match(error):
+        migrated["error_code"] = error
+    else:
+        migrated["error_code"] = None
+    migrated.setdefault("query_metadata", {})
+    migrated["schema_version"] = QUERY_LOG_SCHEMA_VERSION
+    return migrated
+
+
 class QueryLogEntry(BaseModel):
     """Metadata-only structured log entry for an MCP tool execution (R5).
 
@@ -354,6 +399,7 @@ class QueryLogEntry(BaseModel):
     """
 
     model_config = ConfigDict()
+    schema_version: int = QUERY_LOG_SCHEMA_VERSION
     timestamp: datetime
     tool_name: str
     query_type: str

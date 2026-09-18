@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import logging.handlers
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
+
+from pydantic import ValidationError
 
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.models import QueryLogEntry
+from book_graph_rag.domain.models import QueryLogEntry, migrate_query_log_record
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
 
 
@@ -77,3 +82,44 @@ class JsonFileQueryLoggerAdapter(QueryLoggerPort):
         self._handler.flush()
         self._handler.close()
         self._logger.removeHandler(self._handler)
+
+
+@dataclass
+class QueryLogReadResult:
+    """Result of reading a query log: parsed entries plus skipped-line count."""
+
+    entries: list[QueryLogEntry]
+    skipped_lines: int
+
+
+def read_query_log(path: Path) -> QueryLogReadResult:
+    """Read a JSONL query log into ``QueryLogEntry`` instances (read-only).
+
+    Each non-blank line is parsed as JSON, migrated from v1 when necessary
+    (see :func:`migrate_query_log_record`), and validated into a
+    ``QueryLogEntry``. Lines that fail to parse or validate are skipped and
+    counted in ``skipped_lines`` so one corrupt line never blocks the whole
+    read. The source file is never modified.
+    """
+    entries: list[QueryLogEntry] = []
+    skipped_lines = 0
+    if not path.exists():
+        return QueryLogReadResult(entries=entries, skipped_lines=skipped_lines)
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            raw = json.loads(stripped)
+        except json.JSONDecodeError:
+            skipped_lines += 1
+            continue
+        if not isinstance(raw, dict):
+            skipped_lines += 1
+            continue
+        migrated = migrate_query_log_record(cast(dict[str, Any], raw))
+        try:
+            entries.append(QueryLogEntry.model_validate(migrated))
+        except ValidationError:
+            skipped_lines += 1
+    return QueryLogReadResult(entries=entries, skipped_lines=skipped_lines)
