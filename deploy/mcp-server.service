@@ -5,16 +5,16 @@ Wants=docker.service
 
 [Service]
 Type=simple
-User=bookgraph
-Group=bookgraph
-WorkingDirectory=/home/bookgraph/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi
-ExecStart=/home/bookgraph/.local/bin/uv run book-graph-rag-mcp serve
-EnvironmentFile=/home/bookgraph/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi/.env
+User=gonzalo
+Group=gonzalo
+WorkingDirectory=/home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi
+ExecStart=/home/gonzalo/.local/bin/uv run book-graph-rag-mcp serve
+EnvironmentFile=/home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi/.env
 # R7: bind only to the Tailscale interface; never 0.0.0.0/::/empty.
 # Environment= overrides MCP_BIND_HOST from EnvironmentFile for a hard
 # fail-closed private bind in production.
 Environment=MCP_BIND_HOST=100.106.85.109
-Environment=PATH=/home/bookgraph/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/home/gonzalo/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=on-failure
 RestartSec=5
 

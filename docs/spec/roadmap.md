@@ -47,12 +47,13 @@ Phase 0 (baseline/evidence)
 | **6 — MCP hardening (05 + 07)** | Allowlist + scope + read-only session + budgets + HMAC logs + private bind | 3, 4, 5 | exposure gate + allowlist/read-only tests | Revert tool/alias + config; read-only session on/off |
 | **7 — Guarded exposure** | Private-transport deployment behind readiness + security gates | 6 | **human approval + 07 preconditions all met** | Systemd/deploy rollback (`AGENTS.md`), read-only credential revocation |
 
-> Phase 6 status (2026-09-18): **implemented through T-I.1 (24/26 tasks)** — structural
-> Cypher allowlist (no regex decision), server-side namespace scoping, read-only
+> Phase 6 status (2026-09-19): **COMPLETE (26/26 tasks)** — structural Cypher
+> allowlist (no regex decision), server-side namespace scoping, read-only
 > `READ_ACCESS` session, per-tier budgets, metadata-only HMAC query logs, fail-closed
-> bind, and deploy-contract guard. T-I.1 integration matrix ran on real testcontainers.
-> Remaining: spec-sync (this doc set) + final gates checkpoint; the `expose-mcp` gate
-> and production exposure remain human-gated (Phase 7).
+> bind, and deploy-contract guard. Integration matrix ran on real testcontainers
+> (1471 tests green); spec 05/07 markers synced. Verify verdict PASS; change
+> **ARCHIVED** (2026-09-19). The `expose-mcp` gate and production exposure remain
+> human-gated (Phase 7).
 
 > Phase 3 status (2026-09-07): **implemented** (S0-S4, quarantine, ledger, rollback,
 > dataset, harness; 930+ tests green). Hard over-merge and multilingual under-merge
