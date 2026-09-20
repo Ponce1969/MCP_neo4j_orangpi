@@ -125,13 +125,13 @@ def test_systemd_service_file_contains_required_directives(deploy_dir: Path) -> 
     """The service file contains the expected systemd directives and paths."""
     service_path = deploy_dir / "mcp-server.service"
     content = service_path.read_text(encoding="utf-8")
-    repo_path = "/home/bookgraph/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi"
+    repo_path = "/home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi"
 
     assert "[Unit]" in content
     assert "Description=Book Graph RAG MCP Server" in content
     assert "After=network.target docker.service" in content
     assert "[Service]" in content
-    assert "ExecStart=/home/bookgraph/.local/bin/uv run book-graph-rag-mcp serve" in content
+    assert "ExecStart=/home/gonzalo/.local/bin/uv run book-graph-rag-mcp serve" in content
     assert f"EnvironmentFile={repo_path}/.env" in content
     assert f"WorkingDirectory={repo_path}" in content
     assert "Restart=on-failure" in content
@@ -196,7 +196,7 @@ def test_service_execstart_matches_packaged_cli_entrypoint(deploy_dir: Path) -> 
     assert scripts["book-graph-rag-mcp"] == "book_graph_rag.mcp_server_main:main"
 
     content = (deploy_dir / "mcp-server.service").read_text(encoding="utf-8")
-    assert "ExecStart=/home/bookgraph/.local/bin/uv run book-graph-rag-mcp serve" in content
+    assert "ExecStart=/home/gonzalo/.local/bin/uv run book-graph-rag-mcp serve" in content
 
     # The packaged entrypoint actually exposes the ``serve`` subcommand.
     from book_graph_rag.mcp_server_main import mcp_cli
