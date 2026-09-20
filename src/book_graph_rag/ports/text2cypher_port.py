@@ -6,6 +6,8 @@ import abc
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from book_graph_rag.domain.mcp_security import ScopeContext
+
 
 @dataclass(frozen=True)
 class Text2CypherResult:
@@ -34,11 +36,23 @@ class Text2CypherPort(abc.ABC):
     """
 
     @abc.abstractmethod
-    async def generate_and_run(self, question: str) -> Text2CypherResult:
+    async def generate_and_run(
+        self,
+        question: str,
+        *,
+        scope: ScopeContext | None = None,
+    ) -> Text2CypherResult:
         """Generate a Cypher query from ``question`` and execute it safely.
+
+        When ``scope`` is provided, the adapter binds scope parameters strictly
+        from the validator's ``StructuralValidationResult.scope_proofs``. When
+        ``scope`` is ``None`` and the validator still demands
+        ``require_scope_proof=True``, generation fails closed at the validator
+        (no silent unscoped execute).
 
         Args:
             question: Natural-language question from the user.
+            scope: Optional validated namespace scope for parameter binding.
 
         Returns:
             A ``Text2CypherResult`` with the generated query and rows.

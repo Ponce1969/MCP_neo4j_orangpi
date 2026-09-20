@@ -673,11 +673,22 @@ class McpServerAdapter:
             "errors": errors,
         }
 
-    async def query_cypher(self, question: str) -> dict[str, Any]:
+    async def query_cypher(
+        self,
+        question: str,
+        *,
+        source_id: str | None = None,
+        book_ids: list[str] | None = None,
+        entity_types: list[str] | None = None,
+        relationship_types: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Generate and execute a Cypher query from a natural-language question.
 
         This high-risk tool is disabled by default. When disabled it returns a
-        typed policy error without contacting the graph or the LLM.
+        typed policy error without contacting the graph or the LLM. When
+        enabled, an optional ``source_id`` (plus scope filter lists) resolves a
+        validated ``ScopeContext`` fail-closed and threads it into
+        ``generate_and_run`` so the dynamic path binds scope parameters.
         """
         params = {"question": question}
         start = self._now()
@@ -704,11 +715,23 @@ class McpServerAdapter:
                 "retries": 0,
             }
 
+        # Fail-closed scope resolution runs only after the disabled early return,
+        # so a disabled tool never performs scope resolution (R8).
+        scope = self._resolve_scope(
+            source_id,
+            book_ids,
+            entity_types,
+            relationship_types,
+            tool_name="query_cypher",
+        )
+
         try:
             async with self._budget_port.budget(
                 tier_for("query_cypher"), key="query_cypher"
             ):
-                result = await self._text2cypher_port.generate_and_run(question)
+                result = await self._text2cypher_port.generate_and_run(
+                    question, scope=scope
+                )
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -913,8 +936,20 @@ class McpServerAdapter:
             )
 
         @mcp.tool()
-        async def query_cypher(question: str) -> dict[str, Any]:
-            return await self.query_cypher(question)
+        async def query_cypher(
+            question: str,
+            source_id: str | None = None,
+            book_ids: list[str] | None = None,
+            entity_types: list[str] | None = None,
+            relationship_types: list[str] | None = None,
+        ) -> dict[str, Any]:
+            return await self.query_cypher(
+                question,
+                source_id=source_id,
+                book_ids=book_ids,
+                entity_types=entity_types,
+                relationship_types=relationship_types,
+            )
 
         @mcp.tool()
         async def ask_global(

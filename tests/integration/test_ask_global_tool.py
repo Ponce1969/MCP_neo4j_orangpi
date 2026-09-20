@@ -142,7 +142,9 @@ class _FakeGraphQueryPort(GraphQueryPort):
 
 
 class _FakeText2CypherPort(Text2CypherPort):
-    async def generate_and_run(self, question: str) -> Any:
+    async def generate_and_run(
+        self, question: str, *, scope: ScopeContext | None = None
+    ) -> Any:
         return None
 
 

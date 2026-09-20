@@ -174,16 +174,22 @@ class _FakeText2CypherPort(Text2CypherPort):
             retries=0,
         )
         self.calls: list[str] = []
+        self.scope_calls: list[ScopeContext | None] = []
 
-    async def generate_and_run(self, question: str) -> Text2CypherResult:
+    async def generate_and_run(
+        self, question: str, *, scope: ScopeContext | None = None
+    ) -> Text2CypherResult:
         self.calls.append(question)
+        self.scope_calls.append(scope)
         return self._result
 
 
 class _ExplodingText2CypherPort(Text2CypherPort):
     """Fails the test if ``generate_and_run`` is ever invoked."""
 
-    async def generate_and_run(self, question: str) -> Text2CypherResult:
+    async def generate_and_run(
+        self, question: str, *, scope: ScopeContext | None = None
+    ) -> Text2CypherResult:
         raise AssertionError(
             "query_cypher must never contact the text2cypher port when disabled"
         )
@@ -916,6 +922,7 @@ async def test_query_cypher_returns_text2cypher_result(
         graph_query_port,
         query_logger,
         text2cypher_port,
+        scope_resolver=_FakeScopeResolverPort(),
         enable_query_cypher=True,
         hmac_key_id=_TEST_HMAC_KEY_ID,
         hmac_key=_TEST_HMAC_KEY,
@@ -928,7 +935,9 @@ async def test_query_cypher_returns_text2cypher_result(
         retries=0,
     )
 
-    result = await adapter.query_cypher("what patterns mitigate security risks?")
+    result = await adapter.query_cypher(
+        "what patterns mitigate security risks?", source_id="book:default"
+    )
 
     assert result == {
         "question": "what patterns mitigate security risks?",
@@ -950,11 +959,14 @@ async def test_query_cypher_logs_entry_with_text2cypher_query_type(
         graph_query_port,
         query_logger,
         text2cypher_port,
+        scope_resolver=_FakeScopeResolverPort(),
         enable_query_cypher=True,
         hmac_key_id=_TEST_HMAC_KEY_ID,
         hmac_key=_TEST_HMAC_KEY,
     )
-    await adapter.query_cypher("what patterns mitigate security risks?")
+    await adapter.query_cypher(
+        "what patterns mitigate security risks?", source_id="book:default"
+    )
 
     assert len(query_logger.entries) == 1
     entry = query_logger.entries[0]
@@ -978,6 +990,7 @@ async def test_query_cypher_error_is_logged_and_propagated(
         graph_query_port,
         query_logger,
         text2cypher_port,
+        scope_resolver=_FakeScopeResolverPort(),
         enable_query_cypher=True,
         hmac_key_id=_TEST_HMAC_KEY_ID,
         hmac_key=_TEST_HMAC_KEY,
@@ -987,7 +1000,9 @@ async def test_query_cypher_error_is_logged_and_propagated(
     )
 
     with pytest.raises(RuntimeError, match="pipeline failed"):
-        await adapter.query_cypher("what patterns mitigate security risks?")
+        await adapter.query_cypher(
+            "what patterns mitigate security risks?", source_id="book:default"
+        )
 
     entry = query_logger.entries[0]
     assert entry.tool_name == "query_cypher"
@@ -1429,12 +1444,13 @@ async def test_query_cypher_enabled_acquires_high_tier_budget(
         graph_query_port,
         query_logger,
         text2cypher_port,
+        scope_resolver=_FakeScopeResolverPort(),
         enable_query_cypher=True,
         budget_port=budget,
         hmac_key_id=_TEST_HMAC_KEY_ID,
         hmac_key=_TEST_HMAC_KEY,
     )
-    await adapter.query_cypher("question")
+    await adapter.query_cypher("question", source_id="book:default")
 
     assert budget.acquire_calls == [(ToolRiskTier.HIGH, "query_cypher")]
     assert len(budget.release_calls) == 1

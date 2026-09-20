@@ -21,7 +21,10 @@ import pytest
 from pydantic import SecretStr
 
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.mcp_security import StructuralPolicyViolationError
+from book_graph_rag.domain.mcp_security import (
+    ScopeContext,
+    StructuralPolicyViolationError,
+)
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader
 from book_graph_rag.infrastructure.catalog_scope_resolver import CatalogScopeResolver
 from book_graph_rag.infrastructure.mcp.mcp_server_adapter import McpServerAdapter
@@ -68,7 +71,9 @@ class _NoopQueryLogger(QueryLoggerPort):
 class _ExplodingText2Cypher(Text2CypherPort):
     """Fails the test if the dynamic path is ever invoked."""
 
-    async def generate_and_run(self, question: str) -> Text2CypherResult:
+    async def generate_and_run(
+        self, question: str, *, scope: ScopeContext | None = None
+    ) -> Text2CypherResult:
         raise AssertionError("text2cypher must never run for the disabled path")
 
 

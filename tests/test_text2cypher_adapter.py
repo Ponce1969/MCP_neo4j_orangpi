@@ -9,14 +9,22 @@ import pytest
 from pydantic import SecretStr
 
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.mcp_security import StructuralPolicyViolationError
+from book_graph_rag.domain.mcp_security import (
+    ScopeContext,
+    ScopeProof,
+    StructuralPolicyViolationError,
+)
 from book_graph_rag.domain.models import (
     CypherGenerationError,
     Text2CypherTimeoutError,
     UnsafeCypherQueryError,
 )
+from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.infrastructure.structural_cypher_policy import StructuralCypherPolicy
-from book_graph_rag.infrastructure.text2cypher_adapter import Text2CypherAdapter
+from book_graph_rag.infrastructure.text2cypher_adapter import (
+    Text2CypherAdapter,
+    _build_scope_parameter_map,
+)
 from book_graph_rag.ports.cypher_generator_port import (
     CypherFailureContext,
     CypherGeneratorPort,
@@ -43,7 +51,9 @@ class _FakeCypherGeneratorPort(CypherGeneratorPort):
 class _FakeText2CypherPort(Text2CypherPort):
     """Minimal implementation for ABC instantiation smoke test."""
 
-    async def generate_and_run(self, question: str) -> Text2CypherResult:
+    async def generate_and_run(
+        self, question: str, *, scope: ScopeContext | None = None
+    ) -> Text2CypherResult:
         return Text2CypherResult(
             question=question,
             cypher="MATCH (n) RETURN n LIMIT 100",
@@ -161,16 +171,20 @@ class _FakeExecutor:
         self.apoc_result: list[dict[str, Any]] | Exception = []
         self.explain_should_fail: list[Exception] = []
         self.rows: list[dict[str, Any]] = []
-        self.explain_calls: list[str] = []
-        self.execute_read_calls: list[str] = []
+        self.explain_calls: list[tuple[str, dict[str, Any] | None]] = []
+        self.execute_read_calls: list[tuple[str, dict[str, Any] | None]] = []
 
-    async def explain(self, cypher: str) -> None:
-        self.explain_calls.append(cypher)
+    async def explain(
+        self, cypher: str, parameters: dict[str, Any] | None = None
+    ) -> None:
+        self.explain_calls.append((cypher, parameters))
         if self.explain_should_fail:
             raise self.explain_should_fail.pop(0)
 
-    async def execute_read(self, cypher: str) -> list[dict[str, Any]]:
-        self.execute_read_calls.append(cypher)
+    async def execute_read(
+        self, cypher: str, parameters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        self.execute_read_calls.append((cypher, parameters))
         if "apoc.meta.data" in cypher:
             if isinstance(self.apoc_result, Exception):
                 raise self.apoc_result
@@ -269,7 +283,9 @@ async def test_text2cypher_rejects_write_query_before_explain(
         await adapter.generate_and_run("delete everything")
 
     assert executor.explain_calls == []
-    assert "MATCH (n) DETACH DELETE n" not in executor.execute_read_calls
+    assert "MATCH (n) DETACH DELETE n" not in [
+        c for c, _ in executor.execute_read_calls
+    ]
 
 
 async def test_text2cypher_rejects_call_dbms_before_explain(
@@ -285,7 +301,9 @@ async def test_text2cypher_rejects_call_dbms_before_explain(
         await adapter.generate_and_run("list users")
 
     assert executor.explain_calls == []
-    assert "CALL dbms.security.listUsers()" not in executor.execute_read_calls
+    assert "CALL dbms.security.listUsers()" not in [
+        c for c, _ in executor.execute_read_calls
+    ]
 
 
 async def test_text2cypher_self_heals_on_explain_failure(
@@ -304,7 +322,7 @@ async def test_text2cypher_self_heals_on_explain_failure(
     assert result.cypher == cypher
     assert result.retries == 1
     assert len(executor.explain_calls) == 2
-    assert executor.execute_read_calls[-1] == cypher
+    assert executor.execute_read_calls[-1][0] == cypher
     assert generator.calls[1][2] == CypherFailureContext(
         failed_cypher=cypher,
         error_message="label not found",
@@ -330,7 +348,7 @@ async def test_text2cypher_exhausted_retries_raises_generation_error(
         await adapter.generate_and_run("find entities")
 
     assert len(executor.explain_calls) == 3
-    assert cypher not in executor.execute_read_calls
+    assert cypher not in [c for c, _ in executor.execute_read_calls]
 
 
 async def test_text2cypher_timeout_raises_domain_error(
@@ -340,7 +358,9 @@ async def test_text2cypher_timeout_raises_domain_error(
     generator = _FakeCypherGenerator()
     executor = _FakeExecutor()
 
-    async def slow_explain(cypher: str) -> None:
+    async def slow_explain(
+        cypher: str, parameters: dict[str, Any] | None = None
+    ) -> None:
         await asyncio.sleep(2)
 
     executor.explain = slow_explain  # type: ignore[method-assign]
@@ -397,7 +417,9 @@ async def test_text2cypher_rejects_missing_scope_proof(
         await adapter.generate_and_run("find chunks")
 
     assert executor.explain_calls == []
-    assert "MATCH (c:Chunk) RETURN c LIMIT 100" not in executor.execute_read_calls
+    assert "MATCH (c:Chunk) RETURN c LIMIT 100" not in [
+        c for c, _ in executor.execute_read_calls
+    ]
 
 
 async def test_text2cypher_rejects_dynamic_label(
@@ -413,7 +435,9 @@ async def test_text2cypher_rejects_dynamic_label(
         await adapter.generate_and_run("find anything")
 
     assert executor.explain_calls == []
-    assert "MATCH (n:$label) RETURN n" not in executor.execute_read_calls
+    assert "MATCH (n:$label) RETURN n" not in [
+        c for c, _ in executor.execute_read_calls
+    ]
 
 
 async def test_text2cypher_wires_validator_before_explain_and_execute(
@@ -431,6 +455,92 @@ async def test_text2cypher_wires_validator_before_explain_and_execute(
 
     assert validator.validate_calls == [(cypher, True)]
     assert validator.require_explain_calls == [(cypher, True)]
-    assert executor.explain_calls == [cypher]
-    assert executor.execute_read_calls[-1] == cypher
+    assert [c for c, _ in executor.explain_calls] == [cypher]
+    assert executor.execute_read_calls[-1][0] == cypher
     assert result.rows == [{"c": {"book_id": "ns:book"}}]
+
+
+async def test_text2cypher_binds_scope_parameters_from_proofs(
+    settings: Settings,
+) -> None:
+    """The adapter binds scope parameters derived strictly from scope_proofs."""
+    cypher = "MATCH (c:Chunk) WHERE c.book_id = $book_id RETURN c LIMIT 100"
+    generator = _FakeCypherGenerator([cypher])
+    executor = _FakeExecutor()
+    executor.rows = [{"c": {"book_id": "book:default"}}]
+    scope = ScopeContext(source=SourceNamespace(corpus="book", source="default"))
+
+    adapter = Text2CypherAdapter(executor, generator, settings)
+    result = await adapter.generate_and_run("find chunks", scope=scope)
+
+    assert executor.explain_calls[-1] == (cypher, {"book_id": "book:default"})
+    assert executor.execute_read_calls[-1] == (cypher, {"book_id": "book:default"})
+    assert result.rows == [{"c": {"book_id": "book:default"}}]
+
+
+async def test_text2cypher_non_derivable_scope_raises_after_retries(
+    settings: Settings,
+) -> None:
+    """An Entity.id proof cannot be bound from ScopeContext; typed failure after retries=2."""
+    cypher = "MATCH (e:Entity) WHERE e.id = $id RETURN e LIMIT 100"
+    generator = _FakeCypherGenerator([cypher, cypher, cypher])
+    executor = _FakeExecutor()
+    scope = ScopeContext(source=SourceNamespace(corpus="book", source="default"))
+
+    adapter = Text2CypherAdapter(executor, generator, settings)
+
+    with pytest.raises(CypherGenerationError, match="non-derivable") as exc_info:
+        await adapter.generate_and_run("find entity by id", scope=scope)
+
+    assert cypher in str(exc_info.value)
+    assert len(generator.calls) == 3
+    assert executor.explain_calls == []
+
+
+async def test_text2cypher_binds_book_ids_in_from_proofs(
+    settings: Settings,
+) -> None:
+    """A Chunk.book_id IN proof binds the scope's book_ids list, nothing extra."""
+    cypher = "MATCH (c:Chunk) WHERE c.book_id IN $book_ids RETURN c LIMIT 100"
+    generator = _FakeCypherGenerator([cypher])
+    executor = _FakeExecutor()
+    executor.rows = [{"c": {"book_id": "book:one"}}]
+    scope = ScopeContext(
+        source=SourceNamespace(corpus="book", source="default"),
+        book_ids=("book:one", "book:two"),
+    )
+
+    adapter = Text2CypherAdapter(executor, generator, settings)
+    await adapter.generate_and_run("find chunks", scope=scope)
+
+    assert executor.execute_read_calls[-1] == (
+        cypher,
+        {"book_ids": ["book:one", "book:two"]},
+    )
+
+
+def test_build_scope_parameter_map_in_falls_back_to_source_id() -> None:
+    """An empty book_ids list falls back to [source_id] for the IN binding."""
+    proof = ScopeProof(
+        variable="c",
+        label="Chunk",
+        property="book_id",
+        parameter="$book_ids",
+        operator="IN",
+    )
+    scope = ScopeContext(source=SourceNamespace(corpus="book", source="default"))
+    assert _build_scope_parameter_map((proof,), scope) == {
+        "book_ids": ["book:default"]
+    }
+
+
+def test_build_scope_parameter_map_returns_empty_when_unscoped() -> None:
+    """scope=None yields an empty map even when a proof exists."""
+    proof = ScopeProof(
+        variable="e",
+        label="Entity",
+        property="id",
+        parameter="$id",
+        operator="=",
+    )
+    assert _build_scope_parameter_map((proof,), None) == {}

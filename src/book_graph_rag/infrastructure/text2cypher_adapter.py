@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from book_graph_rag.config import Settings
+from book_graph_rag.domain.mcp_security import ScopeContext, ScopeProof
 from book_graph_rag.domain.models import (
     CypherGenerationError,
     Text2CypherTimeoutError,
@@ -39,11 +40,63 @@ _WRITE_KEYWORDS_RE = re.compile(
 _MAX_RETRIES = 2
 
 
+def _derive_value_for_proof(proof: ScopeProof, scope: ScopeContext) -> Any:
+    """Return the Neo4j-bound value for one proven scope predicate.
+
+    Only ``Chunk.book_id`` proofs are derivable from a ``ScopeContext``; any
+    ``Entity.id`` proof (or any other shape) fails closed because the context
+    carries no entity-id list.
+    """
+    if proof.label == "Chunk" and proof.property == "book_id":
+        if proof.operator == "=":
+            return scope.source.source_id
+        if proof.operator == "IN":
+            return list(scope.book_ids) or [scope.source.source_id]
+    raise CypherGenerationError(
+        f"non-derivable scope proof: {proof.variable}.{proof.property} "
+        f"{proof.operator} {proof.parameter} "
+        "(ScopeContext carries no entity-id list; only Chunk.book_id proofs "
+        "are derivable)"
+    )
+
+
+def _build_scope_parameter_map(
+    scope_proofs: tuple[ScopeProof, ...],
+    scope: ScopeContext | None,
+) -> dict[str, Any]:
+    """Return a Neo4j parameter map derived strictly from ``scope_proofs``.
+
+    The validator proves one ``<var>.<label>.<property> <op> $<param>`` binding
+    per WHERE. This helper derives each binding deterministically from ``scope``
+    and returns a dict keyed by the parameter name with the leading ``$``
+    stripped (Neo4j driver convention). No parameter outside ``scope_proofs`` is
+    ever added.
+
+    Returns ``{}`` when ``scope`` is ``None`` (unscoped path).
+
+    Raises ``CypherGenerationError`` for bindings whose value cannot be
+    deterministically derived from the ``ScopeContext``.
+    """
+    if scope is None or not scope_proofs:
+        return {}
+    params: dict[str, Any] = {}
+    for proof in scope_proofs:
+        if not proof.parameter.startswith("$"):
+            continue  # defensive: validator emits $name
+        param_name = proof.parameter[1:]
+        params[param_name] = _derive_value_for_proof(proof, scope)
+    return params
+
+
 class _CypherExecutor(Protocol):
     """Minimal surface the adapter needs from a Cypher runner."""
 
-    async def explain(self, cypher: str) -> None: ...
-    async def execute_read(self, cypher: str) -> list[dict[str, Any]]: ...
+    async def explain(
+        self, cypher: str, parameters: dict[str, Any] | None = None
+    ) -> None: ...
+    async def execute_read(
+        self, cypher: str, parameters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]: ...
 
 
 @dataclass(frozen=True)
@@ -82,21 +135,25 @@ class Text2CypherAdapter(Text2CypherPort):
         # it defaults to the fail-closed policy when no validator is injected.
         self._validator = validator or StructuralCypherPolicy()
 
-    async def generate_and_run(self, question: str) -> Text2CypherResult:
+    async def generate_and_run(
+        self, question: str, *, scope: ScopeContext | None = None
+    ) -> Text2CypherResult:
         """Run the full pipeline and return the result."""
         try:
             return await asyncio.wait_for(
-                self._generate_and_run(question), timeout=self._timeout
+                self._generate_and_run(question, scope), timeout=self._timeout
             )
         except TimeoutError as exc:
             raise Text2CypherTimeoutError() from exc
 
-    async def _generate_and_run(self, question: str) -> Text2CypherResult:
+    async def _generate_and_run(
+        self, question: str, scope: ScopeContext | None
+    ) -> Text2CypherResult:
         schema_info = await self._infer_schema()
-        cypher, retries = await self._generate_and_validate(
-            schema_info.description, question
+        cypher, retries, params = await self._generate_and_validate(
+            schema_info.description, question, scope
         )
-        rows = await self._executor.execute_read(cypher)
+        rows = await self._executor.execute_read(cypher, parameters=params)
         return Text2CypherResult(
             question=question,
             cypher=cypher,
@@ -140,8 +197,8 @@ class Text2CypherAdapter(Text2CypherPort):
         return "\n".join(lines) if labels or rels else _HARDCODED_SCHEMA
 
     async def _generate_and_validate(
-        self, schema: str, question: str
-    ) -> tuple[str, int]:
+        self, schema: str, question: str, scope: ScopeContext | None
+    ) -> tuple[str, int, dict[str, Any]]:
         """Generate, validate, and EXPLAIN a Cypher query; retry up to 2 times."""
         retries = 0
         failure: CypherFailureContext | None = None
@@ -152,13 +209,28 @@ class Text2CypherAdapter(Text2CypherPort):
             self._ensure_read_only(cypher)
             # Structural allowlist is the security decision: the query must be
             # provable inside the approved subset with a scope predicate.
-            self._validator.validate(cypher, require_scope_proof=True)
+            result = self._validator.validate(cypher, require_scope_proof=True)
             # The EXPLAIN gate is armed for this path; the real EXPLAIN below
             # satisfies it immediately after validation.
             self._validator.require_explain(cypher, explain_applied=True)
 
             try:
-                await self._executor.explain(cypher)
+                # Bind scope parameters strictly from the proven predicates.
+                params = _build_scope_parameter_map(result.scope_proofs, scope)
+                await self._executor.explain(cypher, parameters=params)
+            except CypherGenerationError as exc:
+                # Non-derivable scope proof: feed the LLM the structural reason.
+                if retries == _MAX_RETRIES:
+                    raise CypherGenerationError(
+                        f"Non-derivable scope after {_MAX_RETRIES} retries. "
+                        f"Last query: {cypher}. Reason: {exc}"
+                    ) from exc
+                failure = CypherFailureContext(
+                    failed_cypher=cypher,
+                    error_message=str(exc),
+                )
+                retries += 1
+                continue
             except Exception as exc:  # noqa: BLE001 - EXPLAIN errors drive self-heal
                 if retries == _MAX_RETRIES:
                     raise CypherGenerationError(
@@ -172,7 +244,7 @@ class Text2CypherAdapter(Text2CypherPort):
                 retries += 1
                 continue
 
-            return cypher, retries
+            return cypher, retries, params
 
         # Defensive: loop should always return or raise above.
         raise CypherGenerationError("Cypher generation failed after max retries")

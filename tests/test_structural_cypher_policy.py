@@ -11,6 +11,7 @@ import pytest
 
 from book_graph_rag.domain.mcp_security import (
     McpSecurityError,
+    ScopeProof,
     StructuralPolicyViolationError,
     UnsupportedQueryError,
 )
@@ -324,3 +325,37 @@ def test_require_explain_accepts_when_applied() -> None:
         "MATCH (n:Chunk) WHERE n.book_id = $book_id RETURN n",
         explain_applied=True,
     )
+
+
+def test_scope_proofs_shape_for_chunk_book_id_equality() -> None:
+    """Chunk.book_id = $book_id yields one ScopeProof with the exact shape (R8)."""
+    result = _validate_result("MATCH (c:Chunk) WHERE c.book_id = $book_id RETURN c")
+    assert result.scope_proofs == (
+        ScopeProof(
+            variable="c",
+            label="Chunk",
+            property="book_id",
+            parameter="$book_id",
+            operator="=",
+        ),
+    )
+
+
+def test_scope_proofs_shape_for_chunk_book_id_in() -> None:
+    """Chunk.book_id IN $ids yields one ScopeProof with operator IN (R8)."""
+    result = _validate_result("MATCH (c:Chunk) WHERE c.book_id IN $ids RETURN c")
+    assert result.scope_proofs == (
+        ScopeProof(
+            variable="c",
+            label="Chunk",
+            property="book_id",
+            parameter="$ids",
+            operator="IN",
+        ),
+    )
+
+
+def test_starts_with_remains_outside_operator_allowlist() -> None:
+    """STARTS WITH is not in the allowlist, keeping the R7/R8 paths independent."""
+    with pytest.raises(StructuralPolicyViolationError, match="operator"):
+        _validate("MATCH (e:Entity) WHERE e.id STARTS WITH $scope_prefix RETURN e")

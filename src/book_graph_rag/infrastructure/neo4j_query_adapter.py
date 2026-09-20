@@ -684,15 +684,22 @@ class Neo4jQueryAdapter(GraphQueryPort):
                 timeout=3.0,
             )
 
-    async def execute_read(self, cypher: str) -> list[dict[str, Any]]:
+    async def execute_read(
+        self, cypher: str, parameters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Execute ``cypher`` and return raw record data as dictionaries.
+
+        ``parameters`` are bound into the managed read transaction so Neo4j
+        resolves any ``$param`` references. When ``parameters`` is ``None`` or
+        empty the call is equivalent to the single-arg behavior (backward
+        compatible).
 
         Raises:
             QueryTimeoutError: If the query exceeds the 3-second internal limit.
         """
         async with self._read_session() as session:
             records = await self._run_with_timeout(
-                self._read_records(session, cypher, {}), timeout=3.0
+                self._read_records(session, cypher, parameters or {}), timeout=3.0
             )
             return [record.data() for record in records]
 

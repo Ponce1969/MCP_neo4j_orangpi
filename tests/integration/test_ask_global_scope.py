@@ -148,7 +148,9 @@ class _NoopQueryLogger(QueryLoggerPort):
 
 
 class _ExplodingText2Cypher(Text2CypherPort):
-    async def generate_and_run(self, question: str) -> Text2CypherResult:
+    async def generate_and_run(
+        self, question: str, *, scope: ScopeContext | None = None
+    ) -> Text2CypherResult:
         raise AssertionError("text2cypher must never run")
 
 
