@@ -72,7 +72,9 @@ class _FakeGraphQueryPort(GraphQueryPort):
     async def count_entities(self, entity_type: Any | None = None, **kw: Any) -> int:
         return 0
 
-    async def list_entities(self, cursor: int = 0, page_size: int = 50, **kw: Any) -> tuple[list[Any], int]:
+    async def list_entities(
+        self, cursor: int = 0, page_size: int = 50, **kw: Any
+    ) -> tuple[list[Any], int]:
         return [], 0
 
     async def ensure_indexes(self) -> None:
