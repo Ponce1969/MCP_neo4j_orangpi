@@ -9,11 +9,13 @@ from typing import Any
 import pytest
 
 from book_graph_rag.config import Settings
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import (
     CommunitySummary,
     Entity,
     Relationship,
 )
+from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
 
 
@@ -21,6 +23,20 @@ def _expected_id(level: int, entity_ids: list[str]) -> str:
     """Mirror the stable-id algorithm from the domain model."""
     key = f"{level}:{','.join(sorted(entity_ids))}"
     return hashlib.sha1(key.encode()).hexdigest()[:16]
+
+
+def _summary_record(ns: str, slug: str) -> _FakeRecord:
+    """Build a level-0 CommunitySummary record for a namespaced entity id."""
+    eid = f"{ns}:{slug}"
+    return _FakeRecord(
+        {
+            "id": _expected_id(0, [eid]),
+            "level": 0,
+            "summary": f"{slug} community",
+            "entity_ids": [eid],
+            "parent_id": None,
+        }
+    )
 
 
 class _FakeRecord:
@@ -92,13 +108,22 @@ class _FakeSession:
         self.queries: list[tuple[str, dict[str, Any]]] = []
 
     async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
-        self.queries.append((query, parameters or {}))
+        params = parameters or {}
+        self.queries.append((query, params))
         if self._raise is not None:
             raise self._raise
         for marker, records in self._query_records.items():
             if marker in query:
                 return _FakeResult(records)
-        return _FakeResult(self._records)
+        records = self._records
+        prefix = params.get("scope_prefix")
+        if prefix is not None:
+            records = [
+                r
+                for r in records
+                if any(str(eid).startswith(prefix) for eid in r.get("entity_ids", []))
+            ]
+        return _FakeResult(records)
 
     async def __aenter__(self) -> _FakeSession:
         return self
@@ -304,6 +329,42 @@ async def test_get_summaries_by_level_zero_has_no_parent(
     assert len(result) == 1
     assert result[0].level == 0
     assert result[0].parent_id is None
+
+
+async def test_get_summaries_by_level_filters_by_scope_prefix(
+    adapter: Neo4jCommunityAdapter,
+) -> None:
+    """A scoped read binds a $scope_prefix filter and returns only matching rows."""
+    ns_a = "book:alpha"
+    session = _FakeSession(
+        records=[_summary_record(ns_a, "alpha"), _summary_record("book:beta", "beta")]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    scope = ScopeContext(source=SourceNamespace(corpus="book", source="alpha"))
+    result = await adapter.get_summaries_by_level(0, scope=scope)
+
+    assert [s.entity_ids for s in result] == [[f"{ns_a}:alpha"]]
+    query, params = session.queries[0]
+    assert "ANY(x IN c.entity_ids WHERE x STARTS WITH $scope_prefix)" in query
+    assert params == {"level": 0, "scope_prefix": f"{ns_a}:"}
+
+
+async def test_get_summaries_by_level_unscoped_returns_all(
+    adapter: Neo4jCommunityAdapter,
+) -> None:
+    """The unscoped path binds only ``level`` and returns every summary (REQ-R7.3)."""
+    session = _FakeSession(
+        records=[_summary_record("book:alpha", "alpha"), _summary_record("book:beta", "beta")]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    result = await adapter.get_summaries_by_level(0)
+
+    assert len(result) == 2
+    query, params = session.queries[0]
+    assert "scope_prefix" not in query
+    assert params == {"level": 0}
 
 
 async def test_count_summaries_returns_total(

@@ -7,6 +7,7 @@ import typing
 
 import pytest
 
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import CommunitySummary, Entity, Relationship
 from book_graph_rag.ports.community_read_port import CommunityReadPort
 from book_graph_rag.ports.community_write_port import CommunityWritePort
@@ -133,14 +134,17 @@ def test_community_read_port_load_entity_graph_signature() -> None:
 
 
 def test_community_read_port_get_summaries_by_level_signature() -> None:
-    """The port receives a level and returns a list of CommunitySummary."""
+    """The port receives a level and an optional scope, returning summary list."""
     signature = inspect.signature(CommunityReadPort.get_summaries_by_level)
     parameters = [
         name for name in signature.parameters if name not in ("self", "cls")
     ]
     evaluated = typing.get_type_hints(CommunityReadPort.get_summaries_by_level)
 
-    assert parameters == ["level"]
+    assert parameters == ["level", "scope"]
+    scope_param = signature.parameters["scope"]
+    assert scope_param.kind is inspect.Parameter.KEYWORD_ONLY
+    assert scope_param.default is None
     assert evaluated["return"] == list[CommunitySummary]
 
 
@@ -160,7 +164,9 @@ class _CompleteCommunityReadPort(CommunityReadPort):
     async def load_entity_graph(self) -> tuple[list[Entity], list[Relationship]]:
         return [], []
 
-    async def get_summaries_by_level(self, level: int) -> list[CommunitySummary]:
+    async def get_summaries_by_level(
+        self, level: int, *, scope: ScopeContext | None = None
+    ) -> list[CommunitySummary]:
         return []
 
     async def count_summaries(self) -> int:
@@ -174,7 +180,9 @@ def test_community_read_port_complete_subclass_can_be_instantiated() -> None:
 
 
 class _IncompleteCommunityReadPort(CommunityReadPort):
-    async def get_summaries_by_level(self, level: int) -> list[CommunitySummary]:
+    async def get_summaries_by_level(
+        self, level: int, *, scope: ScopeContext | None = None
+    ) -> list[CommunitySummary]:
         return []
 
 

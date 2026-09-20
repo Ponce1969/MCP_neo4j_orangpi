@@ -754,9 +754,9 @@ class McpServerAdapter:
         """Answer a global question using community-summary map-reduce.
 
         ``detail_level`` must be in ``[0, 3]``; it is validated before any
-        expensive LLM or Neo4j calls are made. Scope parameters are accepted for
-        interface consistency but are not yet wired into the community read
-        path.
+        expensive LLM or Neo4j calls are made. The resolved ``ScopeContext`` is
+        threaded into the community read path (R7); when ``require_scope=False``
+        (legacy unscoped), ``scope`` is ``None`` and the unscoped read path runs.
         """
         if not 0 <= detail_level <= 3:
             raise ValueError(
@@ -764,9 +764,8 @@ class McpServerAdapter:
             )
 
         # Enforce the fail-closed scope boundary before any LLM-mediated call.
-        # The community read path is not scope-aware in this slice, but the
-        # request must still carry a validated scope.
-        self._resolve_scope(
+        # The resolved scope is threaded into the community read path (R7).
+        scope = self._resolve_scope(
             source_id,
             book_ids,
             entity_types,
@@ -782,7 +781,9 @@ class McpServerAdapter:
             async with self._budget_port.budget(
                 tier_for("ask_global"), key="ask_global"
             ):
-                return await self._global_query_use_case.ask(question, detail_level)
+                return await self._global_query_use_case.ask(
+                    question, detail_level, scope=scope
+                )
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(

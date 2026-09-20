@@ -21,7 +21,11 @@ import pytest
 from pydantic import SecretStr
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
-from book_graph_rag.domain.mcp_security import InvalidScopeError, MissingScopeError
+from book_graph_rag.domain.mcp_security import (
+    InvalidScopeError,
+    MissingScopeError,
+    ScopeContext,
+)
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader
 from book_graph_rag.infrastructure.catalog_scope_resolver import CatalogScopeResolver
 from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
@@ -52,11 +56,19 @@ corpora:
 """
 
 
-class _FakeCommunityReadPort(CommunityReadPort):
+class _RecordingCommunityReadPort(CommunityReadPort):
+    """Community read port that records every ``(level, scope)`` read."""
+
+    def __init__(self) -> None:
+        self.scope_calls: list[tuple[int, ScopeContext | None]] = []
+
     async def load_entity_graph(self) -> tuple[list[Any], list[Any]]:
         return [], []
 
-    async def get_summaries_by_level(self, level: int) -> list[Any]:
+    async def get_summaries_by_level(
+        self, level: int, *, scope: ScopeContext | None = None
+    ) -> list[Any]:
+        self.scope_calls.append((level, scope))
         return []
 
     async def count_summaries(self) -> int:
@@ -83,11 +95,15 @@ class _FakeLLMSummaryPort(LLMSummaryPort):
 
 class _RecordingGlobalQueryUseCase(GlobalQueryUseCase):
     def __init__(self) -> None:
-        super().__init__(read_port=_FakeCommunityReadPort(), llm_port=_FakeLLMSummaryPort())
-        self.calls: list[tuple[str, int]] = []
+        super().__init__(
+            read_port=_RecordingCommunityReadPort(), llm_port=_FakeLLMSummaryPort()
+        )
+        self.calls: list[tuple[str, int, ScopeContext | None]] = []
 
-    async def ask(self, question: str, detail_level: int) -> dict[str, Any]:
-        self.calls.append((question, detail_level))
+    async def ask(
+        self, question: str, detail_level: int, *, scope: ScopeContext | None = None
+    ) -> dict[str, Any]:
+        self.calls.append((question, detail_level, scope))
         return {"answer": "answer", "citations": []}
 
 
@@ -176,6 +192,31 @@ async def test_ask_global_missing_scope_rejected_before_use_case(tmp_path: Path)
 
     assert exc_info.value.error_code == "missing_scope"
     assert use_case.calls == []
+
+
+async def test_ask_global_forwards_resolved_scope_to_community_port(
+    tmp_path: Path,
+) -> None:
+    """A scoped ask_global delivers the resolved ScopeContext to the read port (REQ-R7.4)."""
+    read_port = _RecordingCommunityReadPort()
+    use_case = GlobalQueryUseCase(read_port, _FakeLLMSummaryPort())
+    adapter = McpServerAdapter(
+        _FakeGraphQueryPort(),
+        _NoopQueryLogger(),
+        _ExplodingText2Cypher(),
+        global_query_use_case=use_case,
+        scope_resolver=_resolver(tmp_path),
+        hmac_key_id="test-v1",
+        hmac_key=SecretStr("test-hmac-secret"),
+    )
+
+    await adapter.ask_global("question?", source_id=_NS_A)
+
+    assert len(read_port.scope_calls) == 1
+    level, scope = read_port.scope_calls[0]
+    assert level == 1
+    assert scope is not None
+    assert scope.source.source_id == _NS_A
 
 
 def _snapshot_key_value(value: Any) -> str:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import abc
 
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import CommunitySummary, Entity, Relationship
 
 
@@ -16,8 +17,19 @@ class CommunityReadPort(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def get_summaries_by_level(self, level: int) -> list[CommunitySummary]:
-        """Return all community summaries for the requested hierarchy level."""
+    async def get_summaries_by_level(
+        self,
+        level: int,
+        *,
+        scope: ScopeContext | None = None,
+    ) -> list[CommunitySummary]:
+        """Return community summaries for ``level``, optionally namespace-filtered.
+
+        When ``scope`` is provided, summaries are filtered by the namespaced
+        ``entity_ids`` prefix (Entity ids are namespaced per ``SCOPE_KEYS_BY_LABEL``).
+        The unscoped path (default ``None``) returns all summaries for the level —
+        the legacy contract used by ``infrastructure/neo4j_retrieval_adapter.py``.
+        """
         ...
 
     @abc.abstractmethod

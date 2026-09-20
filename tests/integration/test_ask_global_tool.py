@@ -23,7 +23,9 @@ class _FakeCommunityReadPort(CommunityReadPort):
     async def load_entity_graph(self) -> tuple[list[Any], list[Any]]:
         return [], []
 
-    async def get_summaries_by_level(self, level: int) -> list[Any]:
+    async def get_summaries_by_level(
+        self, level: int, *, scope: ScopeContext | None = None
+    ) -> list[Any]:
         return []
 
     async def count_summaries(self) -> int:
@@ -60,7 +62,9 @@ class _FakeGlobalQueryUseCase(GlobalQueryUseCase):
             "citations": ["a1b2c3d4e5f6a7b8"],
         }
 
-    async def ask(self, question: str, detail_level: int) -> dict[str, Any]:
+    async def ask(
+        self, question: str, detail_level: int, *, scope: ScopeContext | None = None
+    ) -> dict[str, Any]:
         self.calls.append((question, detail_level))
         return self.response
 

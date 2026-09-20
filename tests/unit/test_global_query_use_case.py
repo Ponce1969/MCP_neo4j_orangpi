@@ -6,7 +6,9 @@ from typing import Any
 
 import pytest
 
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import CommunitySummary
+from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.ports.community_read_port import CommunityReadPort
 from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
 
@@ -54,12 +56,16 @@ class _FakeCommunityReadPort(CommunityReadPort):
     def __init__(self, summaries: dict[int, list[CommunitySummary]] | None = None) -> None:
         self.summaries = summaries or {}
         self.level_calls: list[int] = []
+        self.scope_calls: list[tuple[int, ScopeContext | None]] = []
 
     async def load_entity_graph(self) -> tuple[list[Any], list[Any]]:
         return [], []
 
-    async def get_summaries_by_level(self, level: int) -> list[CommunitySummary]:
+    async def get_summaries_by_level(
+        self, level: int, *, scope: ScopeContext | None = None
+    ) -> list[CommunitySummary]:
         self.level_calls.append(level)
+        self.scope_calls.append((level, scope))
         return list(self.summaries.get(level, []))
 
     async def count_summaries(self) -> int:
@@ -109,6 +115,18 @@ async def test_ask_rejects_detail_level_validation_before_port_call(
         await use_case.ask("question", 5)
 
     assert read_port.level_calls == []
+
+
+async def test_ask_forwards_scope_to_read_port(
+    read_port: _FakeCommunityReadPort, use_case: Any
+) -> None:
+    """A scoped ask forwards the resolved ScopeContext to the read port (REQ-R7.4)."""
+    scope = ScopeContext(source=SourceNamespace(corpus="book", source="alpha"))
+
+    await use_case.ask("question", 1, scope=scope)
+
+    assert read_port.scope_calls == [(1, scope)]
+    assert read_port.level_calls == [1]
 
 
 # ── missing summaries ──────────────────────────────────────────────────────────

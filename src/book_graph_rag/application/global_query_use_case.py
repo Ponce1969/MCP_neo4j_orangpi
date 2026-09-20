@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import CommunitySummary
 from book_graph_rag.ports.community_read_port import CommunityReadPort
 from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
@@ -30,8 +31,18 @@ class GlobalQueryUseCase:
         self._max_concurrency = max_concurrency
         self._top_n = top_n
 
-    async def ask(self, question: str, detail_level: int) -> dict[str, Any]:
+    async def ask(
+        self,
+        question: str,
+        detail_level: int,
+        *,
+        scope: ScopeContext | None = None,
+    ) -> dict[str, Any]:
         """Return a cited answer for ``question`` at ``detail_level``.
+
+        ``scope``, when provided, namespace-filters the community summaries read
+        from the port (R7). The default ``None`` preserves the unscoped legacy
+        behavior.
 
         Raises:
             ValueError: If ``detail_level`` is outside ``[0, 3]``.
@@ -41,7 +52,9 @@ class GlobalQueryUseCase:
                 f"detail_level must be between 0 and 3, got {detail_level}"
             )
 
-        summaries = await self._read_port.get_summaries_by_level(detail_level)
+        summaries = await self._read_port.get_summaries_by_level(
+            detail_level, scope=scope
+        )
         if not summaries:
             return {
                 "answer": "Run scripts/run_communities.py first",

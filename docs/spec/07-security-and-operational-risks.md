@@ -131,24 +131,32 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   bounded); MEDIUM for `ask_global` until the community read path is
   namespace-filtered (R7).
 
-### R7 — `ask_global` community read path ignores resolved scope (MEDIUM)
+### R7 — `ask_global` community read path ignores resolved scope (mitigated — code-verified)
 
 - **Evidence `[VERIFIED]`:** `McpServerAdapter.ask_global` validates scope fail-closed
-  (`InvalidScopeError`/`MissingScopeError` raised before the use case) but **discards**
-  the resolved `ScopeContext` and calls `GlobalQueryUseCase.ask(question, detail_level)`
-  without it (`mcp_server_adapter.py::ask_global`). `GlobalQueryUseCase.ask` reads
-  `CommunityReadPort.get_summaries_by_level(level)`, and
-  `Neo4jCommunityAdapter.get_summaries_by_level` returns `:CommunitySummary` nodes with
-  **no namespace filter** (`community_adapter.py`). `CommunitySummary` has no namespace
-  field (`domain/models.py`), so scope would have to derive from the namespaced
-  `entity_ids` prefix.
+  (`InvalidScopeError`/`MissingScopeError` raised before the use case) and now threads the
+  resolved `ScopeContext` through `GlobalQueryUseCase.ask(question, detail_level, scope=scope)`
+  (`mcp_server_adapter.py::ask_global`) and
+  `CommunityReadPort.get_summaries_by_level(level, *, scope=None)`
+  (`ports/community_read_port.py`) into `Neo4jCommunityAdapter.get_summaries_by_level`
+  (`community_adapter.py`), which binds
+  `WHERE ANY(x IN c.entity_ids WHERE x STARTS WITH $scope_prefix)` with
+  `scope_prefix = f"{scope.source.source_id}:"`.
 - **Impact:** a scoped `ask_global` could read community summaries across namespaces.
-- **Mitigation (target):** thread the resolved `ScopeContext` into
-  `application/global_query_use_case.py` and `ports/community_read_port.py`; derive the
-  namespace from the `entity_ids` prefix (or add a namespace field to
-  `CommunitySummary`).
-- **Residual risk:** MEDIUM — the request is validated fail-closed but the community
-  read itself is unscoped; not fixed in this phase.
+- **Mitigation (implemented):** the scoped branch filters by the namespaced `entity_ids`
+  prefix. ``ANY`` (not ``ALL``) follows the approved R7 scope: it excludes any summary whose
+  `entity_ids` are entirely outside the prefix, while remaining permissive toward
+  mixed-coverage summaries (deliberately out of scope). The ingestion contract enforced by
+  `SCOPE_KEYS_BY_LABEL` (`domain/mcp_security.py`) keeps every namespaced `Entity.id`
+  prefixed, so summaries are derived from namespaced entities.
+- **Verified:** `test_ask_global_scope_community.py` (cross-namespace leak),
+  `test_ask_global_scope.py` (scope reaches the read port),
+  `test_neo4j_community_adapter.py` (scoped filter + unscoped default),
+  `test_global_query_use_case.py::test_ask_forwards_scope_to_read_port`.
+- **Residual risk:** mitigated (code-verified); audit verification via `gate expose-mcp`
+  completes at the Phase 7 exposure checkpoint. The unscoped path
+  (`Neo4jRetrievalAdapter.fetch_contexts`, `infrastructure/neo4j_retrieval_adapter.py`) is
+  unchanged.
 
 ### R8 — Text2Cypher does not bind scope parameters end-to-end (LOW)
 
@@ -192,7 +200,8 @@ remains human-gated. Verified complete vs. remaining:
 2. R2 mitigated — **partial:** read-only `READ_ACCESS` + managed `execute_read` proven
    (T-C.4), but a distinct read-only credential/role is not yet in place.
 3. R3 mitigated — **partial:** structural allowlist + `EXPLAIN` + disabled-by-default
-   verified; the scope-parameter binding gap (R8) remains.
+   verified; the scope-parameter binding gap (R8) remains. `ask_global`'s community read
+   path is now namespace-scoped (R7, code-verified — see §3).
 4. R4 mitigated — **not done:** schema fallback is still the hardcoded constant;
    dynamic schema inference remains the live path (`text2cypher_adapter.py`).
 5. R5 mitigated — **partial:** MCP query log is metadata-only + HMAC + redacted; the

@@ -12,6 +12,7 @@ from typing import Any
 from neo4j import AsyncGraphDatabase
 
 from book_graph_rag.config import Settings
+from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import (
     CommunitySummary,
     Entity,
@@ -115,17 +116,40 @@ class Neo4jCommunityAdapter(CommunityReadPort, CommunityWritePort):
             )
             return [record.data() async for record in result]
 
-    async def get_summaries_by_level(self, level: int) -> list[CommunitySummary]:
-        """Return all :CommunitySummary nodes for the given level."""
-        async with self._driver.session() as session:
-            result = await session.run(
+    async def get_summaries_by_level(
+        self, level: int, *, scope: ScopeContext | None = None
+    ) -> list[CommunitySummary]:
+        """Return all :CommunitySummary nodes for the given level.
+
+        When ``scope`` is provided, summaries are filtered to the resolved
+        namespace via ``ANY(x IN c.entity_ids WHERE x STARTS WITH $scope_prefix)``
+        bound to ``{level, scope_prefix}``. ``ANY`` (not ``ALL``) follows the
+        approved R7 scope: a summary whose ``entity_ids`` are entirely outside
+        the prefix matches zero elements, so ``ANY`` is false and the summary is
+        excluded. The unscoped path (``scope=None``) is the legacy contract used
+        by ``infrastructure/neo4j_retrieval_adapter.py``.
+        """
+        if scope is not None:
+            query = """
+                MATCH (c:CommunitySummary {level: $level})
+                WHERE ANY(x IN c.entity_ids WHERE x STARTS WITH $scope_prefix)
+                RETURN c.id AS id, c.level AS level, c.summary AS summary,
+                       c.entity_ids AS entity_ids, c.parent_id AS parent_id
                 """
+            params: dict[str, Any] = {
+                "level": level,
+                "scope_prefix": f"{scope.source.source_id}:",
+            }
+        else:
+            query = """
                 MATCH (c:CommunitySummary {level: $level})
                 RETURN c.id AS id, c.level AS level, c.summary AS summary,
                        c.entity_ids AS entity_ids, c.parent_id AS parent_id
-                """,
-                {"level": level},
-            )
+                """
+            params = {"level": level}
+
+        async with self._driver.session() as session:
+            result = await session.run(query, params)
             summaries: list[CommunitySummary] = []
             async for record in result:
                 summaries.append(
