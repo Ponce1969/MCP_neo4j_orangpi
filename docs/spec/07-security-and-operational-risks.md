@@ -76,10 +76,10 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   default (`mcp_enable_query_cypher=False`).
 - **Mitigation (implemented):** structural allowlist (the security decision) +
   `EXPLAIN` gate + disabled-by-default + read-only session (R2).
-- **Mitigation (target):** close the scope-parameter binding gap (see R8).
-- **Residual risk:** MEDIUM — the allowlist blocks write/admin vectors structurally,
-  but a scope-proof query cannot yet bind parameters end-to-end (R8); the keyword
-  denylist remains only as a diagnostic prefilter.
+- **Mitigation (target):** close the scope-parameter binding gap (see R8 — closed).
+- **Residual risk:** LOW — the allowlist blocks write/admin vectors structurally and the
+  scope-parameter binding gap (R8) is now closed; the keyword denylist remains only as
+  a diagnostic prefilter.
 
 ### R4 — Hardcoded schema drift (MEDIUM)
 
@@ -131,7 +131,7 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   bounded); MEDIUM for `ask_global` until the community read path is
   namespace-filtered (R7).
 
-### R7 — `ask_global` community read path ignores resolved scope (mitigated — code-verified)
+### R7 — `ask_global` community read path ignores resolved scope (mitigated — code-verified, audit-verified)
 
 - **Evidence `[VERIFIED]`:** `McpServerAdapter.ask_global` validates scope fail-closed
   (`InvalidScopeError`/`MissingScopeError` raised before the use case) and now threads the
@@ -153,25 +153,38 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   `test_ask_global_scope.py` (scope reaches the read port),
   `test_neo4j_community_adapter.py` (scoped filter + unscoped default),
   `test_global_query_use_case.py::test_ask_forwards_scope_to_read_port`.
-- **Residual risk:** mitigated (code-verified); audit verification via `gate expose-mcp`
-  completes at the Phase 7 exposure checkpoint. The unscoped path
-  (`Neo4jRetrievalAdapter.fetch_contexts`, `infrastructure/neo4j_retrieval_adapter.py`) is
-  unchanged.
+- **Residual risk:** mitigated (code-verified, audit-verified): `gate expose-mcp` exit
+  `0` at the Phase 7 exposure checkpoint; the scoped branch is proven by the
+  cross-namespace leak test and the unscoped path
+  (`Neo4jRetrievalAdapter.fetch_contexts`, `infrastructure/neo4j_retrieval_adapter.py`)
+  is unchanged.
 
-### R8 — Text2Cypher does not bind scope parameters end-to-end (LOW)
+### R8 — Text2Cypher does not bind scope parameters end-to-end (mitigated — code-verified, audit-verified)
 
-- **Evidence `[VERIFIED]`:** `Text2CypherAdapter.generate_and_run` executes read Cypher
-  via `execute_read(cypher)` with no parameter map (`text2cypher_adapter.py::_generate_and_run`),
-  while the structural validator requires a `$param` scope proof (`require_scope_proof=True`).
-  A scope-proof query therefore cannot execute end-to-end today — the validator demands a
-  bound parameter the execution path never supplies.
-- **Impact:** the dynamic path is blocked from satisfying its own scope proof;
-  `query_cypher` is effectively unusable for scope-bound queries until parameters are
-  wired through.
-- **Mitigation (target):** bind scope parameters (`ScopeContext` → `$param`) through
-  `generate_and_run`/`execute_read`.
-- **Residual risk:** LOW — `query_cypher` is disabled by default, so the gap is not
-  reachable unless explicitly enabled; not fixed in this phase.
+- **Evidence `[VERIFIED]`:** `Text2CypherAdapter.generate_and_run(question, *, scope=None)`
+  builds a parameter map strictly from the validator's `scope_proofs` via
+  `_build_scope_parameter_map` (`text2cypher_adapter.py`) and threads it through
+  `_CypherExecutor.explain(cypher, parameters=...)` (EXPLAIN must also carry the map or
+  Neo4j fails with `Expected parameter(s)`) and `execute_read(cypher, parameters=...)`
+  into `Neo4jQueryAdapter.execute_read(cypher, parameters=None)`
+  (`neo4j_query_adapter.py::execute_read`), which binds `parameters or {}` into the
+  managed read transaction. `query_cypher` accepts optional scope kwargs and resolves a
+  `ScopeContext` fail-closed before calling `generate_and_run`
+  (`mcp_server_adapter.py::query_cypher`).
+- **Impact:** a scope-proof dynamic query can now execute end-to-end with its proven
+  `$param` bindings supplied.
+- **Mitigation (implemented):** `_build_scope_parameter_map` derives values strictly from
+  `scope_proofs` (`Chunk.book_id =` → `scope.source.source_id`; `Chunk.book_id IN` →
+  `list(scope.book_ids)` or `[scope.source.source_id]`); any non-derivable proof
+  (`Entity.id` or unknown) raises the existing `CypherGenerationError` after the retry
+  budget (`retries=2` unchanged) with the failed query in context — no new error type.
+  `query_cypher` stays disabled by default (`mcp_enable_query_cypher=False`).
+- **Verified:** `test_text2cypher_adapter.py` (parameter-map binding, `IN` list binding,
+  non-derivable proof fails typed only after retries=2), `test_query_cypher_scope.py`
+  (fail-closed scope resolution and forwarding), `test_neo4j_query_adapter.py`
+  (parameter pass-through into the read transaction).
+- **Residual risk:** mitigated (code-verified, audit-verified): `gate expose-mcp` exit `0`
+  at the Phase 7 exposure checkpoint; `query_cypher` remains disabled by default.
 
 ## 4. Operational controls `[TARGET]`
 
@@ -199,22 +212,29 @@ remains human-gated. Verified complete vs. remaining:
    `deploy/mcp-server.service`).
 2. R2 mitigated — **partial:** read-only `READ_ACCESS` + managed `execute_read` proven
    (T-C.4), but a distinct read-only credential/role is not yet in place.
-3. R3 mitigated — **partial:** structural allowlist + `EXPLAIN` + disabled-by-default
-   verified; the scope-parameter binding gap (R8) remains. `ask_global`'s community read
-   path is now namespace-scoped (R7, code-verified — see §3).
+3. R3 mitigated — **verified complete:** structural allowlist + `EXPLAIN` + disabled-by-default
+   verified; the scope-parameter binding gap (R8) is now closed. `ask_global`'s community read
+   path is namespace-scoped (R7, code-verified — see §3).
 4. R4 mitigated — **not done:** schema fallback is still the hardcoded constant;
    dynamic schema inference remains the live path (`text2cypher_adapter.py`).
 5. R5 mitigated — **partial:** MCP query log is metadata-only + HMAC + redacted; the
    dead-letter `error_message` is still raw.
 6. Readiness gate (06) passes; audit (04) shows no BLOCKING, no FAILED/UNREACHABLE —
-   **not yet run as the final exposure checkpoint.**
+   **run as the Phase 7 exposure checkpoint:** `gate expose-mcp` exit `0` (PASS).
+   `gate expose-mcp-readiness` remains `INCOMPLETE` (exit `11`) by design while
+   `data/evaluation/*_baseline.json` carry `thresholds_finalized: false` (mechanism-first,
+   06 §11) — pending the later Phase 5 threshold delta. (Local checkpoint note: the
+   readiness gate's generation layer requires a live `QUERY_LLM`; the configured model
+   is end-of-life, so the local run surfaced an environment failure instead of the
+   mechanism-first `INCOMPLETE` — re-run after the model is updated.)
 7. Explicit human approval recorded; production graph untouched by validation —
    **not yet granted (production exposure is a human decision).**
 
 ## 6. Acceptance criteria
 
 - [x] R1/R2/R3/R5/R6 mitigations are verified in code with evidence (see register);
-  R7/R8 are recorded as open risks with their target wiring path documented.
+  R7/R8 are mitigated (code-verified, audit-verified) with the scope-aware community
+  read and the scope-parameter binding wired end-to-end.
 - [x] The MCP path cannot execute a write statement (`READ_ACCESS` + managed
   `execute_read` + structural allowlist, proven by write-rejection integration test).
   A write-capable credential still exists (R2 residual) — least-privilege separation
