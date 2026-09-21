@@ -119,6 +119,40 @@ async def _seed_with_edges(adapter: Neo4jCommandAdapter, driver: Any) -> None:
         )
 
 
+async def _seed_with_book_id_chunks(adapter: Neo4jCommandAdapter, driver: Any) -> None:
+    """Seed entities with production-style chunks (book_id, no id/source_id).
+
+    Mirrors the OrangePi graph where 1520/1520 Chunks carry ``book_id`` +
+    ``chunk_index`` and never ``id`` or ``source_id`` (observed 2026-09-21).
+    """
+    await adapter.upsert_entities(
+        [
+            _entity("book:ch1:canonical", "Canonical Agent", "agent", ["Canon"]),
+            _entity("book:ch1:duplicate", "Duplicate Agent", "agent", ["Dup", "Duppy"]),
+            _entity("book:ch1:concept-x", "Concept X", "concept"),
+        ]
+    )
+    async with driver.session() as session:
+        await session.run(
+            """
+            MERGE (k:Chunk {chunk_index: 42, book_id: $book_id})
+            SET k.text = 'text'
+            MERGE (e:Entity {id: $dup_id})
+            MERGE (k)-[m:MENTIONS {source_page: 209}]->(e)
+            """,
+            book_id="book:ch1",
+            dup_id="book:ch1:duplicate",
+        )
+        await session.run(
+            """
+            MATCH (dup:Entity {id: $dup_id}), (concept:Entity {id: $concept_id})
+            MERGE (dup)-[r:RELATED {type: 'requires', source_page: 8}]->(concept)
+            """,
+            dup_id="book:ch1:duplicate",
+            concept_id="book:ch1:concept-x",
+        )
+
+
 @pytest.mark.neo4j_integration
 async def test_capture_inverse_mapping_records_pre_merge_state(
     neo4j_settings: Settings,
@@ -386,5 +420,154 @@ async def test_apply_merge_is_idempotent(
                 concept="book:ch1:concept-x",
             )
             assert (await related_count.single())["c"] == 1
+    finally:
+        await command.close()
+
+
+@pytest.mark.neo4j_integration
+async def test_capture_inverse_mapping_with_book_id_chunks(
+    neo4j_settings: Settings,
+    neo4j_driver: Any,
+) -> None:
+    """Chunks keyed by book_id (production shape) must capture MENTIONS edges."""
+    command = Neo4jCommandAdapter(neo4j_settings)
+    merge_adapter = Neo4jGraphMergeAdapter(neo4j_driver)
+    try:
+        await _seed_with_book_id_chunks(command, neo4j_driver)
+
+        inverse = await merge_adapter.capture_inverse_mapping(["book:ch1:duplicate"])
+        assert inverse.aliases_before["book:ch1:duplicate"] == ("Dup", "Duppy")
+
+        mentions = [
+            e for e in inverse.edge_inverse_map if e.edge_kind == "MENTIONS"
+        ]
+        assert len(mentions) == 1, (
+            "book_id chunks must produce a MENTIONS inverse entry "
+            "(regression: _CAPTURE_EDGES resolved other_id=None)"
+        )
+        assert mentions[0].original_other_endpoint_id == "book:ch1:chunk-42"
+        assert mentions[0].edge_properties.get("source_page") == 209
+
+        related = [
+            e for e in inverse.edge_inverse_map if e.edge_kind == "RELATED"
+        ]
+        assert len(related) == 1
+        assert related[0].original_other_endpoint_id == "book:ch1:concept-x"
+    finally:
+        await command.close()
+
+
+@pytest.mark.neo4j_integration
+async def test_apply_merge_repoints_book_id_mentions(
+    neo4j_settings: Settings,
+    neo4j_driver: Any,
+) -> None:
+    """apply_merge must re-point MENTIONS from book_id chunks onto canonical."""
+    command = Neo4jCommandAdapter(neo4j_settings)
+    merge_adapter = Neo4jGraphMergeAdapter(neo4j_driver)
+    try:
+        await _seed_with_book_id_chunks(command, neo4j_driver)
+
+        inverse = await merge_adapter.capture_inverse_mapping(["book:ch1:duplicate"])
+        aliases_folded = [
+            FoldedAlias(from_entity_id="book:ch1:duplicate", alias_value="Dup"),
+            FoldedAlias(from_entity_id="book:ch1:duplicate", alias_value="Duppy"),
+        ]
+        await merge_adapter.apply_merge(
+            canonical_id="book:ch1:canonical",
+            candidate_ids=["book:ch1:duplicate"],
+            aliases_folded=aliases_folded,
+            inverse_mapping=inverse,
+        )
+
+        async with neo4j_driver.session() as session:
+            dup = await session.run(
+                "MATCH (n:Entity {id: $id}) RETURN n.merged_into AS merged",
+                id="book:ch1:duplicate",
+            )
+            assert (await dup.single())["merged"] == "book:ch1:canonical"
+
+            mentions = await session.run(
+                """
+                MATCH (k:Chunk)-[m:MENTIONS]->(n:Entity {id: $id})
+                RETURN count(m) AS c
+                """,
+                id="book:ch1:canonical",
+            )
+            assert (await mentions.single())["c"] == 1
+
+            dup_mentions = await session.run(
+                """
+                MATCH (k:Chunk)-[m:MENTIONS]->(n:Entity {id: $id})
+                RETURN count(m) AS c
+                """,
+                id="book:ch1:duplicate",
+            )
+            assert (await dup_mentions.single())["c"] == 0
+    finally:
+        await command.close()
+
+
+@pytest.mark.neo4j_integration
+async def test_rollback_merge_restores_book_id_mentions(
+    neo4j_settings: Settings,
+    neo4j_driver: Any,
+) -> None:
+    """rollback_merge must restore MENTIONS onto book_id chunks (production shape)."""
+    command = Neo4jCommandAdapter(neo4j_settings)
+    merge_adapter = Neo4jGraphMergeAdapter(neo4j_driver)
+    try:
+        await _seed_with_book_id_chunks(command, neo4j_driver)
+
+        inverse = await merge_adapter.capture_inverse_mapping(["book:ch1:duplicate"])
+        aliases_folded = [
+            FoldedAlias(from_entity_id="book:ch1:duplicate", alias_value="Dup"),
+            FoldedAlias(from_entity_id="book:ch1:duplicate", alias_value="Duppy"),
+        ]
+        await merge_adapter.apply_merge(
+            canonical_id="book:ch1:canonical",
+            candidate_ids=["book:ch1:duplicate"],
+            aliases_folded=aliases_folded,
+            inverse_mapping=inverse,
+        )
+
+        entry = MergeLedgerEntry(
+            seq=1,
+            candidate_ids=["book:ch1:duplicate"],
+            canonical_id="book:ch1:canonical",
+            band=MergeBand.HIGH,
+            evidence=[_dummy_evidence("book:ch1:canonical", "book:ch1:duplicate")],
+            aliases_folded=aliases_folded,
+            edge_inverse_map=inverse.edge_inverse_map,
+            approver="test",
+            applied_at=datetime.now(UTC),
+        )
+        await merge_adapter.rollback_merge(entry)
+
+        async with neo4j_driver.session() as session:
+            dup = await session.run(
+                "MATCH (n:Entity {id: $id}) RETURN n.merged_into AS merged",
+                id="book:ch1:duplicate",
+            )
+            record = await dup.single()
+            assert record is None or record["merged"] is None or record["merged"] == ""
+
+            mentions = await session.run(
+                """
+                MATCH (k:Chunk)-[m:MENTIONS]->(n:Entity {id: $id})
+                RETURN count(m) AS c
+                """,
+                id="book:ch1:duplicate",
+            )
+            assert (await mentions.single())["c"] == 1
+
+            canon_mentions = await session.run(
+                """
+                MATCH (k:Chunk)-[m:MENTIONS]->(n:Entity {id: $id})
+                RETURN count(m) AS c
+                """,
+                id="book:ch1:canonical",
+            )
+            assert (await canon_mentions.single())["c"] == 0
     finally:
         await command.close()

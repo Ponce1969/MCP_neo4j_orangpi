@@ -31,9 +31,11 @@ _CAPTURE_EDGES = """
 MATCH (c:Chunk)-[m:MENTIONS]->(dup:Entity) WHERE dup.id IN $ids
 RETURN dup.id AS id,
        'MENTIONS' AS edge_kind,
-       CASE WHEN c.id IS NOT NULL
-            THEN c.id
-            ELSE c.source_id + ':chunk-' + toString(c.chunk_index)
+       CASE
+         WHEN c.id IS NOT NULL THEN c.id
+         WHEN c.source_id IS NOT NULL
+           THEN c.source_id + ':chunk-' + toString(c.chunk_index)
+         ELSE c.book_id + ':chunk-' + toString(c.chunk_index)
        END AS other_id,
        properties(m) AS props
 UNION
@@ -57,6 +59,7 @@ UNWIND $mentions AS inv
 MATCH (c:Chunk)
 WHERE (c.id = inv.original_other_endpoint_id)
    OR (c.source_id + ':chunk-' + toString(c.chunk_index) = inv.original_other_endpoint_id)
+   OR (c.book_id + ':chunk-' + toString(c.chunk_index) = inv.original_other_endpoint_id)
 MATCH (c)-[m:MENTIONS]->(dup:Entity {id: inv.duplicate_entity_id})
 MATCH (canon:Entity {id: $canonical_id})
 MERGE (c)-[m2:MENTIONS]->(canon)
@@ -115,6 +118,7 @@ UNWIND $mentions AS inv
 MATCH (c:Chunk)-[m:MENTIONS]->(canon:Entity {id: $canonical_id})
 WHERE (c.id = inv.original_other_endpoint_id)
    OR (c.source_id + ':chunk-' + toString(c.chunk_index) = inv.original_other_endpoint_id)
+   OR (c.book_id + ':chunk-' + toString(c.chunk_index) = inv.original_other_endpoint_id)
 DELETE m
 """
 
@@ -133,6 +137,7 @@ UNWIND $mentions AS inv
 MATCH (c:Chunk)
 WHERE (c.id = inv.original_other_endpoint_id)
    OR (c.source_id + ':chunk-' + toString(c.chunk_index) = inv.original_other_endpoint_id)
+   OR (c.book_id + ':chunk-' + toString(c.chunk_index) = inv.original_other_endpoint_id)
 MATCH (dup:Entity {id: inv.duplicate_entity_id})
 MERGE (c)-[m:MENTIONS]->(dup)
 ON CREATE SET m += inv.edge_properties
