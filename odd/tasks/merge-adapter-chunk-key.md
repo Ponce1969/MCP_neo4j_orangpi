@@ -34,23 +34,15 @@ the real use case works in production.
 
 ## Tasks
 
-- [ ] T1: write integration test reproducing book_id chunks (capture → apply → rollback) — RED first
-- [ ] T2: fix `_CAPTURE_EDGES` chunk-key resolution (book_id first, legacy fallback)
-- [ ] T3: fix `_REPOINT_MENTIONS_BATCH` WHERE to match book_id endpoint ids
-- [ ] T4: fix `_ROLLBACK_REMOVE_CANON_MENTIONS` + `_ROLLBACK_RESTORE_MENTIONS` WHERE
-- [ ] T5: run integration tests + gates (ruff, mypy, validate_architecture), commit work unit
-
-## Gates
-
-```bash
-uv run ruff check .
-uv run mypy .
-uv run python scripts/validate_architecture.py
-uv run pytest tests/ -q --ignore=tests/integration
-uv run pytest tests/integration/test_neo4j_graph_merge_adapter.py -q
-```
+- [x] T1: write integration test reproducing book_id chunks (capture → apply → rollback) — RED first
+- [x] T2: fix `_CAPTURE_EDGES` chunk-key resolution (book_id first, legacy fallback)
+- [x] T3: fix `_REPOINT_MENTIONS_BATCH` WHERE to match book_id endpoint ids
+- [x] T4: fix `_ROLLBACK_REMOVE_CANON_MENTIONS` + `_ROLLBACK_RESTORE_MENTIONS` WHERE
+- [x] T5: run integration tests + gates (ruff, mypy, validate_architecture), commit work unit
 
 ## Evidence
 
+- Commit: `7664b19` (main, no pusheado).
+- Gates: ruff clean · mypy 303 files OK · architecture OK · 1388 unit + 8 integration (3 new book_id + 5 legacy).
 - Backup: `~/backups_neo4j/bookgraph_backup_20260921T232007Z.json` (Pi).
 - Ledger seq=1 entry 7884fd08… (manual merge, MEDIUM, human:gonzalo).
