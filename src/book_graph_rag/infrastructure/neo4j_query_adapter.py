@@ -530,11 +530,13 @@ class Neo4jQueryAdapter(GraphQueryPort):
                 WHERE {chunk_clause}
                 OPTIONAL MATCH (parent)-[:HAS_CHUNK]->(node)
                 WHERE parent:Chapter OR parent:Section
-                WITH node, score, parent,
-                     CASE WHEN parent:Chapter THEN parent ELSE null END AS chapter,
-                     CASE WHEN parent:Section THEN parent ELSE null END AS section
+                WITH node, score,
+                     head(collect(CASE WHEN parent:Chapter THEN parent END)) AS chapter,
+                     head(collect(CASE WHEN parent:Section THEN parent END)) AS section
                 OPTIONAL MATCH (chapterAncestor:Chapter)
                     -[:HAS_SECTION|HAS_SUBSECTION*1..]->(section)
+                WITH node, score, chapter, section,
+                     head(collect(chapterAncestor)) AS chapterAncestor
                 RETURN node, score, chapter, section, chapterAncestor
                 ORDER BY score DESC
                 LIMIT $limit
@@ -545,11 +547,13 @@ class Neo4jQueryAdapter(GraphQueryPort):
                 YIELD node, score
                 OPTIONAL MATCH (parent)-[:HAS_CHUNK]->(node)
                 WHERE parent:Chapter OR parent:Section
-                WITH node, score, parent,
-                     CASE WHEN parent:Chapter THEN parent ELSE null END AS chapter,
-                     CASE WHEN parent:Section THEN parent ELSE null END AS section
+                WITH node, score,
+                     head(collect(CASE WHEN parent:Chapter THEN parent END)) AS chapter,
+                     head(collect(CASE WHEN parent:Section THEN parent END)) AS section
                 OPTIONAL MATCH (chapterAncestor:Chapter)
                     -[:HAS_SECTION|HAS_SUBSECTION*1..]->(section)
+                WITH node, score, chapter, section,
+                     head(collect(chapterAncestor)) AS chapterAncestor
                 RETURN node, score, chapter, section, chapterAncestor
                 ORDER BY score DESC
                 LIMIT $limit
