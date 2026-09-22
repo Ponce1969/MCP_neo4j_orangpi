@@ -7,3 +7,11 @@ corpora:
         label: "Agentic Architectural Patterns"
         file: "data/libro_Agentic_Architectural_Patterns.pdf"
         status: active
+      graphrag-agentic:
+        label: "GraphRAG agéntico (Alcaraz & Julien)"
+        file: "data/GraphRAG agéntico - Anthony Alcaraz, Sam Julien (EN).pdf"
+        status: inactive
+      essential-graphrag:
+        label: "Essential GraphRAG"
+        file: "data/Essential_GraphRAG.pdf"
+        status: inactive
