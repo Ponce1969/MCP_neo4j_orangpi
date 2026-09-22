@@ -217,3 +217,85 @@ def test_retrieval_layer_never_failed() -> None:
     uc = _make_use_case(records=records, contexts=contexts)
     result = asyncio.run(uc.execute())
     assert result.status != LayerStatus.FAILED
+
+
+def test_mixed_dataset_skips_future_records_in_precision() -> None:
+    """Precision is computed only over current-corpus records.
+
+    Future-corpus records never contribute to the precision numerator or
+    denominator; their skipped count is reported in the rationale.
+    """
+    records = (
+        {
+            "question_id": "ret-001",
+            "question": "current question A",
+            "qtype": "local",
+            "corpus": "current",
+            "reference_context_ids": ["a:book:1"],
+        },
+        {
+            "question_id": "ret-002",
+            "question": "current question B",
+            "qtype": "local",
+            "corpus": "current",
+            "reference_context_ids": ["a:book:2"],
+        },
+        {
+            "question_id": "ret-003",
+            "question": "future question C",
+            "qtype": "local",
+            "corpus": "future",
+            "reference_context_ids": [],
+        },
+        {
+            "question_id": "ret-004",
+            "question": "future question D",
+            "qtype": "local",
+            "corpus": "future",
+            "reference_context_ids": [],
+        },
+    )
+    contexts = {
+        "current question A": (
+            RetrievalContext(chunk_id="a:book:1", text="..."),
+        ),
+        "current question B": (
+            RetrievalContext(chunk_id="a:book:2", text="..."),
+        ),
+    }
+    uc = _make_use_case(
+        records=records,
+        contexts=contexts,
+        ragas_metrics=RAGASSecondaryMetrics(available=True),
+    )
+    result = asyncio.run(uc.execute())
+    assert result.status == LayerStatus.PASSED
+    assert _precision(result) == 1.0
+    assert result.warnings == ()
+    assert "skipped 2 future-corpus records" in result.rationale
+
+
+def test_all_future_dataset_returns_passed_precision_zero() -> None:
+    """All-future dataset yields PASSED (never FAILED) with precision 0.0."""
+    records = (
+        {
+            "question_id": "ret-001",
+            "question": "future question A",
+            "qtype": "local",
+            "corpus": "future",
+            "reference_context_ids": [],
+        },
+        {
+            "question_id": "ret-002",
+            "question": "future question B",
+            "qtype": "local",
+            "corpus": "future",
+            "reference_context_ids": [],
+        },
+    )
+    uc = _make_use_case(records=records, contexts={})
+    result = asyncio.run(uc.execute())
+    assert result.status == LayerStatus.PASSED
+    assert _precision(result) == 0.0
+    assert "no active (current) records" in result.rationale
+    assert "skipped 2 future-corpus records" in result.rationale

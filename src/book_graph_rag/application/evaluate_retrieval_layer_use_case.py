@@ -56,7 +56,11 @@ class EvaluateRetrievalLayerUseCase:
             )
 
         precisions: list[float] = []
+        skipped_future: int = 0
         for record in dataset.records:
+            if record.get("corpus") == "future":
+                skipped_future += 1
+                continue
             question = str(record.get("question", ""))
             qtype = str(record.get("qtype", "local"))
             reference_ids = set(record.get("reference_context_ids", []) or [])
@@ -79,7 +83,7 @@ class EvaluateRetrievalLayerUseCase:
 
         ragas = await self._run_ragas(dataset, run_ragas=run_ragas)
         warnings: list[str] = []
-        if precision < self._PRECISION_WARNING_THRESHOLD:
+        if precisions and precision < self._PRECISION_WARNING_THRESHOLD:
             warnings.append(f"low precision@k: {precision:.4f}")
         if ragas is not None:
             if not ragas.available:
@@ -90,9 +94,19 @@ class EvaluateRetrievalLayerUseCase:
             elif ragas.drop_warning:
                 warnings.append("RAGAS context_precision drop detected")
 
+        if not precisions:
+            rationale = (
+                f"no active (current) records"
+                f" (skipped {skipped_future} future-corpus records)"
+            )
+        else:
+            rationale = f"retrieval layer informative (precision@k={precision:.4f})"
+            if skipped_future:
+                rationale += f" (skipped {skipped_future} future-corpus records)"
+
         return self._result(
             status=LayerStatus.PASSED,
-            rationale=f"retrieval layer informative (precision@k={precision:.4f})",
+            rationale=rationale,
             precision=precision,
             ragas=ragas,
             warnings=tuple(warnings),
