@@ -15,6 +15,7 @@ from book_graph_rag.domain.gate_models import (
     GateDimensionStatus,
     GatePolicy,
     GateResult,
+    MaxSeverity,
     ReadinessGate,
     UnknownGateError,
 )
@@ -34,6 +35,24 @@ _DIMENSION_MAP: dict[str, GateDimension] = {
     "duplicates": "uniqueness",
     "coverage": "coverage",
 }
+
+_SEVERITY_RANK: dict[Severity, int] = {
+    Severity.BLOCKING: 3,
+    Severity.WARNING: 2,
+    Severity.INCOMPLETE: 1,
+}
+
+_MAX_SEVERITY_MIN_RANK: dict[MaxSeverity, int] = {
+    "blocking": 3,
+    "warning": 2,
+    "incomplete": 1,
+    "none": 4,
+}
+
+
+def _min_rank_for_max_severity(max_severity: MaxSeverity) -> int:
+    """Return the minimum severity rank that counts as a violation."""
+    return _MAX_SEVERITY_MIN_RANK[max_severity]
 
 
 class GateEvaluatorUseCase:
@@ -55,10 +74,11 @@ class GateEvaluatorUseCase:
             return self._terminal_result(gate, report)
 
         totals_by_dim: dict[GateDimension, int] = dict.fromkeys(_DIMENSIONS, 0)
+        min_rank = _min_rank_for_max_severity(gate.max_severity)
         for finding in report.findings:
-            is_blocking = finding.severity == Severity.BLOCKING
-            is_evaluated = finding.query_state == QueryState.EVALUATED
-            if not is_blocking and not is_evaluated:
+            if finding.query_state != QueryState.EVALUATED:
+                continue
+            if _SEVERITY_RANK[finding.severity] < min_rank:
                 continue
             category = RULE_CATEGORY.get(finding.rule_id)
             if category is None:
@@ -88,7 +108,7 @@ class GateEvaluatorUseCase:
             totals_by_dim[dim] for dim in gate.required_dimensions
         ):
             state = OverallState.INCOMPLETE
-        elif blocking or not all_required_pass:
+        elif not all_required_pass:
             state = OverallState.VIOLATIONS
         else:
             state = OverallState.PASSED

@@ -14,7 +14,7 @@ from book_graph_rag.application.audit_graph_use_case import (
 )
 from book_graph_rag.application.evaluate_gate_use_case import GateEvaluatorUseCase
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.audit_models import AuditScope, OverallState
+from book_graph_rag.domain.audit_models import AuditScope, OverallState, Severity
 from book_graph_rag.infrastructure.gate_policy_loader import GatePolicyLoader
 from book_graph_rag.infrastructure.neo4j_audit_adapter import Neo4jAuditAdapter
 
@@ -134,11 +134,11 @@ async def test_gate_passes_clean_scoped_graph(
 
 
 @pytest.mark.neo4j_integration
-async def test_gate_fails_same_namespace_duplicate(
+async def test_warning_same_namespace_duplicate_passes_with_max_severity_blocking(
     neo4j_settings: Settings,
     neo4j_driver: Any,
 ) -> None:
-    """A duplicate in the scoped namespace fails the uniqueness dimension."""
+    """A duplicate warning in scope is reported but does not fail the blocking gate."""
     await _seed_duplicate_graph(neo4j_driver)
     report = await _run_scoped_audit(
         neo4j_settings,
@@ -147,19 +147,25 @@ async def test_gate_fails_same_namespace_duplicate(
     policy = GatePolicyLoader(Path("gates.yaml")).load()
     result = GateEvaluatorUseCase(policy).evaluate("expose-mcp", report)
 
-    assert result.passed is False
-    assert result.exit_code == 10
+    assert report.state == OverallState.PASSED
+    assert result.passed is True
+    assert result.exit_code == 0
     uniqueness = next(s for s in result.dimension_breakdown if s.dimension == "uniqueness")
-    assert uniqueness.satisfied is False
-    assert uniqueness.finding_total >= 1
+    assert uniqueness.satisfied is True
+    assert uniqueness.finding_total == 0
+    duplicate = next(
+        f for f in report.findings if f.rule_id == "DUPLICATE_ENTITY_LOGICAL"
+    )
+    assert duplicate.severity == Severity.WARNING
+    assert duplicate.total >= 1
 
 
 @pytest.mark.neo4j_integration
-async def test_gate_fails_coverage_warning(
+async def test_coverage_warning_passes_with_max_severity_blocking(
     neo4j_settings: Settings,
     neo4j_driver: Any,
 ) -> None:
-    """An orphan entity in scope fails the coverage dimension."""
+    """An orphan-entity warning in scope is reported but does not fail the blocking gate."""
     await _seed_orphan_graph(neo4j_driver)
     report = await _run_scoped_audit(
         neo4j_settings,
@@ -168,11 +174,17 @@ async def test_gate_fails_coverage_warning(
     policy = GatePolicyLoader(Path("gates.yaml")).load()
     result = GateEvaluatorUseCase(policy).evaluate("expose-mcp", report)
 
-    assert result.passed is False
-    assert result.exit_code == 10
+    assert report.state == OverallState.PASSED
+    assert result.passed is True
+    assert result.exit_code == 0
     coverage = next(s for s in result.dimension_breakdown if s.dimension == "coverage")
-    assert coverage.satisfied is False
-    assert coverage.finding_total >= 1
+    assert coverage.satisfied is True
+    assert coverage.finding_total == 0
+    orphan = next(
+        f for f in report.findings if f.rule_id == "ENTITY_UNMENTIONED"
+    )
+    assert orphan.severity == Severity.WARNING
+    assert orphan.total >= 1
 
 
 @pytest.mark.neo4j_integration

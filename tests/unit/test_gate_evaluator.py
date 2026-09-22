@@ -75,7 +75,7 @@ def _report(
     )
 
 
-def _policy() -> GatePolicy:
+def _policy(max_severity: str = "blocking") -> GatePolicy:
     return GatePolicy.model_validate(
         {
             "version": "1.0.0",
@@ -89,7 +89,7 @@ def _policy() -> GatePolicy:
                         "uniqueness": "pass",
                         "coverage": "pass",
                     },
-                    "max_severity": "blocking",
+                    "max_severity": max_severity,
                 }
             ],
         }
@@ -132,8 +132,8 @@ def test_gate_fails_on_blocking_finding() -> None:
     assert "HIERARCHY_CHUNK_PARENT_REQUIRED" in result.blocking_findings
 
 
-def test_gate_fails_when_required_dimension_has_findings() -> None:
-    """A required dimension with nonzero findings fails the gate."""
+def test_warning_in_required_dimension_passes_with_max_severity_blocking() -> None:
+    """A WARNING finding in a required dimension does not count under max_severity blocking."""
     policy = _policy()
     report = _report(
         OverallState.VIOLATIONS,
@@ -145,18 +145,40 @@ def test_gate_fails_when_required_dimension_has_findings() -> None:
 
     result = use_case.evaluate("expose-mcp", report)
 
-    assert result.passed is False
-    assert result.exit_code == 10
+    assert result.passed is True
+    assert result.exit_code == 0
+    assert result.overall_state == OverallState.PASSED
     uniqueness_status = next(
         s for s in result.dimension_breakdown if s.dimension == "uniqueness"
     )
-    assert uniqueness_status.finding_total == 1
-    assert uniqueness_status.satisfied is False
+    assert uniqueness_status.finding_total == 0
+    assert uniqueness_status.satisfied is True
 
 
-def test_coverage_warning_fails_expose_mcp() -> None:
-    """A coverage/WARNING finding fails the expose-mcp gate."""
+def test_coverage_warning_passes_with_max_severity_blocking() -> None:
+    """A coverage/WARNING finding no longer fails the expose-mcp gate declared blocking."""
     policy = _policy()
+    report = _report(
+        OverallState.VIOLATIONS,
+        findings=(_finding("ENTITY_UNMENTIONED", "coverage", Severity.WARNING),),
+    )
+    use_case = GateEvaluatorUseCase(policy)
+
+    result = use_case.evaluate("expose-mcp", report)
+
+    assert result.passed is True
+    assert result.exit_code == 0
+    assert result.overall_state == OverallState.PASSED
+    coverage_status = next(
+        s for s in result.dimension_breakdown if s.dimension == "coverage"
+    )
+    assert coverage_status.finding_total == 0
+    assert coverage_status.satisfied is True
+
+
+def test_warning_counts_with_max_severity_warning() -> None:
+    """A WARNING finding counts when the gate's max_severity is warning."""
+    policy = _policy(max_severity="warning")
     report = _report(
         OverallState.VIOLATIONS,
         findings=(_finding("ENTITY_UNMENTIONED", "coverage", Severity.WARNING),),
@@ -170,7 +192,113 @@ def test_coverage_warning_fails_expose_mcp() -> None:
     coverage_status = next(
         s for s in result.dimension_breakdown if s.dimension == "coverage"
     )
+    assert coverage_status.finding_total == 1
     assert coverage_status.satisfied is False
+
+
+def test_incomplete_counts_with_max_severity_incomplete() -> None:
+    """An INCOMPLETE finding counts under max_severity incomplete, not under blocking."""
+    incomplete_policy = GatePolicy.model_validate(
+        {
+            "version": "1.0.0",
+            "gates": [
+                {
+                    "name": "needs-provenance",
+                    "version": "1.0.0",
+                    "required_dimensions": {"provenance": "pass"},
+                    "max_severity": "incomplete",
+                }
+            ],
+        }
+    )
+    blocking_policy = GatePolicy.model_validate(
+        {
+            "version": "1.0.0",
+            "gates": [
+                {
+                    "name": "needs-provenance",
+                    "version": "1.0.0",
+                    "required_dimensions": {"provenance": "pass"},
+                    "max_severity": "blocking",
+                }
+            ],
+        }
+    )
+    report = _report(
+        OverallState.INCOMPLETE,
+        findings=(_finding("PROVENANCE_ENTITY_MISSING", "provenance", Severity.INCOMPLETE),),
+    )
+
+    failing = GateEvaluatorUseCase(incomplete_policy).evaluate("needs-provenance", report)
+    provenance_status = next(
+        s for s in failing.dimension_breakdown if s.dimension == "provenance"
+    )
+    assert provenance_status.finding_total == 1
+    assert provenance_status.satisfied is False
+    assert failing.passed is False
+
+    passing = GateEvaluatorUseCase(blocking_policy).evaluate("needs-provenance", report)
+    provenance_status = next(
+        s for s in passing.dimension_breakdown if s.dimension == "provenance"
+    )
+    assert provenance_status.finding_total == 0
+    assert provenance_status.satisfied is True
+    assert passing.passed is True
+
+
+def test_blocking_still_fails_with_max_severity_blocking() -> None:
+    """A BLOCKING finding counts under max_severity blocking and fails the gate."""
+    policy = _policy()
+    report = _report(
+        OverallState.VIOLATIONS,
+        findings=(
+            _finding(
+                "HIERARCHY_CHUNK_PARENT_REQUIRED", "hierarchy", Severity.BLOCKING
+            ),
+        ),
+    )
+    use_case = GateEvaluatorUseCase(policy)
+
+    result = use_case.evaluate("expose-mcp", report)
+
+    assert result.passed is False
+    assert result.exit_code == 10
+    assert result.overall_state == OverallState.VIOLATIONS
+    hierarchy_status = next(
+        s for s in result.dimension_breakdown if s.dimension == "hierarchy"
+    )
+    assert hierarchy_status.finding_total == 1
+    assert hierarchy_status.satisfied is False
+
+
+def test_max_severity_none_ignores_all_findings() -> None:
+    """With max_severity none no finding counts, so even a BLOCKING finding passes.
+
+    The blocking_findings tuple still lists the BLOCKING rule (report-only),
+    while the gate itself passes because dimension totals stay zero.
+    """
+    policy = _policy(max_severity="none")
+    report = _report(
+        OverallState.VIOLATIONS,
+        findings=(
+            _finding(
+                "HIERARCHY_CHUNK_PARENT_REQUIRED", "hierarchy", Severity.BLOCKING
+            ),
+        ),
+    )
+    use_case = GateEvaluatorUseCase(policy)
+
+    result = use_case.evaluate("expose-mcp", report)
+
+    assert result.passed is True
+    assert result.exit_code == 0
+    assert result.overall_state == OverallState.PASSED
+    hierarchy_status = next(
+        s for s in result.dimension_breakdown if s.dimension == "hierarchy"
+    )
+    assert hierarchy_status.finding_total == 0
+    assert hierarchy_status.satisfied is True
+    assert "HIERARCHY_CHUNK_PARENT_REQUIRED" in result.blocking_findings
 
 
 def test_provenance_omitted_passes_when_only_provenance_incomplete() -> None:
@@ -210,7 +338,7 @@ def test_incomplete_on_listed_dimension_returns_exit_11() -> None:
                     "name": "needs-provenance",
                     "version": "1.0.0",
                     "required_dimensions": {"provenance": "pass"},
-                    "max_severity": "blocking",
+                    "max_severity": "incomplete",
                 }
             ],
         }

@@ -76,3 +76,31 @@ uv run pytest tests/ -q --ignore=tests/integration
 ## Evidence
 
 - Diagnostic obs 1324 (structural zero, verified on Pi 2026-09-21).
+---
+
+## Hallazgo 4 — max_severity decorativo (gate evaluator) — RESUELTO
+
+**Decisión del mantenedor (2026-09-21): semántica A — solo blockers tumban el gate.**
+
+`max_severity` está modelado (`MaxSeverity = blocking|warning|incomplete|none`) y declarado
+en `gates.yaml` para cada gate, pero `evaluate_gate_use_case.py` lo ignoraba: sumaba a la
+dimensión cualquier finding evaluado (blocking Y warning) y fallaba con `total==0`. El caso
+de hoy lo evidenció: el warning de coverage (entidad aislada) tumbó `expose-mcp` que
+declara `max_severity: blocking`.
+
+**Semántica implementada** (commit `??`): solo findings con `query_state == EVALUATED` y
+`severity_rank >= min_rank(max_severity)` cuentan como violación de dimensión.
+`blocking→3, warning→2, incomplete→1`; `none→4` (nada cuenta). El gate ahora decide SOLO
+por dimensiones declaradas (`not all_required_pass`); `blocking_findings` queda como reporte
+puro (transparencia) sin decidir el estado. Verificado: las reglas BLOCKING del catálogo
+(HIERARCHY_*, ENDPOINT_*, PAGE_*→hierarchy) caen todas en dimensiones requeridas de
+expose-mcp, así que el gate real no cambia su comportamiento.
+
+Tests: `test_gate_evaluator.py` 15 passed (4 nuevos: warning-with-warning-threshold,
+incomplete-with-incomplete, blocking-still-fails, none-ignores-all con blocking_findings
+report-only); `test_gate_matrix.py` 2 tests renombrados a semántica nueva (warning con
+max_severity blocking ahora pasa); integración gate 7 passed; 1400 unit + mypy/ruff OK.
+
+Implicancia del caso de hoy: con la nueva semántica el gate `expose-mcp` habría pasado sin
+el merge (el warning se reporta pero no bloquea); el merge igual fue correcto (mejora el
+proceso de resolución y los reportes del audit).
