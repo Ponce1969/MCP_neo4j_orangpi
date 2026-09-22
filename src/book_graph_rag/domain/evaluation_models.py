@@ -93,6 +93,19 @@ class LayerMetricValue(BaseModel):
     comparator: Literal[">=", "<=", "=="] = ">="
 
 
+class RetrievalContext(BaseModel):
+    """One retrieved context with its real chunk id when available (R11.1).
+
+    ``chunk_id`` carries the graph identity ``{book_id}:{chunk_index}`` for
+    local chunk hits and is ``None`` for community summaries and entity hits.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    chunk_id: str | None = None
+    text: str
+
+
 ClaimVerdictLabel = Literal["support", "contradict", "not_verifiable"]
 
 

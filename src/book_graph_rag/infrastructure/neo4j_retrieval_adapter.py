@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.config import Settings
+from book_graph_rag.domain.evaluation_models import RetrievalContext
 from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
@@ -57,26 +58,32 @@ class Neo4jRetrievalAdapter(GraphRetrievalPort):
         question: str,
         qtype: Literal["global", "local"],
         detail_level: int,
-    ) -> tuple[str, ...]:
+    ) -> tuple[RetrievalContext, ...]:
         """Return ordered contexts for ``question``."""
         if qtype == "global":
             summaries = await self._community_adapter.get_summaries_by_level(detail_level)
-            return tuple(s.summary for s in summaries)
+            return tuple(
+                RetrievalContext(chunk_id=None, text=s.summary) for s in summaries
+            )
 
         chunks, entities = await asyncio.gather(
             self._query_adapter.search_chunks(question, limit=10),
             self._query_adapter.find_entity(question, None),
             return_exceptions=True,
         )
-        contexts: list[str] = []
+        contexts: list[RetrievalContext] = []
         if isinstance(chunks, list):
             contexts.extend(
-                c.get("text", "") for c in chunks
+                RetrievalContext(chunk_id=c.get("chunk_id"), text=c.get("text", ""))
+                for c in chunks
                 if isinstance(c, dict) and c.get("text")
             )
         if isinstance(entities, list):
             contexts.extend(
-                f"{e.entity.name}: {e.entity.description}"
+                RetrievalContext(
+                    chunk_id=None,
+                    text=f"{e.entity.name}: {e.entity.description}",
+                )
                 for e in entities
                 if hasattr(e, "entity") and e.entity.description
             )
@@ -86,10 +93,10 @@ class Neo4jRetrievalAdapter(GraphRetrievalPort):
         self,
         *,
         question: str,
-        contexts: tuple[str, ...],
+        contexts: tuple[RetrievalContext, ...],
     ) -> str:
         """Compose an NL answer from retrieved contexts."""
-        joined = "\n---\n".join(contexts[:15])
+        joined = "\n---\n".join(ctx.text for ctx in contexts[:15])
         prompt = (
             f"Question: {question}\n\n"
             f"Relevant contexts:\n{joined}\n\n"

@@ -157,4 +157,4 @@ async def test_retrieval_adapter_global_fetch_stays_unscoped() -> None:
     )
 
     assert community.calls == [(0, None)]
-    assert result == ("Alpha community",)
+    assert tuple(ctx.text for ctx in result) == ("Alpha community",)

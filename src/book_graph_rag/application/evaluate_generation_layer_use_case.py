@@ -183,16 +183,19 @@ class EvaluateGenerationLayerUseCase:
             answer = await self._retrieval_port.compose_answer(
                 question=question, contexts=contexts
             )
+            # Claim/pairwise ports still consume plain text evidence; pass the
+            # text payloads while preserving the structured contexts upstream.
+            context_texts = tuple(ctx.text for ctx in contexts)
             extracted = await self._claim_port.extract_claims(
                 question_id=question_id,
                 answer=answer,
-                contexts=contexts,
+                contexts=context_texts,
                 extractor_model_id=self._settings.query_llm_model_name or "extractor",
             )
             verified = await self._claim_port.verify_claims(
                 question_id=question_id,
                 claims=extracted,
-                contexts=contexts,
+                contexts=context_texts,
                 verifier_model_id=self._settings.query_llm_model_name or "verifier",
             )
             pairwise = await self._pairwise_port.compare(
@@ -200,7 +203,7 @@ class EvaluateGenerationLayerUseCase:
                 question=question,
                 graph_answer=answer,
                 baseline_answer=reference_answer,
-                contexts=contexts,
+                contexts=context_texts,
                 judge_model_id=self._settings.query_llm_model_name or "judge",
             )
             results.append(

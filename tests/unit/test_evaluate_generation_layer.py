@@ -17,6 +17,7 @@ from book_graph_rag.domain.evaluation_models import (
     LayerStatus,
     PairwiseJudgment,
     RAGASSecondaryMetrics,
+    RetrievalContext,
 )
 from book_graph_rag.ports.claim_validator_port import ClaimValidatorPort
 from book_graph_rag.ports.evaluation_baseline_port import EvaluationBaselinePort
@@ -43,11 +44,14 @@ class _FakeRetrievalPort(GraphRetrievalPort):
 
     async def fetch_contexts(
         self, *, question: str, qtype: str, detail_level: int,
-    ) -> tuple[str, ...]:
-        return ("ctx1", "ctx2")
+    ) -> tuple[RetrievalContext, ...]:
+        return (
+            RetrievalContext(chunk_id=None, text="ctx1"),
+            RetrievalContext(chunk_id=None, text="ctx2"),
+        )
 
     async def compose_answer(
-        self, *, question: str, contexts: tuple[str, ...],
+        self, *, question: str, contexts: tuple[RetrievalContext, ...],
     ) -> str:
         return self._answers.get(question, "composed answer")
 
@@ -311,14 +315,14 @@ def test_pipeline_orchestration_order() -> None:
     class TracedRetrieval(_FakeRetrievalPort):
         async def fetch_contexts(
             self, *, question: str, qtype: str, detail_level: int,
-        ) -> tuple[str, ...]:
+        ) -> tuple[RetrievalContext, ...]:
             calls.append("fetch")
             return await super().fetch_contexts(
                 question=question, qtype=qtype, detail_level=detail_level,
             )
 
         async def compose_answer(
-            self, *, question: str, contexts: tuple[str, ...],
+            self, *, question: str, contexts: tuple[RetrievalContext, ...],
         ) -> str:
             calls.append("compose")
             return await super().compose_answer(

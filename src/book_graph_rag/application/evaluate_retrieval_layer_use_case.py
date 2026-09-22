@@ -71,7 +71,7 @@ class EvaluateRetrievalLayerUseCase:
             matched = sum(
                 1
                 for ctx in contexts
-                if any(ref_id in ctx for ref_id in reference_ids)
+                if ctx.chunk_id is not None and ctx.chunk_id in reference_ids
             )
             precisions.append(matched / len(contexts))
 

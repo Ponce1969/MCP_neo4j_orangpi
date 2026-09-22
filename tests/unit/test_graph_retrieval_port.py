@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from book_graph_rag.domain.evaluation_models import RetrievalContext
 from book_graph_rag.ports.graph_retrieval_port import GraphRetrievalPort
 
 
@@ -21,11 +22,14 @@ def test_graph_retrieval_port_fetch_contexts_returns_ordered() -> None:
     class FakeRetrieval(GraphRetrievalPort):
         async def fetch_contexts(
             self, *, question: str, qtype: str, detail_level: int,
-        ) -> tuple[str, ...]:
-            return ("ctx1", "ctx2")
+        ) -> tuple[RetrievalContext, ...]:
+            return (
+                RetrievalContext(chunk_id=None, text="ctx1"),
+                RetrievalContext(chunk_id=None, text="ctx2"),
+            )
 
         async def compose_answer(
-            self, *, question: str, contexts: tuple[str, ...],
+            self, *, question: str, contexts: tuple[RetrievalContext, ...],
         ) -> str:
             return "answer"
 
@@ -35,7 +39,10 @@ def test_graph_retrieval_port_fetch_contexts_returns_ordered() -> None:
         qtype="global",
         detail_level=1,
     ))
-    assert contexts == ("ctx1", "ctx2")
+    assert contexts == (
+        RetrievalContext(chunk_id=None, text="ctx1"),
+        RetrievalContext(chunk_id=None, text="ctx2"),
+    )
 
 
 def test_graph_retrieval_port_compose_answer_returns_str() -> None:
@@ -44,17 +51,17 @@ def test_graph_retrieval_port_compose_answer_returns_str() -> None:
     class FakeRetrieval(GraphRetrievalPort):
         async def fetch_contexts(
             self, *, question: str, qtype: str, detail_level: int,
-        ) -> tuple[str, ...]:
+        ) -> tuple[RetrievalContext, ...]:
             return ()
 
         async def compose_answer(
-            self, *, question: str, contexts: tuple[str, ...],
+            self, *, question: str, contexts: tuple[RetrievalContext, ...],
         ) -> str:
             return "MCP is a protocol."
 
     port = FakeRetrieval()
     answer = asyncio.run(port.compose_answer(
         question="what is MCP?",
-        contexts=("ctx1",),
+        contexts=(RetrievalContext(chunk_id=None, text="ctx1"),),
     ))
     assert answer == "MCP is a protocol."

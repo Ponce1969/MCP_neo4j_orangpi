@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
+from book_graph_rag.domain.evaluation_models import RetrievalContext
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.infrastructure.neo4j_retrieval_adapter import Neo4jRetrievalAdapter
 
@@ -52,13 +53,17 @@ async def test_read_only_against_testcontainers(
 async def test_fetch_contexts_global_vs_local(
     retrieval_adapter: Neo4jRetrievalAdapter,
 ) -> None:
-    """fetch_contexts returns a tuple for both global and local question types."""
+    """fetch_contexts returns a tuple of RetrievalContext for both qtypes."""
     global_ctxs = await retrieval_adapter.fetch_contexts(
         question="what is MCP?",
         qtype="global",
         detail_level=1,
     )
     assert isinstance(global_ctxs, tuple)
+    for ctx in global_ctxs:
+        assert isinstance(ctx.text, str)
+        assert ctx.text
+        assert ctx.chunk_id is None  # community summaries carry no chunk id
 
     local_ctxs = await retrieval_adapter.fetch_contexts(
         question="what is MCP?",
@@ -66,6 +71,13 @@ async def test_fetch_contexts_global_vs_local(
         detail_level=1,
     )
     assert isinstance(local_ctxs, tuple)
+    for ctx in local_ctxs:
+        assert isinstance(ctx.text, str)
+        assert ctx.text
+    chunk_ids = [ctx.chunk_id for ctx in local_ctxs if ctx.chunk_id is not None]
+    for chunk_id in chunk_ids:
+        # real chunk identity is {book_id}:{chunk_index}
+        assert ":" in chunk_id
 
 
 class _FakeProxyAnswer:
@@ -86,6 +98,6 @@ async def test_compose_answer_with_stub_llm(
 
     answer = await retrieval_adapter.compose_answer(
         question="what is MCP?",
-        contexts=("MCP is a protocol.",),
+        contexts=(RetrievalContext(chunk_id=None, text="MCP is a protocol."),),
     )
     assert answer == "MCP is a protocol for context exchange."
