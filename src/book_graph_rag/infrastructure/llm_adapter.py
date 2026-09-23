@@ -435,6 +435,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                 type=dto.type,
                 description=dto.description,
                 source_page=dto.source_page,
+                chunk_index=chunk.chunk_index,
             )
             for dto in extraction.relationships
         ]
