@@ -35,12 +35,16 @@ Un gate que siempre da INCOMPLETE es un "problema aparente" del libro 1.
 - Audit produccion (22/9): PASSED, 0 hallazgos, 7111 entidades, 1520 chunks
 
 ## Checklist
-- [ ] Decidir valores de umbral (aprobación usuario)
-- [ ] Fijar thresholds en generation_baseline.json
-- [ ] Fijar thresholds en resolution_baseline.json
-- [ ] Commitear artifacts untracked
-- [ ] Gates de calidad: ruff, mypy, validate_architecture, tests eval/gate
-- [ ] Verificar readiness gate en OrangePi (read-only) y commit (evidence: hash commit)
+- [x] Decidir valores de umbral (aprobación usuario: 0.65 / 0.60+0)
+- [x] Fijar thresholds en generation_baseline.json (faithfulness_min=0.65)
+- [x] Fijar thresholds en resolution_baseline.json (f1_min=0.60, hard_over_merge_max=0.0)
+- [x] Commitear artifacts untracked (resolution_metrics.json; gr3_after.json no existe en local — solo en OrangePi)
+- [x] Gates de calidad: ruff ✓, mypy ✓, validate_architecture ✓, 63 tests eval/gate ✓
+- [x] Verificar readiness gate en OrangePi (E2E) → **exit 0 PASSED** (2026-09-23 00:14Z): structure audit passed; resolution f1 0.641≥0.60 + over 0.0≤0.0; generation faithfulness 0.912≥0.65; retrieval informativo 0.0549; extraction deferred R6.1. Warnings informativos (RAGAS secondary, low precision@k). Video del gate: /tmp/gate-readiness-20260923.json. Evidencia E2E committeada: resolution_metrics.json (generated_at 2026-09-23T00:14:49Z) en commit de cierre. Backup del anterior: /tmp/resolution_metrics.backup-20260922.json.
+
+## Decisión pendiente registrada
+- docs/benchmarks/gr3_after.json: untracked SOLO en el servidor (no existe en local); revisar si se trae al repo como artifact de benchmark (Phase 5 §4 formalize before/after) — decidir en próxima iteración.
+- warnings informativos: RAGAS drop vs baseline y precision@k bajo quedan como follow-up de evaluación; no bloquean (R6.1: retrieval no blocking).
 
 ## Next step
 Confirmar readiness gate deja de ser INCOMPLETE por thresholds.
