@@ -85,14 +85,14 @@ def test_layer_path_mapping(tmp_path: Path) -> None:
     assert loader.load("resolution") is not None
     assert loader.load("generation") is not None
 
-def test_generation_baseline_unfinalized_loads() -> None:
-    """The committed generation baseline loads with thresholds_finalized=false."""
+def test_generation_baseline_finalized_loads() -> None:
+    """The committed generation baseline loads with finalized thresholds."""
     loader = JsonEvaluationBaselineLoader(Path("data/evaluation"))
     baseline = loader.load("generation")
     assert baseline is not None
     assert baseline.layer == "generation"
     assert baseline.dataset_id == "generation_dataset"
-    assert baseline.thresholds_finalized is False
+    assert baseline.thresholds_finalized is True
 
 
 def test_generation_baseline_metrics_shape() -> None:
