@@ -162,3 +162,55 @@ def test_cli_index_composition_correct_order(
 
     execute_call = calls[5]
     assert execute_call == ("execute", str(pdf))
+
+
+def test_cli_index_unknown_namespace_fails_fast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-02 §4: index into an unregistered namespace exits 2 before adapters."""
+
+    catalog_file = tmp_path / "catalog.yaml"
+    catalog_file.write_text(
+        "version: 1\n"
+        "corpora:\n"
+        "  knowledge:\n"
+        "    label: \"Knowledge Library\"\n"
+        "    sources:\n"
+        "      known-source:\n"
+        "        label: Known\n"
+        "        file: known.pdf\n"
+        "        status: active\n"
+    )
+
+    class FakeSettings:
+        @classmethod
+        def model_validate(cls, data: object) -> FakeSettings:
+            return cls()
+
+        def __init__(self) -> None:
+            self.catalog_path = catalog_file
+
+    constructed: list[str] = []
+
+    def fake_validate(settings: object) -> None:
+        return None
+
+    monkeypatch.setattr("book_graph_rag.main.Settings", FakeSettings)
+    monkeypatch.setattr("book_graph_rag.main.validate_llm_provider_settings", fake_validate)
+    monkeypatch.setattr("book_graph_rag.main.PDFAdapter", lambda *a, **k: constructed.append("pdf"))
+    monkeypatch.setattr("book_graph_rag.main.LLMAdapter", lambda *a, **k: constructed.append("llm"))
+    monkeypatch.setattr(
+        "book_graph_rag.main.Neo4jCommandAdapter", lambda *a, **k: constructed.append("neo4j")
+    )
+
+    pdf = tmp_path / "book.pdf"
+    pdf.write_text("fake pdf")
+
+    result = CliRunner().invoke(
+        cli, ["index", str(pdf), "--corpus", "knowledge", "--source", "unknown-source"]
+    )
+
+    assert result.exit_code == 2
+    assert "Namespace error:" in result.output
+    assert "Unknown source" in result.output
+    assert constructed == []
