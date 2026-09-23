@@ -18,5 +18,7 @@
     "auto_merge_count": 29,
     "auto_merge_correct": 29
   },
-  "thresholds_finalized": false
+  "thresholds_finalized": true,
+  "f1_min": 0.6,
+  "hard_over_merge_max": 0.0
 }

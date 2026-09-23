@@ -13,7 +13,7 @@
     "answer_relevancy": 0.5953,
     "context_precision": 0.474
   },
-  "thresholds_finalized": false,
-  "faithfulness_min": null,
+  "thresholds_finalized": true,
+  "faithfulness_min": 0.65,
   "pairwise_win_rate_min": null
 }
