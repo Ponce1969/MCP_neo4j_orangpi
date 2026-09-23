@@ -10,8 +10,8 @@ corpora:
       graphrag-agentic:
         label: "GraphRAG agéntico (Alcaraz & Julien)"
         file: "data/GraphRAG agéntico - Anthony Alcaraz, Sam Julien (EN).pdf"
-        status: inactive
+        status: active
       essential-graphrag:
         label: "Essential GraphRAG"
         file: "data/Essential_GraphRAG.pdf"
-        status: inactive
+        status: active
