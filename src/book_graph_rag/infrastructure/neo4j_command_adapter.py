@@ -333,12 +333,14 @@ class Neo4jCommandAdapter(GraphDatabasePort):
             await tx.run(
                 """
                 MERGE (k:Chunk {source_id: $source_id, chunk_index: $chunk_index})
-                SET k.text = $text,
+                SET k.book_id = $book_id,
+                    k.text = $text,
                     k.page_start = $page_start,
                     k.page_end = $page_end
                 """,
                 {
                     "source_id": source_id,
+                    "book_id": book.id,
                     "chunk_index": chunk.chunk_index,
                     "text": chunk.text,
                     "page_start": chunk.page_ref.start,

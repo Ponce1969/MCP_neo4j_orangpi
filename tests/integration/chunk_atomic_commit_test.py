@@ -97,6 +97,15 @@ async def test_commit_chunk_atomic_round_trip(
         assert record is not None
         assert record["c"] == 1
 
+        book_id_count = await session.run(
+            "MATCH (k:Chunk {book_id: $book_id, chunk_index: $chunk_index}) "
+            "RETURN count(k) AS c",
+            {"book_id": book.id, "chunk_index": chunk.chunk_index},
+        )
+        record = await book_id_count.single()
+        assert record is not None
+        assert record["c"] == 1
+
         entity_count = await session.run("MATCH (n:Entity) RETURN count(n) AS c")
         record = await entity_count.single()
         assert record is not None
