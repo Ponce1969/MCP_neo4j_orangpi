@@ -35,6 +35,13 @@ Phase 0 (baseline/evidence)
 | **0 — Evidence baseline** | Commit audit snapshot, evaluation baseline, and a `docs/spec/` traceability check | — | test/lint/type + audit green | No data change; revert docs/artifacts |
 | **1 — Namespaces (02)** | Namespaced id scheme + catalog + migration script with `--dry-run` | 0 | audit + migration dry-run diff | Migration is idempotent; delete catalog + revert ids via inverse map |
 | **2 — Resumable indexing (01)** | Checkpoint store + atomic chunk writes + replay | 1 | resume/invariant tests green | Delete checkpoint metadata (additive); existing MERGE behavior intact |
+
+> Phase 1 status (2026-09-23): **IMPLEMENTED** — namespaced ids (`corpus:source:slug-type`
+> entities, `corpus:source` books), versioned catalog (`catalog.yaml`), in-place idempotent
+> migration (`scripts/migrate_namespaces.py`) and server-side fail-closed namespace scope
+> (hardened in Phases 6/7, R3/R7/R8). Spec 02 closed; 5/5 acceptance criteria met;
+> verified in production: 7,111/7,111 Entity ids and 1,520/1,520 Chunk book_ids
+> namespaced, Book id = `knowledge:agentic-architectural-patterns`.
 | **3 — Semantic resolution (03)** | Staged hybrid resolver + labeled dataset + quarantine/approve | 1 | eval thresholds (F1, over-merge 0) | Merge evidence supports rollback; dry-run before apply |
 
 | **4 — Scoped audit + gates (04)** | Namespace-scoped audits + readiness gate policy | 1 | audit scope tests + gate policy | Gate config/policy is revertible |
