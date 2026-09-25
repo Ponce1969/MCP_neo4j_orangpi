@@ -211,11 +211,16 @@ class Neo4jCommandAdapter(GraphDatabasePort):
         PDFs without TOC), the chunk node is created without a book link.
         """
         async with self._driver.session() as session:
+            book_id = chunk.book.id if chunk.book is not None else None
             if chunk.book is not None:
                 await session.run(
                     """
                     MERGE (b:Book {id: $book_id})
-                    MERGE (ch:Chapter {number: $chapter_number, title: $chapter_title})
+                    MERGE (ch:Chapter {
+                        book_id: $book_id,
+                        number: $chapter_number,
+                        title: $chapter_title
+                    })
                     SET ch.page_start = $chapter_page_start
                     MERGE (b)-[:CONTAINS]->(ch)
                     """,
@@ -231,13 +236,22 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                 if section.parent_section_title is None:
                     await session.run(
                         """
-                        MATCH (ch:Chapter {number: $chapter_number, title: $chapter_title})
-                        MERGE (sec:Section {title: $section_title, chapter_number: $chapter_number})
+                        MATCH (ch:Chapter {
+                            book_id: $book_id,
+                            number: $chapter_number,
+                            title: $chapter_title
+                        })
+                        MERGE (sec:Section {
+                            book_id: $book_id,
+                            title: $section_title,
+                            chapter_number: $chapter_number
+                        })
                         SET sec.level = $section_level,
                             sec.page_start = $section_page_start
                         MERGE (ch)-[:HAS_SECTION]->(sec)
                         """,
                         {
+                            "book_id": book_id,
                             "chapter_number": chapter.number,
                             "chapter_title": chapter.title,
                             "section_title": section.title,
@@ -249,15 +263,21 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                     await session.run(
                         """
                         MATCH (parent:Section {
+                            book_id: $book_id,
                             title: $parent_section_title,
                             chapter_number: $chapter_number
                         })
-                        MERGE (sec:Section {title: $section_title, chapter_number: $chapter_number})
+                        MERGE (sec:Section {
+                            book_id: $book_id,
+                            title: $section_title,
+                            chapter_number: $chapter_number
+                        })
                         SET sec.level = $section_level,
                             sec.page_start = $section_page_start
                         MERGE (parent)-[:HAS_SUBSECTION]->(sec)
                         """,
                         {
+                            "book_id": book_id,
                             "chapter_number": chapter.number,
                             "section_title": section.title,
                             "section_level": section.level,
@@ -266,7 +286,6 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                         },
                     )
 
-            book_id = chunk.book.id if chunk.book is not None else None
             await session.run(
                 """
                 MERGE (k:Chunk {chunk_index: $chunk_index, book_id: $book_id})
@@ -286,29 +305,37 @@ class Neo4jCommandAdapter(GraphDatabasePort):
             if sections:
                 await session.run(
                     """
-                    MATCH (sec:Section {title: $section_title, chapter_number: $chapter_number}),
+                    MATCH (sec:Section {
+                        book_id: $book_id,
+                        title: $section_title,
+                        chapter_number: $chapter_number
+                    }),
                           (k:Chunk {chunk_index: $chunk_index, book_id: $book_id})
                     MERGE (sec)-[:HAS_CHUNK]->(k)
                     """,
                     {
+                        "book_id": book_id,
                         "section_title": sections[-1].title,
                         "chapter_number": chapter.number,
                         "chunk_index": chunk.chunk_index,
-                        "book_id": book_id,
                     },
                 )
             elif chunk.book is not None:
                 await session.run(
                     """
-                    MATCH (ch:Chapter {number: $chapter_number, title: $chapter_title}),
+                    MATCH (ch:Chapter {
+                        book_id: $book_id,
+                        number: $chapter_number,
+                        title: $chapter_title
+                    }),
                           (k:Chunk {chunk_index: $chunk_index, book_id: $book_id})
                     MERGE (ch)-[:HAS_CHUNK]->(k)
                     """,
                     {
+                        "book_id": book_id,
                         "chapter_number": chapter.number,
                         "chapter_title": chapter.title,
                         "chunk_index": chunk.chunk_index,
-                        "book_id": book_id,
                     },
                 )
 
@@ -357,7 +384,11 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                         b.author = $author,
                         b.pdf_path = $pdf_path,
                         b.page_count = $page_count
-                    MERGE (ch:Chapter {number: $chapter_number, title: $chapter_title})
+                    MERGE (ch:Chapter {
+                        book_id: $book_id,
+                        number: $chapter_number,
+                        title: $chapter_title
+                    })
                     SET ch.page_start = $chapter_page_start
                     MERGE (b)-[:CONTAINS]->(ch)
                     """,
@@ -376,17 +407,26 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                 if chunk.section is not None:
                     await tx.run(
                         """
-                        MERGE (sec:Section {title: $section_title, chapter_number: $chapter_number})
+                        MERGE (sec:Section {
+                            book_id: $book_id,
+                            title: $section_title,
+                            chapter_number: $chapter_number
+                        })
                         SET sec.level = $section_level,
                             sec.page_start = $section_page_start
                         WITH sec
-                        MATCH (ch:Chapter {number: $chapter_number, title: $chapter_title})
+                        MATCH (ch:Chapter {
+                            book_id: $book_id,
+                            number: $chapter_number,
+                            title: $chapter_title
+                        })
                         MERGE (ch)-[:HAS_SECTION]->(sec)
                         WITH sec
                         MATCH (k:Chunk {source_id: $source_id, chunk_index: $chunk_index})
                         MERGE (sec)-[:HAS_CHUNK]->(k)
                         """,
                         {
+                            "book_id": chunk.book.id,
                             "section_title": chunk.section.title,
                             "chapter_number": chunk.section.chapter_number,
                             "section_level": chunk.section.level,
@@ -399,11 +439,16 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                 else:
                     await tx.run(
                         """
-                        MATCH (ch:Chapter {number: $chapter_number, title: $chapter_title}),
+                        MATCH (ch:Chapter {
+                            book_id: $book_id,
+                            number: $chapter_number,
+                            title: $chapter_title
+                        }),
                               (k:Chunk {source_id: $source_id, chunk_index: $chunk_index})
                         MERGE (ch)-[:HAS_CHUNK]->(k)
                         """,
                         {
+                            "book_id": chunk.book.id,
                             "chapter_number": chunk.chapter.number,
                             "chapter_title": chunk.chapter.title,
                             "source_id": source_id,

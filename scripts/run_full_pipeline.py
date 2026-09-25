@@ -122,12 +122,18 @@ def _node_key(label: str, props: dict[str, Any]) -> dict[str, Any]:
     if label in ("Book", "Entity", "CommunitySummary"):
         return {"id": props["id"]}
     if label == "Chapter":
-        return {"number": props["number"], "title": props["title"]}
+        key: dict[str, Any] = {"number": props["number"], "title": props["title"]}
+        if props.get("book_id") is not None:
+            key["book_id"] = props["book_id"]
+        return key
     if label == "Section":
-        return {
+        key = {
             "chapter_number": props["chapter_number"],
             "title": props["title"],
         }
+        if props.get("book_id") is not None:
+            key["book_id"] = props["book_id"]
+        return key
     if label == "Chunk":
         return {
             "chunk_index": props["chunk_index"],

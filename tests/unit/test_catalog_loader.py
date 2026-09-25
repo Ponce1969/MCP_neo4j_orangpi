@@ -10,9 +10,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from book_graph_rag.domain.mcp_security import InvalidScopeError
 from book_graph_rag.domain.namespaces import Catalog
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader
 from book_graph_rag.infrastructure.catalog_scope_resolver import CatalogScopeResolver
@@ -38,12 +35,12 @@ def test_catalog_declares_three_knowledge_sources() -> None:
     }
 
 
-def test_graphrag_sources_are_inactive() -> None:
-    """The two new GraphRAG PDFs are declared but not yet active."""
+def test_graphrag_sources_are_active() -> None:
+    """The two GraphRAG PDFs are declared and active for indexing."""
     sources = _load_catalog().corpora["knowledge"].sources
 
-    assert sources["graphrag-agentic"].status == "inactive"
-    assert sources["essential-graphrag"].status == "inactive"
+    assert sources["graphrag-agentic"].status == "active"
+    assert sources["essential-graphrag"].status == "active"
 
 
 def test_agentic_patterns_source_stays_active() -> None:
@@ -53,9 +50,9 @@ def test_agentic_patterns_source_stays_active() -> None:
     assert sources["agentic-architectural-patterns"].status == "active"
 
 
-def test_inactive_graphrag_source_is_not_scope_addressable() -> None:
-    """Inactive sources are valid catalog entries but rejected by the resolver."""
+def test_active_graphrag_source_is_scope_addressable() -> None:
+    """Active sources resolve to their scope without error."""
     resolver = CatalogScopeResolver(CatalogLoader(CATALOG_PATH))
 
-    with pytest.raises(InvalidScopeError, match="(?i)not active|inactive"):
-        resolver.resolve("knowledge:graphrag-agentic")
+    scope = resolver.resolve("knowledge:graphrag-agentic")
+    assert scope.source.source == "graphrag-agentic"
