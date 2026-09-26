@@ -5,9 +5,11 @@ Cerrar el libro 2 (GraphRAG agéntico, c3468) completo en producción y dejar el
 al día con los artefactos operativos.
 
 ## Tareas
-- [ ] Decidir estrategia de re-index del libro completo (A: clean + re-index 692p, receta del ancla; B: conservar piloto)
-- [ ] Lanzar re-index completo del libro 2 (si A): clean namespace GA + `book-graph-rag index` PDF completo (nohup, ~4-6h, resumible)
-- [ ] Commit artefactos: branch `feature/close-book2-ops` + units (scripts-ops/, docs/ops/graph_query_notes.md, evidence-bundles/, odd/tasks/, .gitignore .engram) + gates locales
+- [x] Decidir estrategia de re-index (A: clean + re-index 692p, receta del ancla — elegida por mantenedor)
+- [x] Lanzar re-index completo del libro 2: clean namespace GA APLICADO (backup 20260926T123229Z) + `nohup book-graph-rag index /tmp/book2_full.pdf --corpus knowledge --source graphrag-agentic --no-resume` (PID 324264, 657 chunks, resumible)
+- [x] Commit artefactos: branch `feature/close-book2-ops` + units SIN exenciones de gates:
+  `feb44f1` fix(pipeline) DateTime backup · `f2370de` chore(config) gitignore · `241bc73` docs(ops) · `95b258e` chore(ops) scripts-ops lint/type-clean
+  Gates locales VERDES sin exenciones: ruff 0 errores, mypy 329 files OK, validate_architecture OK (los ~64 errores de ruff + 64 de mypy en scripts-ops fueron reparados por gentle-ai-worker, no eximidos)
 - [ ] (Post-corrida) Verificar 587+ chunks PROCESSED + audit scoped GA 0/0/0
 - [ ] (Post-corrida) Resolución intra del libro completo (reusar resolve_redo_intra.py con el nuevo audit)
 - [ ] Comunidades/Leiden del libro GA (runner filtrado por namespace; esencial ya tiene las suyas)
