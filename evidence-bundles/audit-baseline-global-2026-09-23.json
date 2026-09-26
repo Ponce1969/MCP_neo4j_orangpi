@@ -1,0 +1,379 @@
+{
+  "report_schema_version": "1.0",
+  "audit_query_version": "p1-static-v1",
+  "target": {
+    "selector": "bookgraph-neo4j",
+    "database": "neo4j",
+    "scheme": "bolt",
+    "host": "localhost",
+    "port": 7687
+  },
+  "scope": null,
+  "state": "passed",
+  "inventory": {
+    "Book": {
+      "value": 1,
+      "state": "evaluated"
+    },
+    "Chapter": {
+      "value": 19,
+      "state": "evaluated"
+    },
+    "Section": {
+      "value": 241,
+      "state": "evaluated"
+    },
+    "Chunk": {
+      "value": 1520,
+      "state": "evaluated"
+    },
+    "Entity": {
+      "value": 7111,
+      "state": "evaluated"
+    },
+    "CONTAINS": {
+      "value": 19,
+      "state": "evaluated"
+    },
+    "HAS_SECTION": {
+      "value": 202,
+      "state": "evaluated"
+    },
+    "HAS_SUBSECTION": {
+      "value": 70,
+      "state": "evaluated"
+    },
+    "HAS_CHUNK": {
+      "value": 1520,
+      "state": "evaluated"
+    },
+    "MENTIONS": {
+      "value": 16200,
+      "state": "evaluated"
+    },
+    "RELATED": {
+      "value": 15434,
+      "state": "evaluated"
+    }
+  },
+  "findings": [
+    {
+      "rule_id": "DUPLICATE_ENTITY_LOGICAL",
+      "category": "duplicates",
+      "severity": "warning",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "DUPLICATE_RELATIONSHIP_LOGICAL",
+      "category": "duplicates",
+      "severity": "warning",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENDPOINT_HIERARCHY_INVALID",
+      "category": "endpoints",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENDPOINT_MENTIONS_INVALID",
+      "category": "endpoints",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENDPOINT_RELATED_INVALID",
+      "category": "endpoints",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENTITY_ISOLATED_RELATED",
+      "category": "coverage",
+      "severity": "warning",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENTITY_UNMENTIONED",
+      "category": "coverage",
+      "severity": "warning",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "HIERARCHY_CHAPTER_BOOK_PARENT",
+      "category": "hierarchy",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "HIERARCHY_CHUNK_MULTIPLE_PARENT",
+      "category": "hierarchy",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "HIERARCHY_CHUNK_PARENT_REQUIRED",
+      "category": "hierarchy",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "HIERARCHY_LEVEL_CONTRADICTION",
+      "category": "hierarchy",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "HIERARCHY_SECTION_PARENT",
+      "category": "hierarchy",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PAGE_CHAPTER_INVALID_START",
+      "category": "pages",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PAGE_CHUNK_INVALID_RANGE",
+      "category": "pages",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PAGE_SECTION_INVALID_START",
+      "category": "pages",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PROVENANCE_CHUNK_MISSING",
+      "category": "provenance",
+      "severity": "incomplete",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PROVENANCE_ENTITY_MISSING",
+      "category": "provenance",
+      "severity": "incomplete",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PROVENANCE_MENTIONS_MISSING",
+      "category": "provenance",
+      "severity": "incomplete",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PROVENANCE_RELATIONSHIP_MISSING",
+      "category": "provenance",
+      "severity": "incomplete",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    }
+  ],
+  "summary": {
+    "blocking_total": 0,
+    "warning_total": 0,
+    "incomplete_total": 0,
+    "evaluated_rule_count": 19
+  },
+  "runtime": {
+    "neo4j_version": "5.23.0",
+    "edition": "community",
+    "repository_revision": null
+  },
+  "executed_at": "2026-09-23T11:57:52.883646Z",
+  "execution": {
+    "state": "passed",
+    "exit_code": 0,
+    "queries": [
+      {
+        "name": "runtime_metadata",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "inventory_nodes",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "inventory_relationships",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "DUPLICATE_ENTITY_LOGICAL",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "DUPLICATE_RELATIONSHIP_LOGICAL",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENDPOINT_HIERARCHY_INVALID",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENDPOINT_MENTIONS_INVALID",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENDPOINT_RELATED_INVALID",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENTITY_ISOLATED_RELATED",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENTITY_UNMENTIONED",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "HIERARCHY_CHAPTER_BOOK_PARENT",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "HIERARCHY_CHUNK_MULTIPLE_PARENT",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "HIERARCHY_CHUNK_PARENT_REQUIRED",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "HIERARCHY_LEVEL_CONTRADICTION",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "HIERARCHY_SECTION_PARENT",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PAGE_CHAPTER_INVALID_START",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PAGE_CHUNK_INVALID_RANGE",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PAGE_SECTION_INVALID_START",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PROVENANCE_CHUNK_MISSING",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PROVENANCE_ENTITY_MISSING",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PROVENANCE_MENTIONS_MISSING",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PROVENANCE_RELATIONSHIP_MISSING",
+        "state": "evaluated",
+        "error": null
+      }
+    ]
+  }
+}
