@@ -10,11 +10,13 @@ al día con los artefactos operativos.
 - [x] Commit artefactos: branch `feature/close-book2-ops` + units SIN exenciones de gates:
   `feb44f1` fix(pipeline) DateTime backup · `f2370de` chore(config) gitignore · `241bc73` docs(ops) · `95b258e` chore(ops) scripts-ops lint/type-clean
   Gates locales VERDES sin exenciones: ruff 0 errores, mypy 329 files OK, validate_architecture OK (los ~64 errores de ruff + 64 de mypy en scripts-ops fueron reparados por gentle-ai-worker, no eximidos)
-- [ ] (Post-corrida) Verificar 587+ chunks PROCESSED + audit scoped GA 0/0/0
-- [ ] (Post-corrida) Resolución intra del libro completo (reusar resolve_redo_intra.py con el nuevo audit)
-- [ ] Comunidades/Leiden del libro GA (runner filtrado por namespace; esencial ya tiene las suyas)
-- [ ] Cross-namespace resolution (20+ conceptos compartidos: LLM, Agentic RAG, Neo4j...) — dry-run → backup → aprobación → apply
-- [ ] Audit global 0/0/0 + smoke MCP + actualizar ancla/docs/memoria
+- [x] (Post-corrida) VERIFICADO 2026-09-26 16:02: **657/657 PROCESSED**, 657 chunks, 6.078 entidades, book "Agentic GraphRAG". Audit scoped GA pre-resolución: **0/0/136** (todos DUPLICATE_ENTITY_LOGICAL)
+- [x] (Post-corrida) Resolución intra del libro completo: backup fresco `bookgraph_backup_20260926T191048Z.json` + dry-run OK (279 ids activos, 6.078→5.935) + aprobación mantenedor + **APPLY 136 merges ledger seq 167→302** (approver human:gonzalo, band exact, soft-delete merged_into). Post: audit scoped GA **0/0/0**, GA activas 5.935 / 143 merged_into. Scripts: `scripts-ops/gen_resolve_redo_groups.py` (ya existía) + **`scripts-ops/resolve_full_book2_intra.py` (nuevo, lee /tmp/resolve_redo_groups.json, flags --dry-run/--apply, SIN grupos hardcodeados)**
+- [x] **Comunidades/Leiden libro GA**: runner scoped **`scripts-ops/run_communities_scoped.py`** (nuevo; subgrafo GA filtrado por prefix+merged_into, orquestador bottom-up autónomo porque el global recarga toda la gráfica). **191 summaries = nivel0 1 / 48 / 62 / 80, 0 vacíos, 0 failed** (deepseek-v4-flash, ~45 min, verificado en grafo). Guard `community_max_calls` 150→220 env inline. PID 776361, log /tmp/communities_ga.log.
+- [x] **Cross-namespace (firmes)**: detector **`scripts-ops/gen_cross_groups.py`** (302 grupos name+kind en 2+ libros; el mantenedor eligió SOLO firmes) + resolver **`scripts-ops/resolve_cross_namespace.py`** (band EXACT, cross_namespace=True, evidencia por par con su namespace). Backup `bookgraph_backup_20260926T201253Z.json` + dry-run 120/120 activos + aprobación + **APPLY 57 merges (34 tool, 12 framework, 10 agent, 1 mcp) ledger seq 303→359**. Post: audits global + 3 scoped **0/0/0** (aislamiento preservado).
+- [x] Comunidades/Leiden del libro GA (runner filtrado por namespace; verificadas en grafo 191)
+- [x] Cross-namespace resolution (firmes: tool/framework/mcp/agent, 57 grupos) — backup → dry-run → aprobación → apply (ledger 303-359)
+- [x] Audit global 0/0/0 + audits scoped 3 libros 0/0/0 (post-cross). Pendiente: smoke MCP (service ya corriendo) + actualizar ancla/docs/memoria
 
 ## Estado inicial (2026-09-26, gate §7.3 del piloto cerrado)
 - Piloto REDO sellado: 322 chunks, 3.023 entidades activas, 4.852 RELATED, 0/0/0 audits, smoke OK. Ledger 166 seq.
