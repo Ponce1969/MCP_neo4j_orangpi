@@ -48,3 +48,8 @@ evaluation_results.jsonl
 
 # ── Pi harness runtime config ───────────────────────────────────────────
 .pi/
+# ── Local agent memory ────────────────────────────────────────────────────
+.engram/
+
+# Windows accidental redirect artifact (`> nul` in msys creates a literal file)
+nul
