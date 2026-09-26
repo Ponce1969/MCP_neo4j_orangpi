@@ -91,9 +91,7 @@ class _FakeTx:
     def __init__(self, session: _FakeSession) -> None:
         self._session = session
 
-    async def run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         return self._session._run(query, parameters)
 
 
@@ -116,23 +114,17 @@ class _FakeSession:
         self.run_calls: list[tuple[str, dict[str, Any]]] = []
         self.execute_read_calls: list[tuple[Any, tuple[Any, ...], dict[str, Any]]] = []
 
-    def _run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    def _run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         self.queries.append((query, parameters or {}))
         if self._raise is not None:
             raise self._raise
         return _FakeResult(self._records)
 
-    async def run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         self.run_calls.append((query, parameters or {}))
         return self._run(query, parameters)
 
-    async def execute_read(
-        self, tx_func: Any, *args: Any, **kwargs: Any
-    ) -> Any:
+    async def execute_read(self, tx_func: Any, *args: Any, **kwargs: Any) -> Any:
         self.execute_read_calls.append((tx_func, args, kwargs))
         return await tx_func(_FakeTx(self), *args, **kwargs)
 
@@ -155,9 +147,7 @@ class _TieredFakeSession(_FakeSession):
         self._responses = responses
         self._raise_on = raise_on
 
-    def _run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    def _run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         self.queries.append((query, parameters or {}))
         if self._raise_on is not None and self._raise_on in query:
             raise RuntimeError(f"fulltext index missing: {query}")
@@ -263,9 +253,7 @@ async def test_read_sessions_route_read_access(adapter: Neo4jQueryAdapter) -> No
 
     await adapter.count_entities(None)
 
-    assert driver.session_configs == [
-        {"database": "neo4j", "default_access_mode": READ_ACCESS}
-    ]
+    assert driver.session_configs == [{"database": "neo4j", "default_access_mode": READ_ACCESS}]
 
 
 async def test_read_methods_use_managed_execute_read(
@@ -637,6 +625,66 @@ async def test_find_entities_batch_populates_source(adapter: Neo4jQueryAdapter) 
     assert result[0].source == "book_id=agentic-patterns,chunk_index=9"
     query, _ = session.queries[0]
     assert "OPTIONAL MATCH (c:Chunk)-[:MENTIONS]->(n)" in query
+
+
+async def test_find_entity_tiers_exclude_merged_into(adapter: Neo4jQueryAdapter) -> None:
+    """find_entity tiers filter out entities soft-deleted by resolution."""
+    node = _entity_node("model-context-protocol", "Model Context Protocol", "mcp")
+    session = _TieredFakeSession(
+        responses=[
+            ("MATCH (n:Entity {name: $name})", [_tier_record(node, 1.0)]),
+            ("CALL db.index.fulltext.queryNodes", [_tier_record(node, 0.4)]),
+        ]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.find_entity("Model Context Protocol", None)
+
+    tier1_query = session.queries[0][0]
+    assert "(n.merged_into IS NULL OR n.merged_into = '')" in tier1_query
+
+
+async def test_find_entity_fulltext_tier_excludes_merged_into(
+    adapter: Neo4jQueryAdapter,
+) -> None:
+    """Fulltext tier also filters merged_into (soft-deleted) entities."""
+    node = _entity_node("model-context-protocol", "Model Context Protocol", "mcp")
+    session = _TieredFakeSession(
+        responses=[
+            ("MATCH (n:Entity {name: $name})", []),
+            ("toLower(n.name) = toLower($name)", []),
+            ("n.name CONTAINS $name", []),
+            ("CALL db.index.fulltext.queryNodes", [_tier_record(node, 0.4)]),
+        ]
+    )
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.find_entity("Model Context Protocol", None)
+
+    fulltext_query = session.queries[-1][0]
+    assert "(n.merged_into IS NULL OR n.merged_into = '')" in fulltext_query
+    assert "WHERE" in fulltext_query
+    assert "n.merged_into" in fulltext_query
+
+
+async def test_find_entities_batch_excludes_merged_into(adapter: Neo4jQueryAdapter) -> None:
+    """Batch entity lookup filters out entities soft-deleted by resolution."""
+    node = _FakeRecord(
+        {
+            "id": "e1",
+            "name": "MCP",
+            "type": "mcp",
+            "description": "desc",
+            "source_page": 5,
+        }
+    )
+    session = _make_session([_FakeRecord({"n": node})])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.find_entities_batch(["e1"])
+
+    query, _ = session.queries[0]
+    assert "(n.merged_into IS NULL OR n.merged_into = '')" in query
 
 
 async def test_node_to_entity_mapping(adapter: Neo4jQueryAdapter) -> None:
@@ -1237,9 +1285,7 @@ def test_traversal_depth_exceeded_error_is_typed() -> None:
         ),
     ],
 )
-def test_settings_reject_invalid_traversal_limits(
-    overrides: dict[str, int], expected: str
-) -> None:
+def test_settings_reject_invalid_traversal_limits(overrides: dict[str, int], expected: str) -> None:
     """Invalid traversal ceilings fail fast during settings validation."""
     base = {
         "neo4j_uri": "bolt://localhost:7687",
@@ -1299,9 +1345,7 @@ async def test_read_records_maps_server_timeout_to_query_timeout(
 ) -> None:
     """A server-side transaction timeout is mapped to QueryTimeoutError."""
     session = _FakeSession(
-        raise_exc=_neo4j_error(
-            "Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration"
-        )
+        raise_exc=_neo4j_error("Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration")
     )
     adapter._driver = _FakeDriver(session)
 
@@ -1313,9 +1357,7 @@ async def test_read_records_maps_write_rejection_to_unsupported_query(
     adapter: Neo4jQueryAdapter,
 ) -> None:
     """A write rejected on the read path is mapped to UnsupportedQueryError."""
-    session = _FakeSession(
-        raise_exc=_neo4j_error("Neo.ClientError.Statement.AccessMode")
-    )
+    session = _FakeSession(raise_exc=_neo4j_error("Neo.ClientError.Statement.AccessMode"))
     adapter._driver = _FakeDriver(session)
 
     with pytest.raises(UnsupportedQueryError, match="Write rejected"):
@@ -1332,4 +1374,3 @@ async def test_run_with_timeout_maps_cancellation(
 
     with pytest.raises(QueryTimeoutError, match="cancelled"):
         await adapter._run_with_timeout(cancelled())
-

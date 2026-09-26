@@ -34,19 +34,23 @@ from book_graph_rag.ports.graph_query_port import GraphQueryPort
 logger = logging.getLogger(__name__)
 
 # Server-side transaction termination codes mapped to QueryTimeoutError.
-_NEO4J_TRANSACTION_TIMEOUT_CODES = frozenset({
-    "Neo.ClientError.Transaction.TransactionTimedOut",
-    "Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration",
-    "Neo.TransientError.Transaction.Terminated",
-})
+_NEO4J_TRANSACTION_TIMEOUT_CODES = frozenset(
+    {
+        "Neo.ClientError.Transaction.TransactionTimedOut",
+        "Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration",
+        "Neo.TransientError.Transaction.Terminated",
+    }
+)
 
 # Write vectors the read-only path must never execute; mapped to a typed
 # UnsupportedQueryError so callers can distinguish a rejected write from a
 # transient driver failure.
-_NEO4J_WRITE_REJECTION_CODES = frozenset({
-    "Neo.ClientError.Statement.AccessMode",
-    "Neo.ClientError.General.ForbiddenOnReadOnlyDatabase",
-})
+_NEO4J_WRITE_REJECTION_CODES = frozenset(
+    {
+        "Neo.ClientError.Statement.AccessMode",
+        "Neo.ClientError.General.ForbiddenOnReadOnlyDatabase",
+    }
+)
 
 
 class Neo4jQueryAdapter(GraphQueryPort):
@@ -96,9 +100,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
             records.append(record)
         return records
 
-    async def _read_records(
-        self, session: Any, query: str, params: dict[str, Any]
-    ) -> list[Any]:
+    async def _read_records(self, session: Any, query: str, params: dict[str, Any]) -> list[Any]:
         """Run a read query through a managed ``execute_read`` transaction.
 
         A server-side transaction timeout is applied by attaching the configured
@@ -173,6 +175,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
         if book_id is not None:
             return f"book_id={book_id},chunk_index={chunk_index}"
         return f"chunk_index={chunk_index}"
+
     @staticmethod
     def _build_scope_clause(
         scope: ScopeContext | None,
@@ -195,29 +198,26 @@ class Neo4jQueryAdapter(GraphQueryPort):
             return {}, {"entity": "", "path": "", "chunk": "", "traversal": ""}
         params: dict[str, Any] = {}
         clauses: dict[str, list[str]] = {
-            "entity": [], "path": [], "chunk": [], "traversal": [],
+            "entity": [],
+            "path": [],
+            "chunk": [],
+            "traversal": [],
         }
         params["scope_prefix"] = f"{scope.source.source_id}:"
         params["scope_source_id"] = scope.source.source_id
         clauses["entity"].append("n.id STARTS WITH $scope_prefix")
         clauses["chunk"].append("node.book_id = $scope_source_id")
-        clauses["traversal"].append(
-            "ALL(n IN nodes(p) WHERE n.id STARTS WITH $scope_prefix)"
-        )
+        clauses["traversal"].append("ALL(n IN nodes(p) WHERE n.id STARTS WITH $scope_prefix)")
         if scope.entity_types:
             params["scope_entity_types"] = list(scope.entity_types)
             clauses["entity"].append("n.type IN $scope_entity_types")
         if scope.relationship_types:
             params["scope_rel_types"] = list(scope.relationship_types)
-            clauses["path"].append(
-                "ALL(r IN relationships(p) WHERE r.type IN $scope_rel_types)"
-            )
+            clauses["path"].append("ALL(r IN relationships(p) WHERE r.type IN $scope_rel_types)")
         if scope.book_ids:
             params["scope_book_ids"] = list(scope.book_ids)
             clauses["chunk"].append("node.book_id IN $scope_book_ids")
-        return params, {
-            name: " AND ".join(parts) for name, parts in clauses.items()
-        }
+        return params, {name: " AND ".join(parts) for name, parts in clauses.items()}
 
     async def find_entity(
         self,
@@ -246,6 +246,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
 
         base_predicates = [
             "($entity_type IS NULL OR n.type = $entity_type)",
+            "(n.merged_into IS NULL OR n.merged_into = '')",
         ]
         entity_clause = scope_clauses["entity"]
         if entity_clause:
@@ -291,9 +292,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
         async with self._read_session() as session:
             results_by_id: dict[str, EntityWithContext] = {}
             for _score, query in tier_queries:
-                records = await self._run_with_timeout(
-                    self._read_records(session, query, params)
-                )
+                records = await self._run_with_timeout(self._read_records(session, query, params))
                 for record in records:
                     entity = self._record_to_entity_with_context(record)
                     if entity.entity.id not in results_by_id:
@@ -347,6 +346,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
                     """
                     UNWIND $ids AS id
                     MATCH (n:Entity {id: id})
+                    WHERE (n.merged_into IS NULL OR n.merged_into = '')
                     OPTIONAL MATCH (c:Chunk)-[:MENTIONS]->(n)
                     RETURN n, c.chunk_index AS chunk_index, c.book_id AS book_id
                     """,
@@ -560,9 +560,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
                 """
 
         async with self._read_session() as session:
-            records = await self._run_with_timeout(
-                self._read_records(session, query_text, params)
-            )
+            records = await self._run_with_timeout(self._read_records(session, query_text, params))
             return [self._chunk_payload(record) for record in records]
 
     @staticmethod
@@ -582,12 +580,8 @@ class Neo4jQueryAdapter(GraphQueryPort):
             ),
             "chunk_index": chunk_index,
             "book_id": book_id,
-            "chapter_id": Neo4jQueryAdapter._editorial_id(
-                effective_chapter, "number", "title"
-            ),
-            "section_id": Neo4jQueryAdapter._editorial_id(
-                section, "chapter_number", "title"
-            ),
+            "chapter_id": Neo4jQueryAdapter._editorial_id(effective_chapter, "number", "title"),
+            "section_id": Neo4jQueryAdapter._editorial_id(section, "chapter_number", "title"),
             "page_start": node.get("page_start"),
             "page_end": node.get("page_end"),
             "text": node.get("text", ""),
