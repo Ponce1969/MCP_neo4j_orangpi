@@ -113,7 +113,9 @@ async def _backup(driver: Any, path: Path | None = None) -> Path:
         "nodes": nodes,
         "relationships": relationships,
     }
-    backup_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    # default=str tolerates neo4j.DateTime properties (e.g. alias-fold timestamps
+    # written by entity-resolution merges) without failing the whole backup.
+    backup_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     return backup_path
 
 
