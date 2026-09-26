@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from typing import Any
 
@@ -31,8 +32,9 @@ from book_graph_rag.domain.resolution_models import (
 )
 from book_graph_rag.infrastructure.resolution_wiring import build_apply_merge_use_case
 
-GROUPS_JSON = "/tmp/cross_groups_firmes.json"
-KINDS = ("tool", "framework", "mcp", "agent")
+DEFAULT_GROUPS_JSON = "/tmp/cross_groups_firmes.json"
+
+GROUPS_JSON = os.environ.get("CROSS_GROUPS_JSON", DEFAULT_GROUPS_JSON)
 
 
 def _ns(entity_id: str) -> str:
@@ -84,9 +86,7 @@ def build_group(entry: dict[str, Any]) -> MergeGroup:
 def dry_run() -> int:
     with open(GROUPS_JSON, encoding="utf-8") as f:
         groups = json.load(f)
-    all_ids = [x["canonical"] for x in groups] + [
-        c for x in groups for c in x["candidates"]
-    ]
+    all_ids = [x["canonical"] for x in groups] + [c for x in groups for c in x["candidates"]]
     settings = Settings.model_validate({})
     driver = GraphDatabase.driver(
         settings.neo4j_uri,
@@ -108,9 +108,7 @@ def dry_run() -> int:
     inactive = [i for i in all_ids if found.get(i)]
     n_dups = sum(len(x["candidates"]) for x in groups)
 
-    print(
-        f"groups={len(groups)} canonical={len(groups)} duplicates={n_dups}"
-    )
+    print(f"groups={len(groups)} canonical={len(groups)} duplicates={n_dups}")
     print(
         f"ids_checked={len(all_ids)} found={len(found)} "
         f"missing={len(missing)} inactive={len(inactive)}"
