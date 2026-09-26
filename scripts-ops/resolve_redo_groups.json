@@ -1,0 +1,428 @@
+[
+  {
+    "name": "ATOM",
+    "kind": "framework",
+    "canonical": "knowledge:graphrag-agentic:atom-framework",
+    "candidates": [
+      "knowledge:graphrag-agentic:adaptive-and-optimized-framework"
+    ]
+  },
+  {
+    "name": "Agent",
+    "kind": "agent",
+    "canonical": "knowledge:graphrag-agentic:agent-agent",
+    "candidates": [
+      "knowledge:graphrag-agentic:autonomous-agent-agent"
+    ]
+  },
+  {
+    "name": "Agents as Tools",
+    "kind": "pattern",
+    "canonical": "knowledge:graphrag-agentic:agents-as-tools-pattern",
+    "candidates": [
+      "knowledge:graphrag-agentic:agents-as-tools-pattern-pattern"
+    ]
+  },
+  {
+    "name": "AlertClassifier",
+    "kind": "agent",
+    "canonical": "knowledge:graphrag-agentic:alertclassifier-agent",
+    "candidates": [
+      "knowledge:graphrag-agentic:alert-classifier-agent"
+    ]
+  },
+  {
+    "name": "AlertClassifier",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:alertclassifier-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:alert-classifier-component"
+    ]
+  },
+  {
+    "name": "COLT",
+    "kind": "framework",
+    "canonical": "knowledge:graphrag-agentic:colt-framework",
+    "candidates": [
+      "knowledge:graphrag-agentic:collaborative-tool-retrieval-framework"
+    ]
+  },
+  {
+    "name": "CRM",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:crm-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:customer-relationship-management-component",
+      "knowledge:graphrag-agentic:customer-relationship-management-crm-component"
+    ]
+  },
+  {
+    "name": "CausalAttributionNode",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:causalattributionnode-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:causal-attribution-node-component"
+    ]
+  },
+  {
+    "name": "Compliance",
+    "kind": "concept",
+    "canonical": "knowledge:graphrag-agentic:compliance-concept",
+    "candidates": [
+      "knowledge:graphrag-agentic:regulatory-compliance-concept"
+    ]
+  },
+  {
+    "name": "Cypher",
+    "kind": "tool",
+    "canonical": "knowledge:graphrag-agentic:cypher-tool",
+    "candidates": [
+      "knowledge:graphrag-agentic:cypher-query-language-tool"
+    ]
+  },
+  {
+    "name": "DEPENDS_ON",
+    "kind": "concept",
+    "canonical": "knowledge:graphrag-agentic:depends-on-concept",
+    "candidates": [
+      "knowledge:graphrag-agentic:depends-on-relationship-concept"
+    ]
+  },
+  {
+    "name": "DRAFT",
+    "kind": "framework",
+    "canonical": "knowledge:graphrag-agentic:draft-framework",
+    "candidates": [
+      "knowledge:graphrag-agentic:documentation-refinement-through-automated-feedback-and-testing-framework"
+    ]
+  },
+  {
+    "name": "DependencyAnalyzer",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:dependencyanalyzer-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:dependency-analyzer-component"
+    ]
+  },
+  {
+    "name": "DevOpsMemory",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:devopsmemory-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:devopsmemory-class-component"
+    ]
+  },
+  {
+    "name": "GPU",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:gpu-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:graphics-processing-unit-component"
+    ]
+  },
+  {
+    "name": "Graph Memory",
+    "kind": "pattern",
+    "canonical": "knowledge:graphrag-agentic:graph-memory-pattern",
+    "candidates": [
+      "knowledge:graphrag-agentic:graph-memory-system-pattern"
+    ]
+  },
+  {
+    "name": "GraphMemory",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:graphmemory-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:graphmemory-orchestration-class-component"
+    ]
+  },
+  {
+    "name": "GraphRAG",
+    "kind": "framework",
+    "canonical": "knowledge:graphrag-agentic:graphrag-framework",
+    "candidates": [
+      "knowledge:graphrag-agentic:graph-retrieval-augmented-generation-framework"
+    ]
+  },
+  {
+    "name": "GraphRAG",
+    "kind": "pattern",
+    "canonical": "knowledge:graphrag-agentic:graphrag-pattern",
+    "candidates": [
+      "knowledge:graphrag-agentic:graph-based-rag-pattern"
+    ]
+  },
+  {
+    "name": "Graphiti",
+    "kind": "framework",
+    "canonical": "knowledge:graphrag-agentic:graphiti-framework",
+    "candidates": [
+      "knowledge:graphrag-agentic:graphiti-pattern-framework"
+    ]
+  },
+  {
+    "name": "Hindsight",
+    "kind": "framework",
+    "canonical": "knowledge:graphrag-agentic:hindsight-framework",
+    "candidates": [
+      "knowledge:graphrag-agentic:hindsight-paper-framework"
+    ]
+  },
+  {
+    "name": "IAM Policies",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:iam-policies-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:identity-and-access-management-policies-component"
+    ]
+  },
+  {
+    "name": "IAM Role",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:iam-role-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:identity-and-access-management-role-component"
+    ]
+  },
+  {
+    "name": "IAM Roles",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:iam-roles-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:identity-and-access-management-roles-component"
+    ]
+  },
+  {
+    "name": "LLM",
+    "kind": "agent",
+    "canonical": "knowledge:graphrag-agentic:llm-agent",
+    "candidates": [
+      "knowledge:graphrag-agentic:large-language-model-agent"
+    ]
+  },
+  {
+    "name": "LLM",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:llm-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:large-language-model-component"
+    ]
+  },
+  {
+    "name": "LLM",
+    "kind": "tool",
+    "canonical": "knowledge:graphrag-agentic:llm-tool",
+    "candidates": [
+      "knowledge:graphrag-agentic:large-language-model-tool"
+    ]
+  },
+  {
+    "name": "Letta Leaderboard",
+    "kind": "tool",
+    "canonical": "knowledge:graphrag-agentic:letta-leaderboard-tool",
+    "candidates": [
+      "knowledge:graphrag-agentic:letta-leaderboard-for-benchmarking-agentic-memory-tool"
+    ]
+  },
+  {
+    "name": "Lineage",
+    "kind": "concept",
+    "canonical": "knowledge:graphrag-agentic:lineage-concept",
+    "candidates": [
+      "knowledge:graphrag-agentic:complete-lineage-concept"
+    ]
+  },
+  {
+    "name": "LogParser",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:logparser-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:log-parser-component"
+    ]
+  },
+  {
+    "name": "MCP",
+    "kind": "mcp",
+    "canonical": "knowledge:graphrag-agentic:mcp-mcp",
+    "candidates": [
+      "knowledge:graphrag-agentic:model-context-protocol-mcp"
+    ]
+  },
+  {
+    "name": "MCP Server",
+    "kind": "mcp",
+    "canonical": "knowledge:graphrag-agentic:mcp-server-mcp",
+    "candidates": [
+      "knowledge:graphrag-agentic:model-context-protocol-server-mcp"
+    ]
+  },
+  {
+    "name": "Multimodal RAG",
+    "kind": "pattern",
+    "canonical": "knowledge:graphrag-agentic:multimodal-rag-pattern",
+    "candidates": [
+      "knowledge:graphrag-agentic:multimodal-retrieval-augmented-generation-pattern"
+    ]
+  },
+  {
+    "name": "OAuth",
+    "kind": "concept",
+    "canonical": "knowledge:graphrag-agentic:oauth-concept",
+    "candidates": [
+      "knowledge:graphrag-agentic:oauth-2-x-concept"
+    ]
+  },
+  {
+    "name": "Ontology-Driven Evolution",
+    "kind": "pattern",
+    "canonical": "knowledge:graphrag-agentic:ontology-driven-evolution-pattern",
+    "candidates": [
+      "knowledge:graphrag-agentic:ontology-driven-evolution-when-tools-define-themselves-pattern"
+    ]
+  },
+  {
+    "name": "Property Graphs",
+    "kind": "concept",
+    "canonical": "knowledge:graphrag-agentic:property-graph-concept",
+    "candidates": [
+      "knowledge:graphrag-agentic:property-graphs-concept"
+    ]
+  },
+  {
+    "name": "RAG-MCP",
+    "kind": "pattern",
+    "canonical": "knowledge:graphrag-agentic:rag-mcp-pattern",
+    "candidates": [
+      "knowledge:graphrag-agentic:rag-mcp-mitigating-prompt-bloat-pattern",
+      "knowledge:graphrag-agentic:retrieval-augmented-generation-with-model-context-protocol-pattern"
+    ]
+  },
+  {
+    "name": "RAKG",
+    "kind": "framework",
+    "canonical": "knowledge:graphrag-agentic:rakg-framework",
+    "candidates": [
+      "knowledge:graphrag-agentic:document-level-retrieval-augmented-knowledge-graph-construction-framework"
+    ]
+  },
+  {
+    "name": "SLA",
+    "kind": "concept",
+    "canonical": "knowledge:graphrag-agentic:sla-concept",
+    "candidates": [
+      "knowledge:graphrag-agentic:service-level-agreement-concept"
+    ]
+  },
+  {
+    "name": "SPARQL",
+    "kind": "tool",
+    "canonical": "knowledge:graphrag-agentic:sparql-tool",
+    "candidates": [
+      "knowledge:graphrag-agentic:sparql-protocol-and-rdf-query-language-tool"
+    ]
+  },
+  {
+    "name": "SRE",
+    "kind": "agent",
+    "canonical": "knowledge:graphrag-agentic:sre-agent",
+    "candidates": [
+      "knowledge:graphrag-agentic:site-reliability-engineer-agent"
+    ]
+  },
+  {
+    "name": "Senzing",
+    "kind": "tool",
+    "canonical": "knowledge:graphrag-agentic:senzing-tool",
+    "candidates": [
+      "knowledge:graphrag-agentic:senzing-entity-resolution-sdk-tool"
+    ]
+  },
+  {
+    "name": "Skills",
+    "kind": "pattern",
+    "canonical": "knowledge:graphrag-agentic:skills-pattern",
+    "candidates": [
+      "knowledge:graphrag-agentic:agentic-skills-pattern"
+    ]
+  },
+  {
+    "name": "TemporalEdge",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:temporaledge-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:temporal-edge-component"
+    ]
+  },
+  {
+    "name": "Three-Graph Architecture",
+    "kind": "pattern",
+    "canonical": "knowledge:graphrag-agentic:three-graph-architecture-pattern",
+    "candidates": [
+      "knowledge:graphrag-agentic:three-graph-architecture-for-agent-knowledge-pattern"
+    ]
+  },
+  {
+    "name": "Tool",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:tool-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:spring-ai-tool-interface-component"
+    ]
+  },
+  {
+    "name": "Tool Orchestration",
+    "kind": "concept",
+    "canonical": "knowledge:graphrag-agentic:tool-orchestration-concept",
+    "candidates": [
+      "knowledge:graphrag-agentic:agentic-graph-based-tool-orchestration-concept"
+    ]
+  },
+  {
+    "name": "cuGraph",
+    "kind": "tool",
+    "canonical": "knowledge:graphrag-agentic:cugraph-tool",
+    "candidates": [
+      "knowledge:graphrag-agentic:nvidia-cugraph-tool"
+    ]
+  },
+  {
+    "name": "entity_resolution",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:entity-resolution-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:entity-resolution-method-component"
+    ]
+  },
+  {
+    "name": "eval_executability",
+    "kind": "concept",
+    "canonical": "knowledge:graphrag-agentic:executability-evaluation-concept",
+    "candidates": [
+      "knowledge:graphrag-agentic:executability-evaluation-score-concept"
+    ]
+  },
+  {
+    "name": "eval_safety",
+    "kind": "concept",
+    "canonical": "knowledge:graphrag-agentic:safety-evaluation-concept",
+    "candidates": [
+      "knowledge:graphrag-agentic:safety-evaluation-score-concept"
+    ]
+  },
+  {
+    "name": "extract_entities",
+    "kind": "component",
+    "canonical": "knowledge:graphrag-agentic:extract-entities-component",
+    "candidates": [
+      "knowledge:graphrag-agentic:extract-entities-method-component"
+    ]
+  },
+  {
+    "name": "vLLM",
+    "kind": "tool",
+    "canonical": "knowledge:graphrag-agentic:vllm-tool",
+    "candidates": [
+      "knowledge:graphrag-agentic:virtual-llm-tool"
+    ]
+  }
+]
