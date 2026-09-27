@@ -74,8 +74,13 @@ class _FakeMcpServerAdapter:
         self.raw_logging_enabled = raw_logging_enabled
         self.run_sse_mock = AsyncMock()
 
-    async def run_sse(self, host: str = "0.0.0.0", port: int = 8003) -> None:
-        await self.run_sse_mock(host=host, port=port)
+    async def run_sse(
+        self,
+        host: str = "0.0.0.0",
+        port: int = 8003,
+        access_token: SecretStr | None = None,
+    ) -> None:
+        await self.run_sse_mock(host=host, port=port, access_token=access_token)
 
     def create_server(self) -> MagicMock:
         return MagicMock()
@@ -99,6 +104,7 @@ def fake_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
         neo4j_user="neo4j",
         neo4j_password=SecretStr("fake-password"),  # pragma: allowlist secret
     )
+
     class _FakeSettingsType:
         @classmethod
         def model_validate(cls, data: object) -> Settings:
@@ -180,9 +186,7 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "book_graph_rag.mcp_server_main.JsonFileQueryLoggerAdapter",
         _FakeJsonLoggerTracked,
     )
-    monkeypatch.setattr(
-        "book_graph_rag.mcp_server_main.LLMAdapter", _FakeLLMAdapterTracked
-    )
+    monkeypatch.setattr("book_graph_rag.mcp_server_main.LLMAdapter", _FakeLLMAdapterTracked)
     monkeypatch.setattr(
         "book_graph_rag.mcp_server_main.Text2CypherAdapter", _FakeText2CypherAdapterTracked
     )
@@ -190,7 +194,6 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "book_graph_rag.mcp_server_main.McpServerAdapter", _FakeMcpServerAdapterTracked
     )
     return created
-
 
 
 def test_main_entrypoint_is_callable() -> None:
@@ -217,7 +220,9 @@ def test_serve_command_starts_server(
     assert result.exit_code == 0, result.output
     assert "MCP server starting on port 8003" in result.output
     server_adapter = fake_adapters["server_adapter"]
-    server_adapter.run_sse_mock.assert_awaited_once_with(host="127.0.0.1", port=8003)
+    server_adapter.run_sse_mock.assert_awaited_once_with(
+        host="127.0.0.1", port=8003, access_token=None
+    )
 
 
 def test_composition_root_creates_components_in_order(
@@ -279,6 +284,7 @@ def test_serve_uses_custom_mcp_port(
 ) -> None:
     """Custom MCP_PORT is passed to the SSE server."""
     fake_settings.mcp_port = 9000
+
     class _FakeSettingsType:
         @classmethod
         def model_validate(cls, data: object) -> Settings:
@@ -292,7 +298,7 @@ def test_serve_uses_custom_mcp_port(
     assert result.exit_code == 0, result.output
     assert "MCP server starting on port 9000" in result.output
     fake_adapters["server_adapter"].run_sse_mock.assert_awaited_once_with(
-        host="127.0.0.1", port=9000
+        host="127.0.0.1", port=9000, access_token=None
     )
 
 
@@ -316,13 +322,13 @@ def test_serve_passes_configured_bind_host(
 
     assert result.exit_code == 0, result.output
     fake_adapters["server_adapter"].run_sse_mock.assert_awaited_once_with(
-        host="100.106.85.109", port=8003  # no-external-endpoints-allow
+        host="100.106.85.109",
+        port=8003,
+        access_token=None,  # no-external-endpoints-allow
     )
 
 
-def test_serve_fails_fast_on_missing_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_serve_fails_fast_on_missing_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Missing required env vars cause a clear, non-zero exit."""
     monkeypatch.chdir(tmp_path)
     for key in ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD"):
@@ -348,9 +354,7 @@ async def test_neo4j_connection_failure_raises_clear_error(
     monkeypatch.setattr(
         "book_graph_rag.mcp_server_main.Neo4jQueryAdapter", _FailingNeo4jQueryAdapter
     )
-    monkeypatch.setattr(
-        "book_graph_rag.mcp_server_main.LLMAdapter", _FakeLLMAdapter
-    )
+    monkeypatch.setattr("book_graph_rag.mcp_server_main.LLMAdapter", _FakeLLMAdapter)
     monkeypatch.setattr(
         "book_graph_rag.mcp_server_main.Text2CypherAdapter", _FakeText2CypherAdapter
     )
@@ -375,15 +379,11 @@ async def test_logger_creation_uses_settings(
     monkeypatch.setattr(
         "book_graph_rag.mcp_server_main.JsonFileQueryLoggerAdapter", _CapturingJsonLogger
     )
-    monkeypatch.setattr(
-        "book_graph_rag.mcp_server_main.LLMAdapter", _FakeLLMAdapter
-    )
+    monkeypatch.setattr("book_graph_rag.mcp_server_main.LLMAdapter", _FakeLLMAdapter)
     monkeypatch.setattr(
         "book_graph_rag.mcp_server_main.Text2CypherAdapter", _FakeText2CypherAdapter
     )
-    monkeypatch.setattr(
-        "book_graph_rag.mcp_server_main.McpServerAdapter", _FakeMcpServerAdapter
-    )
+    monkeypatch.setattr("book_graph_rag.mcp_server_main.McpServerAdapter", _FakeMcpServerAdapter)
 
     from book_graph_rag.mcp_server_main import _run_server
 
@@ -424,4 +424,3 @@ def test_composition_root_passes_raw_logging_settings_to_adapter(
     server_adapter = fake_adapters["server_adapter"]
     assert server_adapter.app_env == "development"
     assert server_adapter.raw_logging_enabled is True
-

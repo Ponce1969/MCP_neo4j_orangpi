@@ -14,11 +14,13 @@ _WILDCARD_BIND_HOSTS = frozenset({"0.0.0.0", "::", ""})
 
 LLMRole = Literal["graph", "query"]
 
-_APPROVED_EMBEDDING_MODELS = frozenset({
-    "paraphrase-multilingual-MiniLM-L12-v2",
-    "distiluse-base-multilingual-cased-v2",
-    "all-MiniLM-L6-v2",
-})
+_APPROVED_EMBEDDING_MODELS = frozenset(
+    {
+        "paraphrase-multilingual-MiniLM-L12-v2",
+        "distiluse-base-multilingual-cased-v2",
+        "all-MiniLM-L6-v2",
+    }
+)
 
 
 def validate_llm_provider_settings(
@@ -128,6 +130,10 @@ class Settings(BaseSettings):
     # time — never plaintext logging. The key is a SecretStr and never logged.
     mcp_hmac_key_id: str = "mcp-log-v1"
     mcp_hmac_key: SecretStr = SecretStr("")
+    # Optional bearer token for the MCP SSE server. When set, every request
+    # must carry `Authorization: Bearer <mcp_access_token>`; otherwise the
+    # server stays open (dev/tailnet-only). Opt-in to keep local dev unblocked.
+    mcp_access_token: SecretStr | None = None
     # Dynamic text-to-Cypher tool (query_cypher) is fail-closed by default.
     # It must be explicitly enabled; when disabled the MCP boundary returns a
     # typed policy_violation without contacting the LLM or the graph.
@@ -225,12 +231,8 @@ class Settings(BaseSettings):
                 f"evaluation_manifest_path ({self.evaluation_manifest_path}) does not exist"
             )
         default_baseline_dir = Path("data/evaluation")
-        if (
-            self.evaluation_baseline_dir != default_baseline_dir
-            and (
-                not self.evaluation_baseline_dir.exists()
-                or not self.evaluation_baseline_dir.is_dir()
-            )
+        if self.evaluation_baseline_dir != default_baseline_dir and (
+            not self.evaluation_baseline_dir.exists() or not self.evaluation_baseline_dir.is_dir()
         ):
             raise ValueError(
                 f"evaluation_baseline_dir ({self.evaluation_baseline_dir}) "
@@ -255,45 +257,35 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_neo4j_read_timeout_seconds(cls, value: float) -> float:
         if not 0.0 < value <= 300.0:
-            raise ValueError(
-                f"neo4j_read_timeout_seconds ({value}) must be > 0 and <= 300"
-            )
+            raise ValueError(f"neo4j_read_timeout_seconds ({value}) must be > 0 and <= 300")
         return value
 
     @field_validator("neo4j_read_max_rows")
     @classmethod
     def _validate_neo4j_read_max_rows(cls, value: int) -> int:
         if not 1 <= value <= 1_000_000:
-            raise ValueError(
-                f"neo4j_read_max_rows ({value}) must be between 1 and 1000000"
-            )
+            raise ValueError(f"neo4j_read_max_rows ({value}) must be between 1 and 1000000")
         return value
 
     @field_validator("neo4j_max_traversal_depth")
     @classmethod
     def _validate_neo4j_max_traversal_depth(cls, value: int) -> int:
         if not 1 <= value <= 10:
-            raise ValueError(
-                f"neo4j_max_traversal_depth ({value}) must be between 1 and 10"
-            )
+            raise ValueError(f"neo4j_max_traversal_depth ({value}) must be between 1 and 10")
         return value
 
     @field_validator("neo4j_max_traversal_rows")
     @classmethod
     def _validate_neo4j_max_traversal_rows(cls, value: int) -> int:
         if not 1 <= value <= 1_000_000:
-            raise ValueError(
-                f"neo4j_max_traversal_rows ({value}) must be between 1 and 1000000"
-            )
+            raise ValueError(f"neo4j_max_traversal_rows ({value}) must be between 1 and 1000000")
         return value
 
     @field_validator("neo4j_max_traversal_nodes")
     @classmethod
     def _validate_neo4j_max_traversal_nodes(cls, value: int) -> int:
         if not 1 <= value <= 1_000_000:
-            raise ValueError(
-                f"neo4j_max_traversal_nodes ({value}) must be between 1 and 1000000"
-            )
+            raise ValueError(f"neo4j_max_traversal_nodes ({value}) must be between 1 and 1000000")
         return value
 
     @field_validator("max_cluster_size")
@@ -383,12 +375,8 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_embedding_min_similarity(cls, value: float) -> float:
         if not 0.0 <= value <= 1.0:
-            raise ValueError(
-                f"embedding_min_similarity ({value}) must be between 0.0 and 1.0"
-            )
+            raise ValueError(f"embedding_min_similarity ({value}) must be between 0.0 and 1.0")
         return value
-
-
 
     @field_validator(
         "band_high_cosine",

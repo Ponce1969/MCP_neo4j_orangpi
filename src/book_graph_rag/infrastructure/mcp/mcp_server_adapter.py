@@ -53,14 +53,16 @@ _PROMPT_KEYS: frozenset[str] = frozenset({"query", "question"})
 _RAW_QUERY_LOGGER_NAME = "book_graph_rag.mcp.raw_query_log"
 
 #: Non-sensitive scalar configuration knobs that may be persisted as metadata.
-_METADATA_SCALAR_KEYS: frozenset[str] = frozenset({
-    "limit",
-    "depth",
-    "cursor",
-    "page_size",
-    "include_relations",
-    "detail_level",
-})
+_METADATA_SCALAR_KEYS: frozenset[str] = frozenset(
+    {
+        "limit",
+        "depth",
+        "cursor",
+        "page_size",
+        "include_relations",
+        "detail_level",
+    }
+)
 
 
 def _to_query_metadata(
@@ -169,9 +171,7 @@ class McpServerAdapter:
         """
         if source_id is None:
             if self._require_scope:
-                raise MissingScopeError(
-                    f"scope source_id is required for tool {tool_name!r}"
-                )
+                raise MissingScopeError(f"scope source_id is required for tool {tool_name!r}")
             return None
         if self._scope_resolver is None:
             raise InvalidScopeError(
@@ -192,9 +192,7 @@ class McpServerAdapter:
             raise QueryFingerprintError(
                 "mcp_hmac_key is empty or missing; refusing to log without fingerprinting"
             )
-        return QueryFingerprint.from_canonical(
-            self._hmac_key_id, key.get_secret_value(), payload
-        )
+        return QueryFingerprint.from_canonical(self._hmac_key_id, key.get_secret_value(), payload)
 
     def _emit_raw_log(
         self,
@@ -258,9 +256,7 @@ class McpServerAdapter:
             error_code=error_code,
         )
         fingerprint_inputs = {
-            key: value
-            for key, value in query_params.items()
-            if key not in _PROMPT_KEYS
+            key: value for key, value in query_params.items() if key not in _PROMPT_KEYS
         }
         entry = QueryLogEntry(
             timestamp=self._now(),
@@ -309,12 +305,8 @@ class McpServerAdapter:
             params["source_id"] = source_id
         start = self._now()
         try:
-            async with self._budget_port.budget(
-                tier_for("find_entity"), key="find_entity"
-            ):
-                entities = await self._graph_query_port.find_entity(
-                    name, entity_type, scope=scope
-                )
+            async with self._budget_port.budget(tier_for("find_entity"), key="find_entity"):
+                entities = await self._graph_query_port.find_entity(name, entity_type, scope=scope)
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -428,12 +420,8 @@ class McpServerAdapter:
             params["source_id"] = source_id
         start = self._now()
         try:
-            async with self._budget_port.budget(
-                tier_for("search_chunks"), key="search_chunks"
-            ):
-                chunks = await self._graph_query_port.search_chunks(
-                    query, limit, scope=scope
-                )
+            async with self._budget_port.budget(tier_for("search_chunks"), key="search_chunks"):
+                chunks = await self._graph_query_port.search_chunks(query, limit, scope=scope)
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -483,9 +471,7 @@ class McpServerAdapter:
             params["source_id"] = source_id
         start = self._now()
         try:
-            async with self._budget_port.budget(
-                tier_for("list_entities"), key="list_entities"
-            ):
+            async with self._budget_port.budget(tier_for("list_entities"), key="list_entities"):
                 entities, next_cursor = await self._graph_query_port.list_entities(
                     cursor, page_size, scope=scope
                 )
@@ -538,12 +524,8 @@ class McpServerAdapter:
             params["source_id"] = source_id
         start = self._now()
         try:
-            async with self._budget_port.budget(
-                tier_for("count_entities"), key="count_entities"
-            ):
-                count = await self._graph_query_port.count_entities(
-                    entity_type, scope=scope
-                )
+            async with self._budget_port.budget(tier_for("count_entities"), key="count_entities"):
+                count = await self._graph_query_port.count_entities(entity_type, scope=scope)
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -603,15 +585,9 @@ class McpServerAdapter:
         relationships: list[dict[str, Any]] = []
 
         try:
-            async with self._budget_port.budget(
-                tier_for("search_rag"), key="search_rag"
-            ):
-                chunk_task = self._graph_query_port.search_chunks(
-                    query, limit, scope=scope
-                )
-                entity_task = self._graph_query_port.find_entity(
-                    query, None, scope=scope
-                )
+            async with self._budget_port.budget(tier_for("search_rag"), key="search_rag"):
+                chunk_task = self._graph_query_port.search_chunks(query, limit, scope=scope)
+                entity_task = self._graph_query_port.find_entity(query, None, scope=scope)
                 chunk_result, entity_result = await asyncio.gather(
                     chunk_task, entity_task, return_exceptions=True
                 )
@@ -624,18 +600,14 @@ class McpServerAdapter:
                 if isinstance(entity_result, Exception):
                     errors.append(str(entity_result))
                 else:
-                    entities = [
-                        entity.model_dump(mode="json") for entity in entity_result
-                    ]
+                    entities = [entity.model_dump(mode="json") for entity in entity_result]
                     entity_not_found = len(entity_result) == 0
                     if entity_result and include_relations:
                         try:
                             _, rels = await self._graph_query_port.traverse_relationships(
                                 entity_result[0].entity.id, None, 1, scope=scope
                             )
-                            relationships = [
-                                rel.model_dump(mode="json") for rel in rels
-                            ]
+                            relationships = [rel.model_dump(mode="json") for rel in rels]
                         except Exception as exc:  # pragma: no cover - defensive only
                             errors.append(str(exc))
         except Exception as exc:
@@ -726,12 +698,8 @@ class McpServerAdapter:
         )
 
         try:
-            async with self._budget_port.budget(
-                tier_for("query_cypher"), key="query_cypher"
-            ):
-                result = await self._text2cypher_port.generate_and_run(
-                    question, scope=scope
-                )
+            async with self._budget_port.budget(tier_for("query_cypher"), key="query_cypher"):
+                result = await self._text2cypher_port.generate_and_run(question, scope=scope)
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -782,9 +750,7 @@ class McpServerAdapter:
         (legacy unscoped), ``scope`` is ``None`` and the unscoped read path runs.
         """
         if not 0 <= detail_level <= 3:
-            raise ValueError(
-                f"detail_level must be between 0 and 3, got {detail_level}"
-            )
+            raise ValueError(f"detail_level must be between 0 and 3, got {detail_level}")
 
         # Enforce the fail-closed scope boundary before any LLM-mediated call.
         # The resolved scope is threaded into the community read path (R7).
@@ -801,12 +767,8 @@ class McpServerAdapter:
 
         start = self._now()
         try:
-            async with self._budget_port.budget(
-                tier_for("ask_global"), key="ask_global"
-            ):
-                return await self._global_query_use_case.ask(
-                    question, detail_level, scope=scope
-                )
+            async with self._budget_port.budget(tier_for("ask_global"), key="ask_global"):
+                return await self._global_query_use_case.ask(question, detail_level, scope=scope)
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -973,7 +935,27 @@ class McpServerAdapter:
 
         return mcp
 
-    async def run_sse(self, host: str = "0.0.0.0", port: int = 8003) -> None:
-        """Start the SSE server on the configured host and port."""
+    async def run_sse(
+        self,
+        host: str = "0.0.0.0",
+        port: int = 8003,
+        access_token: SecretStr | None = None,
+    ) -> None:
+        """Start the SSE server on the configured host and port.
+
+        When ``access_token`` is set, the Starlette SSE app is wrapped with
+        :class:`BearerTokenAuthMiddleware` so all clients must send
+        ``Authorization: Bearer <token>``.
+        """
+        import uvicorn
+
+        from book_graph_rag.infrastructure.mcp.bearer_auth import (
+            BearerTokenAuthMiddleware,
+        )
+
         server = self.create_server(host=host, port=port)
-        await server.run_sse_async()
+        app: Any = server.sse_app()
+        if access_token is not None and access_token.get_secret_value():
+            app = BearerTokenAuthMiddleware(app, access_token.get_secret_value())
+        config = uvicorn.Config(app, host=host, port=port, log_level="info")
+        await uvicorn.Server(config).serve()

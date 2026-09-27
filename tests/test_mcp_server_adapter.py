@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+import uvicorn
 from mcp.server.fastmcp import FastMCP
 from pydantic import SecretStr, ValidationError
 
@@ -87,9 +88,7 @@ class _FakeGraphQueryPort(GraphQueryPort):
         *,
         scope: ScopeContext | None = None,
     ) -> tuple[list[EntityWithContext], list[Relationship]]:
-        call: dict[str, Any] = {
-            "source_id": source_id, "rel_type": rel_type, "depth": depth
-        }
+        call: dict[str, Any] = {"source_id": source_id, "rel_type": rel_type, "depth": depth}
         if scope is not None:
             call["scope"] = scope
         self.calls.append(("traverse_relationships", call))
@@ -190,9 +189,7 @@ class _ExplodingText2CypherPort(Text2CypherPort):
     async def generate_and_run(
         self, question: str, *, scope: ScopeContext | None = None
     ) -> Text2CypherResult:
-        raise AssertionError(
-            "query_cypher must never contact the text2cypher port when disabled"
-        )
+        raise AssertionError("query_cypher must never contact the text2cypher port when disabled")
 
 
 class _FakeScopeResolverPort(ScopeResolverPort):
@@ -218,9 +215,7 @@ class _FakeScopeResolverPort(ScopeResolverPort):
     ) -> ScopeContext:
         self.calls.append((source_id, book_ids, entity_types, relationship_types))
         if source_id in self._reject_source_ids:
-            raise InvalidScopeError(
-                f"unknown scope source {source_id!r}", scope_id=source_id
-            )
+            raise InvalidScopeError(f"unknown scope source {source_id!r}", scope_id=source_id)
         if self._scope is not None:
             return self._scope
         return ScopeContext(
@@ -331,9 +326,7 @@ def _entity(
 def _relationship(
     source_id: str, target_id: str, rel_type: RelationshipType = "requires"
 ) -> Relationship:
-    return Relationship(
-        source_entity_id=source_id, target_entity_id=target_id, type=rel_type
-    )
+    return Relationship(source_entity_id=source_id, target_entity_id=target_id, type=rel_type)
 
 
 # ── create_server ────────────────────────────────────────────────────────────
@@ -367,9 +360,7 @@ async def test_find_entity_returns_matching_entities(
     entity = _entity("MCP", entity_id="e1", entity_type="mcp")
     graph_query_port.find_entity_result = [entity]
 
-    result = await scoped_adapter.find_entity(
-        "MCP", entity_type="mcp", source_id="book:default"
-    )
+    result = await scoped_adapter.find_entity("MCP", entity_type="mcp", source_id="book:default")
 
     assert result["entity_not_found"] is False
     assert len(result["entities"]) == 1
@@ -456,9 +447,7 @@ async def test_traverse_relationships_returns_entities_and_relationships(
 async def test_traverse_relationships_depth_is_clamped(
     scoped_adapter: McpServerAdapter, graph_query_port: _FakeGraphQueryPort
 ) -> None:
-    await scoped_adapter.traverse_relationships(
-        "s", depth=5, scope_source_id="book:default"
-    )
+    await scoped_adapter.traverse_relationships("s", depth=5, scope_source_id="book:default")
 
     _, params = graph_query_port.calls[0]
     assert params["depth"] == 3
@@ -467,9 +456,7 @@ async def test_traverse_relationships_depth_is_clamped(
 async def test_traverse_relationships_negative_depth_is_clamped(
     scoped_adapter: McpServerAdapter, graph_query_port: _FakeGraphQueryPort
 ) -> None:
-    await scoped_adapter.traverse_relationships(
-        "s", depth=-1, scope_source_id="book:default"
-    )
+    await scoped_adapter.traverse_relationships("s", depth=-1, scope_source_id="book:default")
 
     _, params = graph_query_port.calls[0]
     assert params["depth"] == 0
@@ -481,9 +468,7 @@ async def test_traverse_relationships_error_is_propagated(
     graph_query_port.raise_on = "traverse_relationships"
 
     with pytest.raises(TimeoutError, match="neo4j timeout"):
-        await scoped_adapter.traverse_relationships(
-            "s", scope_source_id="book:default"
-        )
+        await scoped_adapter.traverse_relationships("s", scope_source_id="book:default")
 
 
 # ── search_chunks ────────────────────────────────────────────────────────────
@@ -543,9 +528,7 @@ async def test_list_entities_returns_paginated_entities(
     entity = _entity("Entity 1", entity_id="e1")
     graph_query_port.list_entities_result = ([entity], 101)
 
-    result = await scoped_adapter.list_entities(
-        cursor=0, page_size=50, source_id="book:default"
-    )
+    result = await scoped_adapter.list_entities(cursor=0, page_size=50, source_id="book:default")
 
     assert len(result["entities"]) == 1
     assert result["next_cursor"] == 101
@@ -579,9 +562,7 @@ async def test_count_entities_returns_count(
 ) -> None:
     graph_query_port.count_result = 42
 
-    result = await scoped_adapter.count_entities(
-        entity_type="agent", source_id="book:default"
-    )
+    result = await scoped_adapter.count_entities(entity_type="agent", source_id="book:default")
 
     assert result == {"count": 42}
     assert graph_query_port.calls == [
@@ -633,9 +614,7 @@ async def test_log_entry_contains_timestamp_and_duration(
 async def test_log_entry_query_metadata_matches_tool_inputs(
     scoped_adapter: McpServerAdapter, query_logger: _FakeQueryLoggerPort
 ) -> None:
-    await scoped_adapter.find_entity(
-        "MCP", entity_type="mcp", source_id="book:default"
-    )
+    await scoped_adapter.find_entity("MCP", entity_type="mcp", source_id="book:default")
 
     entry = query_logger.entries[0]
     assert entry.query_metadata == {
@@ -651,22 +630,37 @@ async def test_log_entry_query_metadata_matches_tool_inputs(
 # ── run_sse ──────────────────────────────────────────────────────────────────
 
 
+class _FakeUvicornServer:
+    """Stand-in for uvicorn.Server that records configs and serves async."""
+
+    instances: list[_FakeUvicornServer] = []
+
+    def __init__(self, config: Any) -> None:
+        self.config = config
+        _FakeUvicornServer.instances.append(self)
+
+    async def serve(self) -> None:
+        pass
+
+
 async def test_run_sse_starts_server(
     adapter: McpServerAdapter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """run_sse creates a server and awaits the SSE run coroutine."""
-    run_sse_async_mock = AsyncMock()
-    monkeypatch.setattr(FastMCP, "run_sse_async", run_sse_async_mock)
+    """run_sse builds the SSE app and serves it via uvicorn."""
+    _FakeUvicornServer.instances.clear()
+    monkeypatch.setattr(uvicorn, "Server", _FakeUvicornServer)
 
     await adapter.run_sse()
 
-    run_sse_async_mock.assert_awaited_once()
+    assert len(_FakeUvicornServer.instances) == 1
+    assert _FakeUvicornServer.instances[0].config.host == "0.0.0.0"
+    assert _FakeUvicornServer.instances[0].config.port == 8003
 
 
 async def test_run_sse_uses_configured_host_and_port(
     adapter: McpServerAdapter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """run_sse passes host and port to the underlying FastMCP server."""
+    """run_sse passes host and port to the underlying uvicorn server."""
     calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     original_create_server = adapter.create_server
 
@@ -675,12 +669,50 @@ async def test_run_sse_uses_configured_host_and_port(
         return original_create_server(*args, **kwargs)
 
     monkeypatch.setattr(adapter, "create_server", fake_create_server)
-    monkeypatch.setattr(FastMCP, "run_sse_async", AsyncMock())
+    monkeypatch.setattr(uvicorn, "Server", _FakeUvicornServer)
+    _FakeUvicornServer.instances.clear()
 
     await adapter.run_sse(host="127.0.0.1", port=9000)
 
     assert len(calls) == 1
     assert calls[0] == ((), {"host": "127.0.0.1", "port": 9000})
+    assert _FakeUvicornServer.instances[0].config.host == "127.0.0.1"
+    assert _FakeUvicornServer.instances[0].config.port == 9000
+
+
+async def test_run_sse_token_wraps_app_in_bearer_middleware(
+    adapter: McpServerAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A configured token wraps the SSE app in the bearer middleware."""
+    from book_graph_rag.infrastructure.mcp.bearer_auth import (
+        BearerTokenAuthMiddleware,
+    )
+
+    monkeypatch.setattr(uvicorn, "Server", _FakeUvicornServer)
+    _FakeUvicornServer.instances.clear()
+
+    await adapter.run_sse(access_token=SecretStr("tok-abc"))
+
+    served_app = _FakeUvicornServer.instances[0].config.app
+    assert isinstance(served_app, BearerTokenAuthMiddleware)
+    assert served_app._expected == b"Bearer tok-abc"  # noqa: SLF001
+
+
+async def test_run_sse_without_token_serves_unwrapped(
+    adapter: McpServerAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a token the SSE app is served unwrapped."""
+    from book_graph_rag.infrastructure.mcp.bearer_auth import (
+        BearerTokenAuthMiddleware,
+    )
+
+    monkeypatch.setattr(uvicorn, "Server", _FakeUvicornServer)
+    _FakeUvicornServer.instances.clear()
+
+    await adapter.run_sse()
+
+    served_app = _FakeUvicornServer.instances[0].config.app
+    assert not isinstance(served_app, BearerTokenAuthMiddleware)
 
 
 async def test_create_server_uses_provided_host_and_port(adapter: McpServerAdapter) -> None:
@@ -704,9 +736,7 @@ async def test_search_rag_returns_entities_chunks_and_relationships(
     rel = _relationship("e1", "e2", "requires")
     graph_query_port.find_entity_result = [entity]
     graph_query_port.traverse_result = ([], [rel])
-    graph_query_port.search_chunks_result = [
-        {"text": "chunk one", "chunk_index": 1}
-    ]
+    graph_query_port.search_chunks_result = [{"text": "chunk one", "chunk_index": 1}]
 
     result = await scoped_adapter.search_rag(
         "MCP", limit=5, include_relations=True, source_id="book:default"
@@ -736,9 +766,7 @@ async def test_search_rag_entity_not_found_still_returns_chunks(
     graph_query_port: _FakeGraphQueryPort,
 ) -> None:
     """When find_entity returns empty, entity_not_found is True and chunks still return."""
-    graph_query_port.search_chunks_result = [
-        {"text": "chunk one", "chunk_index": 1}
-    ]
+    graph_query_port.search_chunks_result = [{"text": "chunk one", "chunk_index": 1}]
 
     result = await scoped_adapter.search_rag(
         "missing", include_relations=True, source_id="book:default"
@@ -814,9 +842,7 @@ async def test_search_rag_partial_failure_entity(
     graph_query_port: _FakeGraphQueryPort,
 ) -> None:
     """When find_entity raises, chunk results are still returned with an error entry."""
-    graph_query_port.search_chunks_result = [
-        {"text": "chunk one", "chunk_index": 1}
-    ]
+    graph_query_port.search_chunks_result = [{"text": "chunk one", "chunk_index": 1}]
     graph_query_port.raise_on = "find_entity"
 
     result = await scoped_adapter.search_rag(
@@ -964,9 +990,7 @@ async def test_query_cypher_logs_entry_with_text2cypher_query_type(
         hmac_key_id=_TEST_HMAC_KEY_ID,
         hmac_key=_TEST_HMAC_KEY,
     )
-    await adapter.query_cypher(
-        "what patterns mitigate security risks?", source_id="book:default"
-    )
+    await adapter.query_cypher("what patterns mitigate security risks?", source_id="book:default")
 
     assert len(query_logger.entries) == 1
     entry = query_logger.entries[0]
@@ -1026,9 +1050,7 @@ async def test_scope_params_are_passed_to_graph_query_port(
         entity_types=["concept", "agent"],
     )
 
-    assert scope_resolver.calls == [
-        ("book:default", (), ("concept", "agent"), ())
-    ]
+    assert scope_resolver.calls == [("book:default", (), ("concept", "agent"), ())]
     _, params = graph_query_port.calls[0]
     assert params["scope"] == ScopeContext(
         source=SourceNamespace(corpus="book", source="default"),
@@ -1139,9 +1161,7 @@ async def _call_scoped(adapter: McpServerAdapter, tool_name: str) -> dict[str, A
     if tool_name == "find_entity":
         return await adapter.find_entity("MCP", source_id="book:default")
     if tool_name == "traverse_relationships":
-        return await adapter.traverse_relationships(
-            "s", scope_source_id="book:default"
-        )
+        return await adapter.traverse_relationships("s", scope_source_id="book:default")
     if tool_name == "search_chunks":
         return await adapter.search_chunks("MCP", source_id="book:default")
     if tool_name == "list_entities":
@@ -1154,9 +1174,7 @@ async def _call_scoped(adapter: McpServerAdapter, tool_name: str) -> dict[str, A
 
 
 @pytest.mark.parametrize("tool_name", _SCOPE_REQUIRING_TOOLS)
-async def test_missing_scope_raises_typed_error(
-    adapter: McpServerAdapter, tool_name: str
-) -> None:
+async def test_missing_scope_raises_typed_error(adapter: McpServerAdapter, tool_name: str) -> None:
     """Every scope-requiring tool fails closed with MissingScopeError without scope."""
     with pytest.raises(MissingScopeError) as exc_info:
         await _call_unscoped(adapter, tool_name)
@@ -1243,9 +1261,7 @@ async def test_unresolvable_source_id_raises_invalid_scope_under_require_scope_t
     text2cypher_port: _FakeText2CypherPort,
 ) -> None:
     """A provided-but-unresolvable source_id still raises InvalidScopeError."""
-    resolver = _FakeScopeResolverPort(
-        reject_source_ids=frozenset({"book:unknown"})
-    )
+    resolver = _FakeScopeResolverPort(reject_source_ids=frozenset({"book:unknown"}))
     adapter = McpServerAdapter(
         graph_query_port,
         query_logger,
@@ -1353,9 +1369,7 @@ async def test_concurrency_exhaustion_fails_low_tool_with_typed_error_and_log(
     text2cypher_port: _FakeText2CypherPort,
 ) -> None:
     """A saturated concurrency budget rejects a LOW tool with a typed error."""
-    budget = _RaisingBudgetPort(
-        ConcurrencyLimitExceededError("saturated concurrency", tier="low")
-    )
+    budget = _RaisingBudgetPort(ConcurrencyLimitExceededError("saturated concurrency", tier="low"))
     adapter = McpServerAdapter(
         graph_query_port,
         query_logger,
@@ -1385,9 +1399,7 @@ async def test_rate_limit_exhaustion_fails_low_tool_with_typed_error_and_log(
     text2cypher_port: _FakeText2CypherPort,
 ) -> None:
     """A saturated rate window rejects a LOW tool with a typed error."""
-    budget = _RaisingBudgetPort(
-        RateLimitExceededError("saturated rate window", tier="low")
-    )
+    budget = _RaisingBudgetPort(RateLimitExceededError("saturated rate window", tier="low"))
     adapter = McpServerAdapter(
         graph_query_port,
         query_logger,
@@ -1413,9 +1425,7 @@ async def test_budget_exhaustion_does_not_weaken_scope_enforcement(
     text2cypher_port: _FakeText2CypherPort,
 ) -> None:
     """Missing scope is rejected before budget acquisition (no auth weakening)."""
-    budget = _RaisingBudgetPort(
-        ConcurrencyLimitExceededError("saturated concurrency", tier="low")
-    )
+    budget = _RaisingBudgetPort(ConcurrencyLimitExceededError("saturated concurrency", tier="low"))
     adapter = McpServerAdapter(
         graph_query_port,
         query_logger,
@@ -1768,10 +1778,7 @@ async def test_raw_logging_dev_channel_emits_raw_text_never_persisted(
 
     await adapter.search_chunks("sk-abcdefghijklmnopqrstuvwxyz123456", limit=5)
 
-    assert any(
-        "sk-abcdefghijklmnopqrstuvwxyz123456" in message
-        for message in handler.messages
-    )
+    assert any("sk-abcdefghijklmnopqrstuvwxyz123456" in message for message in handler.messages)
     entry = query_logger.entries[0]
     assert entry.query_metadata["query_set"] is True
     assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in entry.model_dump_json()
@@ -1799,4 +1806,3 @@ async def test_raw_logging_disabled_emits_nothing_to_dev_channel(
 
     assert handler.messages == []
     assert len(query_logger.entries) == 1
-

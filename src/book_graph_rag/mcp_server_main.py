@@ -47,9 +47,7 @@ async def _run_server(settings: Settings) -> None:
                     llm_port=llm_adapter,
                     max_concurrency=settings.summary_max_concurrency,
                 )
-                scope_resolver = CatalogScopeResolver(
-                    CatalogLoader(settings.catalog_path)
-                )
+                scope_resolver = CatalogScopeResolver(CatalogLoader(settings.catalog_path))
                 server_adapter: McpServerAdapter = McpServerAdapter(
                     query_adapter,
                     query_logger,
@@ -66,7 +64,9 @@ async def _run_server(settings: Settings) -> None:
                 )
                 click.echo(f"MCP server starting on port {settings.mcp_port}")
                 await server_adapter.run_sse(
-                    host=settings.mcp_bind_host, port=settings.mcp_port
+                    host=settings.mcp_bind_host,
+                    port=settings.mcp_port,
+                    access_token=settings.mcp_access_token,
                 )
             finally:
                 await query_logger.close()
