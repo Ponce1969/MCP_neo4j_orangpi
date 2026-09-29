@@ -53,6 +53,31 @@ class ScoredCandidate(BaseModel):
     score: float = Field(ge=-1.0, le=1.0)
 
 
+class LexicalHints(BaseModel):
+    """Cheap, deterministic title/TOC-style terms for one namespace."""
+
+    model_config = ConfigDict(frozen=True)
+
+    namespace: SourceNamespace
+    terms: tuple[str, ...]
+
+
+class ResolvedRoute(BaseModel):
+    """Outcome of the runtime router: decision plus validated namespace(s).
+
+    ``validated_namespace`` is the selected namespace only when it passed
+    catalog validation. ``fanout_namespaces`` carries at most two validated
+    candidates for controlled multi-scope dispatch on abstention; it is empty
+    when no validated candidate exists.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    decision: RouteDecision
+    validated_namespace: SourceNamespace | None = None
+    fanout_namespaces: tuple[SourceNamespace, ...] = ()
+
+
 class RouteThresholds(BaseModel):
     """Calibration knobs for the abstention policy.
 
@@ -125,6 +150,25 @@ def mean_normalized(vectors: Sequence[tuple[float, ...]]) -> tuple[float, ...]:
             sums[index] += value
     mean = tuple(sum_value / len(vectors) for sum_value in sums)
     return normalize_vector(mean)
+
+
+def match_lexical_hints(
+    question: str,
+    hints: Sequence[LexicalHints],
+) -> tuple[ScoredCandidate, ...]:
+    """Return scored candidates for every lexically matched hint, best-first.
+
+    Matching is case-insensitive substring matching; each hit scores 1.0.
+    This is the cheap fast path that avoids embedding obvious questions.
+    """
+    lower = question.lower()
+    scored = [
+        ScoredCandidate(namespace=hint.namespace, score=1.0)
+        for hint in hints
+        if any(term.lower() in lower for term in hint.terms)
+    ]
+    scored.sort(key=lambda candidate: (-candidate.score, candidate.namespace.source_id))
+    return tuple(scored)
 
 
 def score_against_profiles(

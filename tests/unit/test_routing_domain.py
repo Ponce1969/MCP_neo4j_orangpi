@@ -7,12 +7,14 @@ from pydantic import ValidationError
 
 from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.domain.routing_models import (
+    LexicalHints,
     NamespaceProfile,
     RouteDecision,
     RouteThresholds,
     ScoredCandidate,
     cosine_similarity,
     decide_route,
+    match_lexical_hints,
     mean_normalized,
     normalize_vector,
     score_against_profiles,
@@ -59,6 +61,67 @@ def test_cosine_zero_norm_returns_zero_not_nan() -> None:
 def test_cosine_dimension_mismatch_raises() -> None:
     with pytest.raises(ValueError, match="same dimension"):
         cosine_similarity((1.0,), (1.0, 2.0))
+
+
+# ── lexical hints ────────────────────────────────────────────────────────────
+
+
+def test_lexical_hint_matches_case_insensitive() -> None:
+    hints = (
+        LexicalHints(
+            namespace=_ns("knowledge:essential-graphrag"),
+            terms=("Text2Cypher", "Essential GraphRAG"),
+        ),
+        LexicalHints(
+            namespace=_ns("knowledge:agentic-architectural-patterns"),
+            terms=("multi-agent", "agentic patterns"),
+        ),
+    )
+
+    matched = match_lexical_hints(
+        "¿cómo se usa text2cypher para consultar el grafo?",
+        hints,
+    )
+
+    assert [c.namespace.source_id for c in matched] == [
+        "knowledge:essential-graphrag",
+    ]
+
+
+def test_lexical_hint_no_match_returns_empty() -> None:
+    hints = (
+        LexicalHints(
+            namespace=_ns("knowledge:essential-graphrag"),
+            terms=("Text2Cypher",),
+        ),
+    )
+
+    assert match_lexical_hints("What is pasta al dente?", hints) == ()
+
+
+def test_lexical_hint_multiple_matches_are_deterministic() -> None:
+    hints = (
+        LexicalHints(
+            namespace=_ns("knowledge:graphrag-agentic"),
+            terms=("dual-graph",),
+        ),
+        LexicalHints(
+            namespace=_ns("knowledge:essential-graphrag"),
+            terms=("GraphRAG",),
+        ),
+        LexicalHints(
+            namespace=_ns("knowledge:agentic-architectural-patterns"),
+            terms=("GraphRAG",),
+        ),
+    )
+
+    matched = match_lexical_hints("Compare GraphRAG systems", hints)
+
+    assert all(candidate.score == 1.0 for candidate in matched)
+    assert [c.namespace.source_id for c in matched] == [
+        "knowledge:agentic-architectural-patterns",
+        "knowledge:essential-graphrag",
+    ]
 
 
 # ── centroid construction ────────────────────────────────────────────────────
