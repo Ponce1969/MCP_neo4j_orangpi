@@ -191,6 +191,12 @@ class Settings(BaseSettings):
     # never lives in Neo4j; the runtime router reads it from disk.
     namespace_profile_store_path: Path = Path("data/router/namespace_profiles.json")
     namespace_profile_version: str = "1.0.0"
+    # Feature flag consumed by the caller integration: when False, callers keep
+    # the existing explicit-scope path and the router is not invoked.
+    router_enabled: bool = False
+    # Separate opt-in telemetry; raw fields never flow to the MCP query log.
+    router_telemetry_enabled: bool = False
+    routing_telemetry_path: Path = Path("data/router/router_telemetry.db")
 
     # ── Community summaries (REQ-GR.1) ────────────────────────────────────
     max_cluster_size: int = 10
