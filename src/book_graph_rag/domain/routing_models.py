@@ -96,6 +96,37 @@ def cosine_similarity(a: tuple[float, ...], b: tuple[float, ...]) -> float:
     return dot / (norm_a * norm_b)
 
 
+def normalize_vector(vector: tuple[float, ...]) -> tuple[float, ...]:
+    """Return the L2-normalized copy of ``vector``.
+
+    Raises:
+        ValueError: When ``vector`` has zero norm (no meaningful direction).
+    """
+    norm = math.sqrt(sum(value * value for value in vector))
+    if norm == 0.0:
+        raise ValueError("cannot normalize a zero-norm vector")
+    return tuple(value / norm for value in vector)
+
+
+def mean_normalized(vectors: Sequence[tuple[float, ...]]) -> tuple[float, ...]:
+    """Average per-dimension values and re-normalize to unit norm.
+
+    Raises:
+        ValueError: When ``vectors`` is empty or dimensions differ.
+    """
+    if not vectors:
+        raise ValueError("cannot build a centroid from zero vectors")
+    dimension = len(vectors[0])
+    if any(len(vector) != dimension for vector in vectors):
+        raise ValueError("all vectors must share the same dimension")
+    sums = [0.0] * dimension
+    for vector in vectors:
+        for index, value in enumerate(vector):
+            sums[index] += value
+    mean = tuple(sum_value / len(vectors) for sum_value in sums)
+    return normalize_vector(mean)
+
+
 def score_against_profiles(
     question_vector: tuple[float, ...],
     profiles: Sequence[NamespaceProfile],

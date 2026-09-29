@@ -13,6 +13,8 @@ from book_graph_rag.domain.routing_models import (
     ScoredCandidate,
     cosine_similarity,
     decide_route,
+    mean_normalized,
+    normalize_vector,
     score_against_profiles,
 )
 
@@ -57,6 +59,38 @@ def test_cosine_zero_norm_returns_zero_not_nan() -> None:
 def test_cosine_dimension_mismatch_raises() -> None:
     with pytest.raises(ValueError, match="same dimension"):
         cosine_similarity((1.0,), (1.0, 2.0))
+
+
+# ── centroid construction ────────────────────────────────────────────────────
+
+
+def test_normalize_vector_returns_unit_norm() -> None:
+    normalized = normalize_vector((3.0, 4.0))
+
+    assert normalized == pytest.approx((0.6, 0.8))
+    assert sum(value * value for value in normalized) == pytest.approx(1.0)
+
+
+def test_normalize_vector_zero_norm_raises() -> None:
+    with pytest.raises(ValueError, match="zero-norm"):
+        normalize_vector((0.0, 0.0))
+
+
+def test_mean_normalized_averages_then_normalizes() -> None:
+    centroid = mean_normalized(((1.0, 0.0), (0.0, 1.0)))
+
+    assert centroid == pytest.approx((0.7071067811865476, 0.7071067811865476))
+    assert sum(value * value for value in centroid) == pytest.approx(1.0)
+
+
+def test_mean_normalized_empty_raises() -> None:
+    with pytest.raises(ValueError, match="zero vectors"):
+        mean_normalized(())
+
+
+def test_mean_normalized_dimension_mismatch_raises() -> None:
+    with pytest.raises(ValueError, match="same dimension"):
+        mean_normalized(((1.0, 0.0), (1.0,)))
 
 
 # ── profile validation ────────────────────────────────────────────────────────
