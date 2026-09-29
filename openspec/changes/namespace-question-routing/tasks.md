@@ -86,16 +86,25 @@ filtered verification (1409 tests) and all repository gates pass.
 - [x] 4.6 Add temporary-database tests, expiry tests, and concurrent-write tests
   (1472 filtered tests; gates PASS).
 
-## Unit 5 — Integration, evaluation, and rollout
+## Unit 5 — Integration, evaluation, and rollout (commits `adb28f8`, `3c957d3`)
 
-- [ ] 5.1 Add routing metrics and a reproducible report over the committed dataset.
-- [ ] 5.2 Compare retrieval/generation metrics separately from routing metrics.
-- [ ] 5.3 Integrate with the Gentle-AI caller while keeping MCP scope enforcement intact.
-- [ ] 5.4 Add feature-flag rollback to the existing explicit-scope path.
-- [ ] 5.5 Run read-only production smoke/evaluation with explicit approval and no graph
-  mutation.
-- [ ] 5.6 Update relevant Phase 6/7 evidence only if the MCP contract or exposure surface
-  changes.
+- [x] 5.1 Add routing metrics and a reproducible report over the committed dataset
+  (`RoutingMetrics`, `evaluate_router`, `scripts/evaluate_namespace_routing.py`).
+- [x] 5.2 Keep routing metrics separate from retrieval/generation metrics (evaluator only
+  touches the routing dataset).
+- [x] 5.3 Expose the caller integration via `scripts/route_question.py` while MCP scope
+  enforcement stays intact and no MCP signature changes.
+- [x] 5.4 Add `router_enabled` / `router_telemetry_enabled` feature flags; default off keeps
+  the existing explicit-scope path.
+- [ ] 5.5 Production read-only smoke/evaluation: build the profile artifact on the Pi
+  (dry-run first) and run the routing evaluation; requires explicit human approval and
+  no graph mutation.
+- [ ] 5.6 Update Phase 6/7 evidence only if the MCP contract or exposure surface changes
+  (not applicable yet: the router is an external proposer, the MCP surface is unchanged).
+
+**Unit 5 note:** 1479 filtered tests, gates PASS. Deferred to an approved operational
+window: profile build against the Orange Pi graph and the routing evaluation/calibration
+run.
 
 ## ODD/RDD completion checklist
 
