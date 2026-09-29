@@ -61,7 +61,7 @@ class _FakeSession:
         elif "Entity" in query:
             records = [{"name": f"entity-{i}", "description": f"desc-{i}"} for i in range(2)]
         elif "CommunitySummary" in query:
-            records = [{"text": f"summary-{i}"} for i in range(1)]
+            records = [{"summary": f"summary-{i}"} for i in range(1)]
         else:
             records = [{"text": f"chunk-{params['source_id']}-{i}"} for i in range(3)]
         return _FakeResult(records)
@@ -194,3 +194,20 @@ async def test_entity_supplements_exclude_merged_entities(
 
     entity_query = next(query for query, _ in session.queries if "Entity" in query)
     assert "merged_into" in entity_query
+
+
+async def test_community_summaries_query_aliases_summary_key(
+    settings: Settings,
+) -> None:
+    session = _FakeSession()
+    adapter = Neo4jNamespaceProfileSource(
+        settings,
+        CatalogLoader(settings.catalog_path),
+        driver=_FakeDriver(session),
+    )
+
+    sources = await adapter.load_source_texts()
+
+    community_query = next(query for query, _ in session.queries if "CommunitySummary" in query)
+    assert "summary AS summary" in community_query
+    assert sources[0].community_summaries[0] == "summary-0"

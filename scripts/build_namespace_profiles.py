@@ -20,6 +20,7 @@ from book_graph_rag.application.build_namespace_profiles_use_case import (
     BuildNamespaceProfilesUseCase,
 )
 from book_graph_rag.config import Settings
+from book_graph_rag.domain.routing_models import NamespaceProfile
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader
 from book_graph_rag.infrastructure.json_namespace_profile_store import (
     JsonNamespaceProfileStore,
@@ -71,26 +72,31 @@ def build_namespace_profiles(
         sys.exit(1)
 
     catalog = CatalogLoader(settings.catalog_path).load()
-    source_adapter = Neo4jNamespaceProfileSource(settings, CatalogLoader(settings.catalog_path))
     embedding = SentenceTransformerAdapter(settings)
     store = JsonNamespaceProfileStore(output or settings.namespace_profile_store_path)
-    use_case = BuildNamespaceProfilesUseCase(
-        source_adapter,
-        embedding,
-        store,
-        model_id=model_id or settings.embedding_model_id,
-        profile_version=profile_version or settings.namespace_profile_version,
-        catalog_version=catalog_version or str(catalog.version),
-        graph_snapshot=graph_snapshot,
-    )
+
+    async def _build() -> tuple[NamespaceProfile, ...]:
+        """Create the driver inside the event loop so open/close share it."""
+        source_adapter = Neo4jNamespaceProfileSource(settings, CatalogLoader(settings.catalog_path))
+        use_case = BuildNamespaceProfilesUseCase(
+            source_adapter,
+            embedding,
+            store,
+            model_id=model_id or settings.embedding_model_id,
+            profile_version=profile_version or settings.namespace_profile_version,
+            catalog_version=catalog_version or str(catalog.version),
+            graph_snapshot=graph_snapshot,
+        )
+        try:
+            return await use_case.execute(dry_run=dry_run)
+        finally:
+            await source_adapter.close()
 
     try:
-        profiles = asyncio.run(use_case.execute(dry_run=dry_run))
+        profiles = asyncio.run(_build())
     except Exception as exc:  # noqa: BLE001
         click.echo(f"Profile build error: {exc}", err=True)
         sys.exit(2)
-    finally:
-        asyncio.run(_close(source_adapter))
 
     human = "dry-run" if dry_run else "wrote"
     click.echo(f"profiles built ({human}): {len(profiles)}")
@@ -101,10 +107,6 @@ def build_namespace_profiles(
         )
     if not dry_run:
         click.echo(f"artifact: {store.path}")
-
-
-async def _close(source: Neo4jNamespaceProfileSource) -> None:
-    await source.close()
 
 
 if __name__ == "__main__":

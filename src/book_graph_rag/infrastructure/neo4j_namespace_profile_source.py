@@ -125,6 +125,7 @@ class Neo4jNamespaceProfileSource(NamespaceProfileSourcePort):
                     session,
                     _CHUNK_TEXTS,
                     {"source_id": source_id, "cap": self._cap_chunk_texts},
+                    key="text",
                 )
                 entity_names, entity_descriptions = await self._collect_entities(
                     session,
@@ -135,6 +136,7 @@ class Neo4jNamespaceProfileSource(NamespaceProfileSourcePort):
                     session,
                     _COMMUNITY_SUPPLEMENTS,
                     {"prefix": prefix, "cap": self._cap_summaries},
+                    key="summary",
                 )
                 result.append(
                     NamespaceSourceTexts(
@@ -163,9 +165,11 @@ class Neo4jNamespaceProfileSource(NamespaceProfileSourcePort):
         session: Any,
         query: str,
         params: dict[str, Any],
+        *,
+        key: str,
     ) -> tuple[str, ...]:
         result = await session.run(query, params)
-        return tuple([record["text"] async for record in result])
+        return tuple([record[key] async for record in result])
 
     async def _collect_entities(
         self,
