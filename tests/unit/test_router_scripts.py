@@ -48,17 +48,16 @@ def test_evaluate_namespace_routing_help_exits_zero() -> None:
 
 
 def test_catalog_hints_are_deterministic() -> None:
-    module = _load_script("route_question")
-    settings = module.Settings.model_validate(
-        {
-            "neo4j_uri": "bolt://localhost:7687",
-            "neo4j_user": "neo4j",
-            "neo4j_password": "secret",
-            "catalog_path": str(_ROOT / "catalog.yaml"),
-        }
+    import yaml
+
+    from book_graph_rag.domain.namespaces import Catalog
+    from book_graph_rag.domain.routing_models import hints_from_catalog
+
+    catalog = Catalog.model_validate(
+        yaml.safe_load((_ROOT / "catalog.yaml").read_text(encoding="utf-8"))
     )
 
-    hints = module._catalog_hints(settings)
+    hints = hints_from_catalog(catalog)
 
     assert len(hints) == 3
     assert all(hint.terms for hint in hints)

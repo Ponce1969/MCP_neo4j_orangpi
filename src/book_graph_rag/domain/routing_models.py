@@ -17,9 +17,32 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from book_graph_rag.domain.namespaces import SourceNamespace
+from book_graph_rag.domain.namespaces import Catalog, SourceNamespace
 
 RouteKind = Literal["single", "multi", "abstain", "out_of_domain"]
+
+
+def hints_from_catalog(catalog: Catalog) -> tuple[LexicalHints, ...]:
+    """Derive cheap deterministic hint terms from the versioned catalog.
+
+    Terms come from the source slug, its human label, and the label stem
+    before any parenthetical qualifier.
+    """
+    hints: list[LexicalHints] = []
+    for corpus, corpus_data in catalog.corpora.items():
+        for source, source_data in corpus_data.sources.items():
+            if source_data.status != "active":
+                continue
+            terms = tuple(
+                dict.fromkeys((source, source_data.label, source_data.label.split("(")[0].strip()))
+            )
+            hints.append(
+                LexicalHints(
+                    namespace=SourceNamespace(corpus=corpus, source=source),
+                    terms=terms,
+                )
+            )
+    return tuple(hints)
 
 
 def route_cache_key(

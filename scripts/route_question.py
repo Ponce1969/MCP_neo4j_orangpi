@@ -18,8 +18,7 @@ import click
 
 from book_graph_rag.application.route_question_use_case import RouteQuestionUseCase
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.namespaces import SourceNamespace
-from book_graph_rag.domain.routing_models import LexicalHints, ResolvedRoute
+from book_graph_rag.domain.routing_models import ResolvedRoute, hints_from_catalog
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader
 from book_graph_rag.infrastructure.catalog_scope_resolver import CatalogScopeResolver
 from book_graph_rag.infrastructure.json_namespace_profile_reader import (
@@ -35,26 +34,6 @@ from book_graph_rag.infrastructure.sqlite_routing_telemetry import (
     SqliteRoutingTelemetryAdapter,
 )
 from book_graph_rag.ports.routing_telemetry_port import RoutingEvent
-
-
-def _catalog_hints(settings: Settings) -> tuple[LexicalHints, ...]:
-    """Derive cheap hints from the versioned catalog labels and slugs."""
-    catalog = CatalogLoader(settings.catalog_path).load()
-    hints: list[LexicalHints] = []
-    for corpus, corpus_data in catalog.corpora.items():
-        for source, source_data in corpus_data.sources.items():
-            if source_data.status != "active":
-                continue
-            terms = tuple(
-                dict.fromkeys((source, source_data.label, source_data.label.split("(")[0].strip()))
-            )
-            hints.append(
-                LexicalHints(
-                    namespace=SourceNamespace(corpus=corpus, source=source),
-                    terms=terms,
-                )
-            )
-    return tuple(hints)
 
 
 def _telemetry_event(
@@ -133,7 +112,7 @@ def route_question(question: str | None, telemetry: bool) -> None:
         ),
         resolver,
         model_id=settings.embedding_model_id,
-        lexical_hints=_catalog_hints(settings),
+        lexical_hints=hints_from_catalog(CatalogLoader(settings.catalog_path).load()),
     )
 
     questions = [question] if question else sys.stdin.read().splitlines()

@@ -22,6 +22,7 @@ from book_graph_rag.domain.routing_metrics import (
     EvaluationPrediction,
     RoutingLabel,
 )
+from book_graph_rag.domain.routing_models import hints_from_catalog
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader
 from book_graph_rag.infrastructure.catalog_scope_resolver import CatalogScopeResolver
 from book_graph_rag.infrastructure.json_namespace_profile_reader import (
@@ -33,7 +34,6 @@ from book_graph_rag.infrastructure.json_namespace_profile_store import (
 from book_graph_rag.infrastructure.sentence_transformer_adapter import (
     SentenceTransformerAdapter,
 )
-from scripts.route_question import _catalog_hints
 
 
 def _load_labels(dataset_path: Path) -> tuple[RoutingLabel, ...]:
@@ -104,7 +104,7 @@ def evaluate_namespace_routing(
         ),
         CatalogScopeResolver(CatalogLoader(settings.catalog_path)),
         model_id=settings.embedding_model_id,
-        lexical_hints=_catalog_hints(settings),
+        lexical_hints=hints_from_catalog(CatalogLoader(settings.catalog_path).load()),
     )
 
     try:
