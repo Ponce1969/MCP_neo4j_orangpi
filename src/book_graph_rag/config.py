@@ -186,6 +186,12 @@ class Settings(BaseSettings):
     ledger_genesis_sha256: str = "0" * 64
     allow_extra_embedding_model: bool = False
 
+    # ── Namespace question routing (router units) ──────────────────────────
+    # Local artifact for the read-only namespace centroid builder. The artifact
+    # never lives in Neo4j; the runtime router reads it from disk.
+    namespace_profile_store_path: Path = Path("data/router/namespace_profiles.json")
+    namespace_profile_version: str = "1.0.0"
+
     # ── Community summaries (REQ-GR.1) ────────────────────────────────────
     max_cluster_size: int = 10
     summary_max_concurrency: int = 3  # max concurrent LLM calls for summarization

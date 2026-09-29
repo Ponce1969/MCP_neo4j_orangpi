@@ -28,6 +28,11 @@ class JsonNamespaceProfileStore(NamespaceProfileStorePort):
     def __init__(self, path: Path) -> None:
         self._path = path
 
+    @property
+    def path(self) -> Path:
+        """Return the artifact path."""
+        return self._path
+
     async def save_all(self, profiles: tuple[NamespaceProfile, ...]) -> None:
         """Persist ``profiles`` atomically and deterministically."""
         payload = json.dumps(
