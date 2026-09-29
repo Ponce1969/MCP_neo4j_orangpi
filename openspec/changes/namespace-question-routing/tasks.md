@@ -63,14 +63,17 @@ filtered verification (1409 tests) and all repository gates pass.
 - [x] 2.5 Add deterministic fixture tests and a dry-run command.
 - [x] 2.6 Do not write profile nodes, embeddings, or indexes to Neo4j (adapter is MATCH-only; 1448 filtered tests; gates PASS).
 
-## Unit 3 — Runtime routing and fallback
+## Unit 3 — Runtime routing and fallback (commits `556d180`, `e9229e4`)
 
-- [ ] 3.1 Add `RouteQuestionUseCase` using lexical hints and local embeddings.
-- [ ] 3.2 Validate every selected namespace through `CatalogScopeResolver`.
-- [ ] 3.3 Implement score, margin, stale-profile, out-of-domain, and cross-book abstention.
-- [ ] 3.4 Preserve MCP `require_scope`; never silently issue an unscoped query.
-- [ ] 3.5 Add top-2/fan-out contract without changing existing MCP tool signatures.
-- [ ] 3.6 Test Spanish/English and ambiguous dataset cases.
+- [x] 3.1 Add `RouteQuestionUseCase` using lexical hints and local embeddings.
+- [x] 3.2 Validate every selected namespace through the scope-resolver contract; the
+  production `CatalogScopeResolver` is wired at integration time (Unit 5).
+- [x] 3.3 Implement score, margin, stale-profile, out-of-domain, and cross-book abstention.
+- [x] 3.4 Preserve MCP `require_scope`; the use case only proposes candidates and never
+  issues a query or changes MCP signatures.
+- [x] 3.5 Add top-2/fan-out contract via `ResolvedRoute.fanout_namespaces` (≤2 validated,
+  only on `low_margin`).
+- [x] 3.6 Test Spanish/English and ambiguous dataset cases (1458 filtered tests; gates PASS).
 
 ## Unit 4 — SQLite cache and telemetry
 
