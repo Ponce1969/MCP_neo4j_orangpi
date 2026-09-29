@@ -18,18 +18,9 @@ import click
 
 from book_graph_rag.application.route_question_use_case import RouteQuestionUseCase
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.routing_models import ResolvedRoute, hints_from_catalog
+from book_graph_rag.domain.routing_models import ResolvedRoute
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader
-from book_graph_rag.infrastructure.catalog_scope_resolver import CatalogScopeResolver
-from book_graph_rag.infrastructure.json_namespace_profile_reader import (
-    JsonNamespaceProfileReader,
-)
-from book_graph_rag.infrastructure.json_namespace_profile_store import (
-    JsonNamespaceProfileStore,
-)
-from book_graph_rag.infrastructure.sentence_transformer_adapter import (
-    SentenceTransformerAdapter,
-)
+from book_graph_rag.infrastructure.routing_caller import build_route_question_use_case
 from book_graph_rag.infrastructure.sqlite_routing_telemetry import (
     SqliteRoutingTelemetryAdapter,
 )
@@ -104,16 +95,7 @@ def route_question(question: str | None, telemetry: bool) -> None:
         click.echo(f"Configuration error: {exc}", err=True)
         sys.exit(1)
 
-    resolver = CatalogScopeResolver(CatalogLoader(settings.catalog_path))
-    use_case = RouteQuestionUseCase(
-        SentenceTransformerAdapter(settings),
-        JsonNamespaceProfileReader(
-            JsonNamespaceProfileStore(settings.namespace_profile_store_path)
-        ),
-        resolver,
-        model_id=settings.embedding_model_id,
-        lexical_hints=hints_from_catalog(CatalogLoader(settings.catalog_path).load()),
-    )
+    use_case = build_route_question_use_case(settings)
 
     questions = [question] if question else sys.stdin.read().splitlines()
     if not questions:
