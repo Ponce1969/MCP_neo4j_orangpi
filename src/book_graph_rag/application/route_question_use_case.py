@@ -54,11 +54,15 @@ class RouteQuestionUseCase:
 
     async def execute(self, question: str) -> ResolvedRoute:
         """Return the resolved route for ``question``, never fabricating scope."""
-        decision = decide_route(await self._score(question), self._thresholds)
+        decision = decide_route(await self.score_question(question), self._thresholds)
         return await self._validate(decision)
 
-    async def _score(self, question: str) -> tuple[ScoredCandidate, ...]:
-        """Score the question: lexical hints first, embedding fallback."""
+    async def score_question(self, question: str) -> tuple[ScoredCandidate, ...]:
+        """Score the question: lexical hints first, embedding fallback.
+
+        Exposed publicly so calibration can sweep thresholds over cached scores
+        without re-embedding.
+        """
         hints = match_lexical_hints(question, self._lexical_hints)
         if hints:
             return hints
