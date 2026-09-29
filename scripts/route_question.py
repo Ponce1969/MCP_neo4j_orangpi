@@ -9,7 +9,6 @@ server and its fail-closed scope requirements are untouched.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import sys
 import time
 from collections.abc import Sequence
@@ -18,40 +17,13 @@ import click
 
 from book_graph_rag.application.route_question_use_case import RouteQuestionUseCase
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.routing_models import ResolvedRoute
-from book_graph_rag.infrastructure.catalog_loader import CatalogLoader
-from book_graph_rag.infrastructure.routing_caller import build_route_question_use_case
+from book_graph_rag.infrastructure.routing_caller import (
+    build_route_question_use_case,
+    build_routing_event,
+)
 from book_graph_rag.infrastructure.sqlite_routing_telemetry import (
     SqliteRoutingTelemetryAdapter,
 )
-from book_graph_rag.ports.routing_telemetry_port import RoutingEvent
-
-
-def _telemetry_event(
-    question: str,
-    resolved: ResolvedRoute,
-    settings: Settings,
-    latency_ms: float,
-) -> RoutingEvent:
-    """Build a telemetry event; raw question text is replaced at caller wiring."""
-    return RoutingEvent(
-        # Deterministic placeholder fingerprint; the caller integration swaps
-        # this for the keyed HMAC fingerprint before production use.
-        query_fingerprint=hashlib.sha256(question.encode("utf-8")).hexdigest(),
-        predicted_namespace=(
-            resolved.validated_namespace.source_id
-            if resolved.validated_namespace is not None
-            else None
-        ),
-        score=resolved.decision.top_score,
-        margin=resolved.decision.margin,
-        route_kind=resolved.decision.route_kind,
-        model_id=settings.embedding_model_id,
-        profile_version=settings.namespace_profile_version,
-        catalog_version=str(CatalogLoader(settings.catalog_path).load().version),
-        graph_snapshot="",
-        latency_ms=latency_ms,
-    )
 
 
 async def _route_all(
@@ -79,7 +51,7 @@ async def _route_all(
         )
         if telemetry_adapter is not None:
             await telemetry_adapter.record_event(
-                _telemetry_event(text, resolved, settings, latency_ms)
+                build_routing_event(text, resolved, settings, latency_ms=latency_ms)
             )
     return 0
 

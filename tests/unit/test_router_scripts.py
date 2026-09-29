@@ -8,8 +8,14 @@ from types import ModuleType
 
 from click.testing import CliRunner
 
+from book_graph_rag.config import Settings
 from book_graph_rag.domain.namespaces import SourceNamespace
-from book_graph_rag.domain.routing_models import ResolvedRoute, RouteDecision
+from book_graph_rag.domain.routing_models import (
+    ResolvedRoute,
+    RouteDecision,
+    hmac_query_fingerprint,
+)
+from book_graph_rag.infrastructure.routing_caller import build_routing_event
 from book_graph_rag.ports.routing_telemetry_port import RoutingEvent
 
 _ROOT = Path(__file__).parents[2]
@@ -69,12 +75,12 @@ def test_catalog_hints_are_deterministic() -> None:
 
 
 def test_telemetry_event_build_is_shape_stable() -> None:
-    module = _load_script("route_question")
-    settings = module.Settings.model_validate(
+    settings = Settings.model_validate(
         {
             "neo4j_uri": "bolt://localhost:7687",
             "neo4j_user": "neo4j",
             "neo4j_password": "secret",
+            "router_telemetry_hmac_key": "test-secret",
             "catalog_path": str(_ROOT / "catalog.yaml"),
         }
     )
@@ -86,9 +92,15 @@ def test_telemetry_event_build_is_shape_stable() -> None:
         ),
     )
 
-    event = module._telemetry_event("question", resolved, settings, 12.5)
+    event = build_routing_event("question", resolved, settings, latency_ms=12.5)
 
     assert isinstance(event, RoutingEvent)
     assert event.predicted_namespace is None
     assert event.route_kind == "abstain"
     assert event.latency_ms == 12.5
+    assert event.query_fingerprint == hmac_query_fingerprint(
+        "question", key_id="router-telemetry-v1", secret="test-secret"
+    )
+    # The raw question text is never stored; only the keyed digest is kept.
+    assert event.raw_question is None
+    assert event.raw_answer is None

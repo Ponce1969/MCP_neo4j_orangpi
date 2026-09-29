@@ -197,6 +197,11 @@ class Settings(BaseSettings):
     # Separate opt-in telemetry; raw fields never flow to the MCP query log.
     router_telemetry_enabled: bool = False
     routing_telemetry_path: Path = Path("data/router/router_telemetry.db")
+    # Keyed HMAC for router telemetry fingerprints: raw questions are never
+    # stored and never hashed plainly. An empty key fails fast at caller
+    # composition while ``router_telemetry_enabled`` is on.
+    router_telemetry_hmac_key_id: str = "router-telemetry-v1"
+    router_telemetry_hmac_key: SecretStr = SecretStr("")
 
     # ── Community summaries (REQ-GR.1) ────────────────────────────────────
     max_cluster_size: int = 10

@@ -8,12 +8,21 @@ abstaining ``ResolvedRoute`` (never conflated with the off-flag ``None``).
 
 from __future__ import annotations
 
+import pytest
+
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.namespaces import SourceNamespace
-from book_graph_rag.domain.routing_models import ResolvedRoute, RouteDecision
+from book_graph_rag.domain.routing_models import (
+    ResolvedRoute,
+    RouteDecision,
+    hmac_query_fingerprint,
+)
 from book_graph_rag.infrastructure.routing_caller import (
     RoutingCaller,
+    RoutingTelemetryError,
     build_routing_caller,
+    build_routing_event,
+    fingerprint_query_for_telemetry,
 )
 from book_graph_rag.ports.routing_telemetry_port import (
     CacheEntry,
@@ -190,3 +199,84 @@ def test_build_routing_caller_flag_off_by_default() -> None:
     caller = build_routing_caller(settings)
 
     assert caller.enabled is False
+
+
+# ── telemetry fingerprinting (Unit B: keyed HMAC, no placeholders) ───────────
+
+
+def test_hmac_query_fingerprint_is_deterministic_and_keyed() -> None:
+    first = hmac_query_fingerprint("what is a tool?", key_id="router-telemetry-v1", secret="k1")
+    again = hmac_query_fingerprint("what is a tool?", key_id="router-telemetry-v1", secret="k1")
+    other_key = hmac_query_fingerprint("what is a tool?", key_id="router-telemetry-v1", secret="k2")
+    other_question = hmac_query_fingerprint(
+        "what is a memory?", key_id="router-telemetry-v1", secret="k1"
+    )
+
+    assert first == again
+    assert len(first) == 64
+    assert set(first) <= set("0123456789abcdef")
+    assert other_key != first
+    assert other_question != first
+
+
+def test_fingerprint_query_for_telemetry_fails_fast_without_key() -> None:
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+        }
+    )
+
+    with pytest.raises(RoutingTelemetryError):
+        fingerprint_query_for_telemetry("what is a tool?", settings)
+
+
+def test_build_routing_caller_fails_fast_when_telemetry_enabled_without_key() -> None:
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+            "router_telemetry_enabled": True,
+        }
+    )
+
+    with pytest.raises(RoutingTelemetryError):
+        build_routing_caller(settings)
+
+
+def test_build_routing_event_uses_keyed_fingerprint_and_never_raw_question() -> None:
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+            "router_telemetry_hmac_key": "very-secret",
+        }
+    )
+
+    event = build_routing_event("what is a tool?", _single_route(), settings, latency_ms=12.5)
+
+    expected = hmac_query_fingerprint(
+        "what is a tool?",
+        key_id="router-telemetry-v1",
+        secret="very-secret",
+    )
+    assert event.query_fingerprint == expected
+    assert "what is a tool?" not in event.model_dump_json()
+    assert event.predicted_namespace == "knowledge:essential-graphrag"
+    assert event.latency_ms == 12.5
+
+
+def test_build_routing_event_enforces_key_even_when_constructed_directly() -> None:
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+        }
+    )
+
+    with pytest.raises(RoutingTelemetryError):
+        build_routing_event("what is a tool?", _single_route(), settings, latency_ms=1.0)

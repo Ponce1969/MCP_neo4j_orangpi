@@ -9,6 +9,7 @@ SQLite, sentence-transformers, or infrastructure adapters.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import math
 from collections.abc import Sequence
@@ -43,6 +44,27 @@ def hints_from_catalog(catalog: Catalog) -> tuple[LexicalHints, ...]:
                 )
             )
     return tuple(hints)
+
+
+def hmac_query_fingerprint(
+    question: str,
+    *,
+    key_id: str,
+    secret: str | bytes,
+) -> str:
+    """Return a keyed HMAC-SHA256 fingerprint of ``question`` (hex digest).
+
+    The raw question is never stored and never hashed plainly; the keyed
+    digest lets telemetry correlate repeated questions without leaking text
+    or the key. A different key or key id yields a different digest.
+    """
+    key_bytes = secret.encode("utf-8") if isinstance(secret, str) else secret
+    canonical = json.dumps(
+        {"question": question, "key_id": key_id},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hmac.new(key_bytes, canonical.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def route_cache_key(

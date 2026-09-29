@@ -13,7 +13,11 @@ from typing import Protocol
 
 from book_graph_rag.application.route_question_use_case import RouteQuestionUseCase
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.routing_models import ResolvedRoute, hints_from_catalog
+from book_graph_rag.domain.routing_models import (
+    ResolvedRoute,
+    hints_from_catalog,
+    hmac_query_fingerprint,
+)
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader
 from book_graph_rag.infrastructure.catalog_scope_resolver import CatalogScopeResolver
 from book_graph_rag.infrastructure.json_namespace_profile_reader import (
@@ -28,7 +32,10 @@ from book_graph_rag.infrastructure.sentence_transformer_adapter import (
 from book_graph_rag.infrastructure.sqlite_routing_telemetry import (
     SqliteRoutingTelemetryAdapter,
 )
-from book_graph_rag.ports.routing_telemetry_port import RoutingTelemetryPort
+from book_graph_rag.ports.routing_telemetry_port import (
+    RoutingEvent,
+    RoutingTelemetryPort,
+)
 
 
 class RouteExecutor(Protocol):
@@ -59,8 +66,71 @@ def build_route_question_use_case(settings: Settings) -> RouteQuestionUseCase:
     )
 
 
+class RoutingTelemetryError(RuntimeError):
+    """Raised when router telemetry would record without a keyed fingerprint."""
+
+
+def fingerprint_query_for_telemetry(question: str, settings: Settings) -> str:
+    """Return the keyed HMAC fingerprint for a routing telemetry event.
+
+    Fails fast when ``router_telemetry_hmac_key`` is unset: the raw question
+    is never stored and never hashed plainly.
+    """
+    secret = settings.router_telemetry_hmac_key.get_secret_value()
+    if not secret:
+        raise RoutingTelemetryError(
+            "router_telemetry_hmac_key is empty or missing; refusing to record "
+            "routing telemetry without a keyed fingerprint (raw questions are "
+            "never stored plainly)."
+        )
+    return hmac_query_fingerprint(
+        question,
+        key_id=settings.router_telemetry_hmac_key_id,
+        secret=secret,
+    )
+
+
+def build_routing_event(
+    question: str,
+    resolved: ResolvedRoute,
+    settings: Settings,
+    *,
+    latency_ms: float,
+    graph_snapshot: str = "",
+) -> RoutingEvent:
+    """Build the keyed telemetry event for one routing decision."""
+    return RoutingEvent(
+        query_fingerprint=fingerprint_query_for_telemetry(question, settings),
+        predicted_namespace=(
+            resolved.validated_namespace.source_id
+            if resolved.validated_namespace is not None
+            else None
+        ),
+        score=resolved.decision.top_score,
+        margin=resolved.decision.margin,
+        route_kind=resolved.decision.route_kind,
+        model_id=settings.embedding_model_id,
+        profile_version=settings.namespace_profile_version,
+        catalog_version=str(CatalogLoader(settings.catalog_path).load().version),
+        graph_snapshot=graph_snapshot,
+        latency_ms=latency_ms,
+    )
+
+
 def build_routing_caller(settings: Settings) -> RoutingCaller:
-    """Compose the caller adapter; telemetry is opt-in via ``router_telemetry_enabled``."""
+    """Compose the caller adapter; telemetry is opt-in via ``router_telemetry_enabled``.
+
+    Raises:
+        RoutingTelemetryError: When telemetry is enabled without a configured
+            HMAC key (fail closed; raw questions are never logged plainly).
+    """
+    if settings.router_telemetry_enabled and not (
+        settings.router_telemetry_hmac_key.get_secret_value()
+    ):
+        raise RoutingTelemetryError(
+            "router_telemetry_enabled requires router_telemetry_hmac_key "
+            "(fail closed: routing telemetry fingerprints are keyed, never plain)."
+        )
     telemetry = (
         SqliteRoutingTelemetryAdapter(settings.routing_telemetry_path, enable_raw=False)
         if settings.router_telemetry_enabled
