@@ -46,13 +46,13 @@ alternate path. Native RDD remains blocked by issue #14 and is explicitly waived
 Unit 0. Pre-existing full-suite blockers are documented in the baseline note; the
 filtered verification (1409 tests) and all repository gates pass.
 
-## Unit 1 — Domain contracts and classifier
+## Unit 1 — Domain contracts and classifier (commit `8bf612d`)
 
-- [ ] 1.1 Add immutable domain models for profiles, candidates, and route decisions.
-- [ ] 1.2 Add pure cosine, score ordering, margin, and abstention policy functions.
-- [ ] 1.3 Add `NamespaceProfilePort` contract without infrastructure imports.
-- [ ] 1.4 Add behavior-first tests for dimensions, zero norms, ties, and thresholds.
-- [ ] 1.5 Verify architecture, Ruff, mypy, and full tests.
+- [x] 1.1 Add immutable domain models for profiles, candidates, and route decisions.
+- [x] 1.2 Add pure cosine, score ordering, margin, and abstention policy functions.
+- [x] 1.3 Add `NamespaceProfilePort` contract without infrastructure imports.
+- [x] 1.4 Add behavior-first tests for dimensions, zero norms, ties, and thresholds.
+- [x] 1.5 Verify architecture, Ruff, mypy, and full tests (1425 filtered tests; gates PASS).
 
 ## Unit 2 — Read-only profile builder
 
