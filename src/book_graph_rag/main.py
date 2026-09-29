@@ -538,9 +538,7 @@ def gate(
                 audit_target, sample_limit, scope=audit_scope
             )
             if name in {g.name for g in policy.readiness_gates}:
-                readiness_use_case = _build_readiness_gate_evaluator_use_case(
-                    settings, policy
-                )
+                readiness_use_case = _build_readiness_gate_evaluator_use_case(settings, policy)
                 return await readiness_use_case.execute(name, report, scope=scope)
             return GateEvaluatorUseCase(policy).evaluate(name, report)
         finally:
@@ -596,6 +594,7 @@ def _build_evaluate_command_use_case(settings: Settings) -> EvaluateCommandUseCa
         dataset_port=dataset_port,
         retrieval_port=retrieval_port,
         ragas_port=ragas_port,
+        baseline_port=baseline_port,
     )
 
     claim_port = LLMClaimValidator(settings)
@@ -648,6 +647,7 @@ def _build_readiness_gate_evaluator_use_case(
         dataset_port=dataset_port,
         retrieval_port=retrieval_port,
         ragas_port=ragas_port,
+        baseline_port=baseline_port,
     )
 
     claim_port = LLMClaimValidator(settings)
@@ -896,9 +896,7 @@ def resolve_entities(dry_run: bool) -> None:
             "quarantine_records": len(result.quarantine_records),
             "no_merge_candidates": len(result.no_merge_candidates),
             "total_pairs_evaluated": result.total_pairs_evaluated,
-            "merged_entities": sum(
-                len(g.duplicate_ids) for g in result.auto_merge_groups
-            ),
+            "merged_entities": sum(len(g.duplicate_ids) for g in result.auto_merge_groups),
         }
 
     try:

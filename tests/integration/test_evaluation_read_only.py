@@ -46,6 +46,9 @@ from book_graph_rag.domain.evaluation_models import (
     RequiredLayer,
 )
 from book_graph_rag.domain.gate_models import GatePolicy, ReadinessGate
+from book_graph_rag.infrastructure.evaluation_baseline_loader import (
+    JsonEvaluationBaselineLoader,
+)
 from book_graph_rag.infrastructure.evaluation_dataset_loader import (
     JsonlManifestEvaluationDatasetLoader,
 )
@@ -70,10 +73,12 @@ def _build_retrieval_layer(settings: Settings) -> EvaluateRetrievalLayerUseCase:
     dataset_port = JsonlManifestEvaluationDatasetLoader(settings.evaluation_manifest_path)
     ragas_port = StubRAGASRunner(Path("tests/fixtures/evaluation/ragas.json"))
     retrieval_port = Neo4jRetrievalAdapter(settings)
+    baseline_port = JsonEvaluationBaselineLoader(settings.evaluation_baseline_dir)
     return EvaluateRetrievalLayerUseCase(
         dataset_port=dataset_port,
         retrieval_port=retrieval_port,
         ragas_port=ragas_port,
+        baseline_port=baseline_port,
     )
 
 

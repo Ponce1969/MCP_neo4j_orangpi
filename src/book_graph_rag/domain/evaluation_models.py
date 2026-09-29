@@ -181,9 +181,7 @@ class DatasetManifestMismatch(Exception):  # noqa: N818
     """Raised when a dataset file sha256 does not match the manifest."""
 
     def __init__(self, dataset_id: str, expected: str, actual: str) -> None:
-        super().__init__(
-            f"{dataset_id}: hash mismatch: expected {expected}, got {actual}"
-        )
+        super().__init__(f"{dataset_id}: hash mismatch: expected {expected}, got {actual}")
         self.dataset_id = dataset_id
         self.expected = expected
         self.actual = actual
@@ -214,6 +212,7 @@ class EvaluationBaselineReport(BaseModel):
     hard_over_merge_max: float | None = None
     faithfulness_min: float | None = None
     pairwise_win_rate_min: float | None = None
+    precision_at_k_min: float | None = None
 
     @model_validator(mode="after")
     def _threshold_consistency(self) -> EvaluationBaselineReport:
@@ -225,9 +224,9 @@ class EvaluationBaselineReport(BaseModel):
                     "resolution baseline requires f1_min + hard_over_merge_max when finalized"
                 )
             if self.layer == "generation" and self.faithfulness_min is None:
-                raise ValueError(
-                    "generation baseline requires faithfulness_min when finalized"
-                )
+                raise ValueError("generation baseline requires faithfulness_min when finalized")
+            if self.layer == "retrieval" and self.precision_at_k_min is None:
+                raise ValueError("retrieval baseline requires precision_at_k_min when finalized")
         return self
 
 
@@ -359,9 +358,7 @@ class ReadinessGateResult(BaseModel):
     gate_version: str
     scope: str | None
     passed: bool
-    overall_state: Literal[
-        "passed", "violations", "incomplete", "unreachable", "failed"
-    ]
+    overall_state: Literal["passed", "violations", "incomplete", "unreachable", "failed"]
     exit_code: int
     rationale: str
     audit_gate_status: str

@@ -35,6 +35,24 @@ def test_unfinalized_baseline_loads_without_thresholds(tmp_path: Path) -> None:
     assert loaded.f1_min is None
 
 
+def test_retrieval_baseline_loads_with_precision_threshold(tmp_path: Path) -> None:
+    """A finalized retrieval baseline loads with its precision_at_k threshold."""
+    baseline = EvaluationBaselineReport(
+        layer="retrieval",
+        dataset_id="retrieval_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        precision_at_k_min=0.45,
+    )
+    path = tmp_path / "retrieval_baseline.json"
+    path.write_text(baseline.model_dump_json(), encoding="utf-8")
+    loader = JsonEvaluationBaselineLoader(tmp_path)
+    loaded = loader.load("retrieval")
+    assert loaded is not None
+    assert loaded.thresholds_finalized is True
+    assert loaded.precision_at_k_min == 0.45
+
+
 def test_finalized_resolution_requires_f1_min(tmp_path: Path) -> None:
     """A finalized resolution baseline must have f1_min and hard_over_merge_max."""
     bad = {
@@ -84,6 +102,7 @@ def test_layer_path_mapping(tmp_path: Path) -> None:
     loader = JsonEvaluationBaselineLoader(tmp_path)
     assert loader.load("resolution") is not None
     assert loader.load("generation") is not None
+
 
 def test_generation_baseline_finalized_loads() -> None:
     """The committed generation baseline loads with finalized thresholds."""

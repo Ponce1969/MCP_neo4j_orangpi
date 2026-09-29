@@ -12,5 +12,7 @@ class EvaluationBaselinePort(abc.ABC):
     """Load an EvaluationBaselineReport by layer (R9.1)."""
 
     @abc.abstractmethod
-    def load(self, layer: Literal["resolution", "generation"]) -> EvaluationBaselineReport | None:
+    def load(
+        self, layer: Literal["resolution", "generation", "retrieval"]
+    ) -> EvaluationBaselineReport | None:
         """Return the committed baseline for ``layer`` or None if absent (R4.3 → INCOMPLETE)."""

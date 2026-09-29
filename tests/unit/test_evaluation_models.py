@@ -152,6 +152,17 @@ def test_evaluation_baseline_finalized_resolution_requires_thresholds() -> None:
         )
 
 
+def test_evaluation_baseline_finalized_retrieval_requires_precision() -> None:
+    """Retrieval layer needs precision_at_k_min once finalized."""
+    with pytest.raises(ValidationError):
+        EvaluationBaselineReport(
+            layer="retrieval",
+            dataset_id="r",
+            dataset_sha256="0" * 64,
+            thresholds_finalized=True,
+        )
+
+
 def test_evaluation_baseline_finalized_generation_requires_faithfulness() -> None:
     """Generation layer needs faithfulness_min once finalized."""
     with pytest.raises(ValidationError):

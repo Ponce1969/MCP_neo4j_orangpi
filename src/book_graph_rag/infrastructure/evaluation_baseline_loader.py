@@ -21,7 +21,9 @@ class JsonEvaluationBaselineLoader(EvaluationBaselinePort):
     def __init__(self, baseline_dir: Path) -> None:
         self._baseline_dir = baseline_dir
 
-    def load(self, layer: Literal["resolution", "generation"]) -> EvaluationBaselineReport | None:
+    def load(
+        self, layer: Literal["resolution", "generation", "retrieval"]
+    ) -> EvaluationBaselineReport | None:
         filename = self._FILE_NAMES.get(layer)
         if filename is None:
             return None

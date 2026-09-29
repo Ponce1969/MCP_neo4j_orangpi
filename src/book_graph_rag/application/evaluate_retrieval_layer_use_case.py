@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from book_graph_rag.domain.evaluation_models import (
+    EvaluationBaselineReport,
     EvaluationDataset,
     EvaluationLayerResult,
     LayerMetricValue,
@@ -12,21 +13,29 @@ from book_graph_rag.domain.evaluation_models import (
     LayerStatus,
     RAGASSecondaryMetrics,
 )
+from book_graph_rag.ports.evaluation_baseline_port import EvaluationBaselinePort
 from book_graph_rag.ports.evaluation_dataset_port import EvaluationDatasetPort
 from book_graph_rag.ports.graph_retrieval_port import GraphRetrievalPort
 from book_graph_rag.ports.ragas_runner_port import RAGASRunnerPort
 
 
 class EvaluateRetrievalLayerUseCase:
-    """Run layer 4: informative retrieval metrics only; never blocks (R6.2)."""
+    """Run layer 4: informative retrieval metrics; never blocks (R6.2).
+
+    Informative means the status is never FAILED; the committed baseline still
+    participates through ``precision_at_k_min`` (mechanism-first: missing or
+    unfinalized baseline yields INCOMPLETE until a Phase 5 delta finalizes it).
+    """
 
     _PRECISION_WARNING_THRESHOLD: float = 0.5
+    _BASELINE_REPORT_PATH = "data/evaluation/retrieval_baseline.json"
 
     def __init__(
         self,
         dataset_port: EvaluationDatasetPort,
         retrieval_port: GraphRetrievalPort,
         ragas_port: RAGASRunnerPort,
+        baseline_port: EvaluationBaselinePort,
         *,
         run_id: str | None = None,
         code_commit: str = "",
@@ -34,6 +43,7 @@ class EvaluateRetrievalLayerUseCase:
         self._dataset_port = dataset_port
         self._retrieval_port = retrieval_port
         self._ragas_port = ragas_port
+        self._baseline_port = baseline_port
         self._run_id = run_id or uuid.uuid4().hex
         self._code_commit = code_commit
 
@@ -45,6 +55,28 @@ class EvaluateRetrievalLayerUseCase:
         run_ragas: bool = True,
     ) -> EvaluationLayerResult:
         """Evaluate layer 4 and return a WARNING-capable PASSED result."""
+        baseline = self._baseline_port.load("retrieval")
+        if baseline is None:
+            return self._result(
+                status=LayerStatus.INCOMPLETE,
+                rationale=(
+                    "retrieval baseline missing; mechanism-first INCOMPLETE until "
+                    "a committed baseline is finalized"
+                ),
+                precision=0.0,
+                ragas=None,
+                baseline=None,
+                warnings=(),
+            )
+        if not baseline.thresholds_finalized:
+            return self._result(
+                status=LayerStatus.INCOMPLETE,
+                rationale="retrieval thresholds not finalized",
+                precision=0.0,
+                ragas=None,
+                baseline=baseline,
+                warnings=(),
+            )
         try:
             dataset = self._dataset_port.load(dataset_id)
         except Exception as exc:  # noqa: BLE001
@@ -53,6 +85,7 @@ class EvaluateRetrievalLayerUseCase:
                 rationale=f"dataset load failed: {exc}",
                 precision=0.0,
                 ragas=None,
+                baseline=baseline,
             )
 
         precisions: list[float] = []
@@ -73,9 +106,7 @@ class EvaluateRetrievalLayerUseCase:
                 precisions.append(0.0)
                 continue
             matched = sum(
-                1
-                for ctx in contexts
-                if ctx.chunk_id is not None and ctx.chunk_id in reference_ids
+                1 for ctx in contexts if ctx.chunk_id is not None and ctx.chunk_id in reference_ids
             )
             precisions.append(matched / len(contexts))
 
@@ -85,6 +116,11 @@ class EvaluateRetrievalLayerUseCase:
         warnings: list[str] = []
         if precisions and precision < self._PRECISION_WARNING_THRESHOLD:
             warnings.append(f"low precision@k: {precision:.4f}")
+        threshold = baseline.precision_at_k_min
+        if threshold is not None and precision < threshold:
+            warnings.append(
+                f"retrieval precision below committed baseline threshold {threshold:.4f}"
+            )
         if ragas is not None:
             if not ragas.available:
                 if ragas.notes:
@@ -96,8 +132,7 @@ class EvaluateRetrievalLayerUseCase:
 
         if not precisions:
             rationale = (
-                f"no active (current) records"
-                f" (skipped {skipped_future} future-corpus records)"
+                f"no active (current) records (skipped {skipped_future} future-corpus records)"
             )
         else:
             rationale = f"retrieval layer informative (precision@k={precision:.4f})"
@@ -109,6 +144,7 @@ class EvaluateRetrievalLayerUseCase:
             rationale=rationale,
             precision=precision,
             ragas=ragas,
+            baseline=baseline,
             warnings=tuple(warnings),
         )
 
@@ -134,8 +170,13 @@ class EvaluateRetrievalLayerUseCase:
         rationale: str,
         precision: float,
         ragas: RAGASSecondaryMetrics | None,
+        baseline: EvaluationBaselineReport | None,
         warnings: tuple[str, ...] = (),
     ) -> EvaluationLayerResult:
+        threshold = baseline.precision_at_k_min if baseline is not None else None
+        model_ids: tuple[str, ...] = ()
+        if baseline is not None:
+            model_ids = baseline.model_ids
         return EvaluationLayerResult(
             layer="retrieval",
             status=status,
@@ -143,7 +184,7 @@ class EvaluateRetrievalLayerUseCase:
                 LayerMetricValue(
                     name="precision_at_k",
                     value=precision,
-                    threshold=None,
+                    threshold=threshold,
                     comparator=">=",
                 ),
             ),
@@ -151,9 +192,10 @@ class EvaluateRetrievalLayerUseCase:
             warnings=warnings,
             rationale=rationale,
             source_dataset_id="retrieval_dataset",
-            baseline_report_path=None,
+            baseline_report_path=self._BASELINE_REPORT_PATH if baseline is not None else None,
             run_metadata=LayerRunMetadata(
                 run_id=self._run_id,
-                code_commit=self._code_commit,
+                code_commit=self._code_commit or (baseline.code_commit if baseline else ""),
+                model_ids=model_ids,
             ),
         )
