@@ -54,14 +54,14 @@ filtered verification (1409 tests) and all repository gates pass.
 - [x] 1.4 Add behavior-first tests for dimensions, zero norms, ties, and thresholds.
 - [x] 1.5 Verify architecture, Ruff, mypy, and full tests (1425 filtered tests; gates PASS).
 
-## Unit 2 — Read-only profile builder
+## Unit 2 — Read-only profile builder (commits `82ca3aa`, `1f34f3b`, `59ccb0d`)
 
-- [ ] 2.1 Add a read port for namespace profile source documents.
-- [ ] 2.2 Implement a read-only Neo4j adapter using parameterized Cypher.
-- [ ] 2.3 Build profiles from chunks/TOC first; use entities/summaries only as supplements.
-- [ ] 2.4 Persist a local artifact with model/catalog/graph/profile metadata.
-- [ ] 2.5 Add deterministic fixture tests and a dry-run command.
-- [ ] 2.6 Do not write profile nodes, embeddings, or indexes to Neo4j.
+- [x] 2.1 Add a read port for namespace profile source documents.
+- [x] 2.2 Implement a read-only Neo4j adapter using parameterized Cypher (READ_ACCESS).
+- [x] 2.3 Build profiles from chunks/TOC first; use entities/summaries only as supplements.
+- [x] 2.4 Persist a local artifact with model/catalog/graph/profile metadata.
+- [x] 2.5 Add deterministic fixture tests and a dry-run command.
+- [x] 2.6 Do not write profile nodes, embeddings, or indexes to Neo4j (adapter is MATCH-only; 1448 filtered tests; gates PASS).
 
 ## Unit 3 — Runtime routing and fallback
 
