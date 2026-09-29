@@ -75,15 +75,16 @@ filtered verification (1409 tests) and all repository gates pass.
   only on `low_margin`).
 - [x] 3.6 Test Spanish/English and ambiguous dataset cases (1458 filtered tests; gates PASS).
 
-## Unit 4 — SQLite cache and telemetry
+## Unit 4 — SQLite cache and telemetry (commits `0b0a205`, `8b2634f`)
 
-- [ ] 4.1 Add `RoutingTelemetryPort` separate from `QueryLoggerPort`.
-- [ ] 4.2 Add SQLite adapter with parameterized SQL, WAL/busy timeout, and retention.
-- [ ] 4.3 Bind cache keys to query fingerprint, namespace, model/profile/catalog versions,
-  and graph snapshot.
-- [ ] 4.4 Keep raw query/answer storage opt-in and disabled by default.
-- [ ] 4.5 Add correction labels and prevent unlabeled events from becoming goldens.
-- [ ] 4.6 Add temporary-database tests, expiry tests, and concurrent-write tests.
+- [x] 4.1 Add `RoutingTelemetryPort` separate from `QueryLoggerPort`.
+- [x] 4.2 Add SQLite adapter with parameterized SQL, WAL/busy timeout, and retention.
+- [x] 4.3 Bind cache keys to query fingerprint, namespace, model/profile/catalog versions,
+  and graph snapshot (`route_cache_key`).
+- [x] 4.4 Keep raw query/answer storage opt-in and disabled by default.
+- [x] 4.5 Add correction labels and prevent unlabeled events from becoming goldens.
+- [x] 4.6 Add temporary-database tests, expiry tests, and concurrent-write tests
+  (1472 filtered tests; gates PASS).
 
 ## Unit 5 — Integration, evaluation, and rollout
 
