@@ -135,14 +135,16 @@ class ResolvedRoute(BaseModel):
 class RouteThresholds(BaseModel):
     """Calibration knobs for the abstention policy.
 
-    The initial values are provisional; Unit 3 calibrates them against the
-    committed routing dataset before runtime use.
+    Defaults were calibrated on the Orange Pi against the committed routing
+    dataset (2026-09-29): min_top_score=0.10, min_margin=0.05 give
+    single_accuracy 0.727, wrong_namespace_rate 0.0, abstention_rate 0.452
+    under full-book-average centroids. See docs/ops/namespace-routing-baseline.md.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    min_top_score: float = Field(default=0.45, ge=0.0, le=1.0)
-    min_margin: float = Field(default=0.10, ge=0.0, le=1.0)
+    min_top_score: float = Field(default=0.10, ge=0.0, le=1.0)
+    min_margin: float = Field(default=0.05, ge=0.0, le=1.0)
 
 
 class RouteDecision(BaseModel):

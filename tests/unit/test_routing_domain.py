@@ -280,8 +280,9 @@ def test_decide_route_low_top_score_abstains() -> None:
         ScoredCandidate(namespace=_ns("knowledge:book-a"), score=0.30),
         ScoredCandidate(namespace=_ns("knowledge:book-b"), score=0.20),
     )
+    thresholds = RouteThresholds(min_top_score=0.45, min_margin=0.10)
 
-    decision = decide_route(ranked, RouteThresholds())
+    decision = decide_route(ranked, thresholds)
 
     assert decision.route_kind == "abstain"
     assert decision.reason == "low_score"
@@ -293,8 +294,9 @@ def test_decide_route_low_margin_abstains() -> None:
         ScoredCandidate(namespace=_ns("knowledge:book-a"), score=0.80),
         ScoredCandidate(namespace=_ns("knowledge:book-b"), score=0.75),
     )
+    thresholds = RouteThresholds(min_top_score=0.45, min_margin=0.10)
 
-    decision = decide_route(ranked, RouteThresholds())
+    decision = decide_route(ranked, thresholds)
 
     assert decision.route_kind == "abstain"
     assert decision.reason == "low_margin"

@@ -110,6 +110,34 @@ review plus Ruff/mypy/architecture gates and filtered tests. This waiver is reco
 here and in `openspec/changes/namespace-question-routing/tasks.md`. Re-enable native RDD
 for Units 1-5 once issue #14 is resolved.
 
+## Calibration (Orange Pi, 2026-09-29)
+
+Built the first production profile artifact from the live graph:
+
+```text
+scripts/build_namespace_profiles.py --graph-snapshot pi-prod-2026-09-29
+→ 3 profiles, dim=384, model=paraphrase-multilingual-MiniLM-L12-v2
+artifact: data/router/namespace_profiles.json (mode 600)
+```
+
+Threshold sweep over the committed dataset with real profiles and embeddings:
+
+```text
+scripts/calibrate_namespace_routing.py --max-wrong-rate 0.0
+```
+
+| Threshold (top / margin) | accuracy | wrong | abstention | multi |
+|--------------------------|----------|-------|------------|-------|
+| 0.10 / 0.00 | 0.909 | 0.091 | 0.194 | 0.000 |
+| **0.10 / 0.05 (selected)** | **0.727** | **0.000** | **0.452** | **0.667** |
+| 0.45 / 0.10 (initial defaults) | 0.227 | 0.000 | 0.806 | 0.667 |
+
+Selected defaults: `RouteThresholds(min_top_score=0.10, min_margin=0.05)`.
+
+The full-book-average centroid is intentionally conservative; finer per-chapter
+profiles are a future improvement and would raise coverage without forcing
+wrong routes.
+
 ## Next step
 
 Unit 0 is complete on 
