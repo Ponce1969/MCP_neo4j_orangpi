@@ -1,7 +1,11 @@
 # Spec: Namespace Question Routing
 
 **Change:** `namespace-question-routing`
-**Status:** Unit 0 approved and in progress; Units 1-5 are target requirements.
+**Status:** IMPLEMENTED and ARCHIVED (2026-09-29) — Units 0-5 delivered on `main`
+(`b8d6d22..0673c52`), calibrated thresholds `min_top_score=0.10 / min_margin=0.05`,
+deployed to the Orange Pi (`0673c52`) and smoke-verified read-only. Caller
+integration (Units A/B) included: `routing_caller.route_for_caller`, keyed HMAC
+telemetry. Evidence: `archive-report.md`, `verify-report.md`.
 **Store:** OpenSpec (`openspec/changes/namespace-question-routing/`)
 **Technical register:** English; RFC 2119 keywords; GIVEN/WHEN/THEN scenarios.
 

@@ -1,7 +1,7 @@
 # Tasks: Namespace Question Routing
 
 **Decision:** Approved by maintainer for Units 0-5.
-**Current phase:** Unit 0.
+**Current phase:** Archived (2026-09-29).
 **Delivery strategy:** Chained work-unit commits; keep each review candidate below the 400-line budget. Unit 0 is split into 0A/0B/0C because the complete authored scope is approximately 848 lines.
 
 **Review gate (documented waiver, 2026-09-29):** the native RDD reviewer stalls on the
@@ -96,22 +96,44 @@ filtered verification (1409 tests) and all repository gates pass.
   enforcement stays intact and no MCP signature changes.
 - [x] 5.4 Add `router_enabled` / `router_telemetry_enabled` feature flags; default off keeps
   the existing explicit-scope path.
-- [ ] 5.5 Production read-only smoke/evaluation: build the profile artifact on the Pi
-  (dry-run first) and run the routing evaluation; requires explicit human approval and
-  no graph mutation.
-- [ ] 5.6 Update Phase 6/7 evidence only if the MCP contract or exposure surface changes
-  (not applicable yet: the router is an external proposer, the MCP surface is unchanged).
+- [x] 5.5 Production read-only smoke/evaluation (executed 2026-09-29 in an approved
+  window): profile artifact built on the Pi (`data/router/namespace_profiles.json`,
+  snapshot `pi-prod-2026-09-29`, 3 profiles dim=384), threshold calibration selected
+  `RouteThresholds(min_top_score=0.10, min_margin=0.05)` (accuracy 0.727, wrong 0.0,
+  abstention 0.452, multi containment 0.667), caller integration smoke green
+  (flag-off → `None`, fail-closed telemetry, flag-on single/abstain routes).
+  No graph mutation: parameterized MATCH reads and local artifact writes only.
+- [x] 5.6 N/A — the MCP contract and exposure surface are unchanged; the router is an
+  external proposer. No Phase 6/7 evidence update is required (recorded 2026-09-29).
 
-**Unit 5 note:** 1479 filtered tests, gates PASS. Deferred to an approved operational
-window: profile build against the Orange Pi graph and the routing evaluation/calibration
-run.
+**Unit 5 note:** 1479 filtered tests, gates PASS. The deferred operational window
+(profile build dry-run → real build → evaluation → calibration → caller smoke) was
+completed 2026-09-29 on the Orange Pi and is recorded in `verify-report.md`.
 
-## ODD/RDD completion checklist
+## ODD/RDD completion checklist (reconciled 2026-09-29)
 
-- [ ] One clear work-unit commit per completed unit.
-- [ ] Tests and evidence live with the behavior they verify.
-- [ ] Changed-line forecast stays below 400 per review candidate, or is explicitly chained.
-- [ ] Review receipt is bound to the exact candidate and scope.
-- [ ] Independent read-only validation passes.
-- [ ] Delivery remains ordinary repository policy; review evidence never grants delivery
-  authority.
+- [x] One clear work-unit commit per completed unit (see commit list in
+  `archive-report.md`; each unit has its authored commit + a docs marker commit).
+- [x] Tests and evidence live with the behavior they verify (behavior tests shipped with
+  every unit; verification records in `verify-report.md`).
+- [x] Changed-line forecast stays below 400 per review candidate, or is explicitly
+  chained (Unit 0 split 0A/0B/0C; every authored slice under its 400-line budget).
+- [x] Review receipt is bound to the exact candidate and scope — **waived** by
+  documented alternate path: native RDD is blocked by issue #14 (upstream #4968); the
+  maintainer authorized full-diff review + Ruff/mypy/architecture gates + filtered
+  tests for every unit (see Unit 0 waiver note above).
+- [x] Independent read-only validation passes (full suite 1537 filtered tests at
+  closure; gates PASS; live read-only smoke on the Orange Pi 2026-09-29).
+- [x] Delivery remains ordinary repository policy; review evidence never grants delivery
+  authority (pushes to origin were explicit maintainer approvals).
+
+## Change closure
+
+- Delivered on `main` in range `b8d6d22..0673c52` (Units 0-5 + calibration window +
+  caller integration Units A/B), pushed to `origin` (`77b171e..0673c52`) on
+  2026-09-29; production clone on the Orange Pi at `0673c52` after `git pull --ff-only`.
+- Production smoke read-only executed 2026-09-29 on the Orange Pi; evidence in
+  `verify-report.md`; operational details in `docs/ops/namespace-routing-baseline.md`
+  and `docs/ops/namespace-routing-caller-integration.md`.
+- Native RDD remains disabled clone-wide pending upstream fix (issue #14 / #4968);
+  re-enable with `gentle-ai review mode enable --cwd . --scope clone` when fixed.
