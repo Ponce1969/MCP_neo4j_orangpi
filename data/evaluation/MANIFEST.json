@@ -27,6 +27,15 @@
       "provenance": "Slice A hand-crafted retrieval questions with reference context ids",
       "model_id": "",
       "record_count": 20
+    },
+    {
+      "id": "namespace_routing_dataset",
+      "schema_version": "1.0.0",
+      "file": "namespace_routing_dataset.jsonl",
+      "sha256": "a3b5c8d8f706caa41c6d607a070f55ba3e66555e36f7f6277525c76a82bd8ab9",
+      "provenance": "Unit 0 hand-curated namespace-routing labels across the three production book namespaces",
+      "model_id": "",
+      "record_count": 31
     }
   ]
 }

@@ -10,6 +10,7 @@ This directory contains committed, versioned evaluation artifacts for the
 | `MANIFEST.json` | Catalog of every dataset with sha256, provenance, and model id. |
 | `generation_dataset.jsonl` | Generation-layer questions with reference answers. |
 | `retrieval_dataset.jsonl` | Retrieval-layer questions with reference context ids. |
+| `namespace_routing_dataset.jsonl` | Unit 0 namespace-routing labels for single-book, multi-book, ambiguous, and out-of-domain questions. |
 | `resolution_baseline.json` | Measured layer-3 baseline (F1, over-merge). |
 | `generation_baseline.json` | Reserved for layer-5 baseline (committed in Slice B). |
 
