@@ -322,7 +322,7 @@ def test_serve_passes_configured_bind_host(
 
     assert result.exit_code == 0, result.output
     fake_adapters["server_adapter"].run_sse_mock.assert_awaited_once_with(
-        host="100.106.85.109",
+        host="100.106.85.109",  # no-external-endpoints-allow
         port=8003,
         access_token=None,  # no-external-endpoints-allow
     )
