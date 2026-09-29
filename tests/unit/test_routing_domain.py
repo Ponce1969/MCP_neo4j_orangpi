@@ -17,6 +17,7 @@ from book_graph_rag.domain.routing_models import (
     match_lexical_hints,
     mean_normalized,
     normalize_vector,
+    route_cache_key,
     score_against_profiles,
 )
 
@@ -61,6 +62,61 @@ def test_cosine_zero_norm_returns_zero_not_nan() -> None:
 def test_cosine_dimension_mismatch_raises() -> None:
     with pytest.raises(ValueError, match="same dimension"):
         cosine_similarity((1.0,), (1.0, 2.0))
+
+
+# ── cache key derivation ────────────────────────────────────────────────────
+
+
+def test_route_cache_key_is_deterministic() -> None:
+    key_a = route_cache_key(
+        "fp-1",
+        namespace="knowledge:book-a",
+        model_id="m",
+        profile_version="1.0.0",
+        catalog_version="1",
+        graph_snapshot="s",
+    )
+    key_b = route_cache_key(
+        "fp-1",
+        namespace="knowledge:book-a",
+        model_id="m",
+        profile_version="1.0.0",
+        catalog_version="1",
+        graph_snapshot="s",
+    )
+
+    assert key_a == key_b
+    assert len(key_a) == 64
+
+
+def test_route_cache_key_binds_every_dimension() -> None:
+    key_fingerprint = route_cache_key(
+        "fp-1",
+        namespace="knowledge:book-a",
+        model_id="m",
+        profile_version="1.0.0",
+        catalog_version="1",
+        graph_snapshot="s",
+    )
+    key_snapshot = route_cache_key(
+        "fp-1",
+        namespace="knowledge:book-a",
+        model_id="m",
+        profile_version="1.0.0",
+        catalog_version="1",
+        graph_snapshot="s2",
+    )
+    key_namespace = route_cache_key(
+        "fp-1",
+        namespace=None,
+        model_id="m",
+        profile_version="1.0.0",
+        catalog_version="1",
+        graph_snapshot="s",
+    )
+
+    assert key_fingerprint != key_snapshot
+    assert key_fingerprint != key_namespace
 
 
 # ── lexical hints ────────────────────────────────────────────────────────────

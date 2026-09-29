@@ -8,6 +8,8 @@ SQLite, sentence-transformers, or infrastructure adapters.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -18,6 +20,35 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from book_graph_rag.domain.namespaces import SourceNamespace
 
 RouteKind = Literal["single", "multi", "abstain", "out_of_domain"]
+
+
+def route_cache_key(
+    question_fingerprint: str,
+    *,
+    namespace: str | None,
+    model_id: str,
+    profile_version: str,
+    catalog_version: str,
+    graph_snapshot: str,
+) -> str:
+    """Derive a canonical cache key from every routing-relevant dimension.
+
+    A change in model, profile, catalog, or graph snapshot invalidates the key
+    so a stale routing decision can never be served by cache.
+    """
+    payload = json.dumps(
+        {
+            "question_fingerprint": question_fingerprint,
+            "namespace": namespace,
+            "model_id": model_id,
+            "profile_version": profile_version,
+            "catalog_version": catalog_version,
+            "graph_snapshot": graph_snapshot,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class NamespaceProfile(BaseModel):
