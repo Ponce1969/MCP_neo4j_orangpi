@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "layer": "retrieval",
+  "dataset_id": "retrieval_dataset",
+  "dataset_sha256": "7a7a0a16cbb21cae6d27ec5f2fd10957ada570a7c902e00f53cf6a598dbbb180",
+  "committed_at": "2026-09-30T00:31:00Z",
+  "code_commit": "3605e33",
+  "model_ids": [
+    "paraphrase-multilingual-MiniLM-L12-v2"
+  ],
+  "metrics": {
+    "precision_at_k": 0.04778474215496958
+  },
+  "thresholds_finalized": true,
+  "precision_at_k_min": 0.045
+}
