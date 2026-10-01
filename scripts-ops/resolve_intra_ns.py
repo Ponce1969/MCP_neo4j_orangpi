@@ -91,11 +91,13 @@ RETURN did AS id,
        size([(d)-[r:RELATED]-() | r]) AS related_edges
 """
 
-# Aristas RELATED entre dos miembros del MISMO grupo (name+type iguales):
-# son las que el merge convertiria en self-loop sobre el canonical.
+# Aristas RELATED entre dos miembros ACTIVOS del MISMO grupo (name+type iguales):
+# son las que el merge convertiria en self-loop o en arista hacia un soft-deleted.
 _INTRA_GROUP_RELATED_QUERY = """
 MATCH (a:Entity)-[r:RELATED]->(b:Entity)
 WHERE a.id STARTS WITH $prefix AND b.id STARTS WITH $prefix AND a.id < b.id
+  AND (a.merged_into IS NULL OR a.merged_into = '')
+  AND (b.merged_into IS NULL OR b.merged_into = '')
   AND a.name = b.name AND a.type = b.type
 RETURN count(r) AS c
 """
@@ -282,7 +284,7 @@ async def main() -> None:
             impact = await _edge_impact(session, duplicates)
             intra_group = await _intra_group_related(session, prefix)
             _print_plan(plan, impact)
-            print(f"  RELATED intra-grupo (quedarian como self-loop): {intra_group}")
+            print(f"  RELATED intra-grupo (quedarian como self-loop o soft-deleted): {intra_group}")
 
             if not args.apply:
                 print("\n== DRY-RUN: nada mutado ==")
