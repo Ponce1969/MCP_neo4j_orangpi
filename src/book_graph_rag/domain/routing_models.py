@@ -157,10 +157,13 @@ class ResolvedRoute(BaseModel):
 class RouteThresholds(BaseModel):
     """Calibration knobs for the abstention policy.
 
-    Defaults were calibrated on the Orange Pi against the committed routing
-    dataset (2026-09-29): min_top_score=0.10, min_margin=0.05 give
-    single_accuracy 0.727, wrong_namespace_rate 0.0, abstention_rate 0.452
-    under full-book-average centroids. See docs/ops/namespace-routing-baseline.md.
+    Defaults were re-calibrated on the Orange Pi against the committed routing
+    dataset once the fourth namespace existed (2026-10-01): min_top_score=0.10,
+    min_margin=0.05 give single_accuracy 0.682, wrong_namespace_rate 0.0,
+    abstention_rate 0.484 under full-book-average centroids. The three-namespace
+    run (2026-09-29) recommended the same pair with single_accuracy 0.727 and
+    abstention_rate 0.452, so the numeric defaults did not change.
+    See docs/ops/namespace-routing-baseline.md.
     """
 
     model_config = ConfigDict(frozen=True)

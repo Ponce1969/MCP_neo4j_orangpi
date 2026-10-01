@@ -15,6 +15,9 @@ the Orange Pi:
   - `knowledge:agentic-architectural-patterns`
   - `knowledge:graphrag-agentic`
   - `knowledge:essential-graphrag`
+- Completed on 2026-10-01, a fourth namespace is indexed and resolved:
+  - `knowledge:ai-engineering-huyen` (989 chunks, 10 chapters, 125 sections,
+    354 intra-namespace merges folded, scoped and global audits `passed 0/0/0`)
 - Global and namespace-scoped audits report `0/0/0` findings.
 - Community summaries and cross-namespace resolution are complete.
 - The MCP service is deployed on the Tailscale address with bearer authentication.
@@ -137,6 +140,42 @@ Selected defaults: `RouteThresholds(min_top_score=0.10, min_margin=0.05)`.
 The full-book-average centroid is intentionally conservative; finer per-chapter
 profiles are a future improvement and would raise coverage without forcing
 wrong routes.
+
+## Recalibration (Orange Pi, 2026-10-01, four namespaces)
+
+Rebuilt the artifact once the fourth namespace existed:
+
+```text
+scripts/build_namespace_profiles.py --graph-snapshot pi-prod-2026-10-01
+→ 4 profiles (agentic-architectural-patterns, ai-engineering-huyen,
+  essential-graphrag, graphrag-agentic), dim=384,
+  model=paraphrase-multilingual-MiniLM-L12-v2
+artifact: data/router/namespace_profiles.json (Pi-local, untracked)
+```
+
+Sweep over the same committed dataset with the four-source artifact:
+
+```text
+scripts/calibrate_namespace_routing.py --json-only
+→ swept 84 threshold combinations over 31 labels
+```
+
+| Threshold (top / margin) | accuracy | wrong | abstention | multi |
+|--------------------------|----------|-------|------------|-------|
+| **0.10 / 0.05 (selected again)** | **0.682** | **0.000** | **0.484** | **0.667** |
+| 0.10 / 0.00 | 0.909 | 0.091 | 0.194 | 0.000 |
+| 0.45 / 0.10 | 0.227 | 0.000 | 0.806 | 0.667 |
+
+`0.10 / 0.05` stays the recommended pair (`wrong_namespace_rate = 0.0`), so the
+code defaults in `domain/routing_models.py` are unchanged. Accuracy drops
+0.727 → 0.682 and abstention rises 0.452 → 0.484 relative to the three-namespace
+run: the fourth centroid competes for the same questions and lowers top scores.
+
+**Coverage limitation (explicit, not hidden):** the committed dataset has 31
+labels and **none for `knowledge:ai-engineering-huyen`** (10 +
+10 + 9 across the other three, plus out-of-domain). The recalibration therefore
+measures how the fourth candidate perturbs existing decisions; it does not
+measure quality *on* the new namespace. Extending the dataset is a follow-up.
 
 ## Next step
 
