@@ -7,6 +7,7 @@ are replaced with deterministic fakes so the suite remains a true unit test.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -320,3 +321,107 @@ def test_force_reprocess_required_for_processed_replay_targets(
         ],
     )
     assert result.exit_code == 0, result.output
+
+
+# ── Single event loop for execute + close (REQ-RESUME-LIFECYCLE) ────────────
+
+
+def test_backfill_runs_execute_and_close_in_one_event_loop(
+    tmp_path: Path,
+    fake_settings: Any,
+    fake_adapters: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CLI must await execute and close inside a single ``asyncio.run``.
+
+    Regression: the command used two sequential ``asyncio.run`` calls (execute,
+    then close).  The adapters create their Neo4j driver eagerly, so ``close()``
+    ran on a second, freshly-created event loop and the real driver raised
+    "Event loop is closed" (exit 3) before the report was printed.
+    """
+    loops: dict[str, asyncio.AbstractEventLoop] = {}
+
+    class LoopRecordingBackfillUseCase:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+        async def execute(
+            self,
+            source_id: str,
+            *,
+            apply: bool = False,
+            approval_path: Path | None = None,
+        ) -> Any:
+            loops["execute"] = asyncio.get_running_loop()
+            return type(
+                "Report",
+                (),
+                {"model_dump_json": lambda self, **_: '{"processed_count": 7}'},
+            )()
+
+        async def close(self) -> None:
+            loops["close"] = asyncio.get_running_loop()
+
+    monkeypatch.setattr(
+        "book_graph_rag.main.BackfillCheckpointsUseCase",
+        LoopRecordingBackfillUseCase,
+        raising=False,
+    )
+
+    pdf = _make_pdf(tmp_path)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "index",
+            str(pdf),
+            "--backfill-checkpoints",
+            "--source-id",
+            "corpus:source",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert loops["execute"] is loops["close"]
+    assert "processed_count" in result.output
+
+
+def test_replay_runs_execute_and_close_in_one_event_loop(
+    tmp_path: Path,
+    fake_settings: Any,
+    fake_adapters: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--replay-dead-letter`` shares the same single-loop lifecycle."""
+    loops: dict[str, asyncio.AbstractEventLoop] = {}
+
+    class LoopRecordingReplayUseCase:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+        async def execute(
+            self,
+            source_id: str | None = None,
+            limit: int | None = None,
+            force_reprocess: bool = False,
+        ) -> int:
+            loops["execute"] = asyncio.get_running_loop()
+            return 3
+
+        async def close(self) -> None:
+            loops["close"] = asyncio.get_running_loop()
+
+    monkeypatch.setattr(
+        "book_graph_rag.main.ReplayDeadLetterUseCase",
+        LoopRecordingReplayUseCase,
+        raising=False,
+    )
+
+    pdf = _make_pdf(tmp_path)
+    result = CliRunner().invoke(
+        cli, ["index", str(pdf), "--replay-dead-letter", "--source-id", "corpus:source"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert loops["execute"] is loops["close"]
+    assert "Replayed 3" in result.output

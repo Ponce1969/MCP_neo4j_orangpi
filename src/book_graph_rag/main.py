@@ -316,17 +316,18 @@ def index(
             max_attempts=getattr(settings, "checkpoint_max_attempts", 3),
         )
 
-        try:
+        async def _run_replay() -> int:
             try:
-                processed = asyncio.run(
-                    replay_use_case.execute(
-                        source_id=effective_source_id,
-                        limit=command.limit,
-                        force_reprocess=command.force_reprocess,
-                    )
+                return await replay_use_case.execute(
+                    source_id=effective_source_id,
+                    limit=command.limit,
+                    force_reprocess=command.force_reprocess,
                 )
             finally:
-                asyncio.run(replay_use_case.close())
+                await replay_use_case.close()
+
+        try:
+            processed = asyncio.run(_run_replay())
         except Exception as exc:  # noqa: BLE001
             click.echo(f"Replay error: {exc}", err=True)
             sys.exit(3)
@@ -347,17 +348,18 @@ def index(
             run_id=f"cli-{uuid4().hex[:12]}",
         )
 
-        try:
+        async def _run_backfill() -> Any:
             try:
-                report = asyncio.run(
-                    backfill_use_case.execute(
-                        effective_source_id,
-                        apply=not command.dry_run,
-                        approval_path=approval_path,
-                    )
+                return await backfill_use_case.execute(
+                    effective_source_id,
+                    apply=not command.dry_run,
+                    approval_path=approval_path,
                 )
             finally:
-                asyncio.run(backfill_use_case.close())
+                await backfill_use_case.close()
+
+        try:
+            report = asyncio.run(_run_backfill())
         except Exception as exc:  # noqa: BLE001
             click.echo(f"Backfill error: {exc}", err=True)
             sys.exit(3)
