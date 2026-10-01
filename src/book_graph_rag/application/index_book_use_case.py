@@ -28,6 +28,7 @@ from book_graph_rag.domain.checkpoint_models import (
     VersionDimensions,
 )
 from book_graph_rag.domain.models import Entity, KnowledgeGraphChunk, Relationship
+from book_graph_rag.domain.provenance import resolve_chunk_provenance
 from book_graph_rag.ports.checkpoint_port import CheckpointPort
 from book_graph_rag.ports.dead_letter_port import DeadLetterPort
 from book_graph_rag.ports.graph_db_port import GraphDatabasePort
@@ -326,21 +327,12 @@ class IndexBookUseCase:
                 await self._graph_db_port.upsert_editorial_structure(chunk.chapter, sections, chunk)
 
             book_id = chunk.book.id if chunk.book is not None else None
-            entity_ids = [entity.id for entity in chunk.entities]
+            resolved = resolve_chunk_provenance(chunk)
+            entity_ids = [entity.id for entity in resolved.entities]
             chunk_provenance.append((chunk.chunk_index, book_id, entity_ids))
 
-            all_entities.extend(chunk.entities)
-            all_relationships.extend(
-                rel.model_copy(
-                    update={
-                        "chunk_index": chunk.chunk_index,
-                        "source_page": (
-                            rel.source_page if rel.source_page is not None else chunk.page_ref.start
-                        ),
-                    }
-                )
-                for rel in chunk.relationships
-            )
+            all_entities.extend(resolved.entities)
+            all_relationships.extend(resolved.relationships)
 
         await self._graph_db_port.upsert_entities(all_entities)
         await self._graph_db_port.upsert_relationships(all_relationships)

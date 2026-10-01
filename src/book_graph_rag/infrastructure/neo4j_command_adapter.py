@@ -21,6 +21,7 @@ from book_graph_rag.domain.models import (
     Relationship,
     Section,
 )
+from book_graph_rag.domain.provenance import resolve_chunk_provenance
 from book_graph_rag.infrastructure.dead_letter import JSONLDeadLetter
 from book_graph_rag.ports.dead_letter_port import DeadLetterPort
 from book_graph_rag.ports.graph_db_port import GraphDatabasePort
@@ -87,7 +88,7 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                 SET n.name = e.name,
                     n.type = e.type,
                     n.description = e.description,
-                    n.source_page = e.source_page,
+                    n.source_page = coalesce(n.source_page, e.source_page),
                     n.aliases = e.aliases,
                     n.canonical_name = e.canonical_name
                 """,
@@ -170,8 +171,8 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                           (dst:Entity {id: r.target_entity_id})
                     MERGE (src)-[rel:RELATED {type: r.type}]->(dst)
                     SET rel.description = r.description,
-                        rel.source_page = r.source_page,
-                        rel.chunk_index = r.chunk_index
+                        rel.source_page = coalesce(rel.source_page, r.source_page),
+                        rel.chunk_index = coalesce(rel.chunk_index, r.chunk_index)
                     """,
                     {"rels": [rel.model_dump() for rel in valid_relationships]},
                 )
@@ -193,7 +194,8 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                 WHERE ($book_id IS NULL AND c.book_id IS NULL) OR c.book_id = $book_id
                 MATCH (e:Entity {id: eid})
                 MERGE (c)-[m:MENTIONS]->(e)
-                SET m.source_page = coalesce(m.source_page, e.source_page)
+                SET m.source_page = coalesce(m.source_page, e.source_page),
+                    m.chunk_index = coalesce(m.chunk_index, $chunk_index)
                 """,
                 {
                     "chunk_index": chunk_index,
@@ -353,6 +355,9 @@ class Neo4jCommandAdapter(GraphDatabasePort):
             raise ValueError("commit_chunk_atomic requires a chunk with a Book")
         book = chunk.book
         source_id = book.id
+        # Provenance contract (spec 04): nothing is persisted without a source
+        # page / chunk index, even when the LLM omitted them.
+        resolved = resolve_chunk_provenance(chunk)
 
         async def _tx(tx: Any) -> tuple[Checkpoint, list[dict[str, Any]]]:
             assert chunk.book is not None
@@ -457,7 +462,7 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                     )
 
             # 3. Entities.
-            if chunk.entities:
+            if resolved.entities:
                 await tx.run(
                     """
                     UNWIND $entities AS e
@@ -465,18 +470,18 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                     SET n.name = e.name,
                         n.type = e.type,
                         n.description = e.description,
-                        n.source_page = e.source_page,
+                        n.source_page = coalesce(n.source_page, e.source_page),
                         n.aliases = e.aliases,
                         n.canonical_name = e.canonical_name
                     """,
-                    {"entities": [entity.model_dump() for entity in chunk.entities]},
+                    {"entities": [entity.model_dump() for entity in resolved.entities]},
                 )
 
             # 4. Relationships with orphan handling inside the same transaction.
             orphans: list[dict[str, Any]] = []
-            if chunk.relationships:
-                source_ids = [rel.source_entity_id for rel in chunk.relationships]
-                target_ids = [rel.target_entity_id for rel in chunk.relationships]
+            if resolved.relationships:
+                source_ids = [rel.source_entity_id for rel in resolved.relationships]
+                target_ids = [rel.target_entity_id for rel in resolved.relationships]
                 result = await tx.run(
                     """
                     WITH $source_ids AS src_ids, $target_ids AS dst_ids
@@ -497,7 +502,7 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                 missing_ids = requested - found_ids
 
                 valid_relationships: list[Relationship] = []
-                for rel in chunk.relationships:
+                for rel in resolved.relationships:
                     src_missing = rel.source_entity_id in missing_ids
                     dst_missing = rel.target_entity_id in missing_ids
                     if src_missing or dst_missing:
@@ -534,8 +539,8 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                               (dst:Entity {id: r.target_entity_id})
                         MERGE (src)-[rel:RELATED {type: r.type}]->(dst)
                         SET rel.description = r.description,
-                            rel.source_page = r.source_page,
-                            rel.chunk_index = r.chunk_index
+                            rel.source_page = coalesce(rel.source_page, r.source_page),
+                            rel.chunk_index = coalesce(rel.chunk_index, r.chunk_index)
                         """,
                         {"rels": [rel.model_dump() for rel in valid_relationships]},
                     )
@@ -547,7 +552,8 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                 MATCH (k:Chunk {source_id: $source_id, chunk_index: $chunk_index})
                 MATCH (e:Entity {id: eid})
                 MERGE (k)-[m:MENTIONS]->(e)
-                SET m.source_page = coalesce(m.source_page, e.source_page)
+                SET m.source_page = coalesce(m.source_page, e.source_page),
+                    m.chunk_index = coalesce(m.chunk_index, $chunk_index)
                 """,
                 {
                     "entity_ids": entity_ids,

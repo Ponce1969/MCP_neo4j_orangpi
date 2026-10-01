@@ -489,6 +489,30 @@ async def test_use_case_records_chunk_index_on_relationships(tmp_path: Path) -> 
     assert all(rel.chunk_index is None for chunk in chunks for rel in chunk.relationships)
 
 
+async def test_use_case_persists_entity_and_relationship_provenance(tmp_path: Path) -> None:
+    """Spec 04 (provenance): nothing reaches the graph without a source page."""
+    chunks = _make_chunks(3, book=_make_book())
+    graph = _FakeGraphDBPort()
+    use_case = IndexBookUseCase(
+        pdf_port=_FakePDFPort(chunks),
+        llm_port=_FakeLLMPort(),
+        graph_db_port=graph,
+        max_concurrency=3,
+        batch_size=5,
+        dead_letter_path=tmp_path / "dl.log",
+    )
+
+    await use_case.execute("dummy.pdf")
+
+    entities = [entity for batch in graph.entity_batches_upserted for entity in batch]
+    relationships = [
+        relationship for batch in graph.relationship_batches_upserted for relationship in batch
+    ]
+    assert [entity.source_page for entity in entities] == [1, 2, 3]
+    assert [rel.source_page for rel in relationships] == [1, 2, 3]
+    assert [rel.chunk_index for rel in relationships] == [0, 1, 2]
+
+
 async def test_use_case_adds_chunk_provenance_without_overwriting_source_page(
     tmp_path: Path,
 ) -> None:

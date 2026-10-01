@@ -251,7 +251,9 @@ async def test_neo4j_adapter_upsert_relationships_uses_merges_and_matches_entiti
     assert params is not None
     assert "MATCH (src:Entity" in query
     assert "MERGE (src)-[rel:RELATED" in query
-    assert "rel.chunk_index = r.chunk_index" in query
+    # Provenance is coalesced so a later chunk that omits it never nulls it.
+    assert "rel.chunk_index = coalesce(rel.chunk_index, r.chunk_index)" in query
+    assert "rel.source_page = coalesce(rel.source_page, r.source_page)" in query
     assert params["rels"][0]["source_entity_id"] == "e1"
     assert params["rels"][0]["target_entity_id"] == "e2"
     assert params["rels"][0]["source_page"] == 8
