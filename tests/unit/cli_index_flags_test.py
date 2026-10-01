@@ -89,12 +89,8 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             self.path = path
             self.failed_chunk_path = failed_chunk_path
 
-    monkeypatch.setattr(
-        "book_graph_rag.main.PDFAdapter", FakePDFAdapter, raising=False
-    )
-    monkeypatch.setattr(
-        "book_graph_rag.main.LLMAdapter", FakeLLMAdapter, raising=False
-    )
+    monkeypatch.setattr("book_graph_rag.main.PDFAdapter", FakePDFAdapter, raising=False)
+    monkeypatch.setattr("book_graph_rag.main.LLMAdapter", FakeLLMAdapter, raising=False)
     monkeypatch.setattr(
         "book_graph_rag.main.Neo4jCommandAdapter",
         FakeNeo4jCommandAdapter,
@@ -105,9 +101,7 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         FakeNeo4jCheckpointAdapter,
         raising=False,
     )
-    monkeypatch.setattr(
-        "book_graph_rag.main.JSONLDeadLetter", FakeDeadLetter, raising=False
-    )
+    monkeypatch.setattr("book_graph_rag.main.JSONLDeadLetter", FakeDeadLetter, raising=False)
 
     fake_versions = VersionDimensions(
         source_version="a" * 16,
@@ -192,9 +186,7 @@ def fake_use_cases(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         async def close(self) -> None:
             pass
 
-    monkeypatch.setattr(
-        "book_graph_rag.main.IndexBookUseCase", FakeIndexUseCase, raising=False
-    )
+    monkeypatch.setattr("book_graph_rag.main.IndexBookUseCase", FakeIndexUseCase, raising=False)
     monkeypatch.setattr(
         "book_graph_rag.main.ReplayDeadLetterUseCase",
         FakeReplayUseCase,
