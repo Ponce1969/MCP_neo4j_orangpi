@@ -17,5 +17,5 @@ corpora:
         status: active
       ai-engineering-huyen:
         label: "Ingeniería de IA (Chip Huyen)"
-        file: "data/Ingenieria_de_IA_Chip_Huyen_cap3-4-6-7-8-10.pdf"
+        file: "data/Ingeniería de IA - Chip Huyen (ES).pdf"
         status: active
