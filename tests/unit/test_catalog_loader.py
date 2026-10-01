@@ -21,8 +21,8 @@ def _load_catalog() -> Catalog:
     return CatalogLoader(CATALOG_PATH).load()
 
 
-def test_catalog_declares_three_knowledge_sources() -> None:
-    """The knowledge corpus documents exactly the three expected sources."""
+def test_catalog_declares_expected_knowledge_sources() -> None:
+    """The knowledge corpus documents the four expected sources."""
     catalog = _load_catalog()
 
     assert catalog.version == 1
@@ -32,6 +32,7 @@ def test_catalog_declares_three_knowledge_sources() -> None:
         "agentic-architectural-patterns",
         "graphrag-agentic",
         "essential-graphrag",
+        "ai-engineering-huyen",
     }
 
 

@@ -15,3 +15,7 @@ corpora:
         label: "Essential GraphRAG"
         file: "data/Essential_GraphRAG.pdf"
         status: active
+      ai-engineering-huyen:
+        label: "Ingeniería de IA (Chip Huyen)"
+        file: "data/Ingenieria_de_IA_Chip_Huyen_cap3-4-6-7-8-10.pdf"
+        status: active

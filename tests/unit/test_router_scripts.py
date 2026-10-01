@@ -65,12 +65,13 @@ def test_catalog_hints_are_deterministic() -> None:
 
     hints = hints_from_catalog(catalog)
 
-    assert len(hints) == 3
+    assert len(hints) == 4
     assert all(hint.terms for hint in hints)
     assert {hint.namespace.source_id for hint in hints} == {
         "knowledge:agentic-architectural-patterns",
         "knowledge:graphrag-agentic",
         "knowledge:essential-graphrag",
+        "knowledge:ai-engineering-huyen",
     }
 
 
