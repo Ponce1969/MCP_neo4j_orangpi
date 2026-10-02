@@ -166,9 +166,7 @@ REMOVE dup.merged_into, dup.merged_at
 """
 
 
-async def _build_inverse_mapping(
-    aliases_result: Any, edges_result: Any
-) -> InverseMappingSnapshot:
+async def _build_inverse_mapping(aliases_result: Any, edges_result: Any) -> InverseMappingSnapshot:
     """Build an ``InverseMappingSnapshot`` from Neo4j alias + edge results."""
     aliases_before: dict[str, tuple[str, ...]] = {}
     async for record in aliases_result:
@@ -202,9 +200,7 @@ class Neo4jGraphMergeAdapter(GraphMergePort):
     def __init__(self, driver: Any) -> None:
         self._driver = driver
 
-    async def capture_inverse_mapping(
-        self, candidate_ids: list[str]
-    ) -> InverseMappingSnapshot:
+    async def capture_inverse_mapping(self, candidate_ids: list[str]) -> InverseMappingSnapshot:
         """Read aliases and edge endpoints for ``candidate_ids`` pre-merge."""
         async with self._driver.session() as session:
             aliases_result = await session.run(
@@ -325,9 +321,7 @@ class Neo4jGraphMergeAdapter(GraphMergePort):
                 await tx.commit()
             except Exception as exc:
                 await tx.rollback()
-                raise ResolutionError(
-                    f"rollback_merge failed for seq={entry.seq}: {exc}"
-                ) from exc
+                raise ResolutionError(f"rollback_merge failed for seq={entry.seq}: {exc}") from exc
 
     async def close(self) -> None:
         """Close the underlying Neo4j driver."""

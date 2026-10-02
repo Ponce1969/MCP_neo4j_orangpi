@@ -33,9 +33,7 @@ from book_graph_rag.infrastructure.neo4j_graph_merge_adapter import (
 )
 
 
-def _entity(
-    entity_id: str, name: str, type_: str, aliases: list[str] | None = None
-) -> Entity:
+def _entity(entity_id: str, name: str, type_: str, aliases: list[str] | None = None) -> Entity:
     return Entity(
         id=entity_id,
         name=name,
@@ -170,16 +168,12 @@ async def test_capture_inverse_mapping_records_pre_merge_state(
         kinds = {e.edge_kind for e in inverse.edge_inverse_map}
         assert kinds == {"MENTIONS", "RELATED"}
 
-        mentions = next(
-            e for e in inverse.edge_inverse_map if e.edge_kind == "MENTIONS"
-        )
+        mentions = next(e for e in inverse.edge_inverse_map if e.edge_kind == "MENTIONS")
         assert mentions.duplicate_entity_id == "book:ch1:duplicate"
         assert mentions.original_other_endpoint_id.startswith("book:ch1:chunk")
         assert mentions.edge_properties.get("source_page") == 7
 
-        related = next(
-            e for e in inverse.edge_inverse_map if e.edge_kind == "RELATED"
-        )
+        related = next(e for e in inverse.edge_inverse_map if e.edge_kind == "RELATED")
         assert related.original_other_endpoint_id == "book:ch1:concept-x"
     finally:
         await command.close()
@@ -268,9 +262,7 @@ async def test_apply_merge_is_atomic_on_error(
         from book_graph_rag.infrastructure import neo4j_graph_merge_adapter as cypher_module
 
         original = cypher_module._MARK_MERGED_INTO
-        monkeypatch.setattr(
-            cypher_module, "_MARK_MERGED_INTO", "RETURN 1 / $zero"
-        )
+        monkeypatch.setattr(cypher_module, "_MARK_MERGED_INTO", "RETURN 1 / $zero")
 
         from book_graph_rag.domain.resolution_errors import ResolutionError
 
@@ -438,9 +430,7 @@ async def test_capture_inverse_mapping_with_book_id_chunks(
         inverse = await merge_adapter.capture_inverse_mapping(["book:ch1:duplicate"])
         assert inverse.aliases_before["book:ch1:duplicate"] == ("Dup", "Duppy")
 
-        mentions = [
-            e for e in inverse.edge_inverse_map if e.edge_kind == "MENTIONS"
-        ]
+        mentions = [e for e in inverse.edge_inverse_map if e.edge_kind == "MENTIONS"]
         assert len(mentions) == 1, (
             "book_id chunks must produce a MENTIONS inverse entry "
             "(regression: _CAPTURE_EDGES resolved other_id=None)"
@@ -448,9 +438,7 @@ async def test_capture_inverse_mapping_with_book_id_chunks(
         assert mentions[0].original_other_endpoint_id == "book:ch1:chunk-42"
         assert mentions[0].edge_properties.get("source_page") == 209
 
-        related = [
-            e for e in inverse.edge_inverse_map if e.edge_kind == "RELATED"
-        ]
+        related = [e for e in inverse.edge_inverse_map if e.edge_kind == "RELATED"]
         assert len(related) == 1
         assert related[0].original_other_endpoint_id == "book:ch1:concept-x"
     finally:
