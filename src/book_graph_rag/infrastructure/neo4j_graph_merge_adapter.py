@@ -46,6 +46,15 @@ RETURN dup.id AS id,
        properties(r) AS props
 """
 
+# The canonical of a merge is the winner: remove its own leftover soft-delete
+# marker (from an earlier round-robin merge) so it ends up live before the
+# candidates point at it. Passes only the exact canonical id.
+_CLEAR_CANONICAL_MARKER = """
+MATCH (canon:Entity {id: $canonical_id})
+WHERE canon.merged_into IS NOT NULL OR canon.merged_at IS NOT NULL
+REMOVE canon.merged_into, canon.merged_at
+"""
+
 # Mark duplicates as soft-deleted (R6.4).
 _MARK_MERGED_INTO = """
 MATCH (dup:Entity) WHERE dup.id IN $dup_ids
@@ -233,13 +242,24 @@ class Neo4jGraphMergeAdapter(GraphMergePort):
         aliases_folded: list[FoldedAlias],
         inverse_mapping: InverseMappingSnapshot,
     ) -> None:
-        """Atomically mark, re-point edges, and fold aliases in one transaction."""
+        """Atomically mark, re-point edges, and fold aliases in one transaction.
+
+        The canonical of a merge is the winner and must end up live: its own
+        leftover ``merged_into``/``merged_at`` is removed in the same transaction,
+        before the candidates point at it; the declared rollback limit is that
+        ``rollback_merge`` never restores that prior canonical marker (the ledger
+        does not record it).
+        """
         mentions = [e for e in inverse_mapping.edge_inverse_map if e.edge_kind == "MENTIONS"]
         related = [e for e in inverse_mapping.edge_inverse_map if e.edge_kind == "RELATED"]
 
         async with self._driver.session() as session:
             tx = await session.begin_transaction()
             try:
+                await tx.run(
+                    _CLEAR_CANONICAL_MARKER,
+                    {"canonical_id": canonical_id},
+                )
                 await tx.run(
                     _MARK_MERGED_INTO,
                     {"canonical_id": canonical_id, "dup_ids": candidate_ids},
