@@ -13,6 +13,14 @@ that end on a missing target are *excluded and reported*, never guessed.
 Frozen decision D1: knowledge is preserved by re-pointing onto the terminal
 canonical; only a RELATED edge whose endpoints collapse onto the same node is
 deleted (it would become a self-loop). MENTIONS are never deleted.
+
+A round-robin merge can leave *mutual* pairs (each member marked as merged
+into the other), which D3 would exclude forever. The cycle helpers make that
+anomaly actionable: ``find_cycles`` reports every distinct cycle once,
+``choose_cycle_winner`` picks the survivor deterministically — the member
+carrying the live knowledge — and ``plan_cycle_repairs`` turns each cycle into
+a frozen repair (clear the winner's marker, leave the losers pointing at the
+now-live winner) so the remaining edges resolve instead of dangling.
 """
 
 from __future__ import annotations
@@ -25,13 +33,17 @@ from pydantic import BaseModel, ConfigDict
 
 __all__ = [
     "CanonicalResolution",
+    "CycleRepair",
     "DanglingEdge",
     "EdgeAction",
     "ExcludedEntry",
     "RepointEntry",
     "RepointPlan",
     "ResolutionState",
+    "choose_cycle_winner",
+    "find_cycles",
     "merge_key_for",
+    "plan_cycle_repairs",
     "plan_repoint",
     "resolve_canonical",
 ]
@@ -182,6 +194,93 @@ def resolve_canonical(
                 chain=tuple(visited),
             )
         current = next_id
+
+
+class CycleRepair(BaseModel):
+    """One cycle to break: the winner whose marker is cleared, the losers kept.
+
+    ``degrees`` is the per-member live degree (mentions + related) sorted by
+    id — the measured evidence of why this member won, carried into the
+    evidence bundle. Clearing only the winner's ``merged_into``/``merged_at``
+    leaves every loser pointing at a node that is now live, so chains that
+    previously dead-ended in the cycle resolve (D3's "never guess" survives:
+    the winner is chosen by measurement, not by fiat).
+    """
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    cycle: tuple[str, ...]
+    winner: str
+    losers: tuple[str, ...]
+    degrees: tuple[tuple[str, int], ...]
+
+
+def find_cycles(merged_into: Mapping[str, str]) -> tuple[tuple[str, ...], ...]:
+    """Every distinct cycle reachable in ``merged_into``, each reported once.
+
+    A cycle is returned as the ordered member tuple *without* a repeated
+    closing element, rotated so the lexicographically smallest id comes first;
+    the result is sorted. Canonicalizing before de-duplicating is what keeps a
+    mutual pair (2-cycle) from being reported twice — once from each member —
+    no matter which id the walk started from. Chains that terminate on a
+    non-key are ignored, and a chain that reaches a cycle contributes only
+    that cycle (the chain itself is not a cycle). The self-referential
+    ``a -> a`` is the one-element cycle ``(a,)``.
+    """
+    cycles: set[tuple[str, ...]] = set()
+    for start in merged_into:
+        path: list[str] = []
+        position: dict[str, int] = {}
+        current = start
+        while current in merged_into and current not in position:
+            position[current] = len(path)
+            path.append(current)
+            current = merged_into[current]
+        if current not in position:  # terminated on a non-key: no cycle here
+            continue
+        members = tuple(path[position[current] :])
+        pivot = members.index(min(members))  # rotate: smallest id leads
+        cycles.add(members[pivot:] + members[:pivot])
+    return tuple(sorted(cycles))
+
+
+def choose_cycle_winner(cycle: Sequence[str], *, live_degree: Mapping[str, int]) -> str:
+    """Pick the cycle member that survives: the one carrying the knowledge.
+
+    Rule: the winner is the member with the highest live degree (mentions +
+    related edges, supplied by the caller) — **the member that carries the
+    knowledge survives**. Ties break by the shortest id, then
+    lexicographically, so the choice is deterministic. A member without a
+    ``live_degree`` entry counts as degree 0.
+    """
+    return min(cycle, key=lambda member: (-live_degree.get(member, 0), len(member), member))
+
+
+def plan_cycle_repairs(
+    merged_into: Mapping[str, str],
+    *,
+    live_degree: Mapping[str, int],
+) -> tuple[CycleRepair, ...]:
+    """One repair per distinct cycle from :func:`find_cycles`, sorted by winner.
+
+    Sorting the repairs by ``winner`` makes the plan (and therefore the
+    evidence bundle) deterministic. A member without a ``live_degree`` entry
+    counts as degree 0. Winners are unique across repairs — in a functional
+    graph each node belongs to at most one cycle — so the sort key never
+    collides.
+    """
+    repairs: list[CycleRepair] = []
+    for cycle in find_cycles(merged_into):
+        winner = choose_cycle_winner(cycle, live_degree=live_degree)
+        repairs.append(
+            CycleRepair(
+                cycle=cycle,
+                winner=winner,
+                losers=tuple(member for member in cycle if member != winner),
+                degrees=tuple(sorted((member, live_degree.get(member, 0)) for member in cycle)),
+            )
+        )
+    return tuple(sorted(repairs, key=lambda repair: repair.winner))
 
 
 def plan_repoint(

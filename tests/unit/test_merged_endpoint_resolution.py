@@ -14,11 +14,15 @@ import pytest
 from pydantic import ValidationError
 
 from book_graph_rag.domain.merged_endpoint_resolution import (
+    CycleRepair,
     DanglingEdge,
     EdgeAction,
     ExcludedEntry,
     RepointPlan,
     ResolutionState,
+    choose_cycle_winner,
+    find_cycles,
+    plan_cycle_repairs,
     plan_repoint,
     resolve_canonical,
 )
@@ -399,3 +403,115 @@ def test_plan_model_is_frozen() -> None:
 
     with pytest.raises(ValidationError):
         plan.entries = ()
+
+
+# ── find_cycles ──────────────────────────────────────────────────────────
+
+
+def test_find_cycles_reports_a_two_node_cycle_once_from_either_member() -> None:
+    a, b = _entity("dup-a"), _entity("dup-b")
+
+    # Canonical form: rotated so the lexicographically smallest id leads, so
+    # the mutual pair collapses to one entry no matter where the walk started.
+    assert find_cycles({b: a, a: b}) == ((a, b),)
+
+
+def test_find_cycles_canonicalizes_a_three_node_cycle_from_its_smallest_id() -> None:
+    a, b, c = _entity("dup-a"), _entity("dup-b"), _entity("dup-c")
+
+    assert find_cycles({c: a, a: b, b: c}) == ((a, b, c),)
+
+
+def test_find_cycles_reports_a_self_referential_id_as_a_one_element_cycle() -> None:
+    a = _entity("dup-a")
+
+    assert find_cycles({a: a}) == ((a,),)
+
+
+def test_find_cycles_reports_two_disjoint_cycles_exactly_once_each() -> None:
+    a, b, c, d = _entity("dup-a"), _entity("dup-b"), _entity("dup-c"), _entity("dup-d")
+
+    assert find_cycles({b: a, a: b, d: c, c: d}) == ((a, b), (c, d))
+
+
+def test_find_cycles_reports_the_cycle_of_a_chain_once_and_not_the_chain() -> None:
+    start, a, b = _entity("dup-start"), _entity("dup-a"), _entity("dup-b")
+
+    cycles = find_cycles({start: a, a: b, b: a})
+
+    assert cycles == ((a, b),)
+    assert start not in cycles[0]
+
+
+def test_find_cycles_ignores_a_chain_that_terminates() -> None:
+    a, b = _entity("dup-a"), _entity("dup-b")
+
+    assert find_cycles({a: b}) == ()
+    assert find_cycles({}) == ()
+
+
+# ── choose_cycle_winner ──────────────────────────────────────────────────
+
+
+def test_choose_cycle_winner_picks_the_highest_live_degree() -> None:
+    a, b = _entity("dup-a"), _entity("dup-b")
+
+    assert choose_cycle_winner((a, b), live_degree={a: 55, b: 163}) == b
+
+
+def test_choose_cycle_winner_tie_breaks_by_shortest_id_before_lexicographic() -> None:
+    # "dup-z" is shorter than "dup-aa" even though it sorts after it.
+    assert choose_cycle_winner(("dup-aa", "dup-z"), live_degree={}) == "dup-z"
+
+
+def test_choose_cycle_winner_tie_breaks_lexicographically_when_lengths_match() -> None:
+    assert choose_cycle_winner(("dup-b", "dup-a"), live_degree={}) == "dup-a"
+
+
+def test_choose_cycle_winner_treats_a_member_without_a_degree_entry_as_zero() -> None:
+    a, b = _entity("dup-a"), _entity("dup-b")
+
+    assert choose_cycle_winner((a, b), live_degree={b: 4}) == b
+    assert choose_cycle_winner((a, b), live_degree={a: 1}) == a
+
+
+# ── plan_cycle_repairs ───────────────────────────────────────────────────
+
+
+def test_plan_cycle_repairs_picks_the_winner_by_degree_and_records_evidence() -> None:
+    a, b = _entity("dup-a"), _entity("dup-b")
+
+    repairs = plan_cycle_repairs({a: b, b: a}, live_degree={a: 163, b: 0})
+
+    assert len(repairs) == 1
+    repair = repairs[0]
+    assert repair.cycle == (a, b)
+    assert repair.winner == a
+    assert repair.losers == (b,)
+    assert repair.degrees == ((a, 163), (b, 0))
+
+
+def test_plan_cycle_repairs_is_deterministic_and_sorted_by_winner() -> None:
+    a, b, c, d = _entity("dup-a"), _entity("dup-b"), _entity("dup-c"), _entity("dup-d")
+    merged = {b: a, a: b, d: c, c: d}
+    live = {a: 5, b: 2, c: 9, d: 9}
+
+    repairs = plan_cycle_repairs(merged, live_degree=live)
+
+    assert repairs == plan_cycle_repairs(merged, live_degree=live)
+    winners = [repair.winner for repair in repairs]
+    assert winners == [a, c]  # sorted by winner; c wins its tie on shortest id
+    assert winners == sorted(winners)
+    for repair in repairs:
+        assert repair.degrees == tuple(sorted(repair.degrees))
+
+
+def test_plan_cycle_repairs_of_an_empty_map_is_empty() -> None:
+    assert plan_cycle_repairs({}, live_degree={}) == ()
+
+
+def test_cycle_repair_model_is_frozen() -> None:
+    repair = CycleRepair(cycle=("a",), winner="a", losers=(), degrees=(("a", 0),))
+
+    with pytest.raises(ValidationError):
+        repair.winner = "b"

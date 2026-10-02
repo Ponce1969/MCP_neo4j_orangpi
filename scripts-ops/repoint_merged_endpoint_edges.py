@@ -15,6 +15,18 @@ y las cadenas que terminan en un destino inexistente se EXCLUYEN y se reportan,
 nunca se adivinan (D3). Toda la logica vive en
 ``book_graph_rag.domain.merged_endpoint_resolution``; este script solo hace I/O.
 
+Modos (``--mode``, default ``repoint``):
+  repoint      re-apunta las aristas colgantes al canonico terminal (D1): el
+               comportamiento historico del script, sin cambios.
+  break-cycles detecta los ciclos mutuos de ``merged_into`` (pares donde cada
+               miembro esta marcado como fusionado hacia el otro), elige al
+               ganador por grado vivo — el miembro que porta el conocimiento —
+               y con ``--apply`` limpia SOLO ``merged_into``/``merged_at`` del
+               ganador; los perdedores quedan marcados hacia un nodo ahora
+               vivo y las aristas dejan de colgar. Esos ciclos se excluian como
+               D3 (en produccion frenaban los 286 edges); el maintainer aprobo
+               romperlos. ``--mode repoint`` limpia lo que quede despues.
+
 Fases:
   Fase 1 (default, READ-ONLY / dry-run): inventario + bundle de evidencia.
   Fase 2 (--apply): MUTACION DESTRUCTIVA y exige (AGENTS.md §7.2):
@@ -34,6 +46,8 @@ Uso (desde la raiz del repo, con el .env sourceado):
     uv run --no-sync python scripts-ops/repoint_merged_endpoint_edges.py --apply \\
         --backup ~/backups_neo4j/bookgraph_backup_YYYYMMDDTHHMMSSZ.json \\
         --approval /tmp/approve_repoint.txt
+    uv run --no-sync python scripts-ops/repoint_merged_endpoint_edges.py \\
+        --mode break-cycles --snapshot /tmp/bundle_cycles.json
 """
 
 from __future__ import annotations
@@ -51,9 +65,11 @@ from neo4j import AsyncGraphDatabase, AsyncSession
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.merged_endpoint_resolution import (
+    CycleRepair,
     DanglingEdge,
     EdgeAction,
     RepointPlan,
+    plan_cycle_repairs,
     plan_repoint,
 )
 
@@ -101,6 +117,27 @@ RETURN a.id AS source_id, r.type AS relation_type, b.id AS target_id,
        properties(r) AS properties
 """
 
+# ── Grados vivos por entidad fusionada (solo modo break-cycles) ───────────
+# Una query por tipo de arista, combinadas en Python: el grado vivo de una
+# entidad fusionada es su cantidad de MENTIONS entrantes mas sus RELATED
+# incidentes. Es la medida con la que se elige el ganador de cada ciclo.
+_QUERY_DEGREE_MENTIONS = (
+    "MATCH (e:Entity)<-[:MENTIONS]-(:Chunk) WHERE e.merged_into IS NOT NULL "
+    "RETURN e.id AS id, count(*) AS c"
+)
+_QUERY_DEGREE_RELATED = (
+    "MATCH (e:Entity)-[:RELATED]-() WHERE e.merged_into IS NOT NULL "
+    "RETURN e.id AS id, count(*) AS c"
+)
+# Marcas previas de cada ganador: quedan en el bundle para poder revertir a mano.
+_QUERY_WINNER_MARKS = (
+    "MATCH (e:Entity) WHERE e.id IN $ids "
+    "RETURN e.id AS id, e.merged_into AS merged_into, e.merged_at AS merged_at"
+)
+_QUERY_STILL_MARKED = (
+    "MATCH (e:Entity) WHERE e.id IN $ids AND e.merged_into IS NOT NULL RETURN e.id AS id"
+)
+
 # ── Escritura (solo ids exactos del plan; nunca se rederivan claves de chunk) ─
 
 _WRITE_MENTIONS = """
@@ -131,6 +168,10 @@ WHERE r.type = e.relation_type
 DELETE r
 """
 
+# Rompe el ciclo: exactamente los ids de los ganadores del plan, sin tocar a
+# nadie mas. Los perdedores conservan merged_into apuntando al ganador vivo.
+_WRITE_CLEAR_WINNER = "MATCH (e:Entity) WHERE e.id IN $ids REMOVE e.merged_into, e.merged_at"
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -146,7 +187,14 @@ def _parse_args() -> argparse.Namespace:
         help="ruta del bundle de evidencia "
         "(default: evidence-bundles/merged-endpoint-edges-<UTC>.json)",
     )
-    parser.add_argument("--apply", action="store_true", help="re-apunta las aristas (DESTRUCTIVO)")
+    parser.add_argument(
+        "--mode",
+        choices=("repoint", "break-cycles"),
+        default="repoint",
+        help="repoint (default): re-apunta las aristas al canonico; "
+        "break-cycles: limpia merged_into/merged_at solo en el ganador de cada ciclo",
+    )
+    parser.add_argument("--apply", action="store_true", help="muta el grafo (DESTRUCTIVO)")
     parser.add_argument("--backup", type=Path, help="backup fresco (obligatorio con --apply)")
     parser.add_argument("--approval", type=Path, help="archivo con la palabra 'approve'")
     parser.add_argument(
@@ -194,6 +242,13 @@ async def _rows(session: AsyncSession, query: str, **params: Any) -> list[list[A
 async def _run_write(session: AsyncSession, query: str, **params: Any) -> None:
     result = await session.run(query, **params)
     await result.consume()
+
+
+async def _read_live_degrees(session: AsyncSession) -> tuple[dict[str, int], dict[str, int]]:
+    """Grados vivos por entidad fusionada: (mentions, related), una query por tipo."""
+    mentions = {str(row[0]): int(row[1]) for row in await _rows(session, _QUERY_DEGREE_MENTIONS)}
+    related = {str(row[0]): int(row[1]) for row in await _rows(session, _QUERY_DEGREE_RELATED)}
+    return mentions, related
 
 
 def _namespace_of(entity_id: str) -> str:
@@ -327,6 +382,37 @@ def _batched(items: list[Any]) -> list[list[Any]]:
     return [items[i : i + BATCH_SIZE] for i in range(0, len(items), BATCH_SIZE)] or [[]]
 
 
+def _print_cycles(
+    repairs: tuple[CycleRepair, ...],
+    *,
+    mentions: dict[str, int],
+    related: dict[str, int],
+) -> None:
+    """Imprime cada ciclo: miembros, grados vivos, ganador y la razon de la eleccion."""
+    print("\n== CICLOS DE merged_into (break-cycles) ==")
+    if not repairs:
+        print("  sin ciclos: no hay pares/cadenas mutuos en merged_into; nada que romper.")
+        return
+    for index, repair in enumerate(repairs, start=1):
+        print(f"  ciclo {index}: {repair.cycle}")
+        for member in repair.cycle:
+            m_degree = mentions.get(member, 0)
+            r_degree = related.get(member, 0)
+            print(
+                f"    miembro:    {member}  grado vivo "
+                f"MENTIONS={m_degree} RELATED={r_degree} total={m_degree + r_degree}"
+            )
+        print(f"    ganador:    {repair.winner}")
+        losers = ", ".join(repair.losers) if repair.losers else "(ninguno: auto-referencia)"
+        print(f"    perdedores: {losers}")
+        print(
+            "    razon: el ganador es el miembro que porta el conocimiento "
+            "(mayor grado vivo; empates: id mas corto y despues lexicografico); "
+            "a EL se le limpia merged_into/merged_at y los perdedores quedan "
+            "marcados hacia un nodo ahora vivo."
+        )
+
+
 async def _pre_state(session: AsyncSession) -> dict[str, Any]:
     return {
         "mentions_to_merged": await _scalar(session, _COUNT_MENTIONS_MERGED),
@@ -393,6 +479,23 @@ async def _apply_plan(session: AsyncSession, plan: RepointPlan) -> None:
     print(f"  operaciones planificadas: {total}")
 
 
+async def _apply_break_cycles(session: AsyncSession, repairs: tuple[CycleRepair, ...]) -> None:
+    """Limpia merged_into/merged_at SOLO en el ganador de cada ciclo (ids exactos)."""
+    winners = [repair.winner for repair in repairs]
+    print("\n== APLICANDO break-cycles (DESTRUCTIVO) ==")
+    if not winners:
+        print("  sin ciclos: nada que limpiar.")
+        return
+    for winner in winners:
+        print(f"  limpiando marca: {winner}")
+    for batch in _batched(winners):
+        await _run_write(session, _WRITE_CLEAR_WINNER, ids=batch)
+    print(
+        f"  operacion: REMOVE merged_into/merged_at en {len(winners)} ganadores "
+        "(los perdedores quedan marcados hacia ellos)"
+    )
+
+
 def _verify(pre: dict[str, Any], post: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     if post["mentions_to_merged"] != 0:
@@ -408,6 +511,31 @@ def _verify(pre: dict[str, Any], post: dict[str, Any]) -> list[str]:
     return failures
 
 
+def _verify_break_cycles(
+    pre: dict[str, Any],
+    post: dict[str, Any],
+    *,
+    expected_merged: int,
+    still_marked: list[str],
+) -> list[str]:
+    """Invariantes del break-cycles: ganadores limpios, merged baja exacto, ledger intacto.
+
+    Los conteos PENDIENTES (aristas a fusionadas) NO son invariante aqui: este
+    modo no re-apunta aristas, asi que permanecen hasta ``--mode repoint``.
+    """
+    failures: list[str] = []
+    for entity_id in still_marked:
+        failures.append(f"el ganador {entity_id} todavia tiene merged_into")
+    if post["merged_entities"] != expected_merged:
+        failures.append(
+            f"entidades merged = {post['merged_entities']} (esperado {expected_merged}: "
+            f"bajada exacta de {pre['merged_entities'] - expected_merged} ganadores)"
+        )
+    if post["ledger_lines"] != pre["ledger_lines"]:
+        failures.append(f"ledger = {post['ledger_lines']} lineas (esperado {pre['ledger_lines']})")
+    return failures
+
+
 async def main() -> None:
     args = _parse_args()
     settings = Settings.model_validate({})
@@ -417,6 +545,7 @@ async def main() -> None:
     snapshot: Path = args.snapshot or SNAPSHOT_DIR / f"{SNAPSHOT_PREFIX}-{timestamp}.json"
 
     print(f"== MODO {'APPLY' if args.apply else 'DRY-RUN'} ==")
+    print(f"  mode: {args.mode}")
     print(f"  namespace (filtro): {args.namespace or '(global)'}")
 
     driver = AsyncGraphDatabase.driver(
@@ -465,6 +594,23 @@ async def main() -> None:
             _print_anomalies(plan)
             _print_summary(edges, plan)
 
+            repairs: tuple[CycleRepair, ...] = ()
+            winner_marks: dict[str, Any] = {}
+            if args.mode == "break-cycles":
+                degree_mentions, degree_related = await _read_live_degrees(session)
+                live_degree = {
+                    entity_id: degree_mentions.get(entity_id, 0) + degree_related.get(entity_id, 0)
+                    for entity_id in set(degree_mentions) | set(degree_related)
+                }
+                repairs = plan_cycle_repairs(merged, live_degree=live_degree)
+                _print_cycles(repairs, mentions=degree_mentions, related=degree_related)
+                winner_marks = {
+                    str(row[0]): {"merged_into": row[1], "merged_at": row[2]}
+                    for row in await _rows(
+                        session, _QUERY_WINNER_MARKS, ids=[repair.winner for repair in repairs]
+                    )
+                }
+
             backup_info: dict[str, Any] | None = None
             if args.apply:
                 backup_info = _validate_apply_gates(args)
@@ -494,13 +640,74 @@ async def main() -> None:
                 "counts": counts,
                 "post_state": None,
             }
+            if args.mode == "break-cycles":
+                # Reparaciones + marcas previas de cada ganador: con esto el
+                # REMOVE es reversible a mano (restaurar merged_into/merged_at).
+                bundle["cycles"] = [
+                    {
+                        **repair.model_dump(mode="json"),
+                        "winner_previous_mark": winner_marks.get(repair.winner),
+                    }
+                    for repair in repairs
+                ]
             print()
             # El bundle se escribe SIEMPRE antes de cualquier mutacion.
             _write_bundle(snapshot, bundle)
 
             if not args.apply:
                 print("\n== DRY-RUN: grafo sin mutar ==")
+                if args.mode == "break-cycles":
+                    print(
+                        "  break-cycles NO re-apunta aristas: "
+                        "--mode repoint limpia lo que quede tras romper los ciclos."
+                    )
                 print("  Para aplicar: --apply --backup <json> --approval <file con 'approve'>")
+                return
+
+            if args.mode == "break-cycles":
+                await _apply_break_cycles(session, repairs)
+                post = await _pre_state(session)
+                bundle["post_state"] = post
+                _write_bundle(snapshot, bundle)
+
+                still_marked = [
+                    str(row[0])
+                    for row in await _rows(
+                        session,
+                        _QUERY_STILL_MARKED,
+                        ids=[repair.winner for repair in repairs],
+                    )
+                ]
+                expected_merged = pre["merged_entities"] - len(repairs)
+                print("\n== VERIFICACION POST-APPLY (break-cycles) ==")
+                print(
+                    f"  ganadores sin merged_into: "
+                    f"{len(repairs) - len(still_marked)}/{len(repairs)}"
+                )
+                print(
+                    f"  entidades merged_into: {post['merged_entities']} "
+                    f"(esperado {expected_merged} = inicial - {len(repairs)} ganadores)"
+                )
+                print(
+                    f"  lineas de ledger:      {post['ledger_lines'] or '(sin ledger)'} "
+                    f"(esperado {pre['ledger_lines'] or '(sin ledger)'})"
+                )
+                print(
+                    f"PENDIENTES: MENTIONS={post['mentions_to_merged']} "
+                    f"RELATED={post['related_to_merged']}"
+                )
+                print(
+                    "  --mode repoint limpia lo que quede: re-apunta esas aristas "
+                    "al canonico ganador ahora vivo."
+                )
+                failures = _verify_break_cycles(
+                    pre, post, expected_merged=expected_merged, still_marked=still_marked
+                )
+                if failures:
+                    for failure in failures:
+                        print(f"VERIFICACION FAILED: {failure}")
+                    sys.exit(1)
+                print("APPLY_OK")
                 return
 
             await _apply_plan(session, plan)
