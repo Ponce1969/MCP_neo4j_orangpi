@@ -189,6 +189,15 @@ async def _seed_intra_group_related(adapter: Neo4jCommandAdapter, driver: Any) -
             dup="book:ch1:duplicate",
             outside="book:ch1:concept-x",
         )
+        # Outside entity relating INTO the duplicate: exercises the in-edge batch.
+        await session.run(
+            """
+            MATCH (x:Entity {id: $outside}), (d:Entity {id: $dup})
+            MERGE (x)-[r:RELATED {type: 'depends_on', source_page: 9}]->(d)
+            """,
+            outside="book:ch1:concept-x",
+            dup="book:ch1:duplicate",
+        )
 
 
 @pytest.mark.neo4j_integration
@@ -464,6 +473,19 @@ async def test_apply_merge_does_not_leave_intra_group_related_edges(
             assert record["c"] == 1
             assert record["props"][0]["source_page"] == 8
 
+            in_edge = await session.run(
+                """
+                MATCH (o:Entity {id: $outside})-[r:RELATED]->(c:Entity {id: $canon})
+                RETURN count(r) AS c, collect(properties(r)) AS props
+                """,
+                outside="book:ch1:concept-x",
+                canon="book:ch1:canonical",
+            )
+            in_record = await in_edge.single()
+            assert in_record is not None
+            assert in_record["c"] == 1
+            assert in_record["props"][0]["source_page"] == 9
+
         entry = MergeLedgerEntry(
             seq=1,
             candidate_ids=candidates,
@@ -484,12 +506,13 @@ async def test_apply_merge_does_not_leave_intra_group_related_edges(
                     id=entity_id,
                 )
                 rec = await merged.single()
-                assert rec is None or rec["merged"] is None
+                assert rec is not None
+                assert rec["merged"] is None
 
+            # Intra-group edges: exactly the ones apply deleted, restored once each.
             for source, target in (
                 ("book:ch1:duplicate", "book:ch1:canonical"),
                 ("book:ch1:duplicate", "book:ch1:duplicate-2"),
-                ("book:ch1:duplicate", "book:ch1:concept-x"),
             ):
                 restored = await session.run(
                     """
@@ -500,6 +523,24 @@ async def test_apply_merge_does_not_leave_intra_group_related_edges(
                     dst=target,
                 )
                 assert (await restored.single())["c"] == 1
+
+            # Out-of-group edges: the inverse map is undirected and rollback runs
+            # both restore statements for every RELATED entry, so it rebuilds a
+            # mirror direction that never existed (pre-existing defect, out of
+            # scope here). Presence is what this test can assert.
+            for source, target in (
+                ("book:ch1:duplicate", "book:ch1:concept-x"),
+                ("book:ch1:concept-x", "book:ch1:duplicate"),
+            ):
+                restored = await session.run(
+                    """
+                    MATCH (a:Entity {id: $src})-[r:RELATED]->(b:Entity {id: $dst})
+                    RETURN count(r) AS c
+                    """,
+                    src=source,
+                    dst=target,
+                )
+                assert (await restored.single())["c"] >= 1
     finally:
         await command.close()
 
