@@ -1,0 +1,4109 @@
+{
+  "schema": "merged-endpoint-edges-bundle/1",
+  "generated_at": "2026-10-02T15:24:59.915140+00:00",
+  "git_head": "bd7d84edf576ee31e380a415d97bddf9a85c1450",
+  "mode": "apply",
+  "namespace_filter": null,
+  "backup": {
+    "path": "/home/gonzalo/backups_neo4j/bookgraph_backup_20261002T131026Z.json",
+    "age_hours": 2.24,
+    "size_mb": 175.0,
+    "approval_file": "/tmp/approve_break_cycles.txt"
+  },
+  "approval": "/tmp/approve_break_cycles.txt",
+  "pre_state": {
+    "mentions_to_merged": 90,
+    "related_to_merged": 196,
+    "merged_entities": 933,
+    "ledger_lines": 958
+  },
+  "plan": {
+    "entries": [],
+    "excluded": [
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-173",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 124
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-21",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 30
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-57",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 49
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-19",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 30
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-194",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 139
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-155",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 112
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-64",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 54
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-163",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 116
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-95",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 78
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-182",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 129
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-109",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 82
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-82",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 71
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-114",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 82
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-72",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 66
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-34",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 40
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-20",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 30
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-67",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 63
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-91",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 75
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-162",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 116
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-49",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 46
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-84",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 71
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-144",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 105
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-80",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 68
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-110",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 82
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-92",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 75
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-165",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 116
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-267",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 173
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-209",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 144
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-299",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 175
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-188",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 129
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-74",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 67
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-68",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 63
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-195",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 139
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-87",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 72
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-122",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 89
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-176",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 124
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-123",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 93
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-113",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 82
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-154",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 112
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-79",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 68
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-0",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 22
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-197",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 141
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-89",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 74
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-50",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 46
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-151",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 110
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-76",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 67
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-35",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 41
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-126",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 93
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-83",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 71
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-75",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 67
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-99",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 78
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-161",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 116
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-120",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 88
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-71",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 66
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-47",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": null,
+          "properties": {
+            "source_page": 44
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-98",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 78
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-2",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 22
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-11",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 27
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-4",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 22
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-281",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 174
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-96",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 78
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-128",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 93
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-73",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 67
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-12",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 27
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-33",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 40
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-59",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 49
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-1",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 22
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-14",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 29
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-63",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 54
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-86",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 72
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-26",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 35
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-15",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 29
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-27",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 35
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-9",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 26
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-117",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 86
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-18",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 30
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-8",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 26
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-3",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 22
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-90",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 74
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-6",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 25
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-37",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 41
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-48",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 44
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-10",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 27
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-93",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 77
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-164",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 116
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-137",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 99
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-7",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 25
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-145",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 105
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-42",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 42
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "MENTIONS",
+          "source_id": "knowledge:essential-graphrag:chunk-13",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": null,
+          "properties": {
+            "source_page": 27
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:zero-shot-prompting-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 63,
+            "source_page": 54,
+            "description": "Zero-shot prompting relies solely on the LLM's general capabilities and understanding of the task.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:zero-shot-prompting-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 64,
+            "source_page": 54,
+            "description": "Zero-shot prompting relies solely on the LLM's general capabilities and understanding of the task.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:structured-data-extraction-pattern",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 145,
+            "source_page": 105,
+            "description": "LLMs are used to extract structured data from unstructured text.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:query-rewriting-pattern",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 63,
+            "source_page": 54,
+            "description": "LLMs are an excellent fit for query-rewriting tasks due to their natural language comprehension and generation abilities.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:pure-hallucinations-risk",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 8,
+            "source_page": 26,
+            "description": "LLMs can provide assertive but incorrect or fabricated answers.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:training-dataset-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 6,
+            "source_page": 25,
+            "description": "LLMs rely on their training dataset and are unaware of information not included in it.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:nondeterminism-risk",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 117,
+            "source_page": 86,
+            "description": "LLMs are nondeterministic, which can lead to mistakes.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:contract-extraction-pattern",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 137,
+            "source_page": 99,
+            "description": "The LLM enables the contract extraction process by processing contract text.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:agentic-systems-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 93,
+            "source_page": 77,
+            "description": "Most LLMs can enable agentic systems using approaches like ReAct.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:graphrag-agentic:hallucination-risk",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 10,
+            "source_page": 27,
+            "description": "Hallucinations occur because LLMs are probabilistic and generate plausible but false output.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:graphrag-agentic:prompt-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 164,
+            "source_page": 116,
+            "description": "LLM receives the constructed prompt as input.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:openai-framework",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 42,
+            "source_page": 42,
+            "description": "The LLMs used in the book come from OpenAI.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:next-word-prediction-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 7,
+            "source_page": 25,
+            "description": "LLM generation relies on the next-word prediction objective described in the figure.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:next-word-prediction-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 4,
+            "source_page": 22,
+            "description": "LLMs function similarly to predicting the next word in a sequence.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:transformer-architecture-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 4,
+            "source_page": 22,
+            "description": "LLMs are based on the transformer architecture, which predicts the next word using neural networks.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:pattern-recognition-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 2,
+            "source_page": 22,
+            "description": "An LLM relies on patterns and associations it learned during training to generate outputs.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:knowledge-cutoff-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 10,
+            "source_page": 27,
+            "description": "LLMs have knowledge cutoff dates limiting their training data; even pre-cutoff information can be unreliable.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:transformer-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 3,
+            "source_page": 22,
+            "description": "LLMs are based on the transformer architecture.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:training-dataset-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 2,
+            "source_page": 22,
+            "description": "The quality and relevance of LLM responses depend significantly on the diversity and depth of the training dataset.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:outdated-information-risk",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 8,
+            "source_page": 26,
+            "description": "LLMs can provide outdated responses when asked about events after their knowledge cutoff.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:graphrag-agentic:prompt-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 86,
+            "source_page": 72,
+            "description": "The prompt is formed to make the generation intention clear to the LLM.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:graphrag-agentic:training-data-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 10,
+            "source_page": 27,
+            "description": "LLMs are trained to predict next tokens based on patterns in training data.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:text2cypher-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 90,
+            "source_page": 74,
+            "description": "LLMs are used to generate Cypher queries from natural language.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:instruction-following-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 2,
+            "source_page": 22,
+            "description": "LLMs have a remarkable ability to follow instructions and adapt to a wide range of tasks.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:probabilistic-language-model-concept",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 10,
+            "source_page": 27,
+            "description": "LLMs are a type of probabilistic language model, generating text by guessing likely continuations.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:graphrag-agentic:knowledge-graph-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 281,
+            "source_page": 174,
+            "description": "LLMs are used to construct knowledge graphs.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:generator-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 33,
+            "source_page": 40,
+            "description": "The generator is often an LLM, using the language model's text generation ability.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:explicit-memory-concept",
+          "relation_type": "contrasts_with",
+          "properties": {
+            "chunk_index": 4,
+            "source_page": 22,
+            "description": "LLMs do not recall from explicit memory; their responses are based on learned weights instead.",
+            "type": "contrasts_with"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:question-rewriting-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 117,
+            "source_page": 86,
+            "description": "LLMs rewrite questions and can make mistakes in doing so.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:domain-specific-knowledge-injection-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 14,
+            "source_page": 29,
+            "description": "LLMs require domain-specific knowledge injection to overcome limitations and answer specialized questions accurately.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:private-or-confidential-information-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 13,
+            "source_page": 27,
+            "description": "LLMs lack access to private or confidential information, limiting their ability to generate factually accurate responses for certain queries.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:autocomplete-concept",
+          "relation_type": "contrasts_with",
+          "properties": {
+            "chunk_index": 2,
+            "source_page": 22,
+            "description": "LLMs are far more than just autocomplete systems, as they can understand and execute detailed instructions.",
+            "type": "contrasts_with"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:neural-network-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 7,
+            "source_page": 25,
+            "description": "Large language models are built on next-word-predicting neural networks.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:question-routing-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 117,
+            "source_page": 86,
+            "description": "LLMs perform routing of questions in the agentic RAG system.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:incorrect-information-risk",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 11,
+            "source_page": 27,
+            "description": "LLMs can produce erroneous information, confidently returning incorrect identifiers like a wrong WikiData ID.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:learned-weights-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 4,
+            "source_page": 22,
+            "description": "LLM responses are generated based on learned weights in its neural network.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:reasoning-engine-concept",
+          "relation_type": "contrasts_with",
+          "properties": {
+            "chunk_index": 10,
+            "source_page": 27,
+            "description": "LLMs are not reasoning engines; they differ fundamentally from human cognition and actual understanding.",
+            "type": "contrasts_with"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:transformer-architecture-framework",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 26,
+            "source_page": 35,
+            "description": "LLMs are built on transformer architecture.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:knowledge-database-concept",
+          "relation_type": "composes",
+          "properties": {
+            "chunk_index": 4,
+            "source_page": 22,
+            "description": "LLMs build and maintain some kind of knowledge database from their learned weights.",
+            "type": "composes"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:factual-accuracy-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 13,
+            "source_page": 27,
+            "description": "LLM usefulness depends on generating factually accurate and up-to-date responses.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:question-updating-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 117,
+            "source_page": 86,
+            "description": "LLMs update questions and can make mistakes in doing so.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "target_id": "knowledge:essential-graphrag:persistent-memory-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 13,
+            "source_page": 27,
+            "description": "LLMs lack persistent memory, which can hinder their usefulness in applications requiring stability and repeatability.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retrieval-augmented-generation-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 27,
+            "source_page": 35,
+            "description": "RAG combines LLMs with external knowledge bases, implying LLMs are required.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retrieval-augmented-generation-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 26,
+            "source_page": 35,
+            "description": "RAG combines LLMs with external knowledge bases.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retrieval-augmented-generation-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 299,
+            "source_page": 175,
+            "description": "RAG supplies domain-specific context to an LLM to improve its responses.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retrieval-augmented-generation-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 0,
+            "source_page": 22,
+            "description": "RAG augments large language models to improve accuracy.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:system-prompt-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 64,
+            "source_page": 54,
+            "description": "The system prompt is provided to and interpreted by an LLM.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:llm-context-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 50,
+            "source_page": 46,
+            "description": "The LLM requires the LLM context to produce an answer.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:graphrag-agentic:cypher-tool",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 79,
+            "source_page": 68,
+            "description": "The LLM generates Cypher queries from natural language questions.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:final-answer-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 188,
+            "source_page": 129,
+            "description": "The LLM generates the final answer.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:trustworthy-answers-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 120,
+            "source_page": 88,
+            "description": "The LLM supports trustworthy answers when it uses only the information provided to it.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:tool-for-finding-actors-by-movie-tool",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 194,
+            "source_page": 139,
+            "description": "The LLM should utilize the actors-by-movie tool to retrieve relevant data.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:information-extraction-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 123,
+            "source_page": 93,
+            "description": "LLMs can be effectively used to extract structured data from complex documents.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:text2cypher-tool-tool",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 195,
+            "source_page": 139,
+            "description": "The LLM needs the text2cypher tool for some query-generation examples.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:tool-picker-prompt-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 114,
+            "source_page": 82,
+            "description": "The LLM receives the tool_picker_prompt describing its task of choosing the right tool.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:entity-extraction-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 151,
+            "source_page": 110,
+            "description": "The LLM detects entities in text, and smaller chunks allow it to detect more entity references.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:knowledge-graph-schema-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 299,
+            "source_page": 175,
+            "description": "The LLM is guided by the graph schema.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:database-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 194,
+            "source_page": 139,
+            "description": "The LLM needs to retrieve relevant data from the database using available tools.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:graphrag-agentic:text2cypher-pattern",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 89,
+            "source_page": 74,
+            "description": "LLMs generate the Cypher query from the prompt.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:tool-for-finding-movies-by-actor-tool",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 194,
+            "source_page": 139,
+            "description": "The LLM should utilize the movies-by-actor tool to retrieve relevant data.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:natural-language-question-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 84,
+            "source_page": 71,
+            "description": "The LLM takes a natural language question as input to generate a Cypher query.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:chunk-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 47,
+            "source_page": 44,
+            "description": "The retrieved chunks are used to generate an answer using an LLM.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:retriever-router-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 109,
+            "source_page": 82,
+            "description": "The LLM enables the retriever router to perform retriever selection.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:graphrag-agentic:generated-answer-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 34,
+            "source_page": 40,
+            "description": "The LLM generates the final answer based on the provided documents.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:graphrag-agentic:prompt-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 80,
+            "source_page": 68,
+            "description": "The LLM uses the prompt as input for query generation.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:graphrag-agentic:prompt-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 163,
+            "source_page": 116,
+            "description": "The LLM uses the constructed prompt to generate entity and relationship summaries.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:cypher-query-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 80,
+            "source_page": 68,
+            "description": "The LLM generates Cypher queries from natural language questions.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:cypher-query-generation-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 71,
+            "source_page": 66,
+            "description": "The LLM performs the generation using its knowledge of Cypher syntax and the provided prompt.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:terminology-mapping-pattern",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 82,
+            "source_page": 71,
+            "description": "The LLM needs terminology mapping to map question terminology to schema terminology.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:answer-correctness-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 209,
+            "source_page": 144,
+            "description": "Refining how the LLM formulates answers could improve overall performance, including answer correctness.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:llm-responses-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 126,
+            "source_page": 93,
+            "description": "The LLM generates the responses that Structured Outputs structures.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:answer-critic-agent",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 120,
+            "source_page": 88,
+            "description": "The LLM returns a list of new questions when the original question cannot be answered, supporting the answer critic.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:natural-language-questions-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 79,
+            "source_page": 68,
+            "description": "The LLM processes natural language questions as input for query generation.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:text2cypher-tool",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 197,
+            "source_page": 141,
+            "description": "The LLM must rely on text2cypher to construct appropriate Cypher statements.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:prompt-template-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 87,
+            "source_page": 72,
+            "description": "The LLM depends on the prompt template to receive formatted instructions and examples.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:relevant-documents-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 34,
+            "source_page": 40,
+            "description": "The LLM receives the relevant documents as context for answer generation.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:function-calling-support-tool",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 122,
+            "source_page": 89,
+            "description": "The LLM needs tools/function-calling support to implement the main parts of an agentic RAG system.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:answer-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 120,
+            "source_page": 88,
+            "description": "The LLM produces the answer from the information provided in the prompt.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:graphrag-agentic:tool-calls-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 110,
+            "source_page": 82,
+            "description": "The LLM returns tool calls that specify the retriever and arguments to invoke.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:web-search-tool",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 21,
+            "source_page": 30,
+            "description": "The LLM can use Web Search to retrieve additional information when needed.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:agentic-rag-pattern",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 122,
+            "source_page": 89,
+            "description": "The main parts of an agentic RAG system can be implemented using an LLM with tools/function-calling support.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:cypher-query-language-tool",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 72,
+            "source_page": 66,
+            "description": "The LLM generates the Cypher query after receiving the prompt.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:graphrag-agentic:prompt-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 79,
+            "source_page": 68,
+            "description": "The LLM receives the prompt containing schema information to understand the graph structure.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:graphrag-agentic:prompt-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 19,
+            "source_page": 30,
+            "description": "The LLM processes prompt instructions to generate the final answer.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:generated-queries-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 82,
+            "source_page": 71,
+            "description": "The LLM generates queries, and generated query problems can result from the LLM not understanding the schema.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:retrieval-augmented-generation-pipeline-framework",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 75,
+            "source_page": 67,
+            "description": "The LLM depends on the RAG pipeline to supply relevant retrieved context.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:capital-by-country-tool",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 99,
+            "source_page": 78,
+            "description": "The LLM can return the capital_by_country retriever with an extracted argument.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:structured-data-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 144,
+            "source_page": 105,
+            "description": "LLMs can be used to extract structured data from unstructured sources.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:structured-outputs-pattern",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 123,
+            "source_page": 93,
+            "description": "LLMs are used to produce structured output from complex documents.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:enriched-prompt-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 20,
+            "source_page": 30,
+            "description": "The LLM receives the enriched prompt as input to generate an answer.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:knowledge-cutoff-risk",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "contrasts_with",
+          "properties": {
+            "chunk_index": 7,
+            "source_page": 25,
+            "description": "The knowledge cutoff problem limits an LLM's usefulness, standing in tension with the goal of improving LLM accuracy.",
+            "type": "contrasts_with"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:gpt-4-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 93,
+            "source_page": 77,
+            "description": "GPT-4 is an OpenAI LLM with agentic capabilities.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:gpt-4-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 49,
+            "source_page": 46,
+            "description": "GPT-4 is a specific instance or extension of an LLM used for answer generation.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:transformer-architecture-framework",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 1,
+            "source_page": 22,
+            "description": "Transformer architecture enables LLMs to process and generate text efficiently.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:company-chatbot-agent",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 11,
+            "source_page": 27,
+            "description": "A company chatbot is built using an LLM, so its capabilities depend on the LLM.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:llm-limitations-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 9,
+            "source_page": 26,
+            "description": "The limitations describe weaknesses of large language models.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:rag-pipeline-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 68,
+            "source_page": 63,
+            "description": "The pipeline passes retrieved documents and the original question to an LLM to generate the final answer.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:answer-generating-function-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 67,
+            "source_page": 63,
+            "description": "The answer-generating function requires an LLM to generate responses from the provided documents.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:supervised-finetuning-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 15,
+            "source_page": 29,
+            "description": "Supervised finetuning is used to overcome the limitations of LLMs and improve their response accuracy.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:knowledge-cutoff-problem-risk",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 281,
+            "source_page": 174,
+            "description": "The knowledge cutoff problem is a limitation of LLMs.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:augmented-generation-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 18,
+            "source_page": 30,
+            "description": "Augmented generation enhances the context provided to the LLM, enabling it to generate a grounded response.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:training-data-updates-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 9,
+            "source_page": 26,
+            "description": "Regularly updating training data enables LLMs to remain accurate and relevant.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:pretraining-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 14,
+            "source_page": 29,
+            "description": "Pretraining is the foundational stage that enables an LLM to learn language patterns.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:reward-modeling-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 15,
+            "source_page": 29,
+            "description": "Reward modeling enables the LLM to distinguish between good and bad responses.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:reinforcement-learning-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 15,
+            "source_page": 29,
+            "description": "Reinforcement learning enables the LLM to refine its responses based on feedback.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:enriched-prompt-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 21,
+            "source_page": 30,
+            "description": "The enriched prompt enables the LLM to generate a response based on both the question and retrieved context.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:knowledge-cutoff-date-limitation-risk",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 14,
+            "source_page": 29,
+            "description": "The knowledge cutoff date limitation is a limitation of LLMs.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:llm-training-llmops",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 14,
+            "source_page": 29,
+            "description": "LLM training is the process of training an LLM.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:rag-workflow-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 27,
+            "source_page": 35,
+            "description": "Integrating knowledge graphs into RAG workflows allows LLMs to generate accurate, reliable, and explainable responses.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:vector-similarity-search-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 48,
+            "source_page": 44,
+            "description": "Vector search relies on an LLM (as the truncated text 'g an LLM' indicates) to generate the embeddings and/or answer from retrieved results.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:generator-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 281,
+            "source_page": 174,
+            "description": "Generator uses LLMs to generate answers.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:generator-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 57,
+            "source_page": 49,
+            "description": "The generator uses an LLM to create a response based on retrieved information.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retrieval-augmented-generation-using-vector-similarity-search-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "contrasts_with",
+          "properties": {
+            "chunk_index": 37,
+            "source_page": 41,
+            "description": "The example compares answers from the RAG paper with answers from an LLM.",
+            "type": "contrasts_with"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retrieval-augmented-generation-using-vector-similarity-search-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "contrasts_with",
+          "properties": {
+            "chunk_index": 35,
+            "source_page": 41,
+            "description": "The example contrasts RAG answers from the paper with answers obtained directly from an LLM.",
+            "type": "contrasts_with"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:query-time-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 34,
+            "source_page": 40,
+            "description": "Query time uses an LLM to generate the final answer.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:hardcoded-cypher-queries-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 75,
+            "source_page": 67,
+            "description": "Hardcoded Cypher queries provide more relevant context to the LLM.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:finetuning-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 90,
+            "source_page": 74,
+            "description": "Finetuning specializes large language models for text2cypher.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:generating-an-answer-using-an-llm-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 49,
+            "source_page": 46,
+            "description": "The answer generation pattern requires an LLM to produce the final answer.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:in-context-learning-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 267,
+            "source_page": 173,
+            "description": "In-context learning depends on the LLM.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:step-back-prompting-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 63,
+            "source_page": 54,
+            "description": "Step-back prompting uses an LLM to rewrite the input query into a more generic step-back question.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:step-back-prompting-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 64,
+            "source_page": 54,
+            "description": "Step-back prompting uses an LLM with a step-back prompt to rewrite queries.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:cypher-query-generation-workflow-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 72,
+            "source_page": 66,
+            "description": "The workflow passes the prompt to the LLM to generate the Cypher query.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:format-instructions-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 83,
+            "source_page": 71,
+            "description": "Format instructions help the LLM output only the Cypher query consistently.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:text2cypher-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 74,
+            "source_page": 67,
+            "description": "Text2cypher uses an LLM to generate Cypher queries from natural language.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retrieval-augmented-generation-pipeline-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 73,
+            "source_page": 67,
+            "description": "The RAG pipeline supplies retrieved context to the LLM.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:text2cypher-retriever-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 91,
+            "source_page": 75,
+            "description": "Text2Cypher retriever uses an LLM to generate Cypher queries from natural language.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:text2cypher-generator-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 87,
+            "source_page": 72,
+            "description": "The generator relies on an LLM to interpret the prompt and produce Cypher.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:text2cypher-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 281,
+            "source_page": 174,
+            "description": "Text2Cypher uses LLMs to generate Cypher queries.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:gemma2-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 90,
+            "source_page": 74,
+            "description": "Gemma2 is an open source large language model.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:llama-3-1-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 90,
+            "source_page": 74,
+            "description": "Llama 3.1 is an open source large language model.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:gpt-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 90,
+            "source_page": 74,
+            "description": "GPT is a large language model used as a performance baseline.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:gemini-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 90,
+            "source_page": 74,
+            "description": "Gemini is a large language model used as a performance baseline.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retriever-router-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 98,
+            "source_page": 78,
+            "description": "The retriever router usually uses an LLM to make the retriever selection decision.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retriever-router-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 99,
+            "source_page": 78,
+            "description": "The retriever router can be an LLM that takes the user question and returns the best retriever.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retriever-router-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 109,
+            "source_page": 82,
+            "description": "The retriever router uses an LLM to help select the best retriever(s).",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:answer-critic-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 117,
+            "source_page": 86,
+            "description": "The answer critic uses LLM instructions to evaluate answers.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:react-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 93,
+            "source_page": 77,
+            "description": "Most LLMs can achieve agentic behavior using the ReAct approach.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:gpt-3-5-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 93,
+            "source_page": 77,
+            "description": "GPT-3.5 is an OpenAI LLM with agentic capabilities.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:openai-api-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 86,
+            "source_page": 72,
+            "description": "The OpenAI API provides access to an LLM for text2cypher generation.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:base-model-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 86,
+            "source_page": 72,
+            "description": "A base model is a type of LLM used for Cypher generation.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:fine-tuned-large-language-model-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 89,
+            "source_page": 74,
+            "description": "Fine-tuned LLMs specialize the general LLM for text2cypher.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:text2cypher-retriever-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 92,
+            "source_page": 75,
+            "description": "The retriever structures prompts to the LLM to generate Cypher queries.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:finetuned-llm-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 92,
+            "source_page": 75,
+            "description": "A finetuned LLM is a specialized type of LLM.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:finetuned-llm-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "alternative_to",
+          "properties": {
+            "chunk_index": 91,
+            "source_page": 75,
+            "description": "Finetuned LLMs are an alternative to using a base LLM for text2cypher.",
+            "type": "alternative_to"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retriever-router-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "composes",
+          "properties": {
+            "chunk_index": 96,
+            "source_page": 78,
+            "description": "The retriever router can be an LLM that takes in the user question and returns the best retriever to use.",
+            "type": "composes"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retriever-router-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 114,
+            "source_page": 82,
+            "description": "The retriever router calls an LLM to choose the best retriever for each question.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:retriever-router-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 110,
+            "source_page": 82,
+            "description": "The retriever router uses an LLM to select the best retriever(s) for the user question(s).",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:llm-mistakes-risk",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 74,
+            "source_page": 67,
+            "description": "LLM mistakes are a risk arising from the LLM when generating Cypher queries.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:text2cypher-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 209,
+            "source_page": 144,
+            "description": "text2cypher requires an additional LLM call, which increases latency.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:agentic-rag-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 113,
+            "source_page": 82,
+            "description": "Agentic RAG relies on an LLM for dynamic routing and query refinement.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:routing-function-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 110,
+            "source_page": 82,
+            "description": "The routing function uses an LLM to decide which retriever(s) to use for each question.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:query-updater-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 113,
+            "source_page": 82,
+            "description": "The query updater calls the LLM to rewrite the question.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:routing-questions-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 113,
+            "source_page": 82,
+            "description": "Routing questions calls the LLM with the questions and available tools.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:function-calling-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 114,
+            "source_page": 82,
+            "description": "Built-in function-calling support enables the LLM to select and invoke tools.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:main-function-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 120,
+            "source_page": 88,
+            "description": "The main function uses an LLM to answer questions.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:main-prompt-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 120,
+            "source_page": 88,
+            "description": "The instructions tell the LLM to answer only from provided information and not make things up.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:structured-outputs-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 126,
+            "source_page": 93,
+            "description": "Structured Outputs operates on the LLM to constrain its output.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:structured-outputs-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 128,
+            "source_page": 93,
+            "description": "Structured output definition guides the LLM to extract and organize key contract details.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:enum-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 128,
+            "source_page": 93,
+            "description": "Enum defines possible values an LLM can use.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:prompting-llms-for-extraction-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 145,
+            "source_page": 105,
+            "description": "Prompting for extraction relies on using LLMs.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:microsoft-graphrag-framework",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 151,
+            "source_page": 110,
+            "description": "MS GraphRAG's entity extraction process depends on an LLM to detect entities in text chunks.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:entity-extraction-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 155,
+            "source_page": 112,
+            "description": "Entity extraction uses an LLM to extract and classify entities.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:relationship-extraction-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 155,
+            "source_page": 112,
+            "description": "Relationship extraction uses an LLM to identify related entity pairs and assign relationship strength scores.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:entity-and-relationship-extraction-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 154,
+            "source_page": 112,
+            "description": "The extraction process uses an LLM to identify entities and relationships.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:entity-and-relationship-summarization-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 164,
+            "source_page": 116,
+            "description": "Uses an LLM to consolidate descriptions.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:entity-and-relationship-summarization-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 162,
+            "source_page": 116,
+            "description": "Summarization uses an LLM to generate unified summaries.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:summarization-prompt-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 161,
+            "source_page": 116,
+            "description": "The summarization prompt enables the LLM to generate a coherent summary.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:entity-summarization-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 163,
+            "source_page": 116,
+            "description": "Entity summarization uses an LLM to generate the consolidated entity summary.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:relationship-summarization-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 164,
+            "source_page": 116,
+            "description": "Uses an LLM to consolidate relationship descriptions into a single summary.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:relationship-summarization-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 165,
+            "source_page": 116,
+            "description": "Relationship summarization uses an LLM to generate relationship summaries.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:prompt-construction-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 165,
+            "source_page": 116,
+            "description": "Prompt construction enables the LLM to generate a relationship summary.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:map-step-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 173,
+            "source_page": 124,
+            "description": "The map step processes chunks with the LLM to produce intermediate responses.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:map-system-prompt-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 176,
+            "source_page": 124,
+            "description": "The map system prompt depends on the LLM to extract key points from context.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:reduce-system-prompt-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 176,
+            "source_page": 124,
+            "description": "The reduce system prompt depends on the LLM to synthesize perspectives from multiple analysts.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:final-context-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 173,
+            "source_page": 124,
+            "description": "The final context is used by the LLM to synthesize the final answer.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:graphrag-local-search-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 188,
+            "source_page": 129,
+            "description": "Local search prompts an LLM to generate the final answer.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:graphrag-local-search-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 182,
+            "source_page": 129,
+            "description": "Local search enhances LLM responses by combining structured graph data with unstructured text.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:agent-agent",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 194,
+            "source_page": 139,
+            "description": "The agent uses the LLM to generate accurate answers and retrieve data.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:rag-application-evaluation-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 194,
+            "source_page": 139,
+            "description": "Evaluation includes checking the LLM's ability to generate accurate answers using tools.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:latency-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 209,
+            "source_page": 144,
+            "description": "Avoiding an additional LLM call speeds up the response, so latency depends on LLM calls.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:llm-as-a-judge-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 209,
+            "source_page": 144,
+            "description": "The evaluation relies on an LLM as a judge.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:extracting-structured-data-from-text-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 267,
+            "source_page": 173,
+            "description": "Extracting structured data from text depends on the LLM.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:llm-ready-database-schema-concept",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 281,
+            "source_page": 174,
+            "description": "LLM-ready database schema conveys graph structure via prompt to LLMs.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:essential-graphrag:text2cypher-flow-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 299,
+            "source_page": 175,
+            "description": "Text2Cypher flow uses an LLM to generate Cypher queries.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:graphrag-agentic:neo4j-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 48,
+            "source_page": 44,
+            "description": "Neo4j's vector search results feed downstream LLM usage in the pattern described by the chapter.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:graphrag-agentic:hallucinations-risk",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 18,
+            "source_page": 30,
+            "description": "Hallucinations are a consequence of an LLM's internal knowledge base, which RAG reduces.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:graphrag-agentic:text2cypher-pattern",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 89,
+            "source_page": 74,
+            "description": "Text2Cypher uses an LLM to generate Cypher from natural language.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:graphrag-agentic:chatgpt-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 14,
+            "source_page": 29,
+            "description": "ChatGPT is an example of an LLM.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:graphrag-agentic:chatgpt-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "composes",
+          "properties": {
+            "chunk_index": 21,
+            "source_page": 30,
+            "description": "ChatGPT composes an LLM to generate answers.",
+            "type": "composes"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:graphrag-agentic:chatgpt-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "depends_on",
+          "properties": {
+            "chunk_index": 26,
+            "source_page": 35,
+            "description": "ChatGPT is an example of an LLM-based system.",
+            "type": "depends_on"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:graphrag-agentic:chatgpt-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 1,
+            "source_page": 22,
+            "description": "ChatGPT is powered by LLMs.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:graphrag-agentic:graphrag-framework",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "requires",
+          "properties": {
+            "chunk_index": 173,
+            "source_page": 124,
+            "description": "GraphRAG relies on an LLM to generate reports and answers.",
+            "type": "requires"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:graphrag-agentic:retriever-component",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 50,
+            "source_page": 46,
+            "description": "The retriever provides relevant information that enables the LLM to generate an answer.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:graphrag-agentic:gpt-4o-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-concept",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 164,
+            "source_page": 116,
+            "description": "GPT-4o is the specific LLM model used for summarization.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:graphrag-agentic:gpt-4o-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "extends",
+          "properties": {
+            "chunk_index": 162,
+            "source_page": 116,
+            "description": "GPT-4o is the specific LLM model used to generate the summaries.",
+            "type": "extends"
+          }
+        },
+        "reason": "cycle"
+      },
+      {
+        "edge": {
+          "kind": "RELATED",
+          "source_id": "knowledge:graphrag-agentic:gpt-4o-tool",
+          "target_id": "knowledge:essential-graphrag:large-language-model-component",
+          "relation_type": "enables",
+          "properties": {
+            "chunk_index": 113,
+            "source_page": 82,
+            "description": "GPT-4o is the specific model that implements the LLM in the query updater.",
+            "type": "enables"
+          }
+        },
+        "reason": "cycle"
+      }
+    ]
+  },
+  "counts": {
+    "edges_read": 286,
+    "repoint": 0,
+    "delete_collapse": 0,
+    "excluded": 286,
+    "merge_keys": 0,
+    "merge_collapsed": 0
+  },
+  "post_state": {
+    "mentions_to_merged": 0,
+    "related_to_merged": 0,
+    "merged_entities": 931,
+    "ledger_lines": 958
+  },
+  "cycles": [
+    {
+      "cycle": [
+        "knowledge:essential-graphrag:large-language-model-component",
+        "knowledge:essential-graphrag:llm-component"
+      ],
+      "winner": "knowledge:essential-graphrag:large-language-model-component",
+      "losers": [
+        "knowledge:essential-graphrag:llm-component"
+      ],
+      "degrees": [
+        [
+          "knowledge:essential-graphrag:large-language-model-component",
+          163
+        ],
+        [
+          "knowledge:essential-graphrag:llm-component",
+          0
+        ]
+      ],
+      "winner_previous_mark": {
+        "merged_into": "knowledge:essential-graphrag:llm-component",
+        "merged_at": "2026-09-24T00:50:37.153000000+00:00"
+      }
+    },
+    {
+      "cycle": [
+        "knowledge:essential-graphrag:large-language-model-concept",
+        "knowledge:essential-graphrag:llm-concept"
+      ],
+      "winner": "knowledge:essential-graphrag:large-language-model-concept",
+      "losers": [
+        "knowledge:essential-graphrag:llm-concept"
+      ],
+      "degrees": [
+        [
+          "knowledge:essential-graphrag:large-language-model-concept",
+          123
+        ],
+        [
+          "knowledge:essential-graphrag:llm-concept",
+          0
+        ]
+      ],
+      "winner_previous_mark": {
+        "merged_into": "knowledge:essential-graphrag:llm-concept",
+        "merged_at": "2026-09-24T00:50:38.253000000+00:00"
+      }
+    }
+  ]
+}
