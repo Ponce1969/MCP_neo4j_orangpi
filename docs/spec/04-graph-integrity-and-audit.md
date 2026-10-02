@@ -12,7 +12,7 @@ The repository has a mature static audit subsystem. Preserve it; do not duplicat
   `strict=True`, `extra="forbid"`), secret-safe. `safe_properties` redacts secret keys/
   values, truncates deep/wide values. `AuditTarget` rejects userinfo/query/fragment/path
   in the URI. Reports have stable `canonical_json()` and deterministic ordering.
-- **19 static read-only rules** across categories:
+- **21 static read-only rules** across categories:
 
   | Category | Count | Rules |
   |----------|-------|-------|
@@ -52,7 +52,7 @@ and a pass/fail rule:
 | `uniqueness` | No logical duplicate entities/relationships | WARNING |
 | `coverage` | No orphaned/unmentioned/isolated entities | WARNING |
 
-The existing 19 rules already implement most of this. The model is a **taxonomy** used to
+The existing rules already implement most of this. The model is a **taxonomy** used to
 scope future audits and report summaries, not a rewrite of the existing rules.
 
 ## 3. Topic-scoped audits `[VERIFIED]`
@@ -68,7 +68,7 @@ scope future audits and report summaries, not a rewrite of the existing rules.
 
 ## 4. Required checks (preserve + extend) `[VERIFIED]`
 
-Keep all 19 existing checks. Add, only where justified:
+Keep all existing checks. Add, only where justified:
 
 - **Orphan/integrity:** keep `ENTITY_ISOLATED_RELATED`, `ENTITY_UNMENTIONED`,
   endpoint-validity checks. Add cross-namespace orphan detection once 02 lands.
@@ -116,7 +116,7 @@ purpose X" by combining audit results and (optionally) evaluation results (06).
 
 ## 8. Acceptance criteria
 
-- [x] Existing 19 rules remain intact and pass unchanged on a healthy graph.
+- [x] Existing rules remain intact and pass unchanged on a healthy graph.
 - [x] A namespace-scoped audit returns only scoped numbers and names its scope.
 - [x] A readiness gate returns a deterministic pass/fail and exit code, and fails on any
   BLOCKING finding or any FAILED/UNREACHABLE audit.
@@ -126,7 +126,7 @@ purpose X" by combining audit results and (optionally) evaluation results (06).
 ## 9. Tests
 
 - **Unit:** severity mapping, scope bounding, gate policy evaluation, exit-code mapping.
-- **Integration (Neo4j):** run all 19 rules on a seeded graph with known violations;
+- **Integration (Neo4j):** run all 21 rules on a seeded graph with known violations;
   assert findings + severities + exit codes; run a scoped audit and assert scope
   enforcement.
 

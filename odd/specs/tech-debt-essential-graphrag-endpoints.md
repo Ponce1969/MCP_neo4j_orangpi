@@ -1,6 +1,7 @@
 # Tech debt: edges pointing at soft-deleted entities (`essential-graphrag`)
 
-- **Status**: open — prioritized right after the Book 4 close-out
+- **Status**: **closed (2026-10-02)** — see "Outcome" at the end of this file. The debt was two mutual
+  merge cycles rather than 286 independent edges, and it was fixed at the marker, not at the edges
 - **Opened**: 2026-10-01
 - **Measured scope**: `knowledge:essential-graphrag` only; the same class can exist in any namespace
   where merges ran before the adapter fix
@@ -77,9 +78,12 @@ duplicate was soft-deleted while its edges stayed where they were. Two mechanism
    already uses) to keep the operation reversible.
 4. **Gate the mutation** with the house protocol (AGENTS.md §7.2): fresh backup, dry-run, human approval
    file, apply, then scoped + global audit. Do not touch the ledger entries or the `merged_into` values.
-5. **Add the missing audit rule** (for example `ENDPOINT_MERGED_INVALID`) to `RULE_CATALOG` with tests,
-   so the class is visible and cannot regress silently. If the new rule changes the global audit totals,
-   regenerate the affected baselines deliberately.
+5. **Add the missing audit rules** to `RULE_CATALOG` with tests, so the class is visible and cannot
+   regress silently. **Amended on implementation (2026-10-02)**: two rules were needed, not one, because a
+   single rule cannot carry both scope predicates (MENTIONS scopes by `book_id`, RELATED by entity prefix):
+   `ENDPOINT_MENTIONS_MERGED_INVALID` and `ENDPOINT_RELATED_MERGED_INVALID`, both category `endpoints` and
+   therefore `blocking`. They landed only after the production cleanup, because `gates.yaml` requires
+   `endpoints: pass` and the rules would otherwise have reported the debt as a violation by design.
 6. **Verify** as stated in the acceptance criteria below.
 
 ## Acceptance criteria
@@ -95,6 +99,9 @@ duplicate was soft-deleted while its edges stayed where they were. Two mechanism
 - Re-running entity resolution for the affected namespaces.
 - Deleting merged nodes, ledger entries, or community summaries.
 - Changing any node property beyond the re-pointed edge endpoints.
+  **Approved exception (2026-10-02)**: `merged_into`/`merged_at` were removed from the **two** winners of
+  the mutual merge cycles, exactly as decision D7 of `odd/tasks/merged-endpoint-edges.md` records. Nothing
+  else was touched: no node was deleted, no alias changed, the losers keep their markers.
 
 ## Related follow-ups (registered, deliberately out of this debt)
 
@@ -103,3 +110,51 @@ duplicate was soft-deleted while its edges stayed where they were. Two mechanism
 - **Case-sensitive duplicates**: the audit groups by exact `name`, so `alucinación` and `Alucinación`
   are never reported as duplicates; the case-insensitive/semantic pass belongs to the semantic
   resolution phase.
+
+## Outcome (2026-10-02) — closed
+
+The dry-run contradicted the premise of this document in a useful way: the 286 edges were not scattered
+over a namespace, they hung off exactly **two** entities, each sitting in a **mutual merge pair**:
+
+| Pair | Marker | Live degree |
+|------|--------|-------------|
+| `large-language-model-component` ↔ `llm-component` | each merged into the other | 163 (55 MENTIONS + 108 RELATED) vs 0 |
+| `large-language-model-concept` ↔ `llm-concept` | each merged into the other | 123 (35 + 88) vs 0 |
+
+Because both members carried `merged_into`, re-pointing onto either still left a dangling edge, so the
+acceptance criteria were unreachable by re-pointing alone; the cycle guard excluded all 286 edges and
+refused to guess. The ledger decided the tie (three rounds in opposite directions over the same ids;
+the last applied round, seq 49/50, chose the long names) and the live degrees agreed.
+
+What was executed:
+
+1. `--mode break-cycles` cleared `merged_into`/`merged_at` on the two winners only (evidence bundle
+   `evidence-bundles/repoint-break-cycles-20261002.json`, sha256 `686f124179d8eb2f0ef9ba11c587da3b9242375237d582893f2c41dde8f264a1`,
+   taken before the mutation and carrying the previous marker values so the change is reversible by hand).
+2. The re-point mode then read **0** edges: all 286 already pointed at the winners, which are now live.
+3. Adapter root cause fixed with TDD: `apply_merge` clears the canonical's own leftover marker inside the
+   merge transaction, so a round-robin merge can no longer produce a mutual pair.
+4. Two audit rules added (see plan step 5), so the class is visible from now on.
+
+Verification (production, read-only):
+
+| Acceptance criterion | Result |
+|----------------------|--------|
+| MENTIONS to a merged entity | 90 → **0** |
+| RELATED touching a merged entity | 196 → **0** |
+| Entities carrying `merged_into` | 933 → **931** (exactly the two winners) |
+| Merge ledger | **958 entries, unchanged** |
+| Scoped audit `knowledge:essential-graphrag` | **passed**, blocking 0 / warning 0 / incomplete 0, exit 0 |
+| Global audit | **passed**, blocking 0 / warning 0 / incomplete 0, exit 0 |
+| Adapter regression test | fails before the fix, passes after |
+| New audit rules | present (catalog 19 → 21), tested, report 0 |
+
+Follow-up debts this work registered (not fixed here):
+
+- R1: the inverse map is undirected and `rollback_merge` runs both restore statements for every RELATED
+  entry, so a rollback rebuilds a direction that never existed.
+- R2: the ledger does not record the canonical's prior marker, so a rollback cannot restore it.
+- R3: `_DELETE_INTRA_GROUP_RELATED` deletes any group-to-group RELATED edge while rollback restores only
+  what the inverse map captured; not exercised by a test.
+- R4: 16 of 381 tracked Python files still carry CRLF endings and fail `ruff format --check`, which makes
+  editing them require a normalization commit.
