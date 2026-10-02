@@ -202,6 +202,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help=f"permite un backup de mas de {STALE_BACKUP_HOURS} h",
     )
+    parser.add_argument(
+        "--allow-ambiguous-cycles",
+        action="store_true",
+        help="acepta el desempate (id mas corto) cuando un ciclo tiene grados empatados",
+    )
     return parser.parse_args()
 
 
@@ -382,11 +387,31 @@ def _batched(items: list[Any]) -> list[list[Any]]:
     return [items[i : i + BATCH_SIZE] for i in range(0, len(items), BATCH_SIZE)] or [[]]
 
 
+def _ambiguous_winners(
+    repairs: tuple[CycleRepair, ...], live_degree: dict[str, int]
+) -> tuple[str, ...]:
+    """Ganadores con empate en el grado maximo: la eleccion no es decidible por evidencia.
+
+    El grado vivo se mide ANTES del re-point, asi que las aristas colgantes que
+    despues se mueven cuentan a favor del nodo que hoy las tiene: una cascara con
+    aristas puede empatar con el portador del conocimiento. En ese caso el
+    desempate por id mas corto puede elegir al nodo equivocado, asi que el apply
+    se aborta salvo autorizacion explicita.
+    """
+    ambiguous: list[str] = []
+    for repair in repairs:
+        degrees = sorted((live_degree.get(member, 0) for member in repair.cycle), reverse=True)
+        if len(degrees) > 1 and degrees[0] == degrees[1]:
+            ambiguous.append(repair.winner)
+    return tuple(ambiguous)
+
+
 def _print_cycles(
     repairs: tuple[CycleRepair, ...],
     *,
     mentions: dict[str, int],
     related: dict[str, int],
+    ambiguous: tuple[str, ...] = (),
 ) -> None:
     """Imprime cada ciclo: miembros, grados vivos, ganador y la razon de la eleccion."""
     print("\n== CICLOS DE merged_into (break-cycles) ==")
@@ -411,6 +436,11 @@ def _print_cycles(
             "a EL se le limpia merged_into/merged_at y los perdedores quedan "
             "marcados hacia un nodo ahora vivo."
         )
+        if repair.winner in ambiguous:
+            print(
+                "    AVISO AMBIGUO: empate en el grado vivo; el desempate por id mas corto "
+                "puede elegir un miembro sin conocimiento. Revisar antes de aplicar."
+            )
 
 
 async def _pre_state(session: AsyncSession) -> dict[str, Any]:
@@ -603,7 +633,23 @@ async def main() -> None:
                     for entity_id in set(degree_mentions) | set(degree_related)
                 }
                 repairs = plan_cycle_repairs(merged, live_degree=live_degree)
-                _print_cycles(repairs, mentions=degree_mentions, related=degree_related)
+                ambiguous = _ambiguous_winners(repairs, live_degree)
+                _print_cycles(
+                    repairs,
+                    mentions=degree_mentions,
+                    related=degree_related,
+                    ambiguous=ambiguous,
+                )
+                if ambiguous:
+                    print(
+                        f"\n  CICLOS AMBIGUOS: {len(ambiguous)} con empate de grado "
+                        f"({', '.join(ambiguous)})"
+                    )
+                    if args.apply and not args.allow_ambiguous_cycles:
+                        sys.exit(
+                            "APPLY abortado: ciclos con empate de grado; elegir el ganador a mano "
+                            "o aceptar el desempate con --allow-ambiguous-cycles"
+                        )
                 winner_marks = {
                     str(row[0]): {"merged_into": row[1], "merged_at": row[2]}
                     for row in await _rows(
