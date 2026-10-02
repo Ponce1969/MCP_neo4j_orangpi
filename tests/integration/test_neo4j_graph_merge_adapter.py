@@ -151,6 +151,46 @@ async def _seed_with_book_id_chunks(adapter: Neo4jCommandAdapter, driver: Any) -
         )
 
 
+async def _seed_intra_group_related(adapter: Neo4jCommandAdapter, driver: Any) -> None:
+    """Seed a merge group whose duplicate links canonical, sibling, and outside."""
+    await adapter.upsert_entities(
+        [
+            _entity("book:ch1:canonical", "Canonical Agent", "agent", ["Canon"]),
+            _entity("book:ch1:duplicate", "Duplicate Agent", "agent", ["Dup"]),
+            _entity("book:ch1:duplicate-2", "Sibling Agent", "agent", ["Dup Two"]),
+            _entity("book:ch1:concept-x", "Concept X", "concept"),
+        ]
+    )
+    async with driver.session() as session:
+        # Duplicate related to the canonical of its own merge group.
+        await session.run(
+            """
+            MATCH (d:Entity {id: $dup}), (c:Entity {id: $canon})
+            MERGE (d)-[r:RELATED {type: 'requires', source_page: 11}]->(c)
+            """,
+            dup="book:ch1:duplicate",
+            canon="book:ch1:canonical",
+        )
+        # Duplicate related to a sibling duplicate of the same group.
+        await session.run(
+            """
+            MATCH (d:Entity {id: $dup}), (s:Entity {id: $sibling})
+            MERGE (d)-[r:RELATED {type: 'extends', source_page: 12}]->(s)
+            """,
+            dup="book:ch1:duplicate",
+            sibling="book:ch1:duplicate-2",
+        )
+        # Duplicate related to an entity outside the group.
+        await session.run(
+            """
+            MATCH (d:Entity {id: $dup}), (x:Entity {id: $outside})
+            MERGE (d)-[r:RELATED {type: 'requires', source_page: 8}]->(x)
+            """,
+            dup="book:ch1:duplicate",
+            outside="book:ch1:concept-x",
+        )
+
+
 @pytest.mark.neo4j_integration
 async def test_capture_inverse_mapping_records_pre_merge_state(
     neo4j_settings: Settings,
@@ -369,6 +409,97 @@ async def test_rollback_merge_restores_pre_merge_state(
                 concept="book:ch1:concept-x",
             )
             assert (await related.single())["c"] == 1
+    finally:
+        await command.close()
+
+
+@pytest.mark.neo4j_integration
+async def test_apply_merge_does_not_leave_intra_group_related_edges(
+    neo4j_settings: Settings,
+    neo4j_driver: Any,
+) -> None:
+    """Intra-group RELATED edges are deleted; the out-of-group edge moves intact."""
+    command = Neo4jCommandAdapter(neo4j_settings)
+    merge_adapter = Neo4jGraphMergeAdapter(neo4j_driver)
+    try:
+        await _seed_intra_group_related(command, neo4j_driver)
+        candidates = ["book:ch1:duplicate", "book:ch1:duplicate-2"]
+        inverse = await merge_adapter.capture_inverse_mapping(candidates)
+        await merge_adapter.apply_merge(
+            canonical_id="book:ch1:canonical",
+            candidate_ids=candidates,
+            aliases_folded=[],
+            inverse_mapping=inverse,
+        )
+
+        async with neo4j_driver.session() as session:
+            dangling = await session.run(
+                """
+                MATCH (a:Entity)-[r:RELATED]->(b:Entity)
+                WHERE a.merged_into IS NOT NULL OR b.merged_into IS NOT NULL
+                RETURN count(r) AS c
+                """
+            )
+            assert (await dangling.single())["c"] == 0
+
+            loops = await session.run(
+                """
+                MATCH (a:Entity)-[r:RELATED]->(b:Entity)
+                WHERE a = b
+                RETURN count(r) AS c
+                """
+            )
+            assert (await loops.single())["c"] == 0
+
+            outside_edge = await session.run(
+                """
+                MATCH (c:Entity {id: $canon})-[r:RELATED]->(o:Entity {id: $outside})
+                RETURN count(r) AS c, collect(properties(r)) AS props
+                """,
+                canon="book:ch1:canonical",
+                outside="book:ch1:concept-x",
+            )
+            record = await outside_edge.single()
+            assert record is not None
+            assert record["c"] == 1
+            assert record["props"][0]["source_page"] == 8
+
+        entry = MergeLedgerEntry(
+            seq=1,
+            candidate_ids=candidates,
+            canonical_id="book:ch1:canonical",
+            band=MergeBand.HIGH,
+            evidence=[_dummy_evidence("book:ch1:canonical", "book:ch1:duplicate")],
+            aliases_folded=[],
+            edge_inverse_map=inverse.edge_inverse_map,
+            approver="test",
+            applied_at=datetime.now(UTC),
+        )
+        await merge_adapter.rollback_merge(entry)
+
+        async with neo4j_driver.session() as session:
+            for entity_id in candidates:
+                merged = await session.run(
+                    "MATCH (n:Entity {id: $id}) RETURN n.merged_into AS merged",
+                    id=entity_id,
+                )
+                rec = await merged.single()
+                assert rec is None or rec["merged"] is None
+
+            for source, target in (
+                ("book:ch1:duplicate", "book:ch1:canonical"),
+                ("book:ch1:duplicate", "book:ch1:duplicate-2"),
+                ("book:ch1:duplicate", "book:ch1:concept-x"),
+            ):
+                restored = await session.run(
+                    """
+                    MATCH (a:Entity {id: $src})-[r:RELATED]->(b:Entity {id: $dst})
+                    RETURN count(r) AS c
+                    """,
+                    src=source,
+                    dst=target,
+                )
+                assert (await restored.single())["c"] == 1
     finally:
         await command.close()
 

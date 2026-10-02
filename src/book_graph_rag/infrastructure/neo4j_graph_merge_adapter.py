@@ -68,13 +68,16 @@ ON MATCH SET m2 += inv.edge_properties
 DELETE m
 """
 
-# Move duplicate->other RELATED edges to canonical->other.
+# Move duplicate->other RELATED edges to canonical->other, skipping same-group endpoints
+# (siblings via $dup_ids, the canonical via $canonical_id) so no self-loop is created.
 _REPOINT_RELATED_OUT_BATCH = """
 UNWIND $related AS inv
 MATCH (dup:Entity {id: inv.duplicate_entity_id})-[r:RELATED]->(other:Entity {
     id: inv.original_other_endpoint_id
 })
 WHERE r.type = inv.edge_properties.type
+  AND NOT other.id IN $dup_ids
+  AND other.id <> $canonical_id
 MATCH (canon:Entity {id: $canonical_id})
 MERGE (canon)-[r2:RELATED {type: r.type}]->(other)
 ON CREATE SET r2 += properties(r)
@@ -82,17 +85,27 @@ ON MATCH SET r2 += properties(r)
 DELETE r
 """
 
-# Move other->duplicate RELATED edges to other->canonical.
+# Move other->duplicate RELATED edges to other->canonical, skipping same-group endpoints.
 _REPOINT_RELATED_IN_BATCH = """
 UNWIND $related AS inv
 MATCH (other:Entity {id: inv.original_other_endpoint_id})-[r:RELATED]->(dup:Entity {
     id: inv.duplicate_entity_id
 })
 WHERE r.type = inv.edge_properties.type
+  AND NOT other.id IN $dup_ids
+  AND other.id <> $canonical_id
 MATCH (canon:Entity {id: $canonical_id})
 MERGE (other)-[r2:RELATED {type: r.type}]->(canon)
 ON CREATE SET r2 += properties(r)
 ON MATCH SET r2 += properties(r)
+DELETE r
+"""
+
+# Delete RELATED edges whose both endpoints collapse onto the same merge group.
+_DELETE_INTRA_GROUP_RELATED = """
+MATCH (a:Entity)-[r:RELATED]->(b:Entity)
+WHERE (a.id IN $dup_ids OR a.id = $canonical_id)
+  AND (b.id IN $dup_ids OR b.id = $canonical_id)
 DELETE r
 """
 
@@ -244,6 +257,7 @@ class Neo4jGraphMergeAdapter(GraphMergePort):
                         _REPOINT_RELATED_OUT_BATCH,
                         {
                             "canonical_id": canonical_id,
+                            "dup_ids": candidate_ids,
                             "related": [e.model_dump(mode="json") for e in related],
                         },
                     )
@@ -251,8 +265,13 @@ class Neo4jGraphMergeAdapter(GraphMergePort):
                         _REPOINT_RELATED_IN_BATCH,
                         {
                             "canonical_id": canonical_id,
+                            "dup_ids": candidate_ids,
                             "related": [e.model_dump(mode="json") for e in related],
                         },
+                    )
+                    await tx.run(
+                        _DELETE_INTRA_GROUP_RELATED,
+                        {"canonical_id": canonical_id, "dup_ids": candidate_ids},
                     )
                 if aliases_folded:
                     await tx.run(
