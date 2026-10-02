@@ -149,6 +149,10 @@ Verification (production, read-only):
 | Adapter regression test | fails before the fix, passes after |
 | New audit rules | present (catalog 19 → 21), tested, report 0 |
 
+Note on the evidence bundle: it stores each cycle member's live degree as a **total** (163 and 123 against
+0 and 0). The MENTIONS/RELATED split quoted above (55 + 108 and 35 + 88) is derivable from `plan.excluded`
+and was confirmed by direct Cypher against the production graph, not by a separate field.
+
 Follow-up debts this work registered (not fixed here):
 
 - R1: the inverse map is undirected and `rollback_merge` runs both restore statements for every RELATED
