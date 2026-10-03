@@ -146,8 +146,10 @@ forged evidence can cross the boundary. Enforcement belongs where it cannot be b
 mention count rises by the expected number; scoped audits per namespace stay `passed`; global audit `passed`; the
 ledger grows by the applied count; quarantine records move to `approved`.
 
-**Reversibility.** Ledger inverse map + rollback use case (existing), with debt **R1** fixed first or the rollback's
-mirror directions will corrupt exactly this population.
+**Reversibility.** Ledger inverse map + rollback use case, with debt **R1 fixed on 2026-10-03** (before this
+population is touched): the inverse map captures the RELATED orientation and rollback restores exactly it, so a
+cross-namespace rollback no longer rebuilds mirror directions. The 958 entries written before the fix keep rolling
+back with the legacy both-ways behavior (documented and pinned by test).
 
 ## 6. R5 rules (make the classes visible)
 

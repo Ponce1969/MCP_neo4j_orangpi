@@ -155,8 +155,13 @@ and was confirmed by direct Cypher against the production graph, not by a separa
 
 Follow-up debts this work registered (not fixed here):
 
-- R1: the inverse map is undirected and `rollback_merge` runs both restore statements for every RELATED
-  entry, so a rollback rebuilds a direction that never existed.
+- ~~R1: the inverse map is undirected and `rollback_merge` runs both restore statements for every RELATED
+  entry, so a rollback rebuilds a direction that never existed.~~ **Fixed 2026-10-03**: the inverse map carries the
+  captured orientation, apply re-points only it and rollback restores exactly it. The chain digest is computed over
+  the canonical dump of the parsed entry, so the new field is **omitted when unknown**, which keeps the 958 entries
+  already in the ledger hashing byte-identically (verified read-only: 958 entries, 0 mismatches, 0 broken links); a
+  tampered direction is rejected as a broken chain. Legacy entries keep the both-ways restore, documented and pinned
+  by test.
 - R2: the ledger does not record the canonical's prior marker, so a rollback cannot restore it.
 - R3: `_DELETE_INTRA_GROUP_RELATED` deletes any group-to-group RELATED edge while rollback restores only
   what the inverse map captured; not exercised by a test.

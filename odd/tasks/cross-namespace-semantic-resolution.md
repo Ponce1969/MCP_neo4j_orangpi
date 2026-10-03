@@ -67,9 +67,17 @@ maps and debt R1 corrupts exactly that population.
       R5a's 456 groups appear in the report without turning the `uniqueness` dimension or the `expose-mcp` gate
       red. Only a blocking finding fails it, and self-loops are at zero today. This closes the open question of
       T9 about warnings.
-- [ ] **T5** Debt **R1** with TDD: capture the RELATED direction so `rollback_merge` stops rebuilding mirror
-      directions. Needs a decision on the ledger schema (check the tamper-evident chain hash first) — if the model
-      cannot change safely, document the limit and enforce it in the test suite instead.
+- [x] **T5** Debt **R1** fixed (`merge_ledger_models.py`, `neo4j_graph_merge_adapter.py`, both suites): the inverse
+      map now captures the RELATED orientation, apply re-points only it, and rollback restores exactly it; entries
+      with `direction=None` (the 958 already in the ledger) keep the documented both-ways restore.
+      **The investigation is the interesting part**: the chain digest is computed over the **canonical dump of the
+      parsed model** (`merge_ledger_models.py:109`), so a plain defaulted field would have changed every existing
+      entry and broken the chain. The fix is a `field_serializer` that **omits** the field when unknown, which keeps
+      old lines hashing byte-identically while a known direction stays inside the authenticated payload (a tampered
+      direction is rejected as `LedgerChainBroken`).
+      **Verified against the real ledger, read-only**: 958 entries read with the new model, **0 recomputed-hash
+      mismatches, 0 broken links**. Open cosmetic note: `schema_version` stayed `1.0.0` (per-line metadata, no
+      consumer branches on it) — decide a bump policy when the next field lands.
 - [ ] **T6** Quarantine review surface: `book-graph-rag quarantine list|render <seq>` (decision sheet: names, types,
       descriptions, pages, mentions per book, shared neighbours, the three overlaps, composite) and the evidence
       enrichment (neighbour-overlap sample) in the quarantine record.
@@ -103,3 +111,4 @@ maps and debt R1 corrupts exactly that population.
 | T1 | — | branch `feat/cross-namespace-semantic-resolution`; this document; Engram mirror |
 | T2 | `refactor` + `feat(ops)` commits | renderer 722 lines; production render read-only; 456 groups / 212 rendered / 242 pairs; JSON evidence sha256 `eb5da6995248a5b03944b899…`; 567 unit tests green, ruff/mypy/architecture green |
 | T3+T4 | (this commit) | RED `7 failed` → GREEN `7 passed` (80 s) + regression `34 passed`; catalog 23; ruff/mypy/architecture green |
+| T5 | (this commit) | hash investigation with quoted lines; RED unit `5 failed` / integration `4 failed, 6 passed` → GREEN `5 passed` + `10 passed`; real ledger read-only: 958 entries, 0 mismatches, 0 broken links |
