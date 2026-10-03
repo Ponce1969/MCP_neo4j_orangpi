@@ -1,0 +1,186 @@
+"""Neo4j implementation of QuarantineReviewPort (T6).
+
+Read-only adapter: every Cypher statement is a ``MATCH`` (plus read of the
+JSONL merge ledger through ``MergeLedgerPort``) — it never mutates the graph.
+The first mentioning chunk per entity is chosen deterministically by
+``chunk_index`` (ties broken by source id); shared neighbours are the
+intersection of both live neighbourhoods, sorted lexicographically.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+
+from pydantic import ValidationError
+
+from book_graph_rag.domain.models import Entity
+from book_graph_rag.domain.quarantine_review_models import (
+    EntityReviewFacts,
+    PairReviewFacts,
+    PriorMergeFacts,
+)
+from book_graph_rag.ports.merge_ledger_port import MergeLedgerPort
+from book_graph_rag.ports.quarantine_review_port import QuarantineReviewPort
+
+BATCH_SIZE = 500
+
+_QUERY_ENTITIES = """
+MATCH (e:Entity)
+WHERE e.id IN $ids
+RETURN e.id AS id, e.name AS name, e.type AS type,
+       coalesce(e.description, '') AS description,
+       e.source_page AS source_page,
+       coalesce(e.aliases, []) AS aliases,
+       e.canonical_name AS canonical_name
+"""
+
+_QUERY_MENTION_SOURCES = """
+MATCH (c:Chunk)-[:MENTIONS]->(e:Entity)
+WHERE e.id IN $ids
+RETURN e.id AS id, coalesce(c.source_id, c.book_id) AS source_id, count(*) AS c
+ORDER BY id, source_id
+"""
+
+_QUERY_MENTION_CONTEXT = """
+MATCH (c:Chunk)-[:MENTIONS]->(e:Entity {id: $entity_id})
+RETURN c.text AS text
+ORDER BY c.chunk_index ASC, coalesce(c.source_id, c.book_id) ASC
+LIMIT 1
+"""
+
+_QUERY_NEIGHBORS = """
+MATCH (e:Entity)-[:RELATED]-(other:Entity)
+WHERE e.id IN $ids AND coalesce(other.merged_into, '') = ''
+RETURN DISTINCT e.id AS id, other.id AS neighbor_id
+"""
+
+_QUERY_DESCRIPTIONS = """
+MATCH (e:Entity)
+WHERE e.id IN $ids
+RETURN e.id AS id, coalesce(e.description, '') AS description
+"""
+
+
+def _batched(items: list[str]) -> list[list[str]]:
+    return [items[i : i + BATCH_SIZE] for i in range(0, len(items), BATCH_SIZE)]
+
+
+class Neo4jQuarantineReviewAdapter(QuarantineReviewPort):
+    """Read-only review facts from Neo4j plus the merge ledger file."""
+
+    def __init__(self, driver: Any, ledger: MergeLedgerPort) -> None:
+        self._driver = driver
+        self._ledger = ledger
+
+    async def read_pair_facts(self, anchor_id: str, candidate_id: str) -> PairReviewFacts:
+        ids = [anchor_id, candidate_id]
+        entities = await self._load_entities(ids)
+        mentions = await self._load_mention_sources(ids)
+        neighbors = await self._load_neighbors(ids)
+        contexts = {entity_id: await self._load_mention_context(entity_id) for entity_id in ids}
+
+        anchor_neighbors = neighbors.get(anchor_id, frozenset())
+        candidate_neighbors = neighbors.get(candidate_id, frozenset())
+        shared = sorted(anchor_neighbors & candidate_neighbors)
+
+        return PairReviewFacts(
+            anchor=self._facts(anchor_id, entities, mentions, neighbors, contexts),
+            candidate=self._facts(candidate_id, entities, mentions, neighbors, contexts),
+            shared_neighbor_ids=tuple(shared),
+            prior_merge=self._find_prior_merge(anchor_id, candidate_id),
+        )
+
+    async def read_descriptions(self, entity_ids: Sequence[str]) -> dict[str, str]:
+        descriptions: dict[str, str] = {}
+        unique = list(dict.fromkeys(entity_ids))
+        for batch in _batched(unique):
+            async with self._driver.session() as session:
+                result = await session.run(_QUERY_DESCRIPTIONS, ids=batch)
+                async for record in result:
+                    descriptions[str(record["id"])] = str(record["description"])
+        return descriptions
+
+    async def close(self) -> None:
+        """Close the underlying Neo4j driver."""
+        await self._driver.close()
+
+    async def _load_entities(self, ids: list[str]) -> dict[str, Entity]:
+        entities: dict[str, Entity] = {}
+        async with self._driver.session() as session:
+            result = await session.run(_QUERY_ENTITIES, ids=ids)
+            async for record in result:
+                row = record.data()
+                try:
+                    entity = Entity.model_validate(row)
+                except ValidationError:
+                    continue  # legacy type outside the EntityType contract
+                entities[entity.id] = entity
+        missing = [entity_id for entity_id in ids if entity_id not in entities]
+        if missing:
+            raise LookupError(f"Entity id(s) not found in the graph: {', '.join(missing)}")
+        return entities
+
+    async def _load_mention_sources(self, ids: list[str]) -> dict[str, tuple[int, tuple[str, ...]]]:
+        """Per entity: total mentioning chunks and the sorted distinct sources."""
+        counts: dict[str, int] = dict.fromkeys(ids, 0)
+        sources: dict[str, set[str]] = {entity_id: set() for entity_id in ids}
+        async with self._driver.session() as session:
+            result = await session.run(_QUERY_MENTION_SOURCES, ids=ids)
+            async for record in result:
+                entity_id = str(record["id"])
+                counts[entity_id] = counts.get(entity_id, 0) + int(record["c"])
+                source_id = record["source_id"]
+                if source_id:
+                    sources.setdefault(entity_id, set()).add(str(source_id))
+        return {
+            entity_id: (counts.get(entity_id, 0), tuple(sorted(sources.get(entity_id, ()))))
+            for entity_id in counts
+        }
+
+    @staticmethod
+    def _facts(
+        entity_id: str,
+        entities: dict[str, Entity],
+        mentions: dict[str, tuple[int, tuple[str, ...]]],
+        neighbors: dict[str, frozenset[str]],
+        contexts: dict[str, str],
+    ) -> EntityReviewFacts:
+        chunk_count, source_ids = mentions.get(entity_id, (0, ()))
+        return EntityReviewFacts(
+            entity=entities[entity_id],
+            mention_source_ids=source_ids,
+            mention_chunk_count=chunk_count,
+            neighbor_ids=tuple(sorted(neighbors.get(entity_id, frozenset()))),
+            mention_context=contexts.get(entity_id, ""),
+        )
+
+    async def _load_neighbors(self, ids: list[str]) -> dict[str, frozenset[str]]:
+        neighbors: dict[str, set[str]] = {entity_id: set() for entity_id in ids}
+        async with self._driver.session() as session:
+            result = await session.run(_QUERY_NEIGHBORS, ids=ids)
+            async for record in result:
+                neighbors.setdefault(str(record["id"]), set()).add(str(record["neighbor_id"]))
+        return {key: frozenset(value) for key, value in neighbors.items()}
+
+    async def _load_mention_context(self, entity_id: str) -> str:
+        async with self._driver.session() as session:
+            result = await session.run(_QUERY_MENTION_CONTEXT, entity_id=entity_id)
+            async for record in result:
+                text = record["text"]
+                return "" if text is None else str(text)
+        return ""
+
+    def _find_prior_merge(self, left_id: str, right_id: str) -> PriorMergeFacts | None:
+        wanted = {left_id, right_id}
+        entries = self._ledger.read_all()
+        for entry in entries:
+            involved = {entry.canonical_id, *entry.candidate_ids}
+            if wanted <= involved:
+                rolled_back = any(other.rollback_of == entry.seq for other in entries)
+                return PriorMergeFacts(
+                    seq=entry.seq,
+                    applied_at=entry.applied_at,
+                    rolled_back=rolled_back,
+                )
+        return None

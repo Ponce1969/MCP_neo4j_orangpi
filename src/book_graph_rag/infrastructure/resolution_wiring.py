@@ -13,6 +13,7 @@ from neo4j import AsyncGraphDatabase
 
 from book_graph_rag.application.apply_merge_use_case import ApplyMergeUseCase
 from book_graph_rag.application.resolve_entities_use_case import ResolveEntitiesUseCase
+from book_graph_rag.application.review_quarantine_use_case import ReviewQuarantineUseCase
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import Entity
 from book_graph_rag.domain.s4_band_assignment import BandThresholds
@@ -25,6 +26,9 @@ from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdap
 from book_graph_rag.infrastructure.neo4j_graph_merge_adapter import Neo4jGraphMergeAdapter
 from book_graph_rag.infrastructure.neo4j_neighborhood_query_adapter import (
     Neo4jNeighborhoodQueryAdapter,
+)
+from book_graph_rag.infrastructure.neo4j_quarantine_review_adapter import (
+    Neo4jQuarantineReviewAdapter,
 )
 from book_graph_rag.infrastructure.sentence_transformer_adapter import (
     SentenceTransformerAdapter,
@@ -78,9 +82,7 @@ async def build_resolve_entities_use_case(
         )
         for entity, vector in zip(entities, batch.vectors, strict=True):
             await retrieval.upsert_entity_embedding(entity.id, vector)
-            retrieval.upsert_entity_metadata(
-                entity.id, entity.type, _namespace_from_id(entity.id)
-            )
+            retrieval.upsert_entity_metadata(entity.id, entity.type, _namespace_from_id(entity.id))
 
     thresholds = BandThresholds(
         high_cosine=settings.band_high_cosine,
@@ -120,3 +122,19 @@ async def build_apply_merge_use_case(
     )
     return use_case, [entity_loader, graph_merge]
 
+
+def build_review_quarantine_use_case(
+    settings: Settings,
+) -> tuple[ReviewQuarantineUseCase, list[Any]]:
+    """Wire the read-only quarantine review surface (T6, ``quarantine list|render``).
+
+    Returns the use case plus its closable adapters; the caller must close them.
+    """
+    driver = _make_driver(settings)
+    review = Neo4jQuarantineReviewAdapter(
+        driver,
+        JSONLMergeLedger(settings.merge_ledger_path),
+    )
+    quarantine = JSONLQuarantineWriter(settings.quarantine_path)
+    use_case = ReviewQuarantineUseCase(quarantine=quarantine, review=review)
+    return use_case, [review]

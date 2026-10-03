@@ -1,0 +1,400 @@
+"""Pure tests for the quarantine review sheet models and formatter (T6).
+
+No Neo4j, no filesystem, no ANSI: the reading thresholds, the mention
+snippet, the generic-label detection, the deterministic ordering and the
+terminal formatter are all pure functions over frozen domain models.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from book_graph_rag.domain.quarantine_models import QuarantineDecision
+from book_graph_rag.domain.quarantine_review_models import (
+    DecisionSheet,
+    EvidenceReading,
+    PriorMergeFacts,
+    QuarantineListRow,
+    SharedNeighbor,
+    SheetEvidence,
+    SheetMember,
+    format_list,
+    format_sheet,
+    is_generic_label,
+    mention_snippet,
+    reading_for,
+)
+from book_graph_rag.domain.resolution_models import ConfidenceBand
+from book_graph_rag.domain.s0_normalization import namespace_from_id
+from book_graph_rag.domain.s3_context_scoring import description_overlap
+from book_graph_rag.domain.s4_band_assignment import BandThresholds
+
+# ── Synthetic corpora ────────────────────────────────────────────────────────
+
+_ES_DUPLICATE_A = (
+    "Representación vectorial de texto que permite buscar documentos por "
+    "significado y medir similitud semántica."
+)
+_ES_DUPLICATE_B = (
+    "Representación vectorial de texto que permite buscar documentos por "
+    "significado y comparar similitud semántica."
+)
+_EN_UNRELATED = (
+    "A dense vector representation of text used for nearest neighbour search in retrieval systems."
+)
+_GENERIC_FRAMING_ES = "Entidad que utiliza herramientas y planificación para cumplir un objetivo."
+_GENERIC_FRAMING_EN = (
+    "An AI agent whose capabilities are defined and measured by benchmark evaluation."
+)
+
+_THRESHOLD = BandThresholds()
+
+_ANCHOR_ID = "knowledge:graphrag-agentic:embeddings-concept"
+_CANDIDATE_ID = "knowledge:essential-graphrag:embeddings-concept"
+
+
+def _member(
+    entity_id: str,
+    *,
+    name: str,
+    description: str,
+    mention_context: str,
+    source_page: int,
+    alias_count: int,
+    mention_count: int,
+    related_count: int,
+) -> SheetMember:
+    return SheetMember(
+        entity_id=entity_id,
+        namespace=namespace_from_id(entity_id),
+        name=name,
+        entity_type="concept",
+        source_page=source_page,
+        alias_count=alias_count,
+        description=description,
+        mention_context=mention_snippet(mention_context),
+        mention_count=mention_count,
+        mention_sources=(namespace_from_id(entity_id),),
+        related_count=related_count,
+    )
+
+
+def _evidence() -> SheetEvidence:
+    return SheetEvidence(
+        description_overlap=0.636,
+        mentions_jaccard=0.333,
+        mentions_shared=1,
+        mentions_union=3,
+        related_jaccard=0.048,
+        related_shared=1,
+        related_union=21,
+        composite=0.339,
+        reading=EvidenceReading.IDENTITY,
+        s0_matched_field="canonical",
+        s2_type_gate_passed=True,
+        s2_type_gate_reason="anchor type concept matches candidate type concept",
+    )
+
+
+def _sheet() -> DecisionSheet:
+    anchor = _member(
+        _ANCHOR_ID,
+        name="Embeddings",
+        description=_ES_DUPLICATE_A,
+        mention_context=(
+            "Embeddings\nRepresentación vectorial de texto\npermite buscar por significado."
+        ),
+        source_page=122,
+        alias_count=2,
+        mention_count=3,
+        related_count=7,
+    )
+    candidate = _member(
+        _CANDIDATE_ID,
+        name="Embeddings",
+        description=_ES_DUPLICATE_B,
+        mention_context="Dense vector representation of embeddings in the book.",
+        source_page=41,
+        alias_count=1,
+        mention_count=5,
+        related_count=9,
+    )
+    return DecisionSheet(
+        seq=1462,
+        band=ConfidenceBand.MEDIUM,
+        decision=QuarantineDecision.PENDING,
+        created_at=datetime(2026, 10, 3, 18, 22, tzinfo=UTC),
+        label="embeddings",
+        entity_type="concept",
+        generic_label=True,
+        cross_namespace=True,
+        members=(anchor, candidate),
+        evidence=_evidence(),
+        # Deliberately out of order: the model must impose deterministic order.
+        shared_neighbors=(
+            SharedNeighbor(entity_id="knowledge:beta:zeta", namespace="knowledge:beta"),
+            SharedNeighbor(entity_id="knowledge:alpha:alfa", namespace="knowledge:alpha"),
+        ),
+    )
+
+
+def _row(seq: int, label: str, *, generic: bool = False) -> QuarantineListRow:
+    return QuarantineListRow(
+        seq=seq,
+        band=ConfidenceBand.MEDIUM,
+        entity_type="concept",
+        label=label,
+        # Deliberately out of order: the model must sort namespaces.
+        namespaces=("knowledge:beta", "knowledge:alpha"),
+        description_overlap=0.636,
+        anchor_id=f"knowledge:alpha:{label}",
+        candidate_id=f"knowledge:beta:{label}",
+        generic=generic,
+        decision=QuarantineDecision.PENDING,
+    )
+
+
+# ── Reading thresholds (description_overlap vs BandThresholds) ───────────────
+
+
+def test_reading_is_identity_evidence_for_same_language_duplicate() -> None:
+    """A same-language duplicate clears high_context -> identity evidence."""
+    overlap = description_overlap(_ES_DUPLICATE_A, _ES_DUPLICATE_B)
+    assert overlap >= _THRESHOLD.high_context
+    assert reading_for(overlap, _THRESHOLD) is EvidenceReading.IDENTITY
+
+
+def test_reading_is_no_shared_context_for_cross_language_duplicate() -> None:
+    """A true cross-language duplicate has lexical overlap 0 -> no shared context."""
+    overlap = description_overlap(_ES_DUPLICATE_A, _EN_UNRELATED)
+    assert overlap < _THRESHOLD.conflict_floor
+    assert reading_for(overlap, _THRESHOLD) is EvidenceReading.NO_SHARED_CONTEXT
+
+
+def test_reading_is_no_shared_context_for_zero_overlap_generic_label() -> None:
+    """The generic-label collision class scores ~0 -> no shared context."""
+    overlap = description_overlap(_GENERIC_FRAMING_ES, _GENERIC_FRAMING_EN)
+    assert overlap == 0.0
+    assert reading_for(overlap, _THRESHOLD) is EvidenceReading.NO_SHARED_CONTEXT
+
+
+def test_reading_is_undecided_between_floor_and_high_context() -> None:
+    """An in-between overlap stays undecided under the project thresholds."""
+    overlap = description_overlap(
+        "alpha beta gamma delta epsilon",
+        "alpha beta gamma zeta eta theta",
+    )
+    assert _THRESHOLD.conflict_floor <= overlap < _THRESHOLD.high_context
+    assert reading_for(overlap, _THRESHOLD) is EvidenceReading.UNDECIDED
+
+
+# ── Mention snippet ─────────────────────────────────────────────────────────
+
+
+def test_mention_snippet_collapses_newlines_and_whitespace() -> None:
+    """Newlines and runs of whitespace collapse into single spaces."""
+    assert mention_snippet("linea uno\nlinea dos\r\n\ttercera") == ("linea uno linea dos tercera")
+
+
+def test_mention_snippet_truncates_at_documented_cap() -> None:
+    """The snippet is capped at 200 chars with an ellipsis and no newlines."""
+    long_text = "palabra " * 100
+    snippet = mention_snippet(long_text)
+    assert len(snippet) <= 200
+    assert snippet.endswith("…")
+    assert "\n" not in snippet
+
+
+def test_mention_snippet_keeps_short_text_verbatim_after_collapsing() -> None:
+    """A short snippet survives unchanged apart from the whitespace collapse."""
+    assert mention_snippet("hola\nmundo") == "hola mundo"
+    assert mention_snippet("") == ""
+
+
+# ── Generic single-word label detection ─────────────────────────────────────
+
+
+def test_generic_label_detects_single_word_labels() -> None:
+    """Single-word labels (the high-risk batch) are generic."""
+    for label in ("agent", "embeddings", "  LLM  ", "fine-tuning", "Evaluation"):
+        assert is_generic_label(label) is True, label
+
+
+def test_generic_label_rejects_multi_word_and_empty_labels() -> None:
+    """Multi-word or empty labels are not the generic-collision class."""
+    for label in ("Semantic Kernel", "Text2Cypher Pattern", "", "   "):
+        assert is_generic_label(label) is False, label
+
+
+# ── Deterministic ordering ──────────────────────────────────────────────────
+
+
+def test_list_rows_sort_namespaces_on_construction() -> None:
+    """Namespaces normalize to a sorted tuple regardless of input order."""
+    assert _row(1, "embeddings").namespaces == ("knowledge:alpha", "knowledge:beta")
+
+
+def test_sheet_sorts_shared_neighbors_on_construction() -> None:
+    """Shared neighbours order deterministically by entity id."""
+    sheet = _sheet()
+    assert [n.entity_id for n in sheet.shared_neighbors] == [
+        "knowledge:alpha:alfa",
+        "knowledge:beta:zeta",
+    ]
+
+
+def test_format_list_orders_rows_by_seq_regardless_of_input_order() -> None:
+    """The printed list is ordered by seq even when rows arrive shuffled."""
+    text = format_list([_row(3, "pipeline"), _row(1, "embeddings"), _row(2, "agent")])
+    assert text.index("embeddings") < text.index("agent") < text.index("pipeline")
+
+
+def test_format_list_marks_only_generic_rows() -> None:
+    """Only the single-word label carries the ⚠ genérica marker."""
+    text = format_list([_row(1, "embeddings"), _row(2, "agent", generic=True)])
+    assert text.count("⚠ genérica") == 1
+    assert "knowledge:alpha|knowledge:beta" in text
+
+
+def test_format_list_of_empty_queue_reports_no_records() -> None:
+    """An empty queue still prints honestly."""
+    assert "(sin registros)" in format_list([])
+
+
+# ── Formatter: approved sheet layout and field order ────────────────────────
+
+
+def test_format_sheet_follows_approved_field_order() -> None:
+    """Every approved field appears, in the approved order."""
+    text = format_sheet(_sheet())
+    markers = [
+        "seq 1462",
+        'label "embeddings"',
+        "entity id",
+        "name / type",
+        "source page",
+        "aliases",
+        "description",
+        "mention context",
+        "MENTIONS",
+        "RELATED neighbours",
+        "evidencia",
+        "description_overlap",
+        "mentions_jaccard",
+        "related_jaccard",
+        "composite",
+        "lectura",
+        "vecinos compartidos",
+        "ledger",
+        "decidir",
+    ]
+    positions = [text.index(marker) for marker in markers]
+    assert positions == sorted(positions), text
+
+
+def test_format_sheet_header_carry_routing_band_and_cosine() -> None:
+    """The header states routing R6.2, the record band and that no model ran."""
+    text = format_sheet(_sheet())
+    lines = text.splitlines()
+    assert lines[0] == (
+        "  seq 1462 · band medium · cross-namespace · PENDING · created 2026-10-03T18:22Z"
+    )
+    assert lines[1] == (
+        '  label "embeddings" | type concept | '
+        "routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado"
+    )
+    assert "band claimed" not in text
+
+
+def test_format_sheet_labels_primary_and_structural_evidence() -> None:
+    """description_overlap is primary; both jaccards are labelled structural."""
+    text = format_sheet(_sheet())
+    assert "<- primaria (mismo idioma)" in text
+    assert text.count("(estructural: sólo != 0 después de un merge)") == 2
+    assert "(0.50 = high_context, umbral intra-namespace)" in text
+
+
+def test_format_sheet_member_rows_align_both_columns() -> None:
+    """Both members' facts render side by side in the approved column layout."""
+    sheet = _sheet()
+    text = format_sheet(sheet)
+    anchor, candidate = sheet.members
+    id_line = next(line for line in text.splitlines() if line.startswith("  entity id"))
+    # Ids longer than the column keep their tail (the slug), mockup-style.
+    assert "…" + _ANCHOR_ID[-36:] in id_line  # left column capped one short
+    assert "…" + _CANDIDATE_ID[-37:] in id_line
+    assert f"  {'source page'.ljust(27)}{'122'.ljust(38)}41" in text
+    assert f"  {'aliases'.ljust(27)}{'2'.ljust(38)}1" in text
+    right_mentions = "5 chunks · knowledge:essential-graphrag"
+    expected_mentions = (
+        f"  {'MENTIONS'.ljust(27)}"
+        f"{'3 chunks · knowledge:graphrag-agentic'.ljust(38)}"
+        f"…{right_mentions[-37:]}"
+    )
+    assert expected_mentions in text
+    assert f"  {'RELATED neighbours'.ljust(27)}{'7'.ljust(38)}9" in text
+    # The mention context is collapsed before it reaches the sheet.
+    assert "\n" not in anchor.mention_context
+    assert anchor.mention_context == (
+        "Embeddings Representación vectorial de texto permite buscar por significado."
+    )
+
+
+def test_format_sheet_evidence_block_layout() -> None:
+    """The evidence block keeps the approved labels, widths and reading line."""
+    text = format_sheet(_sheet())
+    assert "  evidencia    description_overlap 0.636  <- primaria (mismo idioma)" in text
+    assert (
+        "               mentions_jaccard    0.333  "
+        "(estructural: sólo != 0 después de un merge)" in text
+    )
+    assert "               related_jaccard     0.048" in text
+    assert (
+        "               composite           0.339  "
+        "(0.50 = high_context, umbral intra-namespace)" in text
+    )
+    assert (
+        "  lectura      identity · description_overlap 0.636 vs high_context 0.50 "
+        "/ conflict_floor 0.10 · evidencia, NO enrutamiento" in text
+    )
+
+
+def test_format_sheet_shared_neighbors_and_ledger_lines() -> None:
+    """Shared neighbours show namespaces; the ledger line is honest both ways."""
+    text = format_sheet(_sheet())
+    assert "  vecinos compartidos (2)  knowledge:alpha/alfa · knowledge:beta/zeta" in text
+    assert "sin merge previo entre estos dos ids" in text
+    assert "  decidir      identity (merge)  ·  label collision (separar)  ·  deferir" in text
+
+    merged = _sheet().model_copy(
+        update={
+            "prior_merge": PriorMergeFacts(
+                seq=7,
+                applied_at=datetime(2026, 9, 30, 10, 5, tzinfo=UTC),
+            )
+        }
+    )
+    merged_text = format_sheet(merged)
+    assert "seq 7 · 2026-09-30T10:05Z" in merged_text
+    assert "sin merge previo" not in merged_text
+
+    rolled = _sheet().model_copy(
+        update={
+            "prior_merge": PriorMergeFacts(
+                seq=7,
+                applied_at=datetime(2026, 9, 30, 10, 5, tzinfo=UTC),
+                rolled_back=True,
+            )
+        }
+    )
+    assert "seq 7 · 2026-09-30T10:05Z · rollback" in format_sheet(rolled)
+
+
+def test_format_sheet_pair_without_record_reports_no_record() -> None:
+    """``render --pair`` renders an honest sheet: no seq, no band, no decision."""
+    pair_sheet = _sheet().model_copy(
+        update={"seq": None, "band": None, "decision": None, "created_at": None}
+    )
+    assert format_sheet(pair_sheet).splitlines()[0] == (
+        "  seq — · band — · cross-namespace · sin registro · created —"
+    )

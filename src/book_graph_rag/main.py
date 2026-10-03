@@ -58,6 +58,13 @@ from book_graph_rag.domain.models import (
     RelationQuery,
 )
 from book_graph_rag.domain.namespaces import SourceNamespace, UnknownNamespaceError
+from book_graph_rag.domain.quarantine_review_models import (
+    DecisionSheet,
+    QuarantineListRow,
+    format_list,
+    format_sheet,
+)
+from book_graph_rag.domain.resolution_models import ConfidenceBand
 from book_graph_rag.domain.s4_band_assignment import BandThresholds
 from book_graph_rag.domain.validation_models import BookScope, SmokeManifest, TargetScope
 from book_graph_rag.infrastructure.brute_force_candidate_retrieval import (
@@ -84,7 +91,10 @@ from book_graph_rag.infrastructure.neo4j_retrieval_adapter import Neo4jRetrieval
 from book_graph_rag.infrastructure.neo4j_retrieval_smoke_adapter import Neo4jRetrievalSmokeAdapter
 from book_graph_rag.infrastructure.neo4j_validation_adapter import Neo4jValidationAdapter
 from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter
-from book_graph_rag.infrastructure.resolution_wiring import build_resolve_entities_use_case
+from book_graph_rag.infrastructure.resolution_wiring import (
+    build_resolve_entities_use_case,
+    build_review_quarantine_use_case,
+)
 from book_graph_rag.infrastructure.sentence_transformer_adapter import (
     SentenceTransformerAdapter,
 )
@@ -908,6 +918,144 @@ def resolve_entities(dry_run: bool) -> None:
         sys.exit(3)
 
     click.echo(json.dumps(summary, indent=2))
+
+
+@cli.group("quarantine")
+def quarantine() -> None:
+    """Inspect the human-review queue (read-only: list and render).
+
+    Only ``list`` and ``render`` ship in this unit. ``enqueue``, ``approve``
+    and ``reject`` are deliberately not registered — they arrive with the
+    approval unit behind the AGENTS.md §7.2 mutation gate.
+    """
+
+
+@quarantine.command("list")
+@click.option(
+    "--all",
+    "show_all",
+    is_flag=True,
+    default=False,
+    help="Include decided records (default: pending only).",
+)
+@click.option(
+    "--band",
+    type=click.Choice(["medium", "high"]),
+    default=None,
+    help="Only records in this confidence band.",
+)
+@click.option(
+    "--namespace",
+    default=None,
+    help="Only records touching this corpus:source namespace.",
+)
+@click.option(
+    "--limit",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Maximum number of rows printed.",
+)
+@click.option(
+    "--generic-only",
+    is_flag=True,
+    default=False,
+    help="Only single-word labels (the generic-collision batch).",
+)
+@click.option("--json", "json_output", is_flag=True, default=False, help="Emit rows as JSON.")
+def quarantine_list(
+    show_all: bool,
+    band: str | None,
+    namespace: str | None,
+    limit: int | None,
+    generic_only: bool,
+    json_output: bool,
+) -> None:
+    """Print one row per quarantine record (pending unless --all)."""
+    try:
+        settings = Settings.model_validate({})
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Configuration error: {exc}", err=True)
+        sys.exit(1)
+
+    band_value = ConfidenceBand(band) if band is not None else None
+
+    async def _run() -> list[QuarantineListRow]:
+        use_case, closables = build_review_quarantine_use_case(settings)
+        try:
+            return await use_case.list_records(
+                show_all=show_all,
+                band=band_value,
+                namespace=namespace,
+                limit=limit,
+                generic_only=generic_only,
+            )
+        finally:
+            for closable in closables:
+                if hasattr(closable, "close"):
+                    await closable.close()
+
+    try:
+        rows = asyncio.run(_run())
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Quarantine list error: {exc}", err=True)
+        sys.exit(3)
+
+    if json_output:
+        click.echo(
+            json.dumps(
+                [row.model_dump(mode="json") for row in rows],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+    else:
+        click.echo(format_list(rows))
+
+
+@quarantine.command("render")
+@click.option("--seq", type=int, default=None, help="Quarantine record sequence number.")
+@click.option(
+    "--pair",
+    nargs=2,
+    default=None,
+    metavar="ENTITY_ID ENTITY_ID",
+    help="Two entity ids without a record (retro-audit of applied merges).",
+)
+@click.option("--json", "json_output", is_flag=True, default=False, help="Emit sheet as JSON.")
+def quarantine_render(
+    seq: int | None,
+    pair: tuple[str, str] | None,
+    json_output: bool,
+) -> None:
+    """Print the decision sheet for one record or one entity pair."""
+    if (seq is None) == (pair is None):
+        raise click.UsageError("Provide exactly one of --seq or --pair")
+
+    try:
+        settings = Settings.model_validate({})
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Configuration error: {exc}", err=True)
+        sys.exit(1)
+
+    async def _run() -> DecisionSheet:
+        use_case, closables = build_review_quarantine_use_case(settings)
+        try:
+            return await use_case.render_sheet(seq=seq, pair=pair)
+        finally:
+            for closable in closables:
+                if hasattr(closable, "close"):
+                    await closable.close()
+
+    try:
+        sheet = asyncio.run(_run())
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Quarantine render error: {exc}", err=True)
+        sys.exit(3)
+
+    if json_output:
+        click.echo(sheet.model_dump_json(indent=2))
+    else:
+        click.echo(format_sheet(sheet))
 
 
 def main() -> None:
