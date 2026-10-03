@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 
 def _read(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
@@ -51,3 +53,57 @@ def test_spec03_open_decisions_resolved() -> None:
 def test_spec03_no_target_stage_markers() -> None:
     spec = _read("docs/spec/03-semantic-entity-resolution.md")
     assert "`[TARGET]`" not in spec
+
+
+# ── Agent-ops docs + skill (runbook / AGENTS.md §7.5 / usage skill) ──────────
+
+MCP_TOOLS = (
+    "find_entity",
+    "traverse_relationships",
+    "search_chunks",
+    "list_entities",
+    "count_entities",
+    "search_rag",
+    "query_cypher",
+    "ask_global",
+)
+
+
+def test_agents_and_runbook_name_unit_and_restart_command() -> None:
+    """Both normative docs must name the real unit and the exact restart command."""
+    for path in ("AGENTS.md", "docs/ops/mcp-service.md"):
+        text = _read(path)
+        assert "mcp-server.service" in text, f"{path} lost the unit name"
+        assert "sudo systemctl restart mcp-server" in text, f"{path} lost the restart command"
+
+
+def test_runbook_names_smoke_script_and_manual_instance_warning() -> None:
+    """The runbook must point at the smoke script and warn about the restart loop."""
+    runbook = _read("docs/ops/mcp-service.md")
+    assert "scripts-ops/mcp_smoke_book4.py" in runbook
+    assert "Warning" in runbook
+    assert "manual instance" in runbook
+    assert "restart loop" in runbook
+
+
+def test_usage_skill_covers_all_tools_and_scope_form() -> None:
+    """The usage skill must mention every MCP tool and the exact scope form."""
+    skill = _read(".agents/skills/book-graph-mcp-usage/SKILL.md")
+    for tool in MCP_TOOLS:
+        assert f"`{tool}`" in skill, f"skill does not mention tool {tool}"
+    assert "corpus:source" in skill
+
+
+def test_usage_skill_covers_every_active_catalog_source() -> None:
+    """Every source marked active in catalog.yaml must be documented in the skill."""
+    catalog = yaml.safe_load(_read("catalog.yaml"))
+    active_sources: list[str] = [
+        source_id
+        for corpus in catalog["corpora"].values()
+        for source_id, source in corpus["sources"].items()
+        if source.get("status") == "active"
+    ]
+    assert active_sources, "catalog.yaml lists no active source"
+    skill = _read(".agents/skills/book-graph-mcp-usage/SKILL.md")
+    for source_id in active_sources:
+        assert source_id in skill, f"skill does not mention active source {source_id}"
