@@ -37,7 +37,7 @@ class BandThresholds(BaseModel):
         return self
 
 
-def _composite_score(s3: S3ContextSignals | None) -> float:
+def composite_score(s3: S3ContextSignals | None) -> float:
     """Arithmetic mean of the three S3 overlap signals."""
     if s3 is None:
         return 0.0
@@ -63,7 +63,7 @@ def assign_band(
     if s0_match_field != "none":
         return ConfidenceBand.EXACT
 
-    composite = _composite_score(s3)
+    composite = composite_score(s3)
     if (
         s1_cosine >= thresholds.high_cosine
         and composite >= thresholds.high_context

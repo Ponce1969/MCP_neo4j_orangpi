@@ -11,7 +11,7 @@ from typing import Any, cast
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import EntityType
-from book_graph_rag.domain.s0_normalization import _namespace_from_id
+from book_graph_rag.domain.s0_normalization import namespace_from_id
 from book_graph_rag.infrastructure._neo4j_vector_cypher import (
     _ENSURE_VECTOR_INDEX,
     _SET_ENTITY_EMBEDDING,
@@ -42,9 +42,7 @@ class Neo4jVectorCandidateRetrieval(CandidateRetrievalPort):
                 similarity="cosine",
             )
 
-    async def upsert_entity_embedding(
-        self, entity_id: str, vector: EmbeddingVector
-    ) -> None:
+    async def upsert_entity_embedding(self, entity_id: str, vector: EmbeddingVector) -> None:
         """Write ``vector`` to the ``embedding`` property of ``:Entity {id}``."""
         async with self._driver.session() as session:
             await session.run(
@@ -79,7 +77,7 @@ class Neo4jVectorCandidateRetrieval(CandidateRetrievalPort):
                         candidate_id=candidate_id,
                         cosine_similarity=float(record["cosine_similarity"]),
                         candidate_type=cast(EntityType, record["candidate_type"]),
-                        candidate_namespace=_namespace_from_id(candidate_id),
+                        candidate_namespace=namespace_from_id(candidate_id),
                     )
                 )
             return hits

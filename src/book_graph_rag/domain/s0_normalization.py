@@ -36,7 +36,7 @@ def _tokens(text: str) -> tuple[str, ...]:
     return tuple(t for t in re.split(r"[\s\-_]+", text) if t)
 
 
-def _namespace_from_id(entity_id: str) -> str:
+def namespace_from_id(entity_id: str) -> str:
     """Extract ``corpus:source`` namespace from ``corpus:source:slug-type``.
 
     Falls back to the full id when the format does not contain at least two
@@ -122,8 +122,8 @@ def s0_match(anchor: Entity, candidate: Entity) -> ResolutionEvidence:
     field is ``"none"`` and downstream stages (S1–S4) decide the band.
     """
     matched_field, is_match = _detect_s0_match(anchor, candidate)
-    anchor_namespace = _namespace_from_id(anchor.id)
-    candidate_namespace = _namespace_from_id(candidate.id)
+    anchor_namespace = namespace_from_id(anchor.id)
+    candidate_namespace = namespace_from_id(candidate.id)
 
     return ResolutionEvidence(
         anchor_id=anchor.id,
