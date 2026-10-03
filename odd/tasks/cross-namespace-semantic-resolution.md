@@ -78,9 +78,20 @@ maps and debt R1 corrupts exactly that population.
       **Verified against the real ledger, read-only**: 958 entries read with the new model, **0 recomputed-hash
       mismatches, 0 broken links**. Open cosmetic note: `schema_version` stayed `1.0.0` (per-line metadata, no
       consumer branches on it) — decide a bump policy when the next field lands.
-- [ ] **T6** Quarantine review surface: `book-graph-rag quarantine list|render <seq>` (decision sheet: names, types,
-      descriptions, pages, mentions per book, shared neighbours, the three overlaps, composite) and the evidence
-      enrichment (neighbour-overlap sample) in the quarantine record.
+- [~] **T6** Quarantine review surface. **T6a done**: `quarantine list` (filters `--all/--band/--namespace/--limit`,
+      **`--generic-only`** for the high-risk single-word batch, `--json`) and `quarantine render` (`--seq` for a record
+      or **`--pair`** for two ids, which the retro-audit of the 302 needs because those merges have no records),
+      over a new read-only port + Neo4j adapter, with pure domain sheet models and a pure formatter (21 unit tests +
+      5 testcontainers tests, CLI regression 19 green). The sheet carries the **mention context** snippet (the
+      maintainer's approved addition), the three overlaps with the structural labels, the shared neighbours and the
+      ledger history, and it never claims a band or a cosine. **T6b pending**: `enqueue --cross-namespace [--json]`
+      (the producer: nothing writes pending records for cross-namespace candidates today), `approve --seq …
+      --approval <file>` behind the §7.2 gate, and `reject --seq … --reason`.
+      **Decision for T6b (found during T6a)**: `ApproveQuarantineUseCase` accepts only bands `medium`/`high`, but a
+      cross-namespace pair short-circuits to `exact` at S0 when both names match, so records produced by the pipeline
+      for this class would be unapprovable. Since the routing rule sends cross-namespace to quarantine **regardless of
+      band** (R6.2), the approve path must accept a record that crosses namespaces on that ground alone. Our own
+      `enqueue` will write `band=medium` (no cosine), which is approvable today either way.
 - [x] **T7** **Guard implemented** in `ApplyMergeUseCase` (commits with T6/T7): new frozen domain credential
       `MergeApproval` (`quarantine_seq`, `approved_by`, `approved_at`, `canonical_id`, `candidate_ids`) and
       `CrossNamespaceApprovalRequired`. The guard runs **before the band check and before any port**: it derives the
