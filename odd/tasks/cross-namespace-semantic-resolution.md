@@ -41,16 +41,32 @@ maps and debt R1 corrupts exactly that population.
       `related_jaccard` on 9/242 (both structurally ≈0 pre-merge), `description_overlap` on 113/242, and the mean
       composite reaches ≥0.50 on **0/242** — see design §4.1.
 - [ ] **T2b** Fix the cross-namespace evidence model (design §4.1): drop the three-signal mean composite and the
-      `high_context` threshold from the cross-namespace path, lead the sheet with description overlap (plus an
-      optional cross-lingual cosine when a model call is approved), mark `mentions_/related_jaccard` as
-      uninformative for proposing a merge (keep them for re-auditing an applied one), and add unit tests over
-      synthetic pairs (same-language duplicate, cross-language duplicate, generic-label collision, already-merged
-      pair). Re-render the same sample to show the corrected ranking before the retro-audit (T8).
-- [ ] **T3** R5a audit rule `DUPLICATE_ENTITY_CROSS_NAMESPACE` (severity **warning**, category `duplicates`) with
-      namespace-aware samples; unit test for the grouping key + a testcontainers test with a seeded cross-namespace
-      pair (RED before the rule exists, GREEN at the seeded count). Reuse `normalize_key`.
-- [ ] **T4** R5c audit rule `ENTITY_SELF_LOOP_INVALID` (**blocking**, endpoints family) with tests, so extraction
-      noise cannot return silently (the merge path no longer creates self-loops).
+      `high_context` threshold from the cross-namespace path, lead the sheet with description overlap, mark
+      `mentions_/related_jaccard` as uninformative for proposing a merge (keep them for re-auditing an applied one),
+      and add unit tests over synthetic pairs (same-language duplicate, cross-language duplicate, generic-label
+      collision, already-merged pair). Re-render the same sample to show the corrected ranking before the
+      retro-audit (T8).
+      **Decision (maintainer, 2026-10-03)**: keep the renderer **lexical** for the whole population; embeddings
+      (cross-lingual cosine) are an **optional** tool reserved for the shortlist of doubtful candidates the human
+      picks — never a bulk pass over the 456 groups.
+- [x] **T3** R5a audit rule `DUPLICATE_ENTITY_CROSS_NAMESPACE` (severity **warning**, category `duplicates`)
+      with namespace-aware samples. Counts **groups** (the `duplicates_entity` convention: a group is a decision
+      unit; the measured 941 entities live in 456 groups). Dedicated scoped branch: the generic injection would
+      land before the grouping and report zero, so the scoped query keeps the cross-namespace condition and then
+      keeps the groups with at least one member inside `$scope_prefix`. Samples carry both member ids plus the
+      namespace list under `namespaces`, a key `safe_properties` does not redact (keys containing `source` are
+      dropped). Catalog 21 → 23; sibling suite's hardcoded size bumped.
+      **Coordination point for T9**: the rule groups in Cypher with `toLower(trim(name))` while the renderer groups
+      with the stricter Python `normalize_key` (NFKC + whitespace collapse); unify them when R5b lands.
+- [x] **T4** R5c audit rule for self-loops, named `ENDPOINT_SELF_LOOP_INVALID` so the `ENDPOINT_` prefix maps it to
+      `endpoints` and `severity_for_category` makes it **blocking** with no bespoke mapping (the design draft's
+      `ENTITY_SELF_LOOP_INVALID` would have needed a manual `RULE_CATEGORY` entry; recorded here as the deviation).
+      Tests: seeded self-loop → 1, without it → 0, scoped variant → 0 outside the namespace.
+      **Gate finding (verified in code, `application/evaluate_gate_use_case.py`)**: a WARNING never fails a required
+      dimension — the evaluator derives `min_rank` from `max_severity` (blocking → 3) and skips lower ranks — so
+      R5a's 456 groups appear in the report without turning the `uniqueness` dimension or the `expose-mcp` gate
+      red. Only a blocking finding fails it, and self-loops are at zero today. This closes the open question of
+      T9 about warnings.
 - [ ] **T5** Debt **R1** with TDD: capture the RELATED direction so `rollback_merge` stops rebuilding mirror
       directions. Needs a decision on the ledger schema (check the tamper-evident chain hash first) — if the model
       cannot change safely, document the limit and enforce it in the test suite instead.
@@ -86,3 +102,4 @@ maps and debt R1 corrupts exactly that population.
 |------|--------|----------|
 | T1 | — | branch `feat/cross-namespace-semantic-resolution`; this document; Engram mirror |
 | T2 | `refactor` + `feat(ops)` commits | renderer 722 lines; production render read-only; 456 groups / 212 rendered / 242 pairs; JSON evidence sha256 `eb5da6995248a5b03944b899…`; 567 unit tests green, ruff/mypy/architecture green |
+| T3+T4 | (this commit) | RED `7 failed` → GREEN `7 passed` (80 s) + regression `34 passed`; catalog 23; ruff/mypy/architecture green |
