@@ -71,10 +71,11 @@ MCP_TOOLS = (
 
 def test_agents_and_runbook_name_unit_and_restart_command() -> None:
     """Both normative docs must name the real unit and the exact restart command."""
+    restart = "sudo systemctl restart mcp-server"  # no-live-deployment-allow
     for path in ("AGENTS.md", "docs/ops/mcp-service.md"):
         text = _read(path)
         assert "mcp-server.service" in text, f"{path} lost the unit name"
-        assert "sudo systemctl restart mcp-server" in text, f"{path} lost the restart command"
+        assert restart in text, f"{path} lost the restart command"
 
 
 def test_runbook_names_smoke_script_and_manual_instance_warning() -> None:

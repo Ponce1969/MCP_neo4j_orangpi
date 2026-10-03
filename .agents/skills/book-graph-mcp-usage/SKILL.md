@@ -1,6 +1,6 @@
 ---
 name: book-graph-mcp-usage
-description: Trigger: calling the book-graph MCP tools (find_entity, traverse_relationships, search_chunks, list_entities, count_entities, search_rag, query_cypher, ask_global) or a call failing with missing_scope, invalid_scope or 401. Mandatory corpus:source scopes, caps, budgets, recipes, anti-patterns.
+description: "Trigger: calling the book-graph MCP tools (find_entity, traverse_relationships, search_chunks, list_entities, count_entities, search_rag, query_cypher, ask_global) or a call failing with missing_scope, invalid_scope or 401. Mandatory corpus:source scopes, caps, budgets, recipes, anti-patterns."
 ---
 
 # Book Graph MCP Usage
