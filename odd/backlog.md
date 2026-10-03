@@ -5,6 +5,24 @@ Each item states what it is, the evidence that it exists, and the block it belon
 `debt/merge-adapter-and-audit-followups` (obs 1455). The reusable diagnosis for the closed debt is
 `pattern/merged-into-cycle-diagnosis` (obs 1457).
 
+## Operational findings (infrastructure)
+
+- **O1 The MCP service is supervised by the systemd unit `mcp-server.service`**
+  (`/etc/systemd/system/mcp-server.service`: `User=gonzalo`, `WorkingDirectory` = this repo,
+  `ExecStart=uv run book-graph-rag-mcp serve`, `Restart=on-failure`, `RestartSec=5`, `enabled`).
+  **Never launch a manual instance**: while a manual process holds `100.106.85.109:8003`, every systemd retry
+  fails to bind and the unit loops every 5 seconds — that is exactly what produced the historical
+  43,558-restart incident. Control it with `sudo systemctl restart mcp-server` (reading `status`/`is-active`
+  needs no sudo), never with a background `uv run`.
+  Diagnostic note: name-based checks (`systemctl status book-graph-rag-mcp`, `grep -i -E "book|graph"`,
+  `crontab -l`, `~/.config/systemd/user/`) all miss this unit, because the unit name does not contain the
+  project name. What identified the spawner was the restart cadence plus `systemctl list-units`.
+- **O2 The MCP must be exercised with its token.** `scripts-ops/mcp_smoke_book4.py` reads `MCP_ACCESS_TOKEN`
+  from the environment, so it needs the `.env` sourced (`set -a; . ./.env; set +a`); otherwise every request
+  returns `401 Unauthorized`, which means auth is working, not that the service is broken. Post-restart
+  verification on 2026-10-03: handshake `book-graph-rag 1.28.0`, `count_entities` for the four namespaces
+  7111 / 1241 / 6078 / 6963 (identical to the pre-change baseline), 8 tools exposed.
+
 ## Block A — next session: semantic resolution phase
 
 - **A1 (R5a) Cross-namespace duplicates** (same concept in two books). Must go through quarantine
