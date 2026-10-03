@@ -78,20 +78,31 @@ maps and debt R1 corrupts exactly that population.
       **Verified against the real ledger, read-only**: 958 entries read with the new model, **0 recomputed-hash
       mismatches, 0 broken links**. Open cosmetic note: `schema_version` stayed `1.0.0` (per-line metadata, no
       consumer branches on it) — decide a bump policy when the next field lands.
-- [~] **T6** Quarantine review surface. **T6a done**: `quarantine list` (filters `--all/--band/--namespace/--limit`,
-      **`--generic-only`** for the high-risk single-word batch, `--json`) and `quarantine render` (`--seq` for a record
-      or **`--pair`** for two ids, which the retro-audit of the 302 needs because those merges have no records),
-      over a new read-only port + Neo4j adapter, with pure domain sheet models and a pure formatter (21 unit tests +
-      5 testcontainers tests, CLI regression 19 green). The sheet carries the **mention context** snippet (the
-      maintainer's approved addition), the three overlaps with the structural labels, the shared neighbours and the
-      ledger history, and it never claims a band or a cosine. **T6b pending**: `enqueue --cross-namespace [--json]`
-      (the producer: nothing writes pending records for cross-namespace candidates today), `approve --seq …
-      --approval <file>` behind the §7.2 gate, and `reject --seq … --reason`.
-      **Decision for T6b (found during T6a)**: `ApproveQuarantineUseCase` accepts only bands `medium`/`high`, but a
-      cross-namespace pair short-circuits to `exact` at S0 when both names match, so records produced by the pipeline
-      for this class would be unapprovable. Since the routing rule sends cross-namespace to quarantine **regardless of
-      band** (R6.2), the approve path must accept a record that crosses namespaces on that ground alone. Our own
-      `enqueue` will write `band=medium` (no cosine), which is approvable today either way.
+- [x] **T6** Quarantine review surface. **T6a**: `quarantine list` (filters `--all/--band/--namespace/--limit`,
+      **`--generic-only`**, `--json`) and `quarantine render` (`--seq` for a record or **`--pair`** for two ids, which
+      the retro-audit of the 302 needs), over a read-only port + Neo4j adapter, with pure domain sheet models and a
+      pure formatter. The sheet carries the **mention context** snippet, the three overlaps with the structural
+      labels, the shared neighbours and the ledger history, and it never claims a band or a cosine.
+      **T6b**: `enqueue --cross-namespace [--limit/--generic-only/--namespace/--dry-run/--force/--json]` (the producer:
+      nothing wrote pending records for this class before), `approve --seq … --backup … --approval … [--reviewer]`
+      behind the §7.2 gate (validated before any write, explicit `--seq` only, never "all") and
+      `reject --seq … --reason` (mandatory non-empty, stored in the new `review_note` field, omitted from the JSONL
+      when unset so the existing file stays byte-compatible). Idempotence: a pair that already has a record — pending,
+      approved or rejected — is skipped unless `--force`, so a rejected pair does not come back on its own.
+      Band rule fixed: a cross-namespace pair short-circuits to `exact` at S0, so a record crossing namespaces is
+      accepted on that ground regardless of band (R6.2). Tests: 21 + 5 (T6a) and 25 + 2 (T6b) green, CLI regression
+      33 green.
+      **Real production run (2026-10-03)**: `enqueue --limit 20` found **456 groups / 514 candidate pairs**, wrote
+      **20 pending records (seq 1–20)** into a newly created `data/resolution/quarantine.jsonl`, evidence-ordered
+      (`description_overlap` 0.636 down to 0.240). No graph mutation.
+- [ ] **T6c** Two ergonomics refinements that the real enqueue exposed (both cheap, both decided by the maintainer):
+      (a) the `⚠ genérica` marker uses "single word", which flags unambiguous technical terms too (`embeddings` is one
+      word and sits at the top of the evidence list) while missing the real homonymy signal: a label spanning three
+      or more namespaces (`agentic systems` appears in 3 pairs across 3 namespaces) is a much better risk proxy than
+      one word alone; (b) a group with N members produces N pairs, so the reviewer sees the same decision three times
+      (`agentic systems` at seq 4, 17 and 19) — `render` should cross-reference the sibling records of the same group
+      so the human decides once and approves the siblings together (`approve --seq 4 --seq 17 --seq 19`, which the
+      two-phase `approve_many` already supports).
 - [x] **T7** **Guard implemented** in `ApplyMergeUseCase` (commits with T6/T7): new frozen domain credential
       `MergeApproval` (`quarantine_seq`, `approved_by`, `approved_at`, `canonical_id`, `candidate_ids`) and
       `CrossNamespaceApprovalRequired`. The guard runs **before the band check and before any port**: it derives the
