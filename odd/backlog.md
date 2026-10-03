@@ -15,6 +15,12 @@ Each item states what it is, the evidence that it exists, and the block it belon
   (`sudo cp ... && sudo systemctl daemon-reload && sudo systemctl restart mcp-server`) and should be verified per
   `docs/ops/mcp-service.md` §4. Until then, **never treat the repo artifact as the description of the running
   unit** — read `systemctl cat mcp-server`.
+  **Status 2026-10-03 (still open)**: the install was attempted (a sudo session ran `daemon-reload` + `restart`
+  at 15:28) but the live file's mtime stayed at **2026-06-23**, so the copy never landed. The restart itself was
+  clean and the smoke passed, which is exactly why this needs an explicit check: `ls -l --time-style=full-iso
+  /etc/systemd/system/mcp-server.service` must show a fresh mtime and
+  `diff <(cat deploy/mcp-server.service) <(systemctl cat mcp-server | grep -v '^#')` must be empty. Re-run with an
+  absolute source path.
 - **O1 The MCP service is supervised by the systemd unit `mcp-server.service`**
   (`/etc/systemd/system/mcp-server.service`: `User=gonzalo`, `WorkingDirectory` = this repo,
   `ExecStart=uv run book-graph-rag-mcp serve`, `Restart=on-failure`, `RestartSec=5`, `enabled`).

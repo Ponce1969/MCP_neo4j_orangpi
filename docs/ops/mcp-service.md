@@ -45,14 +45,33 @@ and it still binds only the Tailscale interface because `MCP_BIND_HOST` is set i
 `systemctl cat mcp-server`.
 
 Installing the repo copy is a maintainer action (an agent has no sudo password on
-this host):
+this host). Use an **absolute source path**: a relative one silently fails when the
+shell is not in the repo, and the failure is easy to miss because
+`daemon-reload && restart` still succeed afterwards:
 
 ```bash
-sudo cp deploy/mcp-server.service /etc/systemd/system/mcp-server.service
+sudo cp /home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi/deploy/mcp-server.service /etc/systemd/system/mcp-server.service
 sudo systemctl daemon-reload && sudo systemctl restart mcp-server
 ```
 
-Then verify per §4. The drift is registered as O3 in `odd/backlog.md`.
+### Confirming the artifact actually landed
+
+`systemctl restart` says nothing about *which* file was installed, so prove it
+before believing the hardening is in place:
+
+```bash
+ls -l --time-style=full-iso /etc/systemd/system/mcp-server.service   # mtime must be just now
+diff <(cat deploy/mcp-server.service) <(systemctl cat mcp-server | grep -v '^#') && echo identical
+systemctl show mcp-server -p EnvironmentFiles -p Environment --no-pager  # must show the override
+```
+
+A `cp` that never ran (wrong cwd, relative path, a `sudo` that failed) leaves the
+old file in place while the reload and restart still succeed: the service looks
+healthy and the private-bind hardening is silently missing. This exact failure
+happened on 2026-10-03 — the live file's mtime was still 2026-06-23 after a
+restart that came from a valid sudo session.
+
+The drift is registered as O3 in `odd/backlog.md`.
 
 ## 2. Operating the service
 
