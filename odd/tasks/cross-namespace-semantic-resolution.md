@@ -81,10 +81,21 @@ maps and debt R1 corrupts exactly that population.
 - [ ] **T6** Quarantine review surface: `book-graph-rag quarantine list|render <seq>` (decision sheet: names, types,
       descriptions, pages, mentions per book, shared neighbours, the three overlaps, composite) and the evidence
       enrichment (neighbour-overlap sample) in the quarantine record.
-- [ ] **T7** Guard in `ApplyMergeUseCase`: refuse a group whose canonical and candidates span namespaces unless an
-      approved quarantine reference is supplied; property test that no band or forged evidence can cross. Expose
-      `ApproveQuarantineUseCase` through the CLI behind the AGENTS.md §7.2 gate (fresh backup → dry-run → approval
-      file → apply → audit), per explicit `--seq`.
+- [x] **T7** **Guard implemented** in `ApplyMergeUseCase` (commits with T6/T7): new frozen domain credential
+      `MergeApproval` (`quarantine_seq`, `approved_by`, `approved_at`, `canonical_id`, `candidate_ids`) and
+      `CrossNamespaceApprovalRequired`. The guard runs **before the band check and before any port**: it derives the
+      namespaces with the public `namespace_from_id` and, if any duplicate crosses, demands an approval whose
+      canonical matches and whose candidate set covers **exactly** the crossing candidates (missing or extra is
+      refused). A same-namespace group **ignores** a supplied approval (documented: rejecting would let a stale
+      approval block a legitimate merge and cannot widen the empty crossing set). Discovered nuance, recorded as
+      policy: ids without a colon share a namespace-less bucket, so only both-unqualified ids compare equal;
+      qualified-vs-unqualified is a crossing and fires. `ApproveQuarantineUseCase` builds the credential from the
+      record it approves and refuses to apply when `canonical_id` is `None` — before it mutates the record.
+      The bypass script `scripts-ops/resolve_cross_namespace.py` is now disabled by design with a message pointing at
+      the quarantine flow. Tests: 14 unit (stub ports, including the historical exact-band bypass and the
+      wrong/missing/extra candidate cases) + 2 hypothesis properties (no band and no forged evidence crosses).
+      **Remaining part of T7** (the `quarantine approve` command itself, behind the AGENTS.md §7.2 gate with explicit
+      `--seq`) ships with the T6 CLI surface, whose mockup is awaiting the maintainer's visual approval.
 - [ ] **T8** Retro-audit of the 302 applied merges with the T2 renderer + R5a, stratified by label genericity;
       read-only report first, then per-case human decisions (keep / rollback via ledger).
 - [ ] **T9** R5b: case-insensitive grouping in `duplicates_entity` via `normalize_key`, together with the cleanup of
