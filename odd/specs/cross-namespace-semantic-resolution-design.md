@@ -1,8 +1,10 @@
 # Cross-namespace semantic resolution — design analysis (Block A)
 
-- **Status**: design proposal. No implementation, **no graph mutation**. Decisions D-A1..D-A4 pending
-  (section 8).
-- **Measured**: 2026-10-03, production graph, read-only.
+- **Status**: design proposal, **D-A1..D-A4 approved** (2026-10-03). Implementation tracked in
+  `odd/tasks/cross-namespace-semantic-resolution.md`. No graph mutation so far; the renderer is read-only.
+- **Measured**: 2026-10-03, production graph, read-only. Render evidence:
+  `evidence-bundles/cross-namespace-sample-render-20261003.json`
+  (sha256 `eb5da6995248a5b03944b899…`).
 - **Engram**: `design/cross-namespace-semantic-resolution`.
 - **Normative context**: `docs/spec/03-semantic-entity-resolution.md` §2.2/§2.4, `docs/spec/02-knowledge-namespaces.md`
   §2.3, `docs/spec/04-graph-integrity-and-audit.md`, AGENTS.md §7.2 (mutation gate).
@@ -83,6 +85,39 @@ Why not `EQUIVALENT_TO` now:
 
 Why not merge everything: the 456 groups contain the generic labels above; collapsing them would make
 "what does Huyen mean by agent" unanswerable.
+
+### 4.1 Empirical finding (2026-10-03): the intra-namespace signals are structurally uninformative cross-namespace
+
+The renderer evaluated **242 pairs** over the sampled groups (all 212 single-word-label groups plus the
+highest-degree and type-stratified picks). Signal availability:
+
+| Signal | Pairs where it fires | Max observed | Reading |
+|--------|----------------------|--------------|---------|
+| `mentions_jaccard` | **3 / 242** | 0.500 | structurally ≈0: the set of books that mention each entity is book-specific **before** a merge, so the intersection is empty by construction |
+| `related_jaccard` | **9 / 242** | 0.200 | structurally ≈0: each book's neighbourhood uses its own entity ids |
+| `description_overlap` | **113 / 242** | 0.636 | the only signal that fires broadly — and only between books that share a language |
+| mean composite ≥ 0.50 (`high_context`) | **0 / 242** | 0.339 | unreachable |
+| mean composite ≥ 0.10 | 6 / 242 | — | the honest review shortlist |
+
+**Consequence for the design**: the S3 mean composite and the S4 band thresholds were designed for
+*intra-namespace* pairs and must not be used to qualify cross-namespace candidates — two of their three terms are
+pinned near zero by the namespace split, so the score is dominated by structural zeros and the `high_context`
+threshold can never be reached. Cross-namespace evidence must be:
+
+1. **primary**: description overlap, or a cross-lingual cosine when a model call is allowed (this corpus is
+   bilingual, so lexical overlap is zero between an English and a Spanish book even for a true duplicate);
+2. **group definition, not a signal**: normalized `name` + `type` (what formed the group);
+3. **explicitly marked uninformative**: `mentions_jaccard` and `related_jaccard`, which only become meaningful
+   *after* merges have connected the two books' neighbourhoods (they are useful for **re-auditing** an applied
+   merge, not for proposing one);
+4. **human-facing**: the two descriptions and the mention contexts side by side, which is what actually decides
+   identity versus label collision.
+
+The ranking the renderer produced is nevertheless meaningful and matches the three-way model: the top pairs
+(`embeddings-concept` 0.339, `text2cypher-pattern` 0.281 — both English↔English) are plausible identities, while
+the generic labels (`agent`, `llm`, `evaluation`…) score ~0 with descriptions in different framings, e.g.
+`agent` = "Entidad que utiliza herramientas y planificación…" versus "An AI agent whose capabilities are defined
+and measured by benchmark evaluation". That is the label-collision class, empirically confirmed.
 
 ## 5. Quarantine design (§7.2 gate)
 
