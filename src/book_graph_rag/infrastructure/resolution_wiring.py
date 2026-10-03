@@ -12,6 +12,10 @@ from typing import Any
 from neo4j import AsyncGraphDatabase
 
 from book_graph_rag.application.apply_merge_use_case import ApplyMergeUseCase
+from book_graph_rag.application.approve_quarantine_use_case import ApproveQuarantineUseCase
+from book_graph_rag.application.enqueue_cross_namespace_quarantine_use_case import (
+    EnqueueCrossNamespaceQuarantineUseCase,
+)
 from book_graph_rag.application.resolve_entities_use_case import ResolveEntitiesUseCase
 from book_graph_rag.application.review_quarantine_use_case import ReviewQuarantineUseCase
 from book_graph_rag.config import Settings
@@ -137,4 +141,40 @@ def build_review_quarantine_use_case(
     )
     quarantine = JSONLQuarantineWriter(settings.quarantine_path)
     use_case = ReviewQuarantineUseCase(quarantine=quarantine, review=review)
+    return use_case, [review]
+
+
+async def build_approve_quarantine_use_case(
+    settings: Settings,
+) -> tuple[ApproveQuarantineUseCase, list[Any]]:
+    """Wire the T6b decision surface (``quarantine approve``/``reject``).
+
+    ``reject`` only rewrites the JSONL file but shares the use case; the merge
+    applier (Neo4j driver + ledger) is created for ``approve`` and closed by
+    the caller after either command. Returns the use case plus its closable
+    adapters.
+    """
+    quarantine = JSONLQuarantineWriter(settings.quarantine_path)
+    apply, closables = await build_apply_merge_use_case(settings)
+    return ApproveQuarantineUseCase(quarantine=quarantine, apply=apply), closables
+
+
+def build_enqueue_cross_namespace_use_case(
+    settings: Settings,
+) -> tuple[EnqueueCrossNamespaceQuarantineUseCase, list[Any]]:
+    """Wire the T6b producer (``quarantine enqueue``): detection adapter + file.
+
+    Read-only against the graph (detection + pair facts) and JSONL-append on
+    the quarantine file; returns the use case plus its closable adapters.
+    """
+    driver = _make_driver(settings)
+    review = Neo4jQuarantineReviewAdapter(
+        driver,
+        JSONLMergeLedger(settings.merge_ledger_path),
+    )
+    quarantine = JSONLQuarantineWriter(settings.quarantine_path)
+    use_case = EnqueueCrossNamespaceQuarantineUseCase(
+        quarantine=quarantine,
+        review=review,
+    )
     return use_case, [review]

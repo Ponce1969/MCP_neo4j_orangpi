@@ -9,8 +9,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from book_graph_rag.domain.resolution_models import ConfidenceBand, ResolutionEvidence
 
@@ -42,3 +48,20 @@ class QuarantineRecord(BaseModel):
     decision: QuarantineDecision = QuarantineDecision.PENDING
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None
+    #: Mandatory ``quarantine reject --reason`` payload (T6b). ``None`` on
+    #: every record written before this field existed and on approvals.
+    review_note: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize_review_note(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Omit ``review_note`` when unset so legacy lines stay byte-stable.
+
+        Mirrors the ``merge_ledger_models`` omit-when-absent pattern: records
+        without a note dump exactly like the pre-T6b model (the key never
+        appears), and files written before the field landed keep parsing (it
+        defaults to ``None``).
+        """
+        data: dict[str, Any] = handler(self)
+        if data.get("review_note") is None:
+            data.pop("review_note", None)
+        return data

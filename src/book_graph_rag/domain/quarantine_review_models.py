@@ -199,6 +199,41 @@ class DecisionSheet(BaseModel):
         return tuple(sorted(value, key=lambda neighbor: neighbor.entity_id))
 
 
+class CrossNamespaceCandidateGroup(BaseModel):
+    """One cross-namespace duplicate group as the audit rule R5a detects it.
+
+    Grouping key: ``toLower(trim(name))`` + ``type`` over active entities,
+    keeping the groups spanning at least two ``corpus:source`` namespaces —
+    byte-for-byte the same Cypher expression as the
+    ``DUPLICATE_ENTITY_CROSS_NAMESPACE`` audit rule, so ``quarantine enqueue``
+    and the audit always agree on the population (456 groups at the 2026-10-03
+    baseline).
+
+    Coordination point for **T9** (documented, unchanged): the audit groups in
+    Cypher with ``toLower(trim(name))`` while the Python ``normalize_key``
+    (NFKC + whitespace collapse) is stricter; unify both when R5b lands.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    group_key: str
+    entity_type: str
+    member_ids: tuple[str, ...]
+    namespaces: tuple[str, ...]
+
+    @field_validator("member_ids")
+    @classmethod
+    def _sort_member_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Deterministic pair enumeration regardless of driver row order."""
+        return tuple(sorted(set(value)))
+
+    @field_validator("namespaces")
+    @classmethod
+    def _sort_namespaces(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Deterministic namespace order regardless of read order."""
+        return tuple(sorted(set(value)))
+
+
 class QuarantineListRow(BaseModel):
     """One row of ``quarantine list``."""
 

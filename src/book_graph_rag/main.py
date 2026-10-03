@@ -3,21 +3,29 @@
 from __future__ import annotations
 
 import asyncio
+import getpass
 import hashlib
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import click
 
+from book_graph_rag.application.approve_quarantine_use_case import (
+    QuarantineDecisionOutcome,
+)
 from book_graph_rag.application.audit_graph_use_case import (
     AuditGraphUseCase,
     build_audit_target,
 )
 from book_graph_rag.application.backfill_checkpoints_use_case import (
     BackfillCheckpointsUseCase,
+)
+from book_graph_rag.application.enqueue_cross_namespace_quarantine_use_case import (
+    EnqueueCrossNamespaceResult,
 )
 from book_graph_rag.application.evaluate_command_use_case import EvaluateCommandUseCase
 from book_graph_rag.application.evaluate_extraction_layer_use_case import (
@@ -64,6 +72,7 @@ from book_graph_rag.domain.quarantine_review_models import (
     format_list,
     format_sheet,
 )
+from book_graph_rag.domain.resolution_errors import ResolutionError
 from book_graph_rag.domain.resolution_models import ConfidenceBand
 from book_graph_rag.domain.s4_band_assignment import BandThresholds
 from book_graph_rag.domain.validation_models import BookScope, SmokeManifest, TargetScope
@@ -92,6 +101,8 @@ from book_graph_rag.infrastructure.neo4j_retrieval_smoke_adapter import Neo4jRet
 from book_graph_rag.infrastructure.neo4j_validation_adapter import Neo4jValidationAdapter
 from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter
 from book_graph_rag.infrastructure.resolution_wiring import (
+    build_approve_quarantine_use_case,
+    build_enqueue_cross_namespace_use_case,
     build_resolve_entities_use_case,
     build_review_quarantine_use_case,
 )
@@ -922,11 +933,12 @@ def resolve_entities(dry_run: bool) -> None:
 
 @cli.group("quarantine")
 def quarantine() -> None:
-    """Inspect the human-review queue (read-only: list and render).
+    """Human-review queue: list/render (read-only), enqueue/decide (T6b).
 
-    Only ``list`` and ``render`` ship in this unit. ``enqueue``, ``approve``
-    and ``reject`` are deliberately not registered — they arrive with the
-    approval unit behind the AGENTS.md §7.2 mutation gate.
+    ``enqueue`` only reads the graph and appends JSONL records;
+    ``approve`` mutates behind the AGENTS.md §7.2 gate (fresh backup +
+    approval file, explicit ``--seq`` values, never "approve all");
+    ``reject`` records the mandatory ``--reason`` without touching the graph.
     """
 
 
@@ -1056,6 +1068,321 @@ def quarantine_render(
         click.echo(sheet.model_dump_json(indent=2))
     else:
         click.echo(format_sheet(sheet))
+
+
+# ── T6b: producer + gated decisions ─────────────────────────────────────────
+
+#: Hours after which a backup no longer satisfies the AGENTS.md §7.2 gate
+#: (same threshold as scripts-ops/repoint_merged_endpoint_edges.py).
+STALE_BACKUP_HOURS = 24
+
+#: Word the approval file must contain (same as the ops apply gate).
+APPROVAL_WORD = "approve"
+
+
+def _validate_approve_gates(
+    *,
+    backup: Path | None,
+    approval: Path | None,
+    allow_stale_backup: bool,
+) -> dict[str, Any]:
+    """Valida el gate §7.2 ANTES de escribir nada (sale con mensaje y código≠0).
+
+    Mirror exacto de
+    ``scripts-ops/repoint_merged_endpoint_edges.py::_validate_apply_gates``:
+    mismo orden (approval → palabra → backup → antigüedad), misma redacción y
+    mismos umbrales (``APPROVAL_WORD``, ``STALE_BACKUP_HOURS``).
+    """
+    if approval is None or not approval.exists():
+        sys.exit("APPROVE abortado: falta --approval <archivo existente>")
+    content = approval.read_text(encoding="utf-8").strip().lower()
+    if APPROVAL_WORD not in content:
+        sys.exit(f"APPROVE abortado: {approval} debe contener la palabra '{APPROVAL_WORD}'")
+
+    if backup is None or not backup.exists():
+        sys.exit("APPROVE abortado: falta --backup <json de backup fresco ya hecho>")
+    age_hours = (datetime.now(UTC).timestamp() - backup.stat().st_mtime) / 3600
+    size_mb = backup.stat().st_size / 1e6
+    if age_hours > STALE_BACKUP_HOURS and not allow_stale_backup:
+        sys.exit(
+            f"APPROVE abortado: el backup tiene {age_hours:.1f} h (> {STALE_BACKUP_HOURS} h). "
+            "Hacer uno fresco con scripts-ops/backup_only.py o pasar --allow-stale-backup."
+        )
+    return {
+        "path": str(backup),
+        "age_hours": round(age_hours, 2),
+        "size_mb": round(size_mb, 1),
+        "approval_file": str(approval),
+    }
+
+
+def _format_enqueue_result(result: EnqueueCrossNamespaceResult) -> str:
+    """Render found/enqueued/skipped counts, the seq range and the honesty line."""
+    seq_part = (
+        f" · seq {result.seq_first}–{result.seq_last}"
+        if result.seq_first is not None and result.seq_last is not None
+        else ""
+    )
+    run_kind = " (dry-run: nothing written)" if result.dry_run else ""
+    lines = [
+        (
+            f"cross-namespace enqueue: groups found: {result.groups_found} · "
+            f"candidate pairs: {result.pairs_found}"
+        ),
+        f"  enqueued: {result.enqueued}{seq_part}{run_kind}",
+        f"  skipped (already recorded): {result.skipped_existing}",
+    ]
+    if result.forced_existing:
+        lines.append(f"  forced (already recorded): {result.forced_existing}")
+    lines.append("  cosine: not computed (band=medium; evidence = S0 + S2 + three overlaps)")
+    if result.failed:
+        lines.append(f"  failed (unreadable entities): {result.failed}")
+    return "\n".join(lines)
+
+
+@quarantine.command("enqueue")
+@click.option(
+    "--cross-namespace",
+    "cross_namespace",
+    is_flag=True,
+    default=False,
+    help="Detect cross-namespace groups exactly as DUPLICATE_ENTITY_CROSS_NAMESPACE does.",
+)
+@click.option(
+    "--limit",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Maximum new records this run (candidates ordered by description overlap desc).",
+)
+@click.option(
+    "--generic-only",
+    is_flag=True,
+    default=False,
+    help="Only single-word labels (the high-risk generic-collision batch).",
+)
+@click.option(
+    "--namespace",
+    default=None,
+    help="Only pairs touching this corpus:source namespace.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Report what would be written without writing anything.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Re-enqueue pairs that already have a record (rejected pairs only return with it).",
+)
+@click.option(
+    "--json", "json_output", is_flag=True, default=False, help="Emit the outcome as JSON."
+)
+def quarantine_enqueue(
+    cross_namespace: bool,
+    limit: int | None,
+    generic_only: bool,
+    namespace: str | None,
+    dry_run: bool,
+    force: bool,
+    json_output: bool,
+) -> None:
+    """Produce pending records for cross-namespace duplicate candidates.
+
+    Reads the graph and appends to the quarantine file only — the graph is
+    never mutated. Idempotent: any pair that already has a record (whatever
+    its decision) is skipped unless ``--force`` is given.
+    """
+    if not cross_namespace:
+        raise click.UsageError("--cross-namespace is required (the only detection mode)")
+
+    try:
+        settings = Settings.model_validate({})
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Configuration error: {exc}", err=True)
+        sys.exit(1)
+
+    async def _run() -> EnqueueCrossNamespaceResult:
+        use_case, closables = build_enqueue_cross_namespace_use_case(settings)
+        try:
+            return await use_case.enqueue(
+                limit=limit,
+                generic_only=generic_only,
+                namespace=namespace,
+                dry_run=dry_run,
+                force=force,
+            )
+        finally:
+            for closable in closables:
+                if hasattr(closable, "close"):
+                    await closable.close()
+
+    try:
+        result = asyncio.run(_run())
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Quarantine enqueue error: {exc}", err=True)
+        sys.exit(3)
+
+    if json_output:
+        click.echo(json.dumps(result.model_dump(mode="json"), indent=2, ensure_ascii=False))
+    else:
+        click.echo(_format_enqueue_result(result))
+
+
+@quarantine.command("approve")
+@click.option(
+    "--seq",
+    "seqs",
+    type=int,
+    multiple=True,
+    help="Quarantine record seq (repeatable; explicit values only, never 'approve all').",
+)
+@click.option(
+    "--backup",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Fresh backup JSON required by the AGENTS.md §7.2 gate.",
+)
+@click.option(
+    "--approval",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Approval file containing the word 'approve' (AGENTS.md §7.2).",
+)
+@click.option(
+    "--reviewer",
+    default=None,
+    help="Reviewer id (default: human:<current user>).",
+)
+@click.option(
+    "--allow-stale-backup",
+    is_flag=True,
+    default=False,
+    help=f"Permite un backup de mas de {STALE_BACKUP_HOURS} h.",
+)
+def quarantine_approve(
+    seqs: tuple[int, ...],
+    backup: Path | None,
+    approval: Path | None,
+    reviewer: str | None,
+    allow_stale_backup: bool,
+) -> None:
+    """Approve explicit pending records and apply their merges (§7.2 gate).
+
+    The gate (approval file with 'approve', backup ≤ 24 h) is validated
+    before anything is written; every seq is validated before the first
+    write, so a refusal leaves the quarantine file untouched.
+    """
+    if not seqs:
+        raise click.UsageError("Provide at least one --seq (approvals are always explicit)")
+    gate = _validate_approve_gates(
+        backup=backup,
+        approval=approval,
+        allow_stale_backup=allow_stale_backup,
+    )
+    click.echo(
+        f"gate §7.2 ok: backup {gate['path']} ({gate['age_hours']} h, "
+        f"{gate['size_mb']} MB) · approval {gate['approval_file']}"
+    )
+
+    try:
+        settings = Settings.model_validate({})
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Configuration error: {exc}", err=True)
+        sys.exit(1)
+    resolved_reviewer = reviewer or f"human:{getpass.getuser()}"
+
+    async def _run() -> list[QuarantineDecisionOutcome]:
+        use_case, closables = await build_approve_quarantine_use_case(settings)
+        try:
+            return await use_case.approve_many(
+                seqs=seqs,
+                reviewer=resolved_reviewer,
+                approver_for_apply=resolved_reviewer,
+            )
+        finally:
+            for closable in closables:
+                if hasattr(closable, "close"):
+                    await closable.close()
+
+    try:
+        outcomes = asyncio.run(_run())
+    except ResolutionError as exc:
+        click.echo(f"Quarantine approve error: {exc}", err=True)
+        sys.exit(1)
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Quarantine approve error: {exc}", err=True)
+        sys.exit(3)
+
+    for outcome in outcomes:
+        click.echo(f"seq {outcome.seq}: {outcome.decision} → ledger seq {outcome.ledger_seq}")
+    click.echo("Reminder: run the scoped and global audits afterwards (not run automatically):")
+    click.echo("  book-graph-rag audit --scope <corpus:source>  # per touched namespace")
+    click.echo("  book-graph-rag audit  # global")
+
+
+@quarantine.command("reject")
+@click.option(
+    "--seq",
+    "seqs",
+    type=int,
+    multiple=True,
+    help="Quarantine record seq (repeatable; explicit values only).",
+)
+@click.option(
+    "--reason",
+    default=None,
+    help="Mandatory non-empty reason; stored in the record's review_note.",
+)
+@click.option(
+    "--reviewer",
+    default=None,
+    help="Reviewer id (default: human:<current user>).",
+)
+def quarantine_reject(
+    seqs: tuple[int, ...],
+    reason: str | None,
+    reviewer: str | None,
+) -> None:
+    """Reject explicit pending records; records the reason, no graph mutation."""
+    if not seqs:
+        raise click.UsageError("Provide at least one --seq (rejections are always explicit)")
+    if reason is None or not reason.strip():
+        raise click.UsageError("--reason is mandatory and must not be empty")
+
+    try:
+        settings = Settings.model_validate({})
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Configuration error: {exc}", err=True)
+        sys.exit(1)
+    resolved_reviewer = reviewer or f"human:{getpass.getuser()}"
+
+    async def _run() -> list[QuarantineDecisionOutcome]:
+        use_case, closables = await build_approve_quarantine_use_case(settings)
+        try:
+            return use_case.reject(
+                seqs=seqs,
+                reviewer=resolved_reviewer,
+                reason=reason,
+            )
+        finally:
+            for closable in closables:
+                if hasattr(closable, "close"):
+                    await closable.close()
+
+    try:
+        outcomes = asyncio.run(_run())
+    except ResolutionError as exc:
+        click.echo(f"Quarantine reject error: {exc}", err=True)
+        sys.exit(1)
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Quarantine reject error: {exc}", err=True)
+        sys.exit(3)
+
+    for outcome in outcomes:
+        click.echo(f"seq {outcome.seq}: {outcome.decision} (reason stored in review_note)")
 
 
 def main() -> None:

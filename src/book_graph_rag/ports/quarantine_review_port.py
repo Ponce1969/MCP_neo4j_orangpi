@@ -9,7 +9,10 @@ from __future__ import annotations
 import abc
 from collections.abc import Sequence
 
-from book_graph_rag.domain.quarantine_review_models import PairReviewFacts
+from book_graph_rag.domain.quarantine_review_models import (
+    CrossNamespaceCandidateGroup,
+    PairReviewFacts,
+)
 
 
 class QuarantineReviewPort(abc.ABC):
@@ -27,6 +30,19 @@ class QuarantineReviewPort(abc.ABC):
     @abc.abstractmethod
     async def read_descriptions(self, entity_ids: Sequence[str]) -> dict[str, str]:
         """Return ``{entity_id: description}`` for the ids found in the graph."""
+
+    @abc.abstractmethod
+    async def find_cross_namespace_candidate_groups(
+        self,
+    ) -> list[CrossNamespaceCandidateGroup]:
+        """Detect the cross-namespace duplicate population (T6b producer).
+
+        One entry per group: active entities sharing ``toLower(trim(name))``
+        + ``type`` across at least two namespaces — the same detection as the
+        ``DUPLICATE_ENTITY_CROSS_NAMESPACE`` audit rule so the enqueue count
+        and the audit count agree. The Cypher lives in the adapter; the use
+        case never carries a query of its own.
+        """
 
     @abc.abstractmethod
     async def close(self) -> None:

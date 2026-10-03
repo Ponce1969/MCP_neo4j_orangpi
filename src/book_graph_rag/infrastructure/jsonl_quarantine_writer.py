@@ -47,20 +47,46 @@ class JSONLQuarantineWriter(QuarantineWriterPort):
         reviewed_at: datetime,
     ) -> None:
         """Rewrite the file atomically after updating the matching record."""
+        self._rewrite(seq, decision, reviewed_by, reviewed_at, review_note=None)
+
+    def update_decision_with_note(
+        self,
+        seq: int,
+        decision: QuarantineDecision,
+        reviewed_by: str,
+        reviewed_at: datetime,
+        review_note: str | None = None,
+    ) -> None:
+        """Persist decision + ``review_note`` in one atomic rewrite (T6b).
+
+        ``review_note=None`` behaves exactly like ``update_decision`` and
+        leaves any existing note untouched; a real note replaces it.
+        """
+        self._rewrite(seq, decision, reviewed_by, reviewed_at, review_note=review_note)
+
+    def _rewrite(
+        self,
+        seq: int,
+        decision: QuarantineDecision,
+        reviewed_by: str,
+        reviewed_at: datetime,
+        *,
+        review_note: str | None,
+    ) -> None:
+        """Update the record with ``seq`` and rewrite every line atomically."""
         records = self.read_all()
         updated: list[QuarantineRecord] = []
         found = False
         for record in records:
             if record.seq == seq:
-                updated.append(
-                    record.model_copy(
-                        update={
-                            "decision": decision,
-                            "reviewed_by": reviewed_by,
-                            "reviewed_at": reviewed_at,
-                        }
-                    )
-                )
+                update: dict[str, object] = {
+                    "decision": decision,
+                    "reviewed_by": reviewed_by,
+                    "reviewed_at": reviewed_at,
+                }
+                if review_note is not None:
+                    update["review_note"] = review_note
+                updated.append(record.model_copy(update=update))
                 found = True
             else:
                 updated.append(record)

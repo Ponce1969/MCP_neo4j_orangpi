@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from book_graph_rag.domain.models import Entity
 from book_graph_rag.domain.quarantine_review_models import (
+    CrossNamespaceCandidateGroup,
     EntityReviewFacts,
     PairReviewFacts,
     PriorMergeFacts,
@@ -61,6 +62,29 @@ WHERE e.id IN $ids
 RETURN e.id AS id, coalesce(e.description, '') AS description
 """
 
+# Cross-namespace duplicate detection (T6b producer): the SAME grouping
+# expression as the audit rule DUPLICATE_ENTITY_CROSS_NAMESPACE
+# (infrastructure/neo4j_audit_adapter.py) — toLower(trim(n.name)) + type over
+# active entities, keeping groups spanning ≥2 namespaces — so the enqueue
+# count and the audit count agree by construction. Coordination point for T9:
+# the audit's Cypher grouping is looser than the Python normalize_key
+# (NFKC + whitespace collapse); unify both when R5b lands.
+_QUERY_CROSS_NAMESPACE_GROUPS = """
+MATCH (n:Entity)
+WHERE (n.merged_into IS NULL OR n.merged_into = '') AND n.id IS NOT NULL
+WITH n, split(n.id, ':') AS parts
+WHERE size(parts) >= 2
+WITH n, parts ORDER BY coalesce(n.id, '')
+WITH n, parts[0] + ':' + parts[1] AS namespace, toLower(trim(n.name)) AS name, n.type AS kind
+WITH name, kind, collect(DISTINCT namespace) AS namespaces, collect(n) AS members
+WHERE size(namespaces) > 1
+RETURN coalesce(name, '') AS group_key,
+       coalesce(kind, '') AS entity_type,
+       [x IN members | coalesce(x.id, '')] AS member_ids,
+       namespaces AS namespaces
+ORDER BY group_key, entity_type
+"""
+
 
 def _batched(items: list[str]) -> list[list[str]]:
     return [items[i : i + BATCH_SIZE] for i in range(0, len(items), BATCH_SIZE)]
@@ -100,6 +124,24 @@ class Neo4jQuarantineReviewAdapter(QuarantineReviewPort):
                 async for record in result:
                     descriptions[str(record["id"])] = str(record["description"])
         return descriptions
+
+    async def find_cross_namespace_candidate_groups(
+        self,
+    ) -> list[CrossNamespaceCandidateGroup]:
+        """Run the R5a detection query; read-only (MATCH only)."""
+        groups: list[CrossNamespaceCandidateGroup] = []
+        async with self._driver.session() as session:
+            result = await session.run(_QUERY_CROSS_NAMESPACE_GROUPS)
+            async for record in result:
+                groups.append(
+                    CrossNamespaceCandidateGroup(
+                        group_key=str(record["group_key"]),
+                        entity_type=str(record["entity_type"]),
+                        member_ids=tuple(str(member) for member in record["member_ids"]),
+                        namespaces=tuple(str(ns) for ns in record["namespaces"]),
+                    )
+                )
+        return groups
 
     async def close(self) -> None:
         """Close the underlying Neo4j driver."""

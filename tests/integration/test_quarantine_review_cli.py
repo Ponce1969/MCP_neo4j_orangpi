@@ -555,10 +555,13 @@ def test_cli_quarantine_list_and_render(
     assert "sin registro" in result.output
     assert "band —" in result.output
 
-    # The unimplemented subcommands are absent, not stubbed.
+    # T6b: enqueue, list, render, approve and reject are all registered now,
+    # so there is no longer an unimplemented subcommand to assert absent.
+    # Keep the intent — no command silently pretends to work: `approve`
+    # guards itself and refuses to run without an explicit --seq.
     result = runner.invoke(cli, ["quarantine", "approve"])
     assert result.exit_code != 0
-    assert "No such command" in result.output
+    assert "Provide at least one --seq" in result.output
     # Exactly one of --seq / --pair is required.
     result = runner.invoke(cli, ["quarantine", "render"])
     assert result.exit_code != 0
