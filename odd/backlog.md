@@ -7,6 +7,14 @@ Each item states what it is, the evidence that it exists, and the block it belon
 
 ## Operational findings (infrastructure)
 
+- **O3 The repo's systemd unit artifact is not what runs (drift).** `deploy/mcp-server.service` declares
+  `EnvironmentFile=<repo>/.env` and `Environment=MCP_BIND_HOST=100.106.85.109` (R7 comment about a fail-closed
+  private bind), but the **live** `/etc/systemd/system/mcp-server.service` has neither (verified 2026-10-03 with
+  `systemctl cat mcp-server`): the service reads `.env` from its `WorkingDirectory` and still binds the Tailscale
+  interface because `MCP_BIND_HOST` is set in `.env`. Installing the repo copy is a maintainer action
+  (`sudo cp ... && sudo systemctl daemon-reload && sudo systemctl restart mcp-server`) and should be verified per
+  `docs/ops/mcp-service.md` §4. Until then, **never treat the repo artifact as the description of the running
+  unit** — read `systemctl cat mcp-server`.
 - **O1 The MCP service is supervised by the systemd unit `mcp-server.service`**
   (`/etc/systemd/system/mcp-server.service`: `User=gonzalo`, `WorkingDirectory` = this repo,
   `ExecStart=uv run book-graph-rag-mcp serve`, `Restart=on-failure`, `RestartSec=5`, `enabled`).

@@ -126,3 +126,21 @@ destructiva:
   llevan `thresholds_finalized: false` hasta una delta posterior de Phase 5 que fije
   los valores numéricos. Mientras tanto, el readiness gate reporta `INCOMPLETE` (11)
   aunque las métricas medidas pasen las comprobaciones relativas al baseline.
+
+### 7.5 MCP en producción — contrato de operación
+
+- El servicio MCP es la unidad systemd **`mcp-server.service`**. El nombre
+  `book-graph-rag-mcp` es el console script, NO la unidad: `systemctl status
+  book-graph-rag-mcp` responde "could not be found". Runbook completo:
+  `docs/ops/mcp-service.md`.
+- Reiniciar: `sudo systemctl restart mcp-server` (sudo pide password en ese host;
+  `status`/`is-active`/`cat` no requieren sudo). Verificar: sourcear `.env` y correr
+  `set -a; . ./.env; set +a; uv run --no-sync python scripts-ops/mcp_smoke_book4.py`;
+  un `401` significa que la auth funciona y no exportaste `MCP_ACCESS_TOKEN`
+  (nunca imprimir el token).
+- **NUNCA** lanzar una instancia manual en background: mientras otro proceso sostiene
+  `100.106.85.109:8003`, cada reintento del unit falla al bindear y entra en loop de
+  restarts cada 5 s (incidente histórico de 43,558 reinicios). No confíes en `deploy/mcp-server.service`
+  como descripción del unit vivo: ver §1 del runbook (`systemctl cat mcp-server`).
+- Reinicio **obligatorio** tras editar `catalog.yaml`: `CatalogScopeResolver` cachea
+  el catálogo por la vida del proceso.
