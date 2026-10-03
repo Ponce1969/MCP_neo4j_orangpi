@@ -7,12 +7,19 @@ Each item states what it is, the evidence that it exists, and the block it belon
 
 ## Operational findings (infrastructure)
 
-- **O4 `.env` (and its backups) are world-readable on that host.** `ls -l .env .env.bak-*` shows
-  `-rw-rw-r--`: the token, LLM keys and Neo4j credentials sit in a group/other-readable file, and since
-  2026-10-03 the unit also injects the whole file into the service's process environment (`EnvironmentFile`),
-  where it is visible through `/proc/<pid>/environ` to that user and inherited by children. Tightening it is
-  cheap: `chmod 600 .env .env.bak-*` (the service and every script run as `gonzalo`), then restart and re-run the
-  smoke. Pre-existing, not introduced by the unit install, but worth closing while it is visible.
+- **O4 `.env` (and its backups) were world-readable on that host.** **Resolved 2026-10-03**: `chmod 600 .env
+  .env.bak-*` applied (all five files now `-rw-------`, owner `gonzalo`); the running service was unaffected (the
+  environment was already loaded), file stays readable by its owner, and the smoke passed with the token read from
+  the file. Note the residual, inherent to the unit's `EnvironmentFile`: the values also live in the process
+  environment (`/proc/<pid>/environ`), so a restart is the only way to reload them and any child inherits them.
+- **Block A (semantic phase) — design ready, decisions pending.** `odd/specs/cross-namespace-semantic-resolution-design.md`
+  records the measured ground truth (456 candidate groups / 941 entities; **302 cross-namespace merges already
+  applied, 31% of the ledger, bypassing the policy**; 64 case-only groups) and the proposed three-way model
+  (identity → merge + multi-provenance; label collision → keep separate; unknown → quarantine), the quarantine
+  design for §7.2, the R5 rules and four decisions (D-A1..D-A4). Two gaps found that must be closed before any new
+  merge: the namespace guard lives only in `resolution_policy.decide()` (so a script can bypass it) and
+  `ApproveQuarantineUseCase` has no CLI, making the quarantine queue write-only. Adjacent defect: community
+  construction does not filter `merged_into`.
 - **O3 The repo's systemd unit artifact was not what ran (drift).** `deploy/mcp-server.service` declares
   `EnvironmentFile=<repo>/.env` and `Environment=MCP_BIND_HOST=100.106.85.109` (R7 comment about a fail-closed
   private bind), while the **live** `/etc/systemd/system/mcp-server.service` had neither for months. **Resolved
