@@ -7,20 +7,21 @@ Each item states what it is, the evidence that it exists, and the block it belon
 
 ## Operational findings (infrastructure)
 
-- **O3 The repo's systemd unit artifact is not what runs (drift).** `deploy/mcp-server.service` declares
+- **O4 `.env` (and its backups) are world-readable on that host.** `ls -l .env .env.bak-*` shows
+  `-rw-rw-r--`: the token, LLM keys and Neo4j credentials sit in a group/other-readable file, and since
+  2026-10-03 the unit also injects the whole file into the service's process environment (`EnvironmentFile`),
+  where it is visible through `/proc/<pid>/environ` to that user and inherited by children. Tightening it is
+  cheap: `chmod 600 .env .env.bak-*` (the service and every script run as `gonzalo`), then restart and re-run the
+  smoke. Pre-existing, not introduced by the unit install, but worth closing while it is visible.
+- **O3 The repo's systemd unit artifact was not what ran (drift).** `deploy/mcp-server.service` declares
   `EnvironmentFile=<repo>/.env` and `Environment=MCP_BIND_HOST=100.106.85.109` (R7 comment about a fail-closed
-  private bind), but the **live** `/etc/systemd/system/mcp-server.service` has neither (verified 2026-10-03 with
-  `systemctl cat mcp-server`): the service reads `.env` from its `WorkingDirectory` and still binds the Tailscale
-  interface because `MCP_BIND_HOST` is set in `.env`. Installing the repo copy is a maintainer action
-  (`sudo cp ... && sudo systemctl daemon-reload && sudo systemctl restart mcp-server`) and should be verified per
-  `docs/ops/mcp-service.md` §4. Until then, **never treat the repo artifact as the description of the running
-  unit** — read `systemctl cat mcp-server`.
-  **Status 2026-10-03 (still open)**: the install was attempted (a sudo session ran `daemon-reload` + `restart`
-  at 15:28) but the live file's mtime stayed at **2026-06-23**, so the copy never landed. The restart itself was
-  clean and the smoke passed, which is exactly why this needs an explicit check: `ls -l --time-style=full-iso
-  /etc/systemd/system/mcp-server.service` must show a fresh mtime and
-  `diff <(cat deploy/mcp-server.service) <(systemctl cat mcp-server | grep -v '^#')` must be empty. Re-run with an
-  absolute source path.
+  private bind), while the **live** `/etc/systemd/system/mcp-server.service` had neither for months. **Resolved
+  2026-10-03**: the second install attempt (absolute source path) landed — unit `mtime` 15:34, 734 bytes, and both
+  files now share sha256 `23a13f72d59b91fed34ef6482d9b59ad89e94dd6713481ca68aed84b1c771500`; `systemctl show`
+  reports `EnvironmentFiles=<repo>/.env` and `Environment=MCP_BIND_HOST=100.106.85.109`, the service came up clean
+  (`NRestarts=0`, Tailscale-only bind) and the smoke matched the baseline (7111 / 1241 / 6078 / 6963, 8 tools).
+  Keep the check: `ls -l --time-style=full-iso` the live file and diff it against the artifact with
+  `tail -n +2` (never `grep -v '^#'`, which strips the artifact's own comments and fakes a difference).
 - **O1 The MCP service is supervised by the systemd unit `mcp-server.service`**
   (`/etc/systemd/system/mcp-server.service`: `User=gonzalo`, `WorkingDirectory` = this repo,
   `ExecStart=uv run book-graph-rag-mcp serve`, `Restart=on-failure`, `RestartSec=5`, `enabled`).

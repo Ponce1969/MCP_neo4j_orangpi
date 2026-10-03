@@ -29,20 +29,26 @@ the graph.
 **The unit name does not contain the project name.** That is the single most
 important fact in this document.
 
-### Repo copy vs the live unit — they are NOT the same (verify before trusting the file)
+### Repo copy vs the live unit (drift — resolved 2026-10-03, keep checking)
 
-`deploy/mcp-server.service` in this repo is **not** what is installed. Verified
-2026-10-03 against the live unit:
+`deploy/mcp-server.service` in this repo was **not** what was installed until
+2026-10-03. The difference was verified on that date:
 
-| Setting | Live `/etc/systemd/system/mcp-server.service` | Repo `deploy/mcp-server.service` |
-|---------|----------------------------------------------|----------------------------------|
+| Setting | Live unit before the install | Repo `deploy/mcp-server.service` |
+|---------|------------------------------|----------------------------------|
 | `EnvironmentFile` | absent | `EnvironmentFile=<repo>/.env` |
 | `Environment=MCP_BIND_HOST` | absent | `Environment=MCP_BIND_HOST=100.106.85.109` (with an R7 comment about a fail-closed private bind) |
 
-The live service still works because it reads `.env` from its `WorkingDirectory`,
-and it still binds only the Tailscale interface because `MCP_BIND_HOST` is set in
-`.env`. Do not assume the repo copy describes the running unit; check
-`systemctl cat mcp-server`.
+While the drift lasted, the service still worked because it read `.env` from its
+`WorkingDirectory`, and it still bound only the Tailscale interface because
+`MCP_BIND_HOST` is set in `.env`. What was missing was the hardening: with the
+repo copy installed, the Tailscale bind is declared in the unit itself, so a
+`.env` mistake cannot silently point the service at a wildcard address.
+
+The install landed on 2026-10-03 (unit `mtime` 15:34, 734 bytes) and the two files
+are now byte-identical
+(sha256 `23a13f72d59b91fed34ef6482d9b59ad89e94dd6713481ca68aed84b1c771500`). Even
+so: **never assume the repo copy describes the running unit.** Read the live one.
 
 Installing the repo copy is a maintainer action (an agent has no sudo password on
 this host). Use an **absolute source path**: a relative one silently fails when the
@@ -61,17 +67,22 @@ before believing the hardening is in place:
 
 ```bash
 ls -l --time-style=full-iso /etc/systemd/system/mcp-server.service   # mtime must be just now
-diff <(cat deploy/mcp-server.service) <(systemctl cat mcp-server | grep -v '^#') && echo identical
+diff <(cat deploy/mcp-server.service) <(systemctl cat mcp-server | tail -n +2) && echo identical
 systemctl show mcp-server -p EnvironmentFiles -p Environment --no-pager  # must show the override
 ```
 
-A `cp` that never ran (wrong cwd, relative path, a `sudo` that failed) leaves the
-old file in place while the reload and restart still succeed: the service looks
-healthy and the private-bind hardening is silently missing. This exact failure
-happened on 2026-10-03 — the live file's mtime was still 2026-06-23 after a
-restart that came from a valid sudo session.
+Two traps in that check:
 
-The drift is registered as O3 in `odd/backlog.md`.
+- Do **not** filter comment lines (`grep -v '^#'`) when comparing: the artifact has
+  explanatory comments, so stripping `#` lines from only one side reports a
+  difference that does not exist. Drop only the leading `# /etc/systemd/system/...`
+  path line that `systemctl cat` prepends (`tail -n +2`).
+- A `cp` that never ran (wrong cwd, relative path, a `sudo` that failed) leaves the
+  old file in place while the reload and restart still succeed: the service looks
+  healthy and the private-bind hardening is silently missing. This is what happened
+  on 2026-10-03 — the first attempt left the file's mtime at 2026-06-23 after a
+  restart that came from a valid sudo session, and only the second attempt (absolute
+  source path) landed.
 
 ## 2. Operating the service
 
