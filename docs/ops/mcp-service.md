@@ -204,7 +204,94 @@ sudo systemctl restart mcp-server
   durations, error codes, keyed HMAC fingerprints. Raw query text is never
   written (fail-closed fingerprinting); files older than 7 days are pruned.
 
-## 7. Related rules
+## 7. Client access (external MCP clients over Tailscale)
+
+The endpoint is `http://<tailnet-host>:8003/sse` (plain HTTP *inside* the tailnet). Every path requires
+`Authorization: Bearer <MCP_ACCESS_TOKEN>`: a client without the token, or with a wrong one, gets a `401` — which
+means auth is working, not that the service is down.
+
+The token lives in `<repo>/.env` (`MCP_ACCESS_TOKEN`, mode `600`, owner `gonzalo`). Hand it over out of band; never
+paste it into a chat, an issue, or a commit.
+
+Client configuration (Codex-style; any client needs the same two values):
+
+```toml
+[mcp_servers.bookgraph]
+url = "http://gonpatri:8003/sse"
+bearer_token_env_var = "BOOKGRAPH_MCP_TOKEN"
+```
+
+**The client reads that variable from its own process**, so set it at user level (Windows: `setx
+BOOKGRAPH_MCP_TOKEN "..."`, or System Properties) and restart the client. A variable exported in one shell never
+reaches a client launched from the menu, and the symptom is a `401`, not a connection error.
+
+### Two different kinds of failure
+
+| Symptom | Meaning | Where to fix |
+|---------|---------|--------------|
+| TCP refused or timeout, while `ping` works | the client cannot reach the port: a **tailnet policy (ACL)** restriction between different members, or a broken control path | the tailnet admin console, or Tailscale itself (below) — never the host firewall |
+| `401 {"error":"unauthorized"}` | reachable and authenticated: the token is missing or wrong | the client's environment |
+| connection refused from the host itself | nothing is listening | §2 and §3 |
+
+### Do NOT bind 0.0.0.0
+
+The service binds the Tailscale interface **on purpose** (R7, fail-closed); the configuration rejects a wildcard
+bind in production. When a client cannot reach it, the fix is never "listen on 0.0.0.0": it is granting access in
+the tailnet policy or exposing the service through Tailscale.
+
+### Devices owned by another tailnet user
+
+This host belongs to `gompatri@gmail.com`. A device owned by a **different member** of the same tailnet is
+governed by the tailnet policy file, and it is normal for `ping` to work while `TCP 8003` does not. Grant it in the
+admin console (Access controls, policy file):
+
+```jsonc
+{
+  "acls": [
+    // ... existing rules ...
+    { "action": "accept", "src": ["user@example.com"], "dst": ["gonpatri:8003"] }
+  ]
+}
+```
+
+(`autogroup:member` instead of one user allows every member.) Then reconnect the client and retest.
+
+**Plan B — expose it with TLS on 443**, a port tailnet policies almost always allow (needs `sudo` here):
+
+```bash
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8003
+# the client then uses: https://gonpatri.<tailnet>.ts.net/sse
+```
+
+### Diagnostic ladder (client side first)
+
+```powershell
+Test-NetConnection gonpatri -Port 8003   # the MCP port
+Test-NetConnection gonpatri -Port 22     # another port: if 22 also fails it is user-level, not a port rule
+tailscale status                         # does the client see this host online, and with which owner?
+curl -i -m 6 http://gonpatri:8003/sse    # 401 = reachable and auth working; a timeout = port/ACL problem
+```
+
+```bash
+# on this host: is the service up, and where is it listening?
+systemctl is-active mcp-server; ss -ltnp | grep ':8003'; systemctl show mcp-server -p MainPID -p NRestarts
+```
+
+Known state to check when a **remote** client fails while a local one works: `tailscale status` here has reported
+`Self.Online: false` with a stale control plane (relay only, no `curAddr`) while the data plane kept serving. A
+peer on the same LAN is unaffected (direct path); a remote peer that depends on the relay can be flaky.
+`sudo systemctl restart tailscaled` re-establishes it (it drops tailnet connectivity for a few seconds), and
+`sudo tailscale set --operator=gonzalo` lets that user read `tailscale debug netmap` (the compiled packet filter)
+without `sudo`.
+
+### Parsing `.env`
+
+Until 2026-10-04 the file carried leading spaces before the keys; they are gone now. If a script does `grep
+'^MCP_ACCESS_TOKEN'` and gets nothing back — or a client sends an empty token and receives `401` — strip the
+whitespace first: `sed -E 's/^[[:space:]]+//' .env`. Python-dotenv and `bash` `source` never needed that, but
+anchored parsers do.
+
+## 8. Related rules
 
 - Graph mutation gate (AGENTS.md §7.2): fresh backup → dry-run → human approval
   → apply → audit. This runbook is read-only with respect to the graph.

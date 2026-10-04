@@ -108,3 +108,16 @@ def test_usage_skill_covers_every_active_catalog_source() -> None:
     skill = _read(".agents/skills/book-graph-mcp-usage/SKILL.md")
     for source_id in active_sources:
         assert source_id in skill, f"skill does not mention active source {source_id}"
+
+
+def test_runbook_documents_external_client_access() -> None:
+    """The client-access guidance (ACL, no wildcard bind, auth reading) must stay documented."""
+    runbook = _read("docs/ops/mcp-service.md")
+    assert "## 7. Client access (external MCP clients over Tailscale)" in runbook
+    assert "Do NOT bind 0.0.0.0" in runbook
+    assert '"dst": ["gonpatri:8003"]' in runbook
+    assert "tailscale serve --bg --https=443" in runbook
+    assert "bearer_token_env_var" in runbook
+    assert "Test-NetConnection gonpatri -Port 22" in runbook
+    assert "401" in runbook
+    assert "timeout" in runbook
