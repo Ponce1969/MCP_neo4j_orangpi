@@ -148,21 +148,28 @@ maps and debt R1 corrupts exactly that population.
       `docker-tool` pair ("Containerization platform used to deploy applications" vs "…to package Agent A, B, C into
       isolated runtime containers") scores 0.720, below the project's 0.80 `medium_cosine`: those thresholds were set
       for **name+alias** embeddings, not for full descriptions, so a description-based cosine needs its own band.
-      **T8c (pending, needs the maintainer's go-ahead)**: the pilot. `RollbackMergeUseCase` exists but **no CLI
-      exposes it** (the same gap `approve` had before T6b), so the pilot needs `book-graph-rag ledger rollback --seq …
-      --backup … --approval …` reusing the §7.2 gate helper and printing a before/after edge census. Direction
-      inference: these entries are **pre-R1** (`direction=None` in every inverse map, verified) and the legacy
-      both-ways restore would rebuild mirrors — but the original direction is recoverable from the canonical's
-      current edge for each inverse entry, so the tool should infer it and restore exactly one direction, falling
-      back to both-ways only when no matching edge exists (and reporting that).
-      **Short list for the pilot (indisputable wrong merges, cheapest first)**:
-      | seq | canonical (live) | rolled candidate | inverse map | mirror exposure |
-      |-----|------------------|------------------|-------------|-----------------|
-      | 305 | `graphrag-agentic:api-calls-tool` | `agentic-patterns:api-calls-tool` | 1 MENTIONS + 1 RELATED | ≤1 |
-      | 501 | `essential-graphrag:recall-concept` | `agentic-patterns:recall-concept` | 2 + 3 | ≤3 |
-      | 342 | `graphrag-agentic:agent-b-agent` | `agentic-patterns:summarization-agent-b-agent` | 21 + 32 | ≤32 |
-      Start with 305 and 501 (the cheap ones, where the restored edges and any mirror are countable by hand) and leave
-      342 for a second phase. **Nothing is mutated until the maintainer approves the pilot.**
+      **T8c done and the pilot applied (2026-10-04)**: `book-graph-rag ledger rollback` (commits `f9737b7`/`5c9ed12`)
+      is read-only by default, infers the RELATED orientation from the canonical's live edge for entries written
+      before the direction field, prints the predicted census and a **fingerprint** of the plan, and its `--apply`
+      carries the §7.2 gate plus `--expect-fingerprint` (refuses when the recomputed plan differs from the reviewed
+      one). It reuses the untouched `RollbackMergeUseCase` by handing it the entry copy whose directions were filled in.
+      Applied to **seq 305** (`api-calls-tool`) and **seq 501** (`recall-concept`) with backup
+      `bookgraph_backup_20261004T062517Z.json`: `mentions restored 3 (predicted 3)`, `related restored 4 (predicted
+      4)`, **`mirrors created 0 (predicted 0)`**, `merged_into 931 → 929`, `drift: none`.
+      **Raw verification**: all four nodes live again; each side's degree arithmetic balances exactly
+      (`graphrag-agentic:api-calls-tool` 2/2 → 1/1 while its loser regained 1/1; `essential-graphrag:recall-concept`
+      5/7 → 3/4 while its loser regained 2/3); the four restored edges appear **once each in their original
+      direction** (zero mirrors); the ledger is at **960 entries with 0 hash inconsistencies**; and the four audits are
+      `passed` (global 0 blocking / 457 warnings). The restored neighbourhoods corroborate the verdict — the revived
+      `api-calls-tool` is enabled by its own book's `smart-home-agent-agent`, and the revived `recall-concept` relates
+      to `stepscore-pattern` and `f1-score-concept`.
+      **Why R5a moved 456 → 457 (groups, not pairs)**: the revived `api-calls-tool` created the `api calls|tool` group
+      (2 namespaces), while `recall|concept` **already existed** with three namespaces and merely gained a fourth
+      member. Verified with an independent query that also returns 457 groups, matching the rule.
+      **seq 342 remains for the next pass** (maintainer decision).
+      **New debt found by the pilot**: the audit **does not consult the quarantine decisions**, so a pair the
+      maintainer rejected keeps counting in the warning total forever. R5a (or its successor) should subtract pairs
+      whose quarantine record is `REJECTED`, otherwise the metric never reaches zero and stops being a metric.
 - [ ] **T9** R5b: case-insensitive grouping in `duplicates_entity` via `normalize_key`, together with the cleanup of
       the 64 case-only groups (approval-gated merge), and the confirmation of how the `uniqueness` gate dimension
       treats warnings.
