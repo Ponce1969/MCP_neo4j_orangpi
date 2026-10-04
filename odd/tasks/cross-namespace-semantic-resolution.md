@@ -269,11 +269,18 @@ maps and debt R1 corrupts exactly that population.
       the correct behaviour (a reviewed plan must be re-reviewed after a tool change). The consolidated retro-audit in
       `scripts-ops/audit_applied_cross_namespace.py` still treats a partially compensated entry as fully rolled back,
       so **T8f.2** is required before the next batch uses partial rollbacks.
-- [ ] **T8f.2** Candidate-aware compensation in the consolidated retro-audit.
-      A compensating entry records only the candidates it reversed, so the original entry's remaining candidates must
-      keep their pairs in the stratified population instead of being excluded as fully rolled back. The
-      `applied + compensating == 302` guard and the `rolled_back` flag must keep holding (decide and document whether
-      the guard becomes pair-based or coverage-based).
+- [x] **T8f.2** Candidate-aware compensation in the consolidated retro-audit.
+      **Delivered**: `_compensated_candidates` (seq -> union of the compensated candidate ids), `_applied_entries`
+      keeping an entry until every crossing candidate is compensated, `_build_pairs` flagging `rolled_back` per
+      candidate, `_history_row(entry, compensated_candidate_ids)` reporting partial vs full, `_stratifiable_pairs`,
+      and the guard changed from `applied + compensating == 302` to **`original population == 302`** plus
+      `_assert_compensations_reference_originals` (unknown target, canonical mismatch, unknown candidate and duplicate
+      compensation all abort with exit 2 before any graph query and before writing `--out`). The report and payload
+      expose `fully_compensated_entries`, `partially_compensated_entries`, `compensated_pairs` and
+      `rolled_back_candidates`. Read-only production run after the change: 302 originals / 14 compensating / 288
+      applied / 15 compensated pairs / 322 pairs / 307 stratified / 180 suspicious — identical to the pre-change
+      numbers. Independently verified; the verifier's counterexample (a count-only guard no longer catching a
+      duplicate compensation) is closed by the reference check.
 - [ ] **T9** R5b: case-insensitive grouping in `duplicates_entity` via `normalize_key`, together with the cleanup of
       the 64 case-only groups (approval-gated merge), and the confirmation of how the `uniqueness` gate dimension
       treats warnings.
@@ -305,3 +312,4 @@ maps and debt R1 corrupts exactly that population.
 | T8c/T8d | `f9737b7`…`b35ff12` | `ledger rollback` with direction inference + census + fingerprint; Lote 1: 10/302 reverted, 0 mirrors in 8, 8 symmetric edges accepted in 2; ledger 968 / 0 inconsistencies; consolidated audit 292 applied · 185 suspicious · global `passed` 0 blocking / 465 warnings; `repoint` closed the 8 restored blocking edges |
 | T8e | (in progress) | Lote 2A: 4 entries rolled back (375/489/503/480), 413/475 kept; 12/12 MENTIONS, 20/20 RELATED, 1 accepted mirror, ledger 972/0 inconsistencies, audits `passed` 0 blocking / 469 warnings after repoint |
 | T8f | `f7fb0ef` | `--candidate` partial rollback: plan-time overlap refusal + alias-value collision refusal + candidate-aware idempotence backstop; RED `DID NOT RAISE MergeNotReversible` → GREEN; 52 focused unit · 747 unit suite · 6 testcontainers integration; ruff/mypy/architecture green; independent verification confirmed partial-then-full can no longer mutate |
+| T8f.2 | (this commit) | candidate-aware retro-audit: `rolled_back` per candidate, guard on the ORIGINAL population + compensation reference check (unknown target / canonical mismatch / unknown candidate / duplicate all exit 2 pre-graph); RED 6 failed → GREEN 17 passed; 753 unit suite; ruff/mypy/architecture green; production read-only run unchanged 288 applied / 322 pairs / 307 stratified / 180 suspicious |

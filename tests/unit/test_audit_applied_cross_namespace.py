@@ -235,7 +235,7 @@ def test_selection_excludes_the_compensator_and_keeps_the_rolled_back_flag(
     looks cross-namespace. It must be excluded from the selection (and counted
     separately), while the ORIGINAL it compensates stays in the selection with
     ``rolled_back=True`` so the report still shows what was reverted, and the
-    guard's arithmetic (``applied + compensating == expected``) must hold.
+    guard's invariant (the ORIGINAL cross-namespace population) must hold.
     """
     module = _load_script()
     original = _crossing_entry(1)
@@ -254,20 +254,18 @@ def test_selection_excludes_the_compensator_and_keeps_the_rolled_back_flag(
     compensating_entries = module._compensating_crossing_entries(entries)
     assert [entry.seq for entry in compensating_entries] == [2]
 
-    applied = module._applied_entries(selected, compensating_entries)
+    compensated = module._compensated_candidates(compensating_entries)
+    applied = module._applied_entries(selected, compensated)
     assert applied == [], "the original was compensated: nothing still applied"
 
-    compensated_seqs = {
-        entry.rollback_of for entry in compensating_entries if entry.rollback_of is not None
-    }
-    row = module._history_row(selected[0], selected[0].seq in compensated_seqs)
+    row = module._history_row(selected[0], compensated[selected[0].seq])
     assert row["rolled_back"] is True, "the flag must survive on the original"
 
-    # Guard: applied + compensating == expected (here 0 + 1 == 1) passes silently.
+    # Guard: the ORIGINAL population is the invariant (here 1 original).
     monkeypatch.setattr(module, "EXPECTED_CROSS_NAMESPACE_ENTRIES", 1)
-    module._assert_expected_count(len(applied), len(compensating_entries))
+    module._assert_expected_count(len(selected), len(compensating_entries))
 
-    # An uncompensated original keeps the arithmetic: 1 applied + 0 compensating.
+    # An uncompensated original: same invariant, nothing compensated.
     module._assert_expected_count(1, 0)
 
 
@@ -275,18 +273,206 @@ def test_guard_fails_loudly_when_the_numbers_do_not_add_up(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A ledger whose applied + compensating misses the ground truth exits 2."""
+    """A ledger whose original population misses the ground truth exits 2."""
     module = _load_script()
-    monkeypatch.setattr(module, "EXPECTED_CROSS_NAMESPACE_ENTRIES", 2)
+    monkeypatch.setattr(module, "EXPECTED_CROSS_NAMESPACE_ENTRIES", 302)
 
     with pytest.raises(SystemExit) as excinfo:
-        module._assert_expected_count(0, 1)
+        module._assert_expected_count(301, 17)
 
     assert excinfo.value.code == 2
     err = capsys.readouterr().err
-    assert "0 aplicadas" in err, "the guard must print the applied number"
-    assert "1 compensatorias" in err, "the guard must print the compensating number"
-    assert "esperado 2" in err, "the guard must print the expected ground truth"
+    assert "301" in err, "the guard must print the original population it measured"
+    assert "302" in err, "the guard must print the expected ground truth"
+    assert "17" in err, "the guard must report the compensating count it saw"
+
+
+# ── T8f.2: partial compensations are candidate-aware ────────────────────────
+
+
+def _two_candidate_crossing_entry(seq: int) -> MergeLedgerEntry:
+    """One entry that crossed with TWO candidates (a multi-candidate merge)."""
+    return MergeLedgerEntry(
+        seq=seq,
+        candidate_ids=["ns-b:src:node-component", "ns-c:src:node-component"],
+        canonical_id="ns-a:src:node-component",
+        band=MergeBand.EXACT,
+        evidence=[],
+        aliases_folded=[],
+        edge_inverse_map=[],
+        approver="auto:bypass",
+        applied_at=datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC),
+    )
+
+
+def _partial_compensator(seq: int, rollback_of: int, candidate_ids: list[str]) -> MergeLedgerEntry:
+    """The compensating entry ``ledger rollback --candidate`` appends."""
+    return MergeLedgerEntry(
+        seq=seq,
+        candidate_ids=list(candidate_ids),
+        canonical_id="ns-a:src:node-component",
+        band=MergeBand.EXACT,
+        evidence=[],
+        aliases_folded=[],
+        edge_inverse_map=[],
+        approver="auto:rollback",
+        applied_at=datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC),
+        rollback_of=rollback_of,
+    )
+
+
+def test_compensated_candidates_unions_every_compensator_of_a_seq() -> None:
+    """Two partial compensations of one entry aggregate into one candidate set."""
+    module = _load_script()
+    compensating = [
+        _partial_compensator(10, rollback_of=1, candidate_ids=["ns-b:src:node-component"]),
+        _partial_compensator(11, rollback_of=1, candidate_ids=["ns-c:src:node-component"]),
+    ]
+    assert module._compensated_candidates(compensating) == {
+        1: {"ns-b:src:node-component", "ns-c:src:node-component"}
+    }
+
+
+def test_partially_compensated_entry_stays_applied_until_every_pair_is_gone() -> None:
+    """A partial rollback must not hide the pairs it did NOT reverse."""
+    module = _load_script()
+    entry = _two_candidate_crossing_entry(1)
+
+    partial = {1: {"ns-b:src:node-component"}}
+    assert module._applied_entries([entry], partial) == [entry], (
+        "one remaining crossing candidate keeps the entry in the applied population"
+    )
+
+    full = {1: {"ns-b:src:node-component", "ns-c:src:node-component"}}
+    assert module._applied_entries([entry], full) == [], (
+        "every crossing candidate compensated: the entry leaves the applied population"
+    )
+
+
+def test_build_pairs_flags_only_the_compensated_candidate() -> None:
+    """``rolled_back`` is per candidate, not per entry."""
+    module = _load_script()
+    entry = _two_candidate_crossing_entry(1)
+    pairs, _, _ = module._build_pairs(
+        [entry],
+        entities={},
+        merged_into={},
+        mentions={},
+        neighbors={},
+        label_namespaces={},
+        compensated_candidates={1: {"ns-b:src:node-component"}},
+        namespace_filter=None,
+    )
+    flags = {(pair.candidate_id, pair.rolled_back) for pair in pairs}
+    assert flags == {
+        ("ns-b:src:node-component", True),
+        ("ns-c:src:node-component", False),
+    }, "only the compensated candidate is rolled back; its sibling stays stratified"
+
+
+def test_history_row_reports_partial_and_full_compensation() -> None:
+    """The history row distinguishes a partial rollback from a full one."""
+    module = _load_script()
+    entry = _two_candidate_crossing_entry(1)
+
+    partial = module._history_row(entry, {"ns-b:src:node-component"})
+    assert partial["rolled_back"] is False, "a partial rollback is not a full reversal"
+    assert partial["rolled_back_candidates"] == ["ns-b:src:node-component"]
+
+    full = module._history_row(entry, {"ns-b:src:node-component", "ns-c:src:node-component"})
+    assert full["rolled_back"] is True
+    assert sorted(full["rolled_back_candidates"]) == [
+        "ns-b:src:node-component",
+        "ns-c:src:node-component",
+    ]
+
+
+def test_compensations_must_reference_a_known_original_candidate(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A compensation outside the ground truth aborts before the graph."""
+    module = _load_script()
+    original = _two_candidate_crossing_entry(1)
+
+    # Two complementary partials of the same entry are legal (A, then B).
+    module._assert_compensations_reference_originals(
+        [original],
+        [
+            _partial_compensator(10, 1, ["ns-b:src:node-component"]),
+            _partial_compensator(11, 1, ["ns-c:src:node-component"]),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as unknown_target:
+        module._assert_compensations_reference_originals(
+            [original], [_partial_compensator(12, 99, ["ns-b:src:node-component"])]
+        )
+    assert unknown_target.value.code == 2
+    assert "99" in capsys.readouterr().err
+
+    with pytest.raises(SystemExit) as unknown_candidate:
+        module._assert_compensations_reference_originals(
+            [original], [_partial_compensator(13, 1, ["ns-z:src:ghost"])]
+        )
+    assert unknown_candidate.value.code == 2
+    assert "ns-z:src:ghost" in capsys.readouterr().err
+
+    # The population guard is count-only: double accounting must abort here.
+    with pytest.raises(SystemExit) as duplicated:
+        module._assert_compensations_reference_originals(
+            [original],
+            [
+                _partial_compensator(14, 1, ["ns-b:src:node-component"]),
+                _partial_compensator(15, 1, ["ns-b:src:node-component"]),
+            ],
+        )
+    assert duplicated.value.code == 2
+    assert "ya compensados" in capsys.readouterr().err
+
+    with pytest.raises(SystemExit) as mismatched:
+        module._assert_compensations_reference_originals(
+            [original],
+            [
+                _partial_compensator(16, 1, ["ns-b:src:node-component"]).model_copy(
+                    update={"canonical_id": "ns-x:src:other"}
+                )
+            ],
+        )
+    assert mismatched.value.code == 2
+    assert "canonical_id" in capsys.readouterr().err
+
+
+def test_stratifiable_pairs_keeps_the_siblings_of_a_partial_rollback() -> None:
+    """Only the reverted pair leaves the stratum; missing entities always do."""
+    module = _load_script()
+
+    def _synthetic(
+        seq: int, label: str, *, rolled_back: bool = False, missing: bool = False
+    ) -> object:
+        return module.PairAudit(
+            seq=seq,
+            canonical_id=f"ns-a:src:{label}-concept",
+            candidate_id=f"ns-b:src:{label}-concept",
+            canonical_namespace="ns-a:src",
+            candidate_namespace="ns-b:src",
+            label=label,
+            description_overlap=0.1,
+            risk=RiskLevel.NONE,
+            lexically_silent=True,
+            rolled_back=rolled_back,
+            missing_entities=missing,
+        )
+
+    kept = _synthetic(1, "alpha")
+    rolled = _synthetic(2, "beta", rolled_back=True)
+    missing = _synthetic(3, "gamma", missing=True)
+
+    result = module._stratifiable_pairs([kept, rolled, missing])
+
+    assert [pair.seq for pair in result] == [1], (
+        "the sibling of a partial rollback stays stratified; the reverted pair "
+        "and the pairs with missing entities do not"
+    )
 
 
 # ── Pure stratification over synthetic pairs ─────────────────────────────────

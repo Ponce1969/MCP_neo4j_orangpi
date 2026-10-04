@@ -20,11 +20,14 @@ los dos primeros componentes del id separados por ``:``), EXCLUYENDO las
 entradas compensatorias que un rollback appendicea (``rollback_of`` set — el
 ``compensates_seq`` del diseno): esas replican los ids de su original y
 TAMBIEN parecen cross-namespace, asi que se excluyen de la seleccion y se
-cuentan aparte. Las originales compensadas se conservan en la seleccion con
-su flag ``rolled_back`` para que el informe muestre que fue revertido. El
-guard valida la verdad invariable ``aplicadas + compensatorias == 302``
-(``EXPECTED_CROSS_NAMESPACE_ENTRIES``, ground truth 2026-10-03) y falla con
-AMBOS numeros en el mensaje si la suma no cierra.
+cuentan aparte. Las originales compensadas se conservan en la seleccion y su
+flag ``rolled_back`` es **por par** (T8f.2): una compensatoria solo cubre los
+candidatos que registro, asi que un rollback parcial deja los pares hermanos
+en la poblacion auditada y solo marca los que si revirtio. El guard valida la
+verdad invariable ``originales cross-namespace == 302``
+(``EXPECTED_CROSS_NAMESPACE_ENTRIES``, ground truth 2026-10-03) y falla con el
+numero en el mensaje si no cierra — no ``aplicadas + compensatorias``, que
+dejo de ser invariante cuando el rollback parcial compensa un subconjunto.
 
 HECHOS HISTORICOS (solo ledger, sin grafo): por entrada se conservan ``seq``,
 ``applied_at``, ``approver``, la banda guardada y si la evidencia guardada no
@@ -75,9 +78,10 @@ separa por idioma en ``silent_cross_language`` / ``silent_same_language`` /
     ``--limit`` acota las listas de consola, el JSON siempre lleva todo.
 
 La matriz y las tres listas describen la poblacion TODAVIA APLICADA: los
-pares de una entrada compensada por rollback quedan fuera de los estratos (la
-consola los reporta revertidos via ``rolled_back`` y el contador de
-compensatorias junto a la seleccion).
+pares que un rollback revirtio quedan fuera de los estratos (la consola los
+reporta revertidos via ``rolled_back`` y el contador de compensatorias junto
+a la seleccion). Un rollback PARCIAL (T8f) saca solo los pares que si
+revirtio: los candidatos hermanos de la misma entrada siguen auditados.
 
 Garantia de solo lectura: unicamente se ejecutan consultas MATCH; el unico
 archivo que se escribe es ``--out``.
@@ -98,11 +102,11 @@ import asyncio
 import json
 import sys
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from neo4j import AsyncGraphDatabase, AsyncSession
 from pydantic import ValidationError
@@ -460,38 +464,134 @@ def _compensating_crossing_entries(
     return compensating
 
 
+def _compensated_candidates(
+    compensating: Sequence[MergeLedgerEntry],
+) -> dict[int, set[str]]:
+    """seq original -> union de candidatos que un rollback ya revirtio (T8f.2).
+
+    Una entrada compensatoria solo cubre los candidatos que registro: un
+    rollback parcial (``ledger rollback --candidate``) revierte un
+    subconjunto, asi que dos compensaciones del mismo seq se agregan y el
+    resto de la entrada sigue aplicado.
+    """
+    compensated: dict[int, set[str]] = {}
+    for entry in compensating:
+        if entry.rollback_of is None:
+            continue
+        compensated.setdefault(entry.rollback_of, set()).update(entry.candidate_ids)
+    return compensated
+
+
+def _crossing_candidates(entry: MergeLedgerEntry) -> set[str]:
+    """Candidatos cross-namespace de una entrada (normalizado a ``set``)."""
+    return set(_crossing_candidate_ids(entry, namespace_from_id(entry.canonical_id)))
+
+
+def _is_fully_compensated(entry: MergeLedgerEntry, compensated: Mapping[int, set[str]]) -> bool:
+    """True cuando TODOS los candidatos cruzados de la entrada ya se revirtieron."""
+    crossing = _crossing_candidates(entry)
+    return bool(crossing) and crossing.issubset(compensated.get(entry.seq, set()))
+
+
+def _is_partially_compensated(entry: MergeLedgerEntry, compensated: Mapping[int, set[str]]) -> bool:
+    """True cuando ALGUN candidato cruzado se revirtio y otro sigue aplicado."""
+    crossing = _crossing_candidates(entry)
+    covered = crossing & compensated.get(entry.seq, set())
+    return bool(covered) and not crossing.issubset(covered)
+
+
 def _applied_entries(
     selected: Sequence[MergeLedgerEntry],
-    compensating: Sequence[MergeLedgerEntry],
+    compensated: Mapping[int, set[str]],
 ) -> list[MergeLedgerEntry]:
-    """Originales seleccionadas que NINGUN rollback compenso (todavia aplicadas)."""
-    compensated = {entry.rollback_of for entry in compensating if entry.rollback_of is not None}
-    return [entry for entry in selected if entry.seq not in compensated]
+    """Originales que conservan AL MENOS UN candidato cruzado sin revertir.
 
-
-def _assert_expected_count(applied: int, compensating: int) -> None:
-    """Falla fuerte si ``aplicadas + compensatorias`` no mide exactamente 302.
-
-    La suma es invariable en un ledger append-only: las originales cross-
-    namespace (ground truth 302 del 2026-10-03) nunca se borran y cada
-    compensatoria refiere a UNA original cruzada (1:1, la reversion es
-    idempotente), asi que ``aplicadas + compensatorias == 302`` se sostiene
-    aunque el grafo cambie. Si la suma no cierra, el ledger cambio de una
-    forma que este guion no entiende: aborta con AMBOS numeros en el mensaje
-    antes de consultar el grafo ni escribir salida.
+    Un rollback parcial revierte solo su subconjunto: la entrada sigue en la
+    poblacion aplicada (con sus pares restantes) hasta que TODOS sus
+    candidatos cross-namespace estan compensados.
     """
-    measured = applied + compensating
-    if measured == EXPECTED_CROSS_NAMESPACE_ENTRIES:
+    return [entry for entry in selected if not _is_fully_compensated(entry, compensated)]
+
+
+def _assert_expected_count(originals: int, compensating: int) -> None:
+    """Falla fuerte si la poblacion de ORIGINALES cross-namespace no es 302.
+
+    Invariante append-only: las originales del 2026-10-03 nunca se borran y
+    cada compensatoria (total o parcial) referencia a UNA de ellas. Se cuentan
+    las ORIGINALES, no ``aplicadas + compensatorias``: esa suma dejo de ser
+    invariante cuando el rollback parcial (T8f) compensa solo un subconjunto
+    de una entrada. Si no cierra, el ledger cambio de una forma que este guion
+    no entiende: aborta con el numero en el mensaje antes de consultar el
+    grafo ni escribir salida.
+    """
+    if originals == EXPECTED_CROSS_NAMESPACE_ENTRIES:
         return
     print(
-        f"ERROR: seleccion cross-namespace = {applied} aplicadas + "
-        f"{compensating} compensatorias = {measured} entradas, "
-        f"esperado {EXPECTED_CROSS_NAMESPACE_ENTRIES} (ground truth 2026-10-03). "
+        f"ERROR: seleccion cross-namespace = {originals} originales "
+        f"(+ {compensating} entradas compensatorias), esperado "
+        f"{EXPECTED_CROSS_NAMESPACE_ENTRIES} (ground truth 2026-10-03). "
         "El ledger cambio: revisar antes de confiar en este informe. "
         "No se consulto el grafo ni se escribio ninguna salida.",
         file=sys.stderr,
     )
     raise SystemExit(2)
+
+
+def _abort_ledger_drift(reason: str) -> NoReturn:
+    """Aborta (exit 2) antes del grafo y antes de escribir ``--out``."""
+    print(
+        f"ERROR: {reason}. El ledger cambio: revisar antes de confiar en este "
+        "informe. No se consulto el grafo ni se escribio salida.",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+
+
+def _assert_compensations_reference_originals(
+    selected: Sequence[MergeLedgerEntry],
+    compensating: Sequence[MergeLedgerEntry],
+) -> None:
+    """Cuadra el libro de compensaciones contra el ground truth.
+
+    Falla fuerte (sin tocar el grafo) si un ``rollback_of`` no es el seq de una
+    original cross-namespace seleccionada; si su ``canonical_id`` no coincide
+    con el de esa original; si declara un candidato que la original no tenia; o
+    si dos compensatorias del mismo seq vuelven a compensar el mismo candidato
+    (doble contabilidad: el par se revirtio una sola vez). El guard de
+    poblacion es solo de conteo, asi que estas comprobaciones son la unica red
+    que detecta una compensacion duplicada o mal apuntada.
+    """
+    originals = {entry.seq: entry for entry in selected}
+    counted: dict[int, set[str]] = {}
+    for entry in compensating:
+        target = entry.rollback_of
+        if target is None or target not in originals:
+            _abort_ledger_drift(
+                f"la entrada compensatoria seq={entry.seq} referencia "
+                f"rollback_of={target}, que no es una original cross-namespace "
+                "seleccionada"
+            )
+        original = originals[target]
+        if entry.canonical_id != original.canonical_id:
+            _abort_ledger_drift(
+                f"la entrada compensatoria seq={entry.seq} apunta a "
+                f"rollback_of={target} pero su canonical_id={entry.canonical_id} "
+                f"no coincide con {original.canonical_id}"
+            )
+        unknown = sorted(set(entry.candidate_ids) - set(original.candidate_ids))
+        if unknown:
+            _abort_ledger_drift(
+                f"la entrada compensatoria seq={entry.seq} declara candidatos "
+                f"que la original seq={target} no tenia: {unknown}"
+            )
+        already = counted.setdefault(target, set())
+        repeated = sorted(already & set(entry.candidate_ids))
+        if repeated:
+            _abort_ledger_drift(
+                f"la entrada compensatoria seq={entry.seq} vuelve a compensar "
+                f"candidatos ya compensados en la original seq={target}: {repeated}"
+            )
+        already.update(entry.candidate_ids)
 
 
 async def _dicts(session: AsyncSession, query: str, **params: Any) -> list[dict[str, Any]]:
@@ -612,7 +712,7 @@ def _build_pairs(
     mentions: dict[str, set[str]],
     neighbors: dict[str, set[str]],
     label_namespaces: dict[tuple[str, str], set[str]],
-    rolled_back_seqs: set[int],
+    compensated_candidates: Mapping[int, set[str]],
     namespace_filter: str | None,
 ) -> tuple[list[PairAudit], int, int]:
     """Cruza ledger + grafo en pares auditados.
@@ -675,7 +775,7 @@ def _build_pairs(
                     approver=entry.approver,
                     stored_band=entry.band.value,
                     stored_evidence_s3_none=all(ev.s3 is None for ev in entry.evidence),
-                    rolled_back=entry.seq in rolled_back_seqs,
+                    rolled_back=(candidate_id in compensated_candidates.get(entry.seq, set())),
                     entity_type=entity_type,
                     mentions_jaccard=mentions_j,
                     related_jaccard=related_j,
@@ -694,20 +794,29 @@ def _build_pairs(
     return pairs, missing, fallbacks
 
 
-def _history_row(entry: MergeLedgerEntry, rolled_back: bool) -> dict[str, Any]:
-    """Fila historica por entrada (ledger puro): lo que el bypass dejo guardado."""
+def _history_row(
+    entry: MergeLedgerEntry,
+    compensated_candidate_ids: set[str],
+) -> dict[str, Any]:
+    """Fila historica por entrada (ledger puro): lo que el bypass dejo guardado.
+
+    ``rolled_back`` es total (TODOS los candidatos cruzados revertidos);
+    ``rolled_back_candidates`` lista el subconjunto que un rollback parcial
+    (T8f) si revirtio, para que el informe no oculte una reversion a medias.
+    """
+    crossing = _crossing_candidate_ids(entry, namespace_from_id(entry.canonical_id))
+    compensated = [candidate for candidate in crossing if candidate in compensated_candidate_ids]
     return {
         "seq": entry.seq,
         "applied_at": entry.applied_at.isoformat(),
         "approver": entry.approver,
         "stored_band": entry.band.value,
         "stored_evidence_s3_none": all(ev.s3 is None for ev in entry.evidence),
-        "rolled_back": rolled_back,
+        "rolled_back": bool(crossing) and len(compensated) == len(crossing),
+        "rolled_back_candidates": compensated,
         "canonical_id": entry.canonical_id,
         "candidate_ids": list(entry.candidate_ids),
-        "crossing_candidate_ids": _crossing_candidate_ids(
-            entry, namespace_from_id(entry.canonical_id)
-        ),
+        "crossing_candidate_ids": crossing,
     }
 
 
@@ -761,12 +870,24 @@ def _pair_payload(pair: PairAudit, thresholds: BandThresholds) -> dict[str, Any]
     }
 
 
+def _stratifiable_pairs(pairs: Sequence[PairAudit]) -> list[PairAudit]:
+    """Pares de la poblacion todavia aplicada (T8f.2: ``rolled_back`` por par).
+
+    Un rollback parcial solo saca los pares que si revirtio; los candidatos
+    hermanos de la misma entrada siguen en el estrato. Los pares con entidades
+    ausentes del grafo tampoco se estratifican (el scoring no es comparable).
+    """
+    return [pair for pair in pairs if not pair.missing_entities and not pair.rolled_back]
+
+
 def _print_history(
     entries_total: int,
     selected: Sequence[MergeLedgerEntry],
     compensating_count: int,
     applied_count: int,
-    rolled_back_seqs: set[int],
+    fully_compensated: int,
+    partially_compensated: int,
+    compensated_pair_count: int,
     pair_count: int,
     skipped_entities: int,
     missing_pairs: int,
@@ -774,18 +895,13 @@ def _print_history(
 ) -> None:
     band_counts = Counter(entry.band.value for entry in selected)
     s3_none = sum(1 for entry in selected if all(ev.s3 is None for ev in entry.evidence))
-    rolled_back = sum(1 for entry in selected if entry.seq in rolled_back_seqs)
     print("\n-- SELECCION (ledger, sin grafo) --")
     print(f"  entradas leidas: {entries_total}")
     print(
         f"  cross-namespace: {len(selected)} originales · "
         f"compensatorias: {compensating_count} · aplicadas: {applied_count}"
     )
-    print(
-        f"  guard: aplicadas {applied_count} + compensatorias {compensating_count} = "
-        f"{applied_count + compensating_count} (esperado "
-        f"{EXPECTED_CROSS_NAMESPACE_ENTRIES}) — OK"
-    )
+    print(f"  guard: originales {len(selected)} (esperado {EXPECTED_CROSS_NAMESPACE_ENTRIES}) — OK")
     print(f"  pares (canonical -> candidato que cruza): {pair_count}")
     print("\n-- HISTORICO GUARDADO (lo que dejo el bypass) --")
     print(
@@ -799,7 +915,11 @@ def _print_history(
         f"  evidencia con s3 is None: {s3_none}/{len(selected)} "
         "(el bypass no computo S3: sin scoring almacenado)"
     )
-    print(f"  entradas seleccionadas ya revertidas por rollback: {rolled_back}")
+    print(
+        f"  pares revertidos por rollback: {compensated_pair_count} · "
+        f"entradas con rollback total: {fully_compensated} · "
+        f"con rollback parcial: {partially_compensated}"
+    )
     print("\n-- EVIDENCIA RECOMPUTADA HOY (grafo, solo MATCH) --")
     if skipped_entities:
         print(f"  AVISO: {skipped_entities} entidades ignoradas (type fuera del contrato)")
@@ -884,12 +1004,16 @@ async def main() -> None:
     entries = JSONLMergeLedger(ledger_path).read_all()
     selected = _select_crossing_entries(entries)
     compensating = _compensating_crossing_entries(entries)
-    applied = _applied_entries(selected, compensating)
-    _assert_expected_count(len(applied), len(compensating))
-    # Los seq con una entrada compensatoria: el par ya fue revertido.
-    rolled_back_targets: set[int] = {
-        entry.rollback_of for entry in compensating if entry.rollback_of is not None
-    }
+    compensated = _compensated_candidates(compensating)
+    applied = _applied_entries(selected, compensated)
+    _assert_expected_count(len(selected), len(compensating))
+    _assert_compensations_reference_originals(selected, compensating)
+    fully_compensated_entries = sum(
+        1 for entry in selected if _is_fully_compensated(entry, compensated)
+    )
+    partially_compensated_entries = sum(
+        1 for entry in selected if _is_partially_compensated(entry, compensated)
+    )
 
     # Pares ya filtrados por --namespace, antes de tocar el grafo.
     planned: list[tuple[MergeLedgerEntry, str]] = []
@@ -939,18 +1063,17 @@ async def main() -> None:
         mentions=mentions,
         neighbors=neighbors,
         label_namespaces=label_namespaces,
-        rolled_back_seqs=rolled_back_targets,
+        compensated_candidates=compensated,
         namespace_filter=args.namespace,
     )
-    # La matriz y las tres listas describen la todavia aplicada: los pares de
-    # una entrada compensada salen del estrato (su flag ``rolled_back`` sigue
-    # vivo en el payload por par y en las filas historicas).
-    stratifiable = [
-        pair for pair in pairs if not pair.missing_entities and pair.seq not in rolled_back_targets
-    ]
+    # La matriz y las tres listas describen la todavia aplicada: un par
+    # revertido sale del estrato (su flag ``rolled_back`` sigue vivo en el
+    # payload por par y en las filas historicas). Un rollback PARCIAL solo
+    # saca los pares que si revirtio; los hermanos siguen auditados.
+    stratifiable = _stratifiable_pairs(pairs)
     strat = stratify(stratifiable, thresholds)
 
-    history_rows = [_history_row(entry, entry.seq in rolled_back_targets) for entry in selected]
+    history_rows = [_history_row(entry, compensated.get(entry.seq, set())) for entry in selected]
     band_counts = Counter(entry.band.value for entry in selected)
     s3_none = sum(1 for entry in selected if all(ev.s3 is None for ev in entry.evidence))
 
@@ -992,7 +1115,9 @@ async def main() -> None:
         selected=selected,
         compensating_count=len(compensating),
         applied_count=len(applied),
-        rolled_back_seqs=rolled_back_targets,
+        fully_compensated=fully_compensated_entries,
+        partially_compensated=partially_compensated_entries,
+        compensated_pair_count=sum(1 for pair in pairs if pair.rolled_back),
         pair_count=len(pairs),
         skipped_entities=skipped_entities,
         missing_pairs=missing_pairs,
@@ -1037,7 +1162,10 @@ async def main() -> None:
             "cross_namespace_entries": len(selected),
             "compensating_entries": len(compensating),
             "applied_cross_namespace_entries": len(applied),
+            "fully_compensated_entries": fully_compensated_entries,
+            "partially_compensated_entries": partially_compensated_entries,
             "expected_cross_namespace_entries": EXPECTED_CROSS_NAMESPACE_ENTRIES,
+            "compensated_pairs": sum(1 for pair in pairs if pair.rolled_back),
             "pairs_total": len(pairs),
             "pairs_stratified": len(stratifiable),
             "skipped_entities": skipped_entities,
@@ -1047,7 +1175,9 @@ async def main() -> None:
         "history": {
             "band_counts": dict(band_counts),
             "evidence_s3_none_entries": s3_none,
-            "rolled_back_entries": sum(1 for entry in selected if entry.seq in rolled_back_targets),
+            "rolled_back_entries": fully_compensated_entries,
+            "rolled_back_pairs": sum(1 for pair in pairs if pair.rolled_back),
+            "partially_compensated_entries": partially_compensated_entries,
             "entries": history_rows,
         },
         "stratification": {
