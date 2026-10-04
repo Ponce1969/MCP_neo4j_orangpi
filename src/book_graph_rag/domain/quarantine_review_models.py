@@ -14,9 +14,11 @@ never a routing decision: cross-namespace pairs are always quarantine
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -176,6 +178,281 @@ def mention_snippet(text: str, cap: int = MENTION_SNIPPET_CAP) -> str:
     return collapsed[: cap - 1].rstrip() + "…"
 
 
+# ── T8b: conservative language signal (bilingual-corpus detector) ──────────
+
+#: Detected language of a description. ``unknown`` is a first-class result,
+#: never a fallback guess (see ``detect_language``).
+Language = Literal["en", "es", "unknown"]
+
+
+class LanguageRelation(StrEnum):
+    """Linguistic relation between the two descriptions of a pair (T8b)."""
+
+    SAME_LANGUAGE = "same_language"
+    DIFFERENT_LANGUAGES = "different_languages"
+    UNKNOWN = "unknown"
+
+
+class LanguageNote(BaseModel):
+    """Language annotation of a pair — a qualification of the lexical number.
+
+    It NEVER changes ``reading_for`` or its semantics: it tells the reader
+    when a zero ``description_overlap`` means "different languages, the
+    number cannot judge" versus "same language, zero overlap is evidence
+    AGAINST identity". Both sides are recorded so a reviewer can audit the
+    call, including when either side is ``unknown``.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    relation: LanguageRelation = LanguageRelation.UNKNOWN
+    anchor: Language = "unknown"
+    candidate: Language = "unknown"
+
+
+#: Below this many characters the text is empty/very short and the
+#: function-word evidence of this corpus is too thin to call: → ``unknown``.
+LANGUAGE_MIN_CHARS = 40
+
+#: A lone function-word hit is weak evidence (title, quote, borrowed term):
+#: the detector demands at least this many hits in ONE language AND exactly
+#: zero in the other, otherwise → ``unknown``.
+LANGUAGE_MIN_HITS = 2
+
+#: English function words of THIS bilingual corpus (the English books).
+_EN_FUNCTION_WORDS_RAW = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "of",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "and",
+        "but",
+        "or",
+        "nor",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "am",
+        "with",
+        "by",
+        "from",
+        "as",
+        "than",
+        "that",
+        "this",
+        "these",
+        "those",
+        "it",
+        "its",
+        "they",
+        "them",
+        "their",
+        "he",
+        "him",
+        "his",
+        "she",
+        "her",
+        "we",
+        "us",
+        "our",
+        "you",
+        "your",
+        "my",
+        "not",
+        "which",
+        "who",
+        "whom",
+        "what",
+        "when",
+        "where",
+        "why",
+        "how",
+        "if",
+        "then",
+        "there",
+        "here",
+        "while",
+        "during",
+        "into",
+        "onto",
+        "upon",
+        "per",
+        "via",
+        "do",
+        "does",
+        "did",
+        "have",
+        "has",
+        "had",
+    }
+)
+
+#: Spanish function words of THIS bilingual corpus (the Spanish books).
+#: Tokens that exist in BOTH languages (e.g. ``a``) are listed on both sides
+#: on purpose: the difference below drops them, because counting an
+#: ambiguous token would turn every bilingual hit into a false mixed signal.
+_ES_FUNCTION_WORDS_RAW = frozenset(
+    {
+        "a",
+        "el",
+        "la",
+        "los",
+        "las",
+        "un",
+        "una",
+        "unos",
+        "unas",
+        "de",
+        "del",
+        "que",
+        "en",
+        "por",
+        "para",
+        "con",
+        "sin",
+        "sobre",
+        "entre",
+        "desde",
+        "hacia",
+        "y",
+        "e",
+        "u",
+        "o",
+        "pero",
+        "aunque",
+        "porque",
+        "como",
+        "mas",
+        "más",
+        "muy",
+        "ya",
+        "este",
+        "esta",
+        "estos",
+        "estas",
+        "ese",
+        "esa",
+        "esos",
+        "esas",
+        "yo",
+        "tu",
+        "tú",
+        "él",
+        "ella",
+        "ellos",
+        "ellas",
+        "ustedes",
+        "nosotros",
+        "vosotros",
+        "mi",
+        "su",
+        "sus",
+        "nuestro",
+        "vuestro",
+        "es",
+        "son",
+        "era",
+        "eran",
+        "fue",
+        "fueron",
+        "ser",
+        "estar",
+        "está",
+        "están",
+        "hay",
+        "se",
+        "nos",
+        "les",
+        "lo",
+        "al",
+        "cuando",
+        "donde",
+        "quien",
+        "quienes",
+        "qué",
+        "cuál",
+        "todo",
+        "todos",
+        "toda",
+        "todas",
+        "otro",
+        "otra",
+        "otros",
+        "otras",
+        "antes",
+        "después",
+        "mientras",
+        "según",
+    }
+)
+
+#: Disjoint by construction: an ambiguous token can never vote for both.
+_EN_FUNCTION_WORDS = _EN_FUNCTION_WORDS_RAW - _ES_FUNCTION_WORDS_RAW
+_ES_FUNCTION_WORDS = _ES_FUNCTION_WORDS_RAW - _EN_FUNCTION_WORDS_RAW
+
+#: Whole-word tokenizer (letters of any script, no digits/underscores).
+_WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
+
+
+def detect_language(text: str) -> Language:
+    """Detect ``en``/``es`` from function-word evidence — CONSERVATIVELY.
+
+    This is **not** a general-purpose language detector. It exists for THIS
+    bilingual corpus (English + Spanish books) to do one job: stop a zero
+    ``description_overlap`` from being read as evidence when the two texts
+    are simply in different languages — exactly where the approved optional
+    cosine would pay off. It counts whole-token hits of each language's
+    function words and names a language ONLY when one side scores
+    ``>= LANGUAGE_MIN_HITS`` and the other scores exactly zero.
+
+    Returns ``unknown`` — never a guess — when:
+
+      - the text is empty or shorter than ``LANGUAGE_MIN_CHARS``;
+      - the evidence is weak (< ``LANGUAGE_MIN_HITS`` hits in the winner);
+      - the text is mixed/ambiguous (both languages produce hits);
+      - the text is technical prose with no function words at all.
+    """
+    collapsed = " ".join(text.split())
+    if len(collapsed) < LANGUAGE_MIN_CHARS:
+        return "unknown"
+    tokens = _WORD_RE.findall(collapsed.casefold())
+    en_hits = sum(1 for token in tokens if token in _EN_FUNCTION_WORDS)
+    es_hits = sum(1 for token in tokens if token in _ES_FUNCTION_WORDS)
+    if en_hits >= LANGUAGE_MIN_HITS and es_hits == 0:
+        return "en"
+    if es_hits >= LANGUAGE_MIN_HITS and en_hits == 0:
+        return "es"
+    return "unknown"
+
+
+def language_note(anchor_description: str, candidate_description: str) -> LanguageNote:
+    """Qualify how the lexical overlap may be read, linguistically (T8b).
+
+    ``same_language``: zero overlap is evidence against identity;
+    ``different_languages``: the lexical number cannot judge (cosine would);
+    ``unknown``: no conclusion — a weak call on either side never guesses.
+    """
+    anchor = detect_language(anchor_description)
+    candidate = detect_language(candidate_description)
+    if anchor == "unknown" or candidate == "unknown":
+        relation = LanguageRelation.UNKNOWN
+    elif anchor == candidate:
+        relation = LanguageRelation.SAME_LANGUAGE
+    else:
+        relation = LanguageRelation.DIFFERENT_LANGUAGES
+    return LanguageNote(relation=relation, anchor=anchor, candidate=candidate)
+
+
 class EntityReviewFacts(BaseModel):
     """Raw graph facts for one entity of a reviewed pair (port payload)."""
 
@@ -241,6 +518,10 @@ class SheetEvidence(BaseModel):
     related_union: int = Field(ge=0)
     composite: float = Field(ge=0.0, le=1.0)
     reading: EvidenceReading
+    #: T8b language qualification of ``description_overlap`` (shared model,
+    #: ``language_note``): a separate annotation that says when the lexical
+    #: number cannot judge — it never alters ``reading`` itself.
+    language_note: LanguageNote = LanguageNote()
     s0_matched_field: str
     s2_type_gate_passed: bool
     s2_type_gate_reason: str
@@ -465,6 +746,26 @@ def _stamp(value: datetime | None) -> str:
     return value.strftime("%Y-%m-%dT%H:%MZ")
 
 
+def _format_lectura_line(sheet: DecisionSheet) -> str:
+    """The ``lectura`` row of the evidence block, T8b caveat appended.
+
+    For a bilingual pair (``different_languages``) the line must say so
+    right after the reading: a reviewer cannot read "sin contexto compartido"
+    as "no es el mismo concepto" when the pair is simply in two languages.
+    Same-language and unknown notes print the original line unchanged.
+    """
+    evidence = sheet.evidence
+    reading_value = evidence.reading.value
+    if evidence.language_note.relation is LanguageRelation.DIFFERENT_LANGUAGES:
+        reading_value += " · idiomas distintos: el número léxico no decide"
+    return (
+        "  " + "lectura".ljust(_EVID_LABEL_WIDTH) + f"{reading_value} · description_overlap "
+        f"{evidence.description_overlap:.3f} vs high_context "
+        f"{sheet.thresholds.high_context:.2f} / conflict_floor "
+        f"{sheet.thresholds.conflict_floor:.2f} · evidencia, NO enrutamiento"
+    )
+
+
 def format_sheet(sheet: DecisionSheet) -> str:
     """Render the decision sheet as plain fixed-width text (no colors)."""
     decision = sheet.decision.value.upper() if sheet.decision is not None else "sin registro"
@@ -550,14 +851,7 @@ def format_sheet(sheet: DecisionSheet) -> str:
             pad
             + f"{'composite':<20}{evidence.composite:.3f}"
             + f"  ({sheet.thresholds.high_context:.2f} = high_context, umbral intra-namespace)",
-            (
-                "  "
-                + "lectura".ljust(_EVID_LABEL_WIDTH)
-                + f"{evidence.reading.value} · description_overlap "
-                f"{evidence.description_overlap:.3f} vs high_context "
-                f"{sheet.thresholds.high_context:.2f} / conflict_floor "
-                f"{sheet.thresholds.conflict_floor:.2f} · evidencia, NO enrutamiento"
-            ),
+            _format_lectura_line(sheet),
             "",
         ]
     )

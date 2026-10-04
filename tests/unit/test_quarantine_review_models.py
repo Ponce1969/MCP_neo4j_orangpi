@@ -13,6 +13,7 @@ from book_graph_rag.domain.quarantine_models import QuarantineDecision
 from book_graph_rag.domain.quarantine_review_models import (
     DecisionSheet,
     EvidenceReading,
+    LanguageRelation,
     PriorMergeFacts,
     QuarantineListRow,
     RiskLevel,
@@ -21,11 +22,13 @@ from book_graph_rag.domain.quarantine_review_models import (
     SheetMember,
     SiblingRecord,
     approve_command_for,
+    detect_language,
     format_list,
     format_risk_marker,
     format_sheet,
     is_generic_label,
     label_risk,
+    language_note,
     mention_snippet,
     reading_for,
 )
@@ -207,6 +210,108 @@ def test_reading_is_undecided_between_floor_and_high_context() -> None:
     )
     assert _THRESHOLD.conflict_floor <= overlap < _THRESHOLD.high_context
     assert reading_for(overlap, _THRESHOLD) is EvidenceReading.UNDECIDED
+
+
+# ── T8b: conservative language signal (bilingual-corpus detector) ─────────
+
+#: A mixed English/Spanish sentence: both function-word sets fire, so the
+#: detector must refuse to call a language (never a guess).
+_MIXED_EN_ES = (
+    "The knowledge graph stores entities de forma que el agente recupera documentos for retrieval."
+)
+
+#: Technical prose without function words in either language: no evidence.
+_ZERO_EVIDENCE_TECHNICAL = "GraphRAG hybrid retrieval benchmark pipeline"
+
+#: Above the length floor but with a single English function word: weak
+#: evidence, so the detector must return ``unknown``.
+_SINGLE_HIT_EN = "Retrieval augmented systems ranked by cosine vectors"
+
+
+def test_detect_language_reads_clear_english_and_spanish() -> None:
+    """Unambiguous function-word evidence in ONE language names that language."""
+    assert detect_language(_EN_UNRELATED) == "en"
+    assert detect_language(_GENERIC_FRAMING_EN) == "en"
+    assert detect_language(_ES_DUPLICATE_A) == "es"
+    assert detect_language(_GENERIC_FRAMING_ES) == "es"
+
+
+def test_detect_language_returns_unknown_for_mixed_text() -> None:
+    """Both languages firing is ambiguous: never a guess, always unknown."""
+    assert detect_language(_MIXED_EN_ES) == "unknown"
+
+
+def test_detect_language_returns_unknown_for_short_and_empty_text() -> None:
+    """Empty or very short text carries no usable function-word evidence."""
+    for text in ("", "   ", "agent", "Text2Cypher"):
+        assert detect_language(text) == "unknown", text
+
+
+def test_detect_language_returns_unknown_for_technical_single_word() -> None:
+    """A technical single-word (or zero-hit) description cannot be judged."""
+    assert detect_language("graphrag-agentic") == "unknown"
+    assert detect_language(_ZERO_EVIDENCE_TECHNICAL) == "unknown"
+
+
+def test_detect_language_rejects_weak_single_hit_evidence() -> None:
+    """One function word above the length floor is too weak to call."""
+    assert len(_SINGLE_HIT_EN) > 40  # long enough that only the hits decide
+    assert detect_language(_SINGLE_HIT_EN) == "unknown"
+
+
+def test_language_note_covers_same_different_and_unknown() -> None:
+    """The note qualifies the pair: same / different / unknown relation."""
+    same = language_note(_ES_DUPLICATE_A, _ES_DUPLICATE_B)
+    assert same.relation is LanguageRelation.SAME_LANGUAGE
+    assert (same.anchor, same.candidate) == ("es", "es")
+
+    cross = language_note(_EN_UNRELATED, _ES_DUPLICATE_A)
+    assert cross.relation is LanguageRelation.DIFFERENT_LANGUAGES
+    assert (cross.anchor, cross.candidate) == ("en", "es")
+
+    one_side_unknown = language_note(_ES_DUPLICATE_A, "graphrag")
+    assert one_side_unknown.relation is LanguageRelation.UNKNOWN
+    assert (one_side_unknown.anchor, one_side_unknown.candidate) == ("es", "unknown")
+
+    both_unknown = language_note("", _MIXED_EN_ES)
+    assert both_unknown.relation is LanguageRelation.UNKNOWN
+
+
+def test_format_sheet_flags_bilingual_pairs_on_the_lectura_line() -> None:
+    """Different languages: the lectura line stops the zero overlap from
+    being read as "not the same concept" (T8b caveat), layout otherwise kept."""
+    bilingual_evidence = SheetEvidence(
+        description_overlap=0.0,
+        mentions_jaccard=0.0,
+        mentions_shared=0,
+        mentions_union=0,
+        related_jaccard=0.0,
+        related_shared=0,
+        related_union=0,
+        composite=0.0,
+        reading=EvidenceReading.NO_SHARED_CONTEXT,
+        s0_matched_field="canonical",
+        s2_type_gate_passed=True,
+        s2_type_gate_reason="anchor type concept matches candidate type concept",
+        language_note=language_note(_EN_UNRELATED, _ES_DUPLICATE_A),
+    )
+    bilingual = _sheet().model_copy(update={"evidence": bilingual_evidence})
+    text = format_sheet(bilingual)
+    lectura_line = next(line for line in text.splitlines() if line.startswith("  lectura"))
+    assert lectura_line == (
+        "  lectura      no_shared_context · idiomas distintos: "
+        "el número léxico no decide · description_overlap 0.000 vs high_context 0.50 "
+        "/ conflict_floor 0.10 · evidencia, NO enrutamiento"
+    )
+
+    # A same-language pair (and the default unknown note) print the original
+    # lectura line: the caveat only fires for genuinely bilingual pairs.
+    same_language_evidence = bilingual_evidence.model_copy(
+        update={"language_note": language_note(_ES_DUPLICATE_A, _ES_DUPLICATE_B)}
+    )
+    same_language = _sheet().model_copy(update={"evidence": same_language_evidence})
+    assert "idiomas distintos" not in format_sheet(same_language)
+    assert "idiomas distintos" not in format_sheet(_sheet())
 
 
 # ── Mention snippet ─────────────────────────────────────────────────────────

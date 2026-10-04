@@ -41,24 +41,32 @@ merge lo soft-deletea:
   - ``lexically_silent``: overlap exactamente 0 y AMBAS descripciones
     sustanciales (>= ``LEXICAL_SILENCE_MIN_CHARS`` chars sin contar
     espacios, ~una oracion en cualquiera de los dos idiomas). Ahi el numero
-    lexico no puede juzgar (libros en distinto idioma o encuadres sin
-    solape de tokens) y el humano tiene que LEER: es el listado donde el
-    cosine opcional aprobaria. Mas corto que el piso no es "silencioso",
-    es una descripcion que no llega a informar.
+    lexico no puede juzgar por si solo y el humano tiene que LEER.
+    Mas corto que el piso no es "silencioso", es una descripcion que no
+    llega a informar.
+  - senal de idioma (T8b): ``language_note`` del modelo compartido separa
+    dos silencios opuestos — ``different_languages`` (libros en distinto
+    idioma: el numero lexico no decide, y ahi pagaria el cosine opcional) y
+    ``same_language`` (mismo idioma con silencio total: evidencia CONTRA la
+    identidad). Si el detector conservador no puede llamar algun lado
+    (``unknown``) el par NINGUNA conclusion: sigue siendo de lectura.
   - la fuerza de la evidencia la da ``reading_for`` + ``BandThresholds()``;
-    este guion no define umbrales ni etiquetas de lectura propias.
+    este guion no define umbrales ni etiquetas de lectura ni logica de
+    idioma propias.
 
 ESTRATIFICACION: matriz riesgo de etiqueta (high/medium/none) x fuerza de
-evidencia (strong / ambiguous / none; dentro de ``none`` separa
-``lexically_silent`` del resto). Listas resultantes:
+evidencia (strong / ambiguous; dentro de ``none`` el silencio lexico se
+separa por idioma en ``silent_cross_language`` / ``silent_same_language`` /
+``silent_language_unknown``, y el resto va a ``none_rest``). Listas:
 
   - ``clear_identity``: evidencia fuerte, overlap descendente;
-  - ``suspicious``: riesgo high/medium con evidencia debil o ausente y NO
-    silencioso — lo mas peligroso primero (riesgo alto, luego menor overlap):
-    los candidatos a merge erroneo;
-  - ``needs_reading``: ``lexically_silent`` — el corto donde ayudaria el
-    cosine; ``--limit`` acota las listas de consola, el JSON siempre lleva
-    todo.
+  - ``suspicious``: riesgo high/medium con evidencia debil o ausente, MAS
+    todo ``silent_same_language`` (el silencio mismo-idioma con descripciones
+    sustanciales es evidencia contra el merge, con o sin riesgo de etiqueta)
+    — los candidatos a merge erroneo;
+  - ``needs_reading``: ``silent_cross_language`` y ``silent_language_unknown``
+    — el corto donde ayudaria el cosine y donde el numero no decide;
+    ``--limit`` acota las listas de consola, el JSON siempre lleva todo.
 
 Garantia de solo lectura: unicamente se ejecutan consultas MATCH; el unico
 archivo que se escribe es ``--out``.
@@ -80,7 +88,7 @@ import json
 import sys
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -96,10 +104,13 @@ from book_graph_rag.domain.quarantine_review_models import (
     STRUCTURAL_SIGNALS,
     EvidenceReading,
     LabelRisk,
+    LanguageNote,
+    LanguageRelation,
     RiskLevel,
     format_risk_marker,
     is_generic_label,
     label_risk,
+    language_note,
     mention_snippet,
     reading_for,
 )
@@ -112,7 +123,7 @@ from book_graph_rag.domain.s3_context_scoring import (
 from book_graph_rag.domain.s4_band_assignment import BandThresholds
 from book_graph_rag.infrastructure.jsonl_merge_ledger import JSONLMergeLedger
 
-AUDIT_SCHEMA = "applied-cross-namespace-audit/1"
+AUDIT_SCHEMA = "applied-cross-namespace-audit/2"
 #: Ground truth medida el 2026-10-03 (design seccion 1): 302 de 958.
 EXPECTED_CROSS_NAMESPACE_ENTRIES = 302
 DEFAULT_OUT = Path("/tmp/applied_cross_namespace_audit.json")
@@ -125,8 +136,32 @@ BATCH_SIZE = 500
 
 #: Etiquetas de lectura heredadas del modelo compartido (nada local).
 READING_ORDER = tuple(reading.value for reading in EvidenceReading)
-#: Columnas de la matriz: dentro de ``none`` se separa el silencio lexico.
-STRENGTH_COLUMNS = ("strong", "ambiguous", "none_silent", "none_rest")
+#: Columnas de la matriz: dentro de ``none`` el silencio lexico se separa
+#: por senal de idioma (T8b: cross / same / sin determinar).
+STRENGTH_COLUMNS = (
+    "strong",
+    "ambiguous",
+    "silent_cross_language",
+    "silent_same_language",
+    "silent_language_unknown",
+    "none_rest",
+)
+#: Ancho de cada columna de la matriz en consola (incluido ``total``).
+_COLUMN_WIDTHS: dict[str, int] = {
+    "strong": 8,
+    "ambiguous": 11,
+    "silent_cross_language": 23,
+    "silent_same_language": 23,
+    "silent_language_unknown": 25,
+    "none_rest": 11,
+    "total": 8,
+}
+#: Texto de la relacion de idioma por fila de consola (nada de logica).
+_LANGUAGE_RELATION_ES: dict[LanguageRelation, str] = {
+    LanguageRelation.SAME_LANGUAGE: "mismo idioma",
+    LanguageRelation.DIFFERENT_LANGUAGES: "distintos",
+    LanguageRelation.UNKNOWN: "sin determinar",
+}
 _LIST_KEYS = ("clear_identity", "suspicious", "needs_reading")
 
 # ── Lectura (solo Cypher MATCH; ninguna decision de dominio vive aca) ─────────
@@ -204,11 +239,19 @@ class PairAudit:
     candidate_books: tuple[str, ...] = ()
     candidate_state: str = ""
     missing_entities: bool = False
+    #: Senal de idioma de las dos descripciones (T8b, modelo compartido).
+    language: LanguageNote = field(default_factory=LanguageNote)
 
 
 @dataclass(frozen=True)
 class Stratification:
-    """Matriz riesgo x fuerza, las tres listas y los totales por estrato."""
+    """Matriz riesgo x fuerza, las tres listas y los totales por estrato.
+
+    Dentro de ``none``, el silencio lexico se estratifica por idioma:
+    cross/indeterminado van a ``needs_reading``; mismo-idioma va a
+    ``suspicious`` (silencio con descripciones sustanciales en el mismo
+    idioma es evidencia contra la identidad — T8b).
+    """
 
     matrix: dict[RiskLevel, dict[str, int]]
     clear_identity: tuple[PairAudit, ...]
@@ -236,19 +279,35 @@ def is_lexically_silent(
     )
 
 
-def _strength_column(overlap: float, silent: bool, thresholds: BandThresholds) -> str:
-    """Columna de la matriz con la lectura del modelo compartido.
+def _strength_column(pair: PairAudit, thresholds: BandThresholds) -> str:
+    """Columna de la matriz con la lectura del modelo compartido (T8b).
 
     ``strong`` >= ``high_context``; ``ambiguous`` >= ``conflict_floor``;
-    por debajo, ``none_silent`` si el par es lexically silencioso y
-    ``none_rest`` en caso contrario. Ningun umbral vive en este guion.
+    por debajo, el silencio lexico (overlap 0 + ambas descripciones
+    sustanciales) se separa por la senal de idioma del modelo compartido:
+
+      - ``silent_cross_language``: idiomas distintos — el numero lexico no
+        decide, es la lista donde pagaria el cosine (lectura);
+      - ``silent_same_language``: mismo idioma — evidencia CONTRA la
+        identidad (sospechoso);
+      - ``silent_language_unknown``: el detector conservador no pudo llamar
+        ningun lado — ninguna conclusion, el humano decide (lectura).
+
+    Ningun umbral ni logica de idioma vive en este guion: ``reading_for``
+    y ``language_note`` son del modelo compartido.
     """
-    reading = reading_for(overlap, thresholds)
+    reading = reading_for(pair.description_overlap, thresholds)
     if reading is EvidenceReading.IDENTITY:
         return "strong"
     if reading is EvidenceReading.UNDECIDED:
         return "ambiguous"
-    return "none_silent" if silent else "none_rest"
+    if not pair.lexically_silent:
+        return "none_rest"
+    if pair.language.relation is LanguageRelation.DIFFERENT_LANGUAGES:
+        return "silent_cross_language"
+    if pair.language.relation is LanguageRelation.SAME_LANGUAGE:
+        return "silent_same_language"
+    return "silent_language_unknown"
 
 
 def stratify(pairs: Sequence[PairAudit], thresholds: BandThresholds) -> Stratification:
@@ -256,8 +315,10 @@ def stratify(pairs: Sequence[PairAudit], thresholds: BandThresholds) -> Stratifi
 
     Pura sobre pares ya calculados (sin ledger ni grafo). Memoria: cada par cae
     en exacta una celda de la matriz y en a lo sumo una lista — los fuertes
-    van a ``clear_identity``, los lexicamente silenciosos a ``needs_reading``
-    y el resto con riesgo high/medium (y NO silencioso) a ``suspicious``.
+    van a ``clear_identity``; el silencio cross-language o indeterminado a
+    ``needs_reading``; el silencio mismo-idioma a ``suspicious`` (con o sin
+    riesgo de etiqueta: el silencio mismo-idioma ES la evidencia); y el resto
+    con riesgo high/medium tambien a ``suspicious``.
     """
     matrix: dict[RiskLevel, dict[str, int]] = {
         level: dict.fromkeys(STRENGTH_COLUMNS, 0) for level in RiskLevel
@@ -266,12 +327,16 @@ def stratify(pairs: Sequence[PairAudit], thresholds: BandThresholds) -> Stratifi
     suspicious: list[PairAudit] = []
     reading: list[PairAudit] = []
     for pair in pairs:
-        column = _strength_column(pair.description_overlap, pair.lexically_silent, thresholds)
+        column = _strength_column(pair, thresholds)
         matrix[pair.risk.level][column] += 1
         if column == "strong":
             clear.append(pair)
-        elif column == "none_silent":
+        elif column in ("silent_cross_language", "silent_language_unknown"):
             reading.append(pair)
+        elif column == "silent_same_language":
+            # T8b: silencio mismo-idioma con descripciones sustanciales es
+            # evidencia contra la identidad — sospechoso con o sin riesgo.
+            suspicious.append(pair)
         elif pair.risk.level in (RiskLevel.HIGH, RiskLevel.MEDIUM):
             # Riesgo sin evidencia fuerte y sin silencio lexico: el candidato
             # a merge erroneo. Lo mas peligroso primero: alto riesgo y luego
@@ -294,6 +359,13 @@ def stratify(pairs: Sequence[PairAudit], thresholds: BandThresholds) -> Stratifi
     totals["clear_identity"] = len(clear)
     totals["suspicious"] = len(suspicious)
     totals["needs_reading"] = len(reading)
+    # Los estratos nuevos del silencio, visibles en los totales (T8b).
+    for column in (
+        "silent_cross_language",
+        "silent_same_language",
+        "silent_language_unknown",
+    ):
+        totals[column] = sum(matrix[level][column] for level in RiskLevel)
     return Stratification(
         matrix=matrix,
         clear_identity=tuple(clear),
@@ -542,6 +614,7 @@ def _build_pairs(
                     lexically_silent=is_lexically_silent(
                         overlap, canonical_description, candidate_description
                     ),
+                    language=language_note(canonical_description, candidate_description),
                     applied_at=entry.applied_at,
                     approver=entry.approver,
                     stored_band=entry.band.value,
@@ -601,14 +674,14 @@ def _pair_payload(pair: PairAudit, thresholds: BandThresholds) -> dict[str, Any]
         "evidence": {
             PRIMARY_SIGNAL: pair.description_overlap,
             "reading": reading.value,
-            "strength": _strength_column(
-                pair.description_overlap, pair.lexically_silent, thresholds
-            ),
+            "strength": _strength_column(pair, thresholds),
             "mentions_jaccard": pair.mentions_jaccard,
             "related_jaccard": pair.related_jaccard,
             "primary_signal": PRIMARY_SIGNAL,
             "structural_signals": list(STRUCTURAL_SIGNALS),
             "lexically_silent": pair.lexically_silent,
+            # T8b: la senal de idioma que separa los dos silencios.
+            "language": pair.language.model_dump(mode="json"),
             "cosine_computed": False,
             "thresholds": {
                 "high_context": thresholds.high_context,
@@ -670,29 +743,24 @@ def _print_history(
 
 def _print_matrix(strat: Stratification) -> None:
     print("\n-- MATRIZ: riesgo de etiqueta x fuerza de evidencia --")
-    header = (
-        f"  {'riesgo':<8}"
-        f"{'strong':>8}{'ambiguous':>11}{'none_silent':>13}{'none_rest':>11}{'total':>8}"
+    header = f"  {'riesgo':<8}" + "".join(
+        f"{column:>{_COLUMN_WIDTHS[column]}}" for column in (*STRENGTH_COLUMNS, "total")
     )
     print(header)
     for level in RiskLevel:
         counts = strat.matrix[level]
-        print(
-            f"  {level.value:<8}"
-            f"{counts['strong']:>8}{counts['ambiguous']:>11}"
-            f"{counts['none_silent']:>13}{counts['none_rest']:>11}"
-            f"{sum(counts.values()):>8}"
+        cells = "".join(
+            f"{counts[column]:>{_COLUMN_WIDTHS[column]}}" for column in STRENGTH_COLUMNS
         )
+        print(f"  {level.value:<8}{cells}{sum(counts.values()):>8}")
     column_totals = {
         column: sum(strat.matrix[level][column] for level in RiskLevel)
         for column in STRENGTH_COLUMNS
     }
-    print(
-        f"  {'total':<8}"
-        f"{column_totals['strong']:>8}{column_totals['ambiguous']:>11}"
-        f"{column_totals['none_silent']:>13}{column_totals['none_rest']:>11}"
-        f"{sum(column_totals.values()):>8}"
+    cells = "".join(
+        f"{column_totals[column]:>{_COLUMN_WIDTHS[column]}}" for column in STRENGTH_COLUMNS
     )
+    print(f"  {'total':<8}{cells}{sum(column_totals.values()):>8}")
 
 
 def _print_pair(pair: PairAudit, thresholds: BandThresholds) -> None:
@@ -704,6 +772,10 @@ def _print_pair(pair: PairAudit, thresholds: BandThresholds) -> None:
         f"· s3 {'is None' if pair.stored_evidence_s3_none else 'presente'}"
     )
     print(f"    riesgo {marker} · estado candidato: {pair.candidate_state}")
+    print(
+        f"    idioma: {pair.language.anchor}/{pair.language.candidate} · "
+        f"{_LANGUAGE_RELATION_ES[pair.language.relation]}"
+    )
     print(f"    {pair.canonical_id}  ->  {pair.candidate_id}")
     print(
         f"      desc canon [{pair.canonical_namespace}]: "
@@ -836,6 +908,10 @@ async def main() -> None:
         f"  senales: {PRIMARY_SIGNAL} = primaria; "
         f"{', '.join(STRUCTURAL_SIGNALS)} = estructurales (re-auditoria post-merge)"
     )
+    print(
+        "  senal de idioma: language_note() del modelo compartido (detector "
+        "conservador de solo-stopwords del corpus bilingue; unknown = no decide)"
+    )
     print("  cosine/embeddings: NO computado (sin llamadas de modelo)")
     print("  consultas: solo MATCH (garantia de no mutacion)")
 
@@ -855,13 +931,13 @@ async def main() -> None:
         "1) EVIDENCIA CLARA DE IDENTIDAD (strong)", strat.clear_identity, args.limit, thresholds
     )
     _print_list(
-        "2) SOSPECHOSOS: posible merge erroneo (riesgo sin evidencia)",
+        "2) SOSPECHOSOS: posible merge erroneo (riesgo sin evidencia · silencio mismo-idioma)",
         strat.suspicious,
         args.limit,
         thresholds,
     )
     _print_list(
-        "3) NECESITA LECTURA (lexically_silent — aqui ayudaria el cosine)",
+        "3) NECESITA LECTURA (silencio cross-language/indeterminado — aqui ayudaria el cosine)",
         strat.needs_reading,
         args.limit,
         thresholds,

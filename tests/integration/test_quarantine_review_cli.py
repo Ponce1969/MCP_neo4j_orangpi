@@ -44,6 +44,7 @@ from book_graph_rag.domain.models import Entity
 from book_graph_rag.domain.quarantine_models import QuarantineDecision, QuarantineRecord
 from book_graph_rag.domain.quarantine_review_models import (
     EvidenceReading,
+    LanguageRelation,
     RiskLevel,
     format_sheet,
     label_risk,
@@ -513,6 +514,99 @@ async def test_list_records_filters_and_computes_fresh_evidence(
     assert await use_case.list_records(band=ConfidenceBand.HIGH) == []
     assert [row.seq for row in await use_case.list_records(limit=1)] == [1]
     assert len(await use_case.list_records(show_all=True)) == 3
+
+
+# ── T8b: language signal on the operative sheet ───────────────────────────
+
+
+@pytest.mark.neo4j_integration
+async def test_render_sheet_language_note_caveats_bilingual_pairs(
+    neo4j_driver: Any,
+    tmp_path: Path,
+) -> None:
+    """A cross-language pair carries the bilingual caveat; a same-language
+    pair keeps the approved sheet verbatim (T8b).
+
+    Pair seq 2 (``retrieval pipeline``) has a Spanish and an English
+    description: overlap ≈ 0 must read as "the lexical number cannot judge",
+    never as "not the same concept". Pair seq 1 is Spanish/Spanish: no
+    caveat, existing behaviour preserved.
+    """
+    await _seed_async(neo4j_driver)
+    quarantine_path, ledger_path = _paths(tmp_path)
+    _seed_quarantine(quarantine_path)
+    use_case = _make_use_case(neo4j_driver, quarantine_path, ledger_path)
+
+    cross = await use_case.render_sheet(seq=2)
+    note = cross.evidence.language_note
+    assert note.relation is LanguageRelation.DIFFERENT_LANGUAGES
+    assert (note.anchor, note.candidate) == ("es", "en")
+    assert cross.evidence.reading is EvidenceReading.NO_SHARED_CONTEXT
+    lectura_line = next(
+        line for line in format_sheet(cross).splitlines() if line.startswith("  lectura")
+    )
+    assert "no_shared_context · idiomas distintos: el número léxico no decide" in lectura_line
+
+    same = await use_case.render_sheet(seq=1)
+    assert same.evidence.language_note.relation is LanguageRelation.SAME_LANGUAGE
+    assert (same.evidence.language_note.anchor, same.evidence.language_note.candidate) == (
+        "es",
+        "es",
+    )
+    assert "idiomas distintos" not in format_sheet(same)
+
+
+def test_cli_render_prints_the_bilingual_caveat(
+    neo4j_settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI: ``render --seq 2`` prints the caveat and ``--json`` carries the
+    language note; the same-language ``--seq 1`` sheet stays unchanged."""
+    _seed_sync(neo4j_settings)
+    quarantine_path, ledger_path = _paths(tmp_path)
+    _seed_quarantine(quarantine_path)
+
+    cli_settings = Settings.model_validate(
+        {
+            "neo4j_uri": neo4j_settings.neo4j_uri,
+            "neo4j_user": neo4j_settings.neo4j_user,
+            "neo4j_password": neo4j_settings.neo4j_password.get_secret_value(),
+            "quarantine_path": str(quarantine_path),
+            "merge_ledger_path": str(ledger_path),
+        }
+    )
+
+    class _StubSettings:
+        @classmethod
+        def model_validate(cls, data: object) -> Settings:
+            return cli_settings
+
+    monkeypatch.setattr("book_graph_rag.main.Settings", _StubSettings)
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["quarantine", "render", "--seq", "2"])
+    assert result.exit_code == 0, result.output
+    lectura_line = next(
+        line for line in result.output.splitlines() if line.strip().startswith("lectura")
+    )
+    print("\n--- `book-graph-rag quarantine render --seq 2` (bilingual pair) ---")
+    print(result.output)
+    assert "no_shared_context · idiomas distintos: el número léxico no decide" in lectura_line
+
+    result = runner.invoke(cli, ["quarantine", "render", "--seq", "1"])
+    assert result.exit_code == 0, result.output
+    assert "idiomas distintos" not in result.output
+
+    result = runner.invoke(cli, ["quarantine", "render", "--seq", "2", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["evidence"]["language_note"] == {
+        "relation": "different_languages",
+        "anchor": "es",
+        "candidate": "en",
+    }
+    assert payload["evidence"]["reading"] == "no_shared_context"
 
 
 # ── CLI level (Click runner, real wiring against the testcontainer) ─────────

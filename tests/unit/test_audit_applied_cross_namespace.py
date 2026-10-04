@@ -27,7 +27,12 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-from book_graph_rag.domain.quarantine_review_models import RiskLevel, label_risk
+from book_graph_rag.domain.quarantine_review_models import (
+    LanguageNote,
+    LanguageRelation,
+    RiskLevel,
+    label_risk,
+)
 from book_graph_rag.domain.s4_band_assignment import BandThresholds
 
 _ROOT = Path(__file__).parents[2]
@@ -51,10 +56,13 @@ _REQUIRED_IMPORTS: dict[str, frozenset[str]] = {
             "STRUCTURAL_SIGNALS",
             "EvidenceReading",
             "LabelRisk",
+            "LanguageNote",
+            "LanguageRelation",
             "RiskLevel",
             "format_risk_marker",
             "is_generic_label",
             "label_risk",
+            "language_note",
             "mention_snippet",
             "reading_for",
         }
@@ -71,6 +79,13 @@ _REQUIRED_IMPORTS: dict[str, frozenset[str]] = {
 _HIGH = label_risk(single_word=True, namespace_count=3)  # alta (genérica · 3 nss)
 _MEDIUM = label_risk(single_word=True, namespace_count=2)  # media (genérica)
 _NONE = label_risk(single_word=False, namespace_count=2)  # sin riesgo
+
+#: Language notes for the four T8b strata (built with the shared model).
+_SAME_ES = LanguageNote(relation=LanguageRelation.SAME_LANGUAGE, anchor="es", candidate="es")
+_CROSS_EN_ES = LanguageNote(
+    relation=LanguageRelation.DIFFERENT_LANGUAGES, anchor="en", candidate="es"
+)
+_UNKNOWN_LANG = LanguageNote()  # relation=unknown, both sides unknown
 
 
 def _load_script() -> ModuleType:
@@ -133,7 +148,7 @@ def test_script_imports_the_shared_model_functions() -> None:
 def test_script_actually_calls_the_shared_rules() -> None:
     """Importing is not enough: the shared rules must be called, not shadowed."""
     called = _called_names(_TREE)
-    for function_name in ("reading_for", "label_risk", "description_overlap"):
+    for function_name in ("reading_for", "label_risk", "description_overlap", "language_note"):
         assert function_name in called, f"script never calls the shared {function_name}"
 
 
@@ -182,6 +197,7 @@ def _pair(
     risk: object,
     silent: bool,
     label: str,
+    language: LanguageNote | None = None,
 ) -> object:
     """Synthetic pair: only the fields the stratification reads are set."""
     return module.PairAudit(
@@ -194,6 +210,7 @@ def _pair(
         description_overlap=overlap,
         risk=risk,
         lexically_silent=silent,
+        language=language or LanguageNote(),
     )
 
 
@@ -203,13 +220,15 @@ def test_stratify_matrix_counts_and_list_membership() -> None:
     thresholds = BandThresholds()
     pairs = [
         _pair(module, 1, 0.60, _HIGH, False, "embeddings"),  # strong -> clear
-        _pair(module, 2, 0.00, _HIGH, True, "zzz"),  # none_silent -> reading
+        # silent + cross-language -> needs_reading (the cosine shortlist).
+        _pair(module, 2, 0.00, _HIGH, True, "zzz", _CROSS_EN_ES),
         _pair(module, 3, 0.00, _HIGH, False, "agent"),  # none_rest + alta -> suspicious
         _pair(module, 4, 0.30, _MEDIUM, False, "llm"),  # ambiguous + media -> suspicious
         _pair(module, 5, 0.25, _HIGH, False, "modularity"),  # ambiguous + alta -> suspicious
         _pair(module, 6, 0.70, _NONE, False, "embeddings"),  # strong, no risk -> clear
         _pair(module, 7, 0.05, _NONE, False, "agent"),  # absent, no risk -> matrix only
-        _pair(module, 8, 0.00, _NONE, True, "agent"),  # none_silent, no risk -> reading
+        # silent + undeterminable language -> stays a reading case (T8b).
+        _pair(module, 8, 0.00, _NONE, True, "agent", _UNKNOWN_LANG),
     ]
 
     result = module.stratify(pairs, thresholds)
@@ -218,28 +237,36 @@ def test_stratify_matrix_counts_and_list_membership() -> None:
     assert matrix[RiskLevel.HIGH] == {
         "strong": 1,
         "ambiguous": 1,
-        "none_silent": 1,
+        "silent_cross_language": 1,
+        "silent_same_language": 0,
+        "silent_language_unknown": 0,
         "none_rest": 1,
     }
     assert matrix[RiskLevel.MEDIUM] == {
         "strong": 0,
         "ambiguous": 1,
-        "none_silent": 0,
+        "silent_cross_language": 0,
+        "silent_same_language": 0,
+        "silent_language_unknown": 0,
         "none_rest": 0,
     }
     assert matrix[RiskLevel.NONE] == {
         "strong": 1,
         "ambiguous": 0,
-        "none_silent": 1,
+        "silent_cross_language": 0,
+        "silent_same_language": 0,
+        "silent_language_unknown": 1,
         "none_rest": 1,
     }
 
     # clear identity: strong evidence, ordered by overlap descending.
     assert [pair.seq for pair in result.clear_identity] == [6, 1]
     # suspicious: high before medium, then the weakest evidence first; the
-    # lexically silent pair (seq 2) is NOT suspicious — it is a reading case.
+    # cross-language silent pair (seq 2) is NOT suspicious — it is a reading
+    # case, and neither is the unknown-language one (seq 8).
     assert [pair.seq for pair in result.suspicious] == [3, 5, 4]
-    # needs reading: lexically silent, ordered by label then seq.
+    # needs reading: silent pairs whose language does not argue against
+    # identity, ordered by label then seq.
     assert [pair.seq for pair in result.needs_reading] == [8, 2]
 
     assert result.totals == {
@@ -249,6 +276,66 @@ def test_stratify_matrix_counts_and_list_membership() -> None:
         "clear_identity": 2,
         "suspicious": 3,
         "needs_reading": 2,
+        "silent_cross_language": 1,
+        "silent_same_language": 0,
+        "silent_language_unknown": 1,
+    }
+
+
+def test_stratify_splits_the_silent_class_by_language_stratum() -> None:
+    """T8b: same-language silence is evidence AGAINST identity (suspicious);
+    cross-language silence is uninformative (needs reading / cosine); an
+    undeterminable language stays a reading case; ambiguous and strong keep
+    their pre-T8b destinations."""
+    module = _load_script()
+    thresholds = BandThresholds()
+    pairs = [
+        _pair(module, 1, 0.60, _MEDIUM, False, "embeddings"),  # strong -> clear
+        _pair(module, 2, 0.30, _MEDIUM, False, "llm"),  # ambiguous -> suspicious
+        _pair(module, 3, 0.00, _MEDIUM, True, "zzz", _CROSS_EN_ES),  # -> reading
+        _pair(module, 4, 0.00, _MEDIUM, True, "zzz", _SAME_ES),  # -> suspicious
+        _pair(module, 5, 0.00, _MEDIUM, True, "zzz", _UNKNOWN_LANG),  # -> reading
+        _pair(module, 6, 0.00, _MEDIUM, False, "agent"),  # absent + media -> suspicious
+        # Same-language silence is suspicious even WITHOUT label risk: the
+        # silence itself is the evidence against the merge.
+        _pair(module, 7, 0.00, _NONE, True, "zzz", _SAME_ES),
+    ]
+
+    result = module.stratify(pairs, thresholds)
+
+    assert [pair.seq for pair in result.clear_identity] == [1]
+    assert [pair.seq for pair in result.needs_reading] == [3, 5]
+    # Suspicious sorts high-risk first, then lowest overlap: seq 4 (silent
+    # same-language), 6, 7 (all overlap 0.0, ascending seq), then 2 at 0.30.
+    assert [pair.seq for pair in result.suspicious] == [4, 6, 7, 2]
+
+    # The medium row exercises all six strata exactly once.
+    assert result.matrix[RiskLevel.MEDIUM] == {
+        "strong": 1,
+        "ambiguous": 1,
+        "silent_cross_language": 1,
+        "silent_same_language": 1,
+        "silent_language_unknown": 1,
+        "none_rest": 1,
+    }
+    assert result.matrix[RiskLevel.NONE] == {
+        "strong": 0,
+        "ambiguous": 0,
+        "silent_cross_language": 0,
+        "silent_same_language": 1,
+        "silent_language_unknown": 0,
+        "none_rest": 0,
+    }
+    assert result.totals == {
+        "risk_medium": 6,
+        "risk_none": 1,
+        "risk_high": 0,
+        "clear_identity": 1,
+        "suspicious": 4,
+        "needs_reading": 2,
+        "silent_cross_language": 1,
+        "silent_same_language": 2,
+        "silent_language_unknown": 1,
     }
 
 
@@ -267,7 +354,9 @@ def test_stratify_strength_boundaries_come_from_shared_thresholds() -> None:
     assert result.matrix[RiskLevel.HIGH] == {
         "strong": 1,
         "ambiguous": 1,
-        "none_silent": 0,
+        "silent_cross_language": 0,
+        "silent_same_language": 0,
+        "silent_language_unknown": 0,
         "none_rest": 1,
     }
     assert [pair.seq for pair in result.clear_identity] == [1]

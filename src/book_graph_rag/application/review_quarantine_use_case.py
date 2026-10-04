@@ -26,6 +26,7 @@ from book_graph_rag.domain.quarantine_review_models import (
     approve_command_for,
     is_generic_label,
     label_risk,
+    language_note,
     mention_snippet,
     reading_for,
     record_groups,
@@ -301,6 +302,9 @@ class ReviewQuarantineUseCase:
                 related_union=related_union,
                 composite=composite_score(signals),
                 reading=reading_for(overlap, self._thresholds),
+                # T8b: separate language annotation (shared model) — qualifies
+                # how the overlap may be read, never changes ``reading``.
+                language_note=language_note(anchor.description, candidate.description),
                 s0_matched_field=evidence.s0_matched_field,
                 s2_type_gate_passed=gate.passed,
                 s2_type_gate_reason=gate.reason,
