@@ -211,7 +211,13 @@ maps and debt R1 corrupts exactly that population.
       **Remaining**: **180 suspicious pairs** (185 - the 5 rolled-back pairs), needs_reading 5, high risk 7, silent_same_language 14; consolidated queue
       `evidence-bundles/applied-cross-namespace-audit-consolidated-after2a-20261004.json` (972 entries / 302 cross-namespace /
       14 compensating / **288 still applied**). `seq 496` `Prompt` still deliberately retained.
-- [ ] **T8f** Partial rollback by candidate (`ledger rollback --candidate ENTITY_ID`).
+- [x] **T8f** Partial rollback by candidate (`ledger rollback --candidate ENTITY_ID`).
+      **Delivered (commit `f7fb0ef`)**: `RollbackEntryPlan.selected_candidates`, the selection-aware
+      `build_entry_plan`, the plan-time overlap refusal, the CLI option (repeatable, exactly one `--seq`, partial `n/m`
+      report, `next:` hint carrying the flags), the candidate-aware idempotence plus the same refusal in
+      `RollbackMergeUseCase` as the backstop, and the alias-value collision refusal. Independently verified: the
+      partial-then-full overlap can no longer mutate (plan-time refusal, proven end to end) and full-rollback
+      behaviour is equivalent with `selected_candidates=None`.
       **Why (finding from batch 2A)**: a ledger entry can hold **several candidates** (`seq 480` = 2 losers) but
       `RollbackMergeUseCase.rollback(seq)` reverses the whole entry, so a distinct concept merged next to an identity
       one cannot be separated without reviving both and then re-merging (or repointing) the identity one. **16 of the
@@ -298,3 +304,4 @@ maps and debt R1 corrupts exactly that population.
 | T8a | (this commit) | read-only retro-audit tool; 302 entries / 322 pairs; strong 0 · ambiguous 143 · silent 23 · none 156; suspicious 176 |
 | T8c/T8d | `f9737b7`…`b35ff12` | `ledger rollback` with direction inference + census + fingerprint; Lote 1: 10/302 reverted, 0 mirrors in 8, 8 symmetric edges accepted in 2; ledger 968 / 0 inconsistencies; consolidated audit 292 applied · 185 suspicious · global `passed` 0 blocking / 465 warnings; `repoint` closed the 8 restored blocking edges |
 | T8e | (in progress) | Lote 2A: 4 entries rolled back (375/489/503/480), 413/475 kept; 12/12 MENTIONS, 20/20 RELATED, 1 accepted mirror, ledger 972/0 inconsistencies, audits `passed` 0 blocking / 469 warnings after repoint |
+| T8f | `f7fb0ef` | `--candidate` partial rollback: plan-time overlap refusal + alias-value collision refusal + candidate-aware idempotence backstop; RED `DID NOT RAISE MergeNotReversible` → GREEN; 52 focused unit · 747 unit suite · 6 testcontainers integration; ruff/mypy/architecture green; independent verification confirmed partial-then-full can no longer mutate |
