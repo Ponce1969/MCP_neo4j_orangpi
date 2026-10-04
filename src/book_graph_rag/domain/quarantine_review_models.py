@@ -36,6 +36,15 @@ SHARED_NEIGHBOR_RENDER_LIMIT = 10
 #: Constant routing note: the sheet never proposes the routing itself.
 ROUTING_NOTE = "SIEMPRE cuarentena (spec 03 §2.4 / R6.2)"
 
+#: Primary cross-namespace evidence signal (design §4.1): the reading keys
+#: on ``description_overlap`` alone; everything else is context for the human.
+PRIMARY_SIGNAL = "description_overlap"
+
+#: Signals that are structurally ≈0 BEFORE a merge connects the two books'
+#: neighbourhoods: informative only when re-auditing an applied merge, never
+#: when proposing one (design §4.1).
+STRUCTURAL_SIGNALS: tuple[str, ...] = ("mentions_jaccard", "related_jaccard")
+
 _ROW_LABEL_WIDTH = 27  # table rows: values start at column 29
 _ROW_VALUE_WIDTH = 38  # first value column width
 _EVID_LABEL_WIDTH = 13  # evidence block: values start at column 15
@@ -238,8 +247,8 @@ class SheetEvidence(BaseModel):
 
     # Evidence labels: description_overlap is the primary signal; the two
     # jaccards are structural (≈0 until a merge connects the neighbourhoods).
-    primary_signal: str = "description_overlap"
-    structural_signals: tuple[str, ...] = ("mentions_jaccard", "related_jaccard")
+    primary_signal: str = PRIMARY_SIGNAL
+    structural_signals: tuple[str, ...] = STRUCTURAL_SIGNALS
     cosine_computed: bool = False
     s4_band_claimed: bool = False
 

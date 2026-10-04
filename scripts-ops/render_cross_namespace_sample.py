@@ -2,10 +2,10 @@
 
 Renderiza la muestra que el maintainer revisa ANTES de aprobar cualquier merge
 cross-namespace. El guion es deterministico y estratificado; este script NO
-tiene logica de scoring propia: agrupa con ``normalize_key`` (el mismo helper
-que usara la regla R5a, asi ambos acuerdan por construccion), elige el anchor
-con ``choose_canonical_id`` (id mas corto, empates lexicograficos - la regla
-canonica del proyecto) y calcula cada evidencia reutilizando el dominio:
+tiene logica de scoring propia: agrupa con ``normalize_key`` (coordinacion T9,
+ver mas abajo), elige el anchor con ``choose_canonical_id`` (id mas corto,
+empates lexicograficos - la regla canonica del proyecto) y calcula cada
+evidencia reutilizando el dominio:
 
   - S0:  ``s0_match`` (builder publico de ``domain/s0_normalization.py``);
          devuelve ``ResolutionEvidence`` con ``s0_matched_field``,
@@ -13,17 +13,19 @@ canonica del proyecto) y calcula cada evidencia reutilizando el dominio:
          ``cross_type``. No se reimplementa la normalizacion.
   - S2:  ``s2_type_gate`` (``domain/s2_type_gate.py``).
   - S3:  ``mentions_jaccard``, ``related_jaccard`` y ``description_overlap``
-         (``domain/s3_context_scoring.py``); los conjuntos de mencion y de
-         vecinos se leen del grafo (solo MATCH).
-  - S4:  ``composite`` = media aritmetica de los tres overlaps, calculada por
-         ``composite_score`` de ``domain/s4_band_assignment.py``, con los
-         umbrales por defecto de ``BandThresholds()`` (high_context=0.50,
-         conflict_floor=0.10) mostrados junto al numero.
+         (``domain/s3_context_scoring.py``); los conjuntos se leen del grafo
+         (solo MATCH). ``description_overlap`` es la senal PRIMARIA; los dos
+         jaccards son estructurales (~0 pre-merge, solo para re-auditar un
+         merge ya aplicado - design 4.1): etiquetas compartidas
+         ``PRIMARY_SIGNAL``/``STRUCTURAL_SIGNALS``.
+  - S4:  ``composite`` (media de los tres overlaps, ``composite_score``) es
+         INFORMATIVA: no califica pares cross-namespace.
 
-Lectura propuesta (fuerza de evidencia, JAMAS decision de enrutamiento):
-  ``strong_identity_evidence`` si composite >= 0.50 (high_context),
-  ``undecided`` si 0.10 <= composite < 0.50,
-  ``no_shared_context`` si composite < 0.10 (conflict_floor).
+Lectura (fuerza de evidencia, JAMAS decision de enrutamiento): delegada al
+modelo compartido ``reading_for(description_overlap, BandThresholds())`` de
+``domain/quarantine_review_models.py`` (la misma que ``quarantine list|render``
+y la CLI), etiquetas ``EvidenceReading``: ``identity``/``undecided``/
+``no_shared_context``. El renderer no define umbrales ni etiquetas propias.
 El enrutamiento de un par cross-namespace es SIEMPRE cuarentena (policy R6.2):
 este sheet solo aporta evidencia para el juicio humano.
 
@@ -35,6 +37,11 @@ Grupos candidatos: mismo ``normalize_key(name)`` + ``type``, entidades activas
 (``merged_into`` NULL o vacio, la convencion de vivo del proyecto), abarcando
 >= 2 namespaces (namespace = los dos primeros componentes del id separados por
 ``:``).
+
+Coordinacion T9 (pendiente, una linea): este script agrupa con Python
+``normalize_key`` (NFKC + colapso de espacios) y la auditoria R5a/``quarantine``
+con Cypher ``toLower(trim(name))``; ambos producen hoy 456 grupos (2026-10-03)
+- unificar con R5b. No cambiar el sample sin decidirlo.
 
 Muestreo estratificado y determinista (``--seed``, default 20261003: la fecha
 de la medicion ground-truth de la design; misma semilla => mismo sample):
@@ -82,6 +89,14 @@ from book_graph_rag.config import Settings
 from book_graph_rag.domain.audit_models import normalize_key
 from book_graph_rag.domain.duplicate_grouping import ENTITY_TYPES, choose_canonical_id
 from book_graph_rag.domain.models import Entity, EntityType
+from book_graph_rag.domain.quarantine_review_models import (
+    PRIMARY_SIGNAL,
+    STRUCTURAL_SIGNALS,
+    EvidenceReading,
+    format_risk_marker,
+    label_risk,
+    reading_for,
+)
 from book_graph_rag.domain.resolution_models import S3ContextSignals
 from book_graph_rag.domain.s0_normalization import namespace_from_id, s0_match
 from book_graph_rag.domain.s2_type_gate import s2_type_gate
@@ -93,14 +108,15 @@ from book_graph_rag.domain.s3_context_scoring import (
 )
 from book_graph_rag.domain.s4_band_assignment import BandThresholds, composite_score
 
-RENDER_SCHEMA = "cross-namespace-render/1"
+RENDER_SCHEMA = "cross-namespace-render/2"
 DEFAULT_SEED = 20261003  # fecha de la medicion ground-truth (design seccion 1)
 DEFAULT_LIMIT = 15
 DEFAULT_OUT = Path("/tmp/cross_namespace_render.json")
 BATCH_SIZE = 500
 DESC_RENDER_LIMIT = 160
 SHARED_NEIGHBOR_RENDER_LIMIT = 10
-READING_ORDER = ("strong_identity_evidence", "undecided", "no_shared_context")
+# Etiquetas de lectura heredadas del modelo compartido (nada local).
+READING_ORDER = tuple(reading.value for reading in EvidenceReading)
 
 # ── Lectura (solo Cypher MATCH; ninguna decision de dominio vive aca) ─────────
 
@@ -374,15 +390,6 @@ def _select_groups(
     return sorted(chosen, key=lambda group: (not group.single_word, -group.degree, group.group_key))
 
 
-def _reading(composite: float, thresholds: BandThresholds) -> str:
-    """Fuerza de evidencia (NO enrutamiento) a partir del composite + umbrales."""
-    if composite >= thresholds.high_context:
-        return "strong_identity_evidence"
-    if composite >= thresholds.conflict_floor:
-        return "undecided"
-    return "no_shared_context"
-
-
 def _pair_payload(
     anchor: Entity,
     candidate: Entity,
@@ -437,7 +444,9 @@ def _pair_payload(
             "high_context": thresholds.high_context,
             "conflict_floor": thresholds.conflict_floor,
         },
-        "reading": _reading(composite, thresholds),
+        "reading": reading_for(desc_o, thresholds).value,
+        "primary_signal": PRIMARY_SIGNAL,
+        "structural_signals": list(STRUCTURAL_SIGNALS),
         "cosine_computed": False,
         "shared_neighbors": [
             {"id": neighbor_id, "namespace": namespace_from_id(neighbor_id)}
@@ -511,6 +520,11 @@ def _group_payload(
             group, entities, namespace_filter=namespace_filter
         )
     ]
+    # Riesgo combinado (T6c): regla compartida, nunca reimplementada aqui.
+    risk = label_risk(
+        single_word=group.single_word,
+        namespace_count=len(group.namespaces),
+    )
     return {
         "group_key": group.group_key,
         "group_label": f"{group.group_key}|{group.entity_type}",
@@ -520,6 +534,8 @@ def _group_payload(
         "namespaces": sorted(group.namespaces),
         "anchor_id": choose_canonical_id(list(group.member_ids)),
         "degree": group.degree,
+        "risk": risk.model_dump(mode="json"),
+        "risk_marker": format_risk_marker(risk),
         "members": members,
         "pairs": pairs,
     }
@@ -541,9 +557,14 @@ def _print_header(
     )
     print(f"  grupos candidatos: {found} | tras filtros: {filtered}")
     print(
-        f"  umbrales BandThresholds(): strong_identity_evidence >= "
-        f"{thresholds.high_context:.2f} (high_context); no_shared_context < "
-        f"{thresholds.conflict_floor:.2f} (conflict_floor)"
+        f"  lectura compartida (reading_for sobre {PRIMARY_SIGNAL}): "
+        f"identity >= {thresholds.high_context:.2f} (high_context); "
+        f"undecided >= {thresholds.conflict_floor:.2f} (conflict_floor); "
+        "no_shared_context por debajo — la decide el modelo, no este guion"
+    )
+    print(
+        f"  senales: {PRIMARY_SIGNAL} = primaria; "
+        f"{', '.join(STRUCTURAL_SIGNALS)} = estructurales (~0 pre-merge)"
     )
     print("  cosine/embeddings: NO computado (sin llamadas de modelo) -> no se reclama banda S4")
     print("  enrutamiento cross-namespace: SIEMPRE cuarentena (R6.2);")
@@ -559,6 +580,7 @@ def _print_group(payload: dict[str, Any], index: int, total: int) -> None:
         f"grado={payload['degree']} {generic_tag} estrata={payload['stratum']}"
     )
     print(f"    anchor del grupo: {payload['anchor_id']}")
+    print(f"    riesgo: {payload['risk_marker'] or '(sin riesgo)'}")
     pairs = payload["pairs"]
     for pair_index, pair in enumerate(pairs, start=1):
         print(
@@ -572,14 +594,14 @@ def _print_group(payload: dict[str, Any], index: int, total: int) -> None:
         gate = pair["s2_type_gate"]
         print(f"      S2: passed={gate['passed']} - {gate['reason']}")
         print(
-            f"      S3: mentions_jaccard={pair['mentions_jaccard']:.3f} "
-            f"({pair['mentions_shared']}/{pair['mentions_union']})  "
+            f"      {PRIMARY_SIGNAL}={pair['description_overlap']:.3f} PRIMARIA | "
+            f"mentions_jaccard={pair['mentions_jaccard']:.3f} "
+            f"({pair['mentions_shared']}/{pair['mentions_union']}) estructural | "
             f"related_jaccard={pair['related_jaccard']:.3f} "
-            f"({pair['related_shared']}/{pair['related_union']})  "
-            f"description_overlap={pair['description_overlap']:.3f}"
+            f"({pair['related_shared']}/{pair['related_union']}) estructural"
         )
         print(
-            f"      composite={pair['composite']:.3f}  "
+            f"      composite(informativo)={pair['composite']:.3f}  "
             f"[high_context={pair['thresholds']['high_context']:.2f} | "
             f"conflict_floor={pair['thresholds']['conflict_floor']:.2f}]"
         )
