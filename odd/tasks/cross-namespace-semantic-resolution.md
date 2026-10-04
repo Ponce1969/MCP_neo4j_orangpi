@@ -191,7 +191,7 @@ maps and debt R1 corrupts exactly that population.
       Evidence: `evidence-bundles/applied-cross-namespace-audit-consolidated-20261004.json` — 968 entries / 302
       cross-namespace / 10 compensating / **292 still applied**; suspicious **185**, needs_reading 5, high risk 7;
       live global audit `passed` (blocking 0 / warning 465).
-- [x] **T8e** Lote 2: roll back the remaining suspicious pairs in review batches.
+- [~] **T8e** Lote 2: roll back the remaining suspicious pairs in review batches.
       Flow: cosine ascending shortlist (join `cosine-all-pairs` with the consolidated suspicious list) -> human picks
       a batch -> read-only decision sheets (`quarantine render --pair`) -> maintainer keep/rollback per pair ->
       `ledger rollback` dry-run with fingerprint -> §7.2 gate (fresh backup + approval + `--expect-fingerprint`) ->
@@ -208,6 +208,22 @@ maps and debt R1 corrupts exactly that population.
       Backups: `bookgraph_backup_20261004T162259Z.json`, `…T162618Z.json`, `…T163031Z.json`.
       Evidence: `evidence-bundles/batch2a-decision-sheets-20261004.txt`,
       `evidence-bundles/lote2a-rollback-20261004.json`.
+      **Batch 2B plan A closed (2026-10-04)**: the 16 pairs of the recommended batch (cosine < 0.30, excluding the
+      pairs decided in 2A and the retained `Prompt`) were reviewed; **6 kept as identity** (569 GraphRAG, 572
+      Hallucination, 351 ChatGPT, 494 Policy, 573 Instructions, 565 extract_entities) and **9 rolled back** (**492**
+      Planning, **455** Indexing, **423** Edge, **583** Normalization, **532** Summarization, **491** Pipeline, **347**
+      User, **537** Timestamp, **451** high latency). Fingerprint `b53a925d…`; census MENTIONS 21/21, RELATED 41/41,
+      **1 accepted mirror** (an `unknown` fallback on 455), `merged_into` 916 -> 907, drift none; ledger **981 entries
+      / 0 hash inconsistencies**; all 18 entities alive; shared neighbours **0**. The mirror put 2 `requires` edges on
+      a merged endpoint -> `repoint --apply` closed them (2 edges, 0 collapses) -> global audit **`passed` (blocking 0
+      / warning 477)**. Backups `bookgraph_backup_20261004T231028Z.json`, `…T231230Z.json`.
+      **Deferred in 2B**: `seq 508` `Retrieval` is the first partial rollback (revert
+      `agentic-architectural-patterns:retrieval-concept`, keep the `essential-graphrag` sibling at cosine 0.560), but
+      the production checkout is `main` @ `56ca06c` (9 behind `origin/main`) and carries no T8f code, so the partial
+      waits for the branch deploy. Queue after 2B-A: **171 suspicious** (298 stratified), silent_same_language 9,
+      needs_reading 5, high risk 7. Evidence: `evidence-bundles/batch2b-decision-sheets-20261004.txt`,
+      `evidence-bundles/applied-cross-namespace-audit-consolidated-after2b-20261004.json`,
+      `evidence-bundles/lote2b-plan-20261004.json`.
       **Remaining**: **180 suspicious pairs** (185 - the 5 rolled-back pairs), needs_reading 5, high risk 7, silent_same_language 14; consolidated queue
       `evidence-bundles/applied-cross-namespace-audit-consolidated-after2a-20261004.json` (972 entries / 302 cross-namespace /
       14 compensating / **288 still applied**). `seq 496` `Prompt` still deliberately retained.
@@ -310,6 +326,6 @@ maps and debt R1 corrupts exactly that population.
 | T2b | `d95cbc6` | renderer imports the shared model; AST anti-drift; re-render moves the sample from 6 to 43 readable pairs |
 | T8a | (this commit) | read-only retro-audit tool; 302 entries / 322 pairs; strong 0 · ambiguous 143 · silent 23 · none 156; suspicious 176 |
 | T8c/T8d | `f9737b7`…`b35ff12` | `ledger rollback` with direction inference + census + fingerprint; Lote 1: 10/302 reverted, 0 mirrors in 8, 8 symmetric edges accepted in 2; ledger 968 / 0 inconsistencies; consolidated audit 292 applied · 185 suspicious · global `passed` 0 blocking / 465 warnings; `repoint` closed the 8 restored blocking edges |
-| T8e | (in progress) | Lote 2A: 4 entries rolled back (375/489/503/480), 413/475 kept; 12/12 MENTIONS, 20/20 RELATED, 1 accepted mirror, ledger 972/0 inconsistencies, audits `passed` 0 blocking / 469 warnings after repoint |
+| T8e | (in progress) | 2A: 375/489/503/480 rolled back, 413/475 kept. 2B-A: 9 rolled back (492/455/423/583/532/491/347/537/451), 6 kept, 1 accepted mirror; ledger 981/0 inconsistencies, shared neighbours 0, global audit `passed` after repoint. Deferred: 508 partial (needs the branch on the production host). Queue 171 suspicious / 298 stratified |
 | T8f | `f7fb0ef` | `--candidate` partial rollback: plan-time overlap refusal + alias-value collision refusal + candidate-aware idempotence backstop; RED `DID NOT RAISE MergeNotReversible` → GREEN; 52 focused unit · 747 unit suite · 6 testcontainers integration; ruff/mypy/architecture green; independent verification confirmed partial-then-full can no longer mutate |
 | T8f.2 | (this commit) | candidate-aware retro-audit: `rolled_back` per candidate, guard on the ORIGINAL population + compensation reference check (unknown target / canonical mismatch / unknown candidate / duplicate all exit 2 pre-graph); RED 6 failed → GREEN 17 passed; 753 unit suite; ruff/mypy/architecture green; production read-only run unchanged 288 applied / 322 pairs / 307 stratified / 180 suspicious |
