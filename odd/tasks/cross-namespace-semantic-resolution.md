@@ -40,12 +40,21 @@ maps and debt R1 corrupts exactly that population.
       (sha256 `eb5da6995248a5b03944b899…`). Finding: `mentions_jaccard` fires on 3/242 pairs and
       `related_jaccard` on 9/242 (both structurally ≈0 pre-merge), `description_overlap` on 113/242, and the mean
       composite reaches ≥0.50 on **0/242** — see design §4.1.
-- [ ] **T2b** Fix the cross-namespace evidence model (design §4.1): drop the three-signal mean composite and the
-      `high_context` threshold from the cross-namespace path, lead the sheet with description overlap, mark
-      `mentions_/related_jaccard` as uninformative for proposing a merge (keep them for re-auditing an applied one),
-      and add unit tests over synthetic pairs (same-language duplicate, cross-language duplicate, generic-label
-      collision, already-merged pair). Re-render the same sample to show the corrected ranking before the
-      retro-audit (T8).
+- [x] **T2b** Cross-namespace evidence model unified (design §4.1): the shared domain model is now the only one —
+      `scripts-ops/render_cross_namespace_sample.py` imports `reading_for`, `label_risk`/`format_risk_marker` and the
+      primary/structural signal constants, and keeps no threshold or reading logic of its own, so the audit, the CLI
+      and the ad-hoc analysis cannot drift apart. The headline reading grades **`description_overlap`**, not the mean
+      composite, and the payload declares which signal is primary (schema `/1` → `/2`). Grouping expression untouched:
+      the Python `normalize_key` here versus Cypher `toLower(trim(name))` in the audit and CLI stays documented as the
+      **T9** coordination point, with both currently yielding 456 groups.
+      **Anti-drift**: `tests/unit/test_render_cross_namespace_sample.py` (7 tests, RED `6 failed, 1 passed` → GREEN)
+      parses the script's AST to assert it imports the shared model, that no threshold literal (`0.50`/`0.10`) or
+      retired reading vocabulary survives anywhere in its source, and that the payload equals the shared model's
+      output — re-divergence fails statically and numerically.
+      **Re-render of the same production sample (2026-10-03, evidence
+      `evidence-bundles/cross-namespace-sample-render-unified-20261003.json`)**: 456 groups, 212 rendered, 242 pairs,
+      and the distribution moved from *strong/identity 0 · undecided 6 · no context 236* to **identity 1 · undecided
+      42 · no context 199** — the composite was drowning the signal in 36 pairs that are now flagged for reading.
       **Decision (maintainer, 2026-10-03)**: keep the renderer **lexical** for the whole population; embeddings
       (cross-lingual cosine) are an **optional** tool reserved for the shortlist of doubtful candidates the human
       picks — never a bulk pass over the 456 groups.
@@ -95,14 +104,12 @@ maps and debt R1 corrupts exactly that population.
       **Real production run (2026-10-03)**: `enqueue --limit 20` found **456 groups / 514 candidate pairs**, wrote
       **20 pending records (seq 1–20)** into a newly created `data/resolution/quarantine.jsonl`, evidence-ordered
       (`description_overlap` 0.636 down to 0.240). No graph mutation.
-- [ ] **T6c** Two ergonomics refinements that the real enqueue exposed (both cheap, both decided by the maintainer):
-      (a) the `⚠ genérica` marker uses "single word", which flags unambiguous technical terms too (`embeddings` is one
-      word and sits at the top of the evidence list) while missing the real homonymy signal: a label spanning three
-      or more namespaces (`agentic systems` appears in 3 pairs across 3 namespaces) is a much better risk proxy than
-      one word alone; (b) a group with N members produces N pairs, so the reviewer sees the same decision three times
-      (`agentic systems` at seq 4, 17 and 19) — `render` should cross-reference the sibling records of the same group
-      so the human decides once and approves the siblings together (`approve --seq 4 --seq 17 --seq 19`, which the
-      two-phase `approve_many` already supports).
+- [x] **T6c** Two ergonomics refinements the real enqueue exposed: (a) the risk marker combines single-word labels
+      with namespace coverage (high = single word **and** ≥3 namespaces, medium = exactly one of the two, with the
+      reason printed) and gains a `--risk` filter while `--generic-only` keeps its approved meaning; (b) `render`
+      cross-references the **sibling records** of the same group with the composed `approve --seq …` command, so a
+      3-member group is decided once and applied together, and `render --pair` reports an existing pending record
+      instead of always `sin registro`.
 - [x] **T7** **Guard implemented** in `ApplyMergeUseCase` (commits with T6/T7): new frozen domain credential
       `MergeApproval` (`quarantine_seq`, `approved_by`, `approved_at`, `canonical_id`, `candidate_ids`) and
       `CrossNamespaceApprovalRequired`. The guard runs **before the band check and before any port**: it derives the
@@ -120,6 +127,9 @@ maps and debt R1 corrupts exactly that population.
       `--seq`) ships with the T6 CLI surface, whose mockup is awaiting the maintainer's visual approval.
 - [ ] **T8** Retro-audit of the 302 applied merges with the T2 renderer + R5a, stratified by label genericity;
       read-only report first, then per-case human decisions (keep / rollback via ledger).
+      **Ordering decision (maintainer, 2026-10-03): no `quarantine approve` runs on production until T8 closes.** The
+      20 pending records stay pending on purpose: audit the past before mutating the present. Any future cross-namespace
+      merge request must wait for the retro-audit verdicts.
 - [ ] **T9** R5b: case-insensitive grouping in `duplicates_entity` via `normalize_key`, together with the cleanup of
       the 64 case-only groups (approval-gated merge), and the confirmation of how the `uniqueness` gate dimension
       treats warnings.
