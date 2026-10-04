@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from typing import Any
 
 import click
 
@@ -22,6 +23,39 @@ from book_graph_rag.infrastructure.mcp_resource_budget_adapter import (
 )
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.infrastructure.text2cypher_adapter import Text2CypherAdapter
+
+#: ONE cheap read for the bookgraph://catalog resource: per-source chunk and
+#: entity counts, executed as a single round trip at resource-read time.
+_CATALOG_STATS_CYPHER = """
+CALL {
+  MATCH (c:Chunk)
+  WHERE c.book_id IS NOT NULL
+  WITH c.book_id AS source_id, count(*) AS chunks
+  RETURN source_id, chunks, 0 AS entities
+  UNION ALL
+  MATCH (e:Entity)
+  WHERE e.id IS NOT NULL AND e.id CONTAINS ':'
+  WITH split(e.id, ':') AS parts, count(*) AS entities
+  WHERE size(parts) >= 2
+  RETURN parts[0] + ':' + parts[1] AS source_id, 0 AS chunks, entities
+}
+RETURN source_id, sum(chunks) AS chunks, sum(entities) AS entities
+"""
+
+
+def _stats_from_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Map ``execute_read`` rows to ``{source_id: {chunks, entities}}``."""
+    stats: dict[str, dict[str, int]] = {}
+    for row in rows:
+        source_id = row.get("source_id")
+        if isinstance(source_id, str) and source_id:
+            chunks = row.get("chunks")
+            entities = row.get("entities")
+            stats[source_id] = {
+                "chunks": chunks if isinstance(chunks, int) else 0,
+                "entities": entities if isinstance(entities, int) else 0,
+            }
+    return stats
 
 
 @click.group()
@@ -47,7 +81,15 @@ async def _run_server(settings: Settings) -> None:
                     llm_port=llm_adapter,
                     max_concurrency=settings.summary_max_concurrency,
                 )
-                scope_resolver = CatalogScopeResolver(CatalogLoader(settings.catalog_path))
+                catalog_loader = CatalogLoader(settings.catalog_path)
+                scope_resolver = CatalogScopeResolver(catalog_loader)
+                catalog = catalog_loader.load()
+
+                async def _catalog_stats() -> dict[str, dict[str, int]]:
+                    """Single-read size counts for the catalog resource (as of read)."""
+                    rows = await query_adapter.execute_read(_CATALOG_STATS_CYPHER)
+                    return _stats_from_rows(rows)
+
                 server_adapter: McpServerAdapter = McpServerAdapter(
                     query_adapter,
                     query_logger,
@@ -62,6 +104,11 @@ async def _run_server(settings: Settings) -> None:
                     app_env=settings.app_env,
                     raw_logging_enabled=settings.mcp_raw_logging_enabled,
                 )
+                # Self-description wiring: constructor kwargs are kept stable
+                # for test doubles, so the catalog and its single-read size
+                # stats are attached before the server starts.
+                server_adapter.catalog = catalog
+                server_adapter.catalog_stats_reader = _catalog_stats
                 click.echo(f"MCP server starting on port {settings.mcp_port}")
                 await server_adapter.run_sse(
                     host=settings.mcp_bind_host,
