@@ -125,24 +125,44 @@ maps and debt R1 corrupts exactly that population.
       wrong/missing/extra candidate cases) + 2 hypothesis properties (no band and no forged evidence crosses).
       **Remaining part of T7** (the `quarantine approve` command itself, behind the AGENTS.md §7.2 gate with explicit
       `--seq`) ships with the T6 CLI surface, whose mockup is awaiting the maintainer's visual approval.
-- [~] **T8** Retro-audit of the 302 applied merges. **T8a done** (read-only tool
-      `scripts-ops/audit_applied_cross_namespace.py`: ledger-driven selection, graph recompute through the shared
-      model, risk × evidence matrix, no graph mutation; 8 unit tests, anti-drift assertions like the T2b renderer).
-      **First live run (2026-10-03, evidence `evidence-bundles/applied-cross-namespace-audit-20261003.json`,
-      sha256 `f5ab97185fb4b20b474c3c78`): 302 entries / 322 pairs, every selected entry stored `band=exact` with
-      `s3 is None` (the bypass left no scoring at all). Matrix: strong **0**, ambiguous 143, none_silent 23,
-      none_rest 156; by risk high 8 / medium 183 / none 131. Lists: clear identities **0**, suspicious **176**,
-      needs reading 23.** Reading a sample of both lists showed same-language pairs with completely different
-      concepts among the "silent" ones too (`agent-b` merged with an unrelated `summarization-agent-b`), so the
-      `lexically_silent` flag currently conflates *different language* with *different concept*.
-      Pending, in order: (1) **T8b** make the strata language-aware (same-language silence is evidence *against*
-      identity, cross-language silence is uninformative) — small tool change; (2) calibrate with the approved
-      optional cosine on a stratified sample (~20 pairs across the four strata) to measure how much of the 176 is
-      real wrongness before deciding any rollback; (3) **T8c** the rollback procedure for these specific entries:
-      they were written **before the R1 fix**, so their inverse maps carry `direction=None` and `rollback_merge`
-      falls back to the legacy both-ways restore, which can rebuild mirror edges — a pilot on the clearest wrong
-      merges must measure edges before/after and clean mirrors if they appear; (4) per-case human decisions.
-      **Nothing is mutated until the maintainer reviews these numbers** (their explicit condition).
+- [~] **T8** Retro-audit of the 302 applied merges.
+      **T8a done**: read-only tool `scripts-ops/audit_applied_cross_namespace.py` (ledger-driven selection, graph
+      recompute through the shared model, matrix + lists; 8 unit tests). First live run: 302 entries / 322 pairs,
+      **every selected entry stored `band=exact` with `s3 is None`** (the bypass left no scoring at all), strong 0,
+      ambiguous 143, none 156, silent 23; suspicious 176.
+      **T8b done**: language-aware strata with a conservative corpus-scoped detector in the shared model (weak, mixed
+      or short evidence → `unknown`, never a guess) and the same caveat on the operative sheet. Authoritative run
+      over full descriptions: **0 cross-language pairs**, 18 silent *same-language* (they moved to suspicious:
+      176 → **194**) and 5 of unknown language (**needs_reading 23 → 5**). So the silence was never a language
+      artefact: those pairs disagree conceptually.
+      **Cosine calibration done** (T8b's follow-up, `scripts-ops/calibrate_cross_namespace_cosine.py`, local
+      multilingual model, 20 stratified pairs / 40 embeddings, evidence
+      `evidence-bundles/cosine-calibration-20261003.json`, sha256 `4d1ca37ef3149d6de665a0ca`):
+      matrix → strong 0 · medium_cosine 1 · low_cosine 19; verdicts → **`cosine rescues it` 0**, `confirms the doubt`
+      19, `agree` 1. Headline: of the 15 sampled pairs with no lexical evidence, **none** reaches `high_cosine`, so
+      the lexical model is **not** a false-negative factory for this population: most of those historical merges
+      really joined different concepts (samples read: an insurance-domain `api-calls-tool` merged with a smart-home
+      one; `model-component` about location errors merged with one about ambiguous phrasings). Catch worth keeping:
+      the one clear identity in the sample (`knowledge-graph-concept`, both sides "structured representation of
+      entities and relationships… GraphRAG") scores cosine **0.882** and lexical 0.381 — and the same-concept
+      `docker-tool` pair ("Containerization platform used to deploy applications" vs "…to package Agent A, B, C into
+      isolated runtime containers") scores 0.720, below the project's 0.80 `medium_cosine`: those thresholds were set
+      for **name+alias** embeddings, not for full descriptions, so a description-based cosine needs its own band.
+      **T8c (pending, needs the maintainer's go-ahead)**: the pilot. `RollbackMergeUseCase` exists but **no CLI
+      exposes it** (the same gap `approve` had before T6b), so the pilot needs `book-graph-rag ledger rollback --seq …
+      --backup … --approval …` reusing the §7.2 gate helper and printing a before/after edge census. Direction
+      inference: these entries are **pre-R1** (`direction=None` in every inverse map, verified) and the legacy
+      both-ways restore would rebuild mirrors — but the original direction is recoverable from the canonical's
+      current edge for each inverse entry, so the tool should infer it and restore exactly one direction, falling
+      back to both-ways only when no matching edge exists (and reporting that).
+      **Short list for the pilot (indisputable wrong merges, cheapest first)**:
+      | seq | canonical (live) | rolled candidate | inverse map | mirror exposure |
+      |-----|------------------|------------------|-------------|-----------------|
+      | 305 | `graphrag-agentic:api-calls-tool` | `agentic-patterns:api-calls-tool` | 1 MENTIONS + 1 RELATED | ≤1 |
+      | 501 | `essential-graphrag:recall-concept` | `agentic-patterns:recall-concept` | 2 + 3 | ≤3 |
+      | 342 | `graphrag-agentic:agent-b-agent` | `agentic-patterns:summarization-agent-b-agent` | 21 + 32 | ≤32 |
+      Start with 305 and 501 (the cheap ones, where the restored edges and any mirror are countable by hand) and leave
+      342 for a second phase. **Nothing is mutated until the maintainer approves the pilot.**
 - [ ] **T9** R5b: case-insensitive grouping in `duplicates_entity` via `normalize_key`, together with the cleanup of
       the 64 case-only groups (approval-gated merge), and the confirmation of how the `uniqueness` gate dimension
       treats warnings.
