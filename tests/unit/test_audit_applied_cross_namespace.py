@@ -24,9 +24,13 @@ import ast
 import importlib.util
 import re
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
+from book_graph_rag.domain.merge_ledger_models import MergeBand, MergeLedgerEntry
 from book_graph_rag.domain.quarantine_review_models import (
     LanguageNote,
     LanguageRelation,
@@ -185,6 +189,104 @@ def test_script_queries_are_match_only() -> None:
         assert stripped.startswith("MATCH"), f"{name} does not start with MATCH"
         keyword = _WRITE_KEYWORDS.search(query)
         assert keyword is None, f"{name} contains write keyword {keyword.group(0)}"
+
+
+# ── Selection over a synthetic ledger (compensating entries, T8 batch-1) ─────
+
+
+def _crossing_entry(seq: int, *, rollback_of: int | None = None) -> MergeLedgerEntry:
+    """A cross-namespace ledger entry (optionally a compensating rollback)."""
+    return MergeLedgerEntry(
+        seq=seq,
+        candidate_ids=["ns-b:src:tool-concept"],
+        canonical_id="ns-a:src:tool-concept",
+        band=MergeBand.EXACT,
+        evidence=[],
+        aliases_folded=[],
+        edge_inverse_map=[],
+        approver="auto:rollback" if rollback_of is not None else "auto:bypass",
+        applied_at=datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC),
+        rollback_of=rollback_of,
+    )
+
+
+def _same_namespace_entry(seq: int, *, rollback_of: int | None = None) -> MergeLedgerEntry:
+    """A same-namespace ledger entry: never selected, compensating or not."""
+    return MergeLedgerEntry(
+        seq=seq,
+        candidate_ids=["ns-a:src:tool-concept"],
+        canonical_id="ns-a:src:tool-concept",
+        band=MergeBand.EXACT,
+        evidence=[],
+        aliases_folded=[],
+        edge_inverse_map=[],
+        approver="auto:rollback" if rollback_of is not None else "auto:bypass",
+        applied_at=datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC),
+        rollback_of=rollback_of,
+    )
+
+
+def test_selection_excludes_the_compensator_and_keeps_the_rolled_back_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The compensating entry leaves the selection; the original stays flagged.
+
+    The rollback appends an entry that mirrors the original's ids, so it also
+    looks cross-namespace. It must be excluded from the selection (and counted
+    separately), while the ORIGINAL it compensates stays in the selection with
+    ``rolled_back=True`` so the report still shows what was reverted, and the
+    guard's arithmetic (``applied + compensating == expected``) must hold.
+    """
+    module = _load_script()
+    original = _crossing_entry(1)
+    compensating = _crossing_entry(2, rollback_of=1)
+    # Same-namespace original + its compensator: neither crosses, so neither
+    # may enter the selection nor the compensating count.
+    same_original = _same_namespace_entry(3)
+    same_compensating = _same_namespace_entry(4, rollback_of=3)
+    entries = [original, compensating, same_original, same_compensating]
+
+    selected = module._select_crossing_entries(entries)
+    assert [entry.seq for entry in selected] == [1], (
+        "the compensating entry (and the same-namespace pair) must be excluded"
+    )
+
+    compensating_entries = module._compensating_crossing_entries(entries)
+    assert [entry.seq for entry in compensating_entries] == [2]
+
+    applied = module._applied_entries(selected, compensating_entries)
+    assert applied == [], "the original was compensated: nothing still applied"
+
+    compensated_seqs = {
+        entry.rollback_of for entry in compensating_entries if entry.rollback_of is not None
+    }
+    row = module._history_row(selected[0], selected[0].seq in compensated_seqs)
+    assert row["rolled_back"] is True, "the flag must survive on the original"
+
+    # Guard: applied + compensating == expected (here 0 + 1 == 1) passes silently.
+    monkeypatch.setattr(module, "EXPECTED_CROSS_NAMESPACE_ENTRIES", 1)
+    module._assert_expected_count(len(applied), len(compensating_entries))
+
+    # An uncompensated original keeps the arithmetic: 1 applied + 0 compensating.
+    module._assert_expected_count(1, 0)
+
+
+def test_guard_fails_loudly_when_the_numbers_do_not_add_up(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A ledger whose applied + compensating misses the ground truth exits 2."""
+    module = _load_script()
+    monkeypatch.setattr(module, "EXPECTED_CROSS_NAMESPACE_ENTRIES", 2)
+
+    with pytest.raises(SystemExit) as excinfo:
+        module._assert_expected_count(0, 1)
+
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "0 aplicadas" in err, "the guard must print the applied number"
+    assert "1 compensatorias" in err, "the guard must print the compensating number"
+    assert "esperado 2" in err, "the guard must print the expected ground truth"
 
 
 # ── Pure stratification over synthetic pairs ─────────────────────────────────

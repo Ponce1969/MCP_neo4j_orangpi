@@ -16,9 +16,15 @@ con este guion SOLO LECTURA:
 
 SELECCION: entrada del ledger cuyo ``canonical_id`` y al menos un
 ``candidate_ids`` difieren en namespace (namespace = ``namespace_from_id``:
-los dos primeros componentes del id separados por ``:``). El total debe ser
-exactamente 302 (``EXPECTED_CROSS_NAMESPACE_ENTRIES``); si el numero cambia,
-el guion falla con el numero medido en el mensaje.
+los dos primeros componentes del id separados por ``:``), EXCLUYENDO las
+entradas compensatorias que un rollback appendicea (``rollback_of`` set — el
+``compensates_seq`` del diseno): esas replican los ids de su original y
+TAMBIEN parecen cross-namespace, asi que se excluyen de la seleccion y se
+cuentan aparte. Las originales compensadas se conservan en la seleccion con
+su flag ``rolled_back`` para que el informe muestre que fue revertido. El
+guard valida la verdad invariable ``aplicadas + compensatorias == 302``
+(``EXPECTED_CROSS_NAMESPACE_ENTRIES``, ground truth 2026-10-03) y falla con
+AMBOS numeros en el mensaje si la suma no cierra.
 
 HECHOS HISTORICOS (solo ledger, sin grafo): por entrada se conservan ``seq``,
 ``applied_at``, ``approver``, la banda guardada y si la evidencia guardada no
@@ -67,6 +73,11 @@ separa por idioma en ``silent_cross_language`` / ``silent_same_language`` /
   - ``needs_reading``: ``silent_cross_language`` y ``silent_language_unknown``
     — el corto donde ayudaria el cosine y donde el numero no decide;
     ``--limit`` acota las listas de consola, el JSON siempre lleva todo.
+
+La matriz y las tres listas describen la poblacion TODAVIA APLICADA: los
+pares de una entrada compensada por rollback quedan fuera de los estratos (la
+consola los reporta revertidos via ``rolled_back`` y el contador de
+compensatorias junto a la seleccion).
 
 Garantia de solo lectura: unicamente se ejecutan consultas MATCH; el unico
 archivo que se escribe es ``--out``.
@@ -415,21 +426,66 @@ def _crossing_candidate_ids(entry: MergeLedgerEntry, canonical_namespace: str) -
 
 
 def _select_crossing_entries(entries: Sequence[MergeLedgerEntry]) -> list[MergeLedgerEntry]:
-    """Entradas donde al menos un candidato cruza de namespace respecto al canonico."""
+    """Entradas cross-namespace originales: excluye las compensatorias.
+
+    Las entradas que ``ledger rollback`` appendicea (``rollback_of`` set —
+    el ``compensates_seq`` del diseno) replican los ids de su original y
+    TAMBIEN parecen cross-namespace: no son poblacion aplicada ni parte del
+    ground truth. Se excluyen de la seleccion y se cuentan aparte con
+    :func:`_compensating_crossing_entries`; las originales compensadas se
+    conservan aca para que su flag ``rolled_back`` siga visible en el
+    informe (historial y payload por par).
+    """
     selected: list[MergeLedgerEntry] = []
     for entry in entries:
+        if entry.rollback_of is not None:
+            continue
         canonical_namespace = namespace_from_id(entry.canonical_id)
         if _crossing_candidate_ids(entry, canonical_namespace):
             selected.append(entry)
     return selected
 
 
-def _assert_expected_count(measured: int) -> None:
-    """Falla fuerte si la seleccion no mide exactamente 302 (ground truth)."""
+def _compensating_crossing_entries(
+    entries: Sequence[MergeLedgerEntry],
+) -> list[MergeLedgerEntry]:
+    """Entradas compensatorias cross-namespace (``rollback_of`` set), aparte."""
+    compensating: list[MergeLedgerEntry] = []
+    for entry in entries:
+        if entry.rollback_of is None:
+            continue
+        canonical_namespace = namespace_from_id(entry.canonical_id)
+        if _crossing_candidate_ids(entry, canonical_namespace):
+            compensating.append(entry)
+    return compensating
+
+
+def _applied_entries(
+    selected: Sequence[MergeLedgerEntry],
+    compensating: Sequence[MergeLedgerEntry],
+) -> list[MergeLedgerEntry]:
+    """Originales seleccionadas que NINGUN rollback compenso (todavia aplicadas)."""
+    compensated = {entry.rollback_of for entry in compensating if entry.rollback_of is not None}
+    return [entry for entry in selected if entry.seq not in compensated]
+
+
+def _assert_expected_count(applied: int, compensating: int) -> None:
+    """Falla fuerte si ``aplicadas + compensatorias`` no mide exactamente 302.
+
+    La suma es invariable en un ledger append-only: las originales cross-
+    namespace (ground truth 302 del 2026-10-03) nunca se borran y cada
+    compensatoria refiere a UNA original cruzada (1:1, la reversion es
+    idempotente), asi que ``aplicadas + compensatorias == 302`` se sostiene
+    aunque el grafo cambie. Si la suma no cierra, el ledger cambio de una
+    forma que este guion no entiende: aborta con AMBOS numeros en el mensaje
+    antes de consultar el grafo ni escribir salida.
+    """
+    measured = applied + compensating
     if measured == EXPECTED_CROSS_NAMESPACE_ENTRIES:
         return
     print(
-        f"ERROR: seleccion cross-namespace = {measured} entradas, "
+        f"ERROR: seleccion cross-namespace = {applied} aplicadas + "
+        f"{compensating} compensatorias = {measured} entradas, "
         f"esperado {EXPECTED_CROSS_NAMESPACE_ENTRIES} (ground truth 2026-10-03). "
         "El ledger cambio: revisar antes de confiar en este informe. "
         "No se consulto el grafo ni se escribio ninguna salida.",
@@ -708,6 +764,8 @@ def _pair_payload(pair: PairAudit, thresholds: BandThresholds) -> dict[str, Any]
 def _print_history(
     entries_total: int,
     selected: Sequence[MergeLedgerEntry],
+    compensating_count: int,
+    applied_count: int,
     rolled_back_seqs: set[int],
     pair_count: int,
     skipped_entities: int,
@@ -719,7 +777,15 @@ def _print_history(
     rolled_back = sum(1 for entry in selected if entry.seq in rolled_back_seqs)
     print("\n-- SELECCION (ledger, sin grafo) --")
     print(f"  entradas leidas: {entries_total}")
-    print(f"  cross-namespace: {len(selected)} (esperado {EXPECTED_CROSS_NAMESPACE_ENTRIES}) — OK")
+    print(
+        f"  cross-namespace: {len(selected)} originales · "
+        f"compensatorias: {compensating_count} · aplicadas: {applied_count}"
+    )
+    print(
+        f"  guard: aplicadas {applied_count} + compensatorias {compensating_count} = "
+        f"{applied_count + compensating_count} (esperado "
+        f"{EXPECTED_CROSS_NAMESPACE_ENTRIES}) — OK"
+    )
     print(f"  pares (canonical -> candidato que cruza): {pair_count}")
     print("\n-- HISTORICO GUARDADO (lo que dejo el bypass) --")
     print(
@@ -817,12 +883,13 @@ async def main() -> None:
     ledger_path = args.ledger if args.ledger is not None else settings.merge_ledger_path
     entries = JSONLMergeLedger(ledger_path).read_all()
     selected = _select_crossing_entries(entries)
-    _assert_expected_count(len(selected))
-    # Los seq con un entrada compensatoria: el par ya fue revertido.
-    rolled_back_targets: set[int] = set()
-    for entry in entries:
-        if entry.rollback_of is not None:
-            rolled_back_targets.add(entry.rollback_of)
+    compensating = _compensating_crossing_entries(entries)
+    applied = _applied_entries(selected, compensating)
+    _assert_expected_count(len(applied), len(compensating))
+    # Los seq con una entrada compensatoria: el par ya fue revertido.
+    rolled_back_targets: set[int] = {
+        entry.rollback_of for entry in compensating if entry.rollback_of is not None
+    }
 
     # Pares ya filtrados por --namespace, antes de tocar el grafo.
     planned: list[tuple[MergeLedgerEntry, str]] = []
@@ -875,7 +942,12 @@ async def main() -> None:
         rolled_back_seqs=rolled_back_targets,
         namespace_filter=args.namespace,
     )
-    stratifiable = [pair for pair in pairs if not pair.missing_entities]
+    # La matriz y las tres listas describen la todavia aplicada: los pares de
+    # una entrada compensada salen del estrato (su flag ``rolled_back`` sigue
+    # vivo en el payload por par y en las filas historicas).
+    stratifiable = [
+        pair for pair in pairs if not pair.missing_entities and pair.seq not in rolled_back_targets
+    ]
     strat = stratify(stratifiable, thresholds)
 
     history_rows = [_history_row(entry, entry.seq in rolled_back_targets) for entry in selected]
@@ -918,6 +990,8 @@ async def main() -> None:
     _print_history(
         entries_total=len(entries),
         selected=selected,
+        compensating_count=len(compensating),
+        applied_count=len(applied),
         rolled_back_seqs=rolled_back_targets,
         pair_count=len(pairs),
         skipped_entities=skipped_entities,
@@ -961,8 +1035,11 @@ async def main() -> None:
         "selection": {
             "entries_total": len(entries),
             "cross_namespace_entries": len(selected),
+            "compensating_entries": len(compensating),
+            "applied_cross_namespace_entries": len(applied),
             "expected_cross_namespace_entries": EXPECTED_CROSS_NAMESPACE_ENTRIES,
             "pairs_total": len(pairs),
+            "pairs_stratified": len(stratifiable),
             "skipped_entities": skipped_entities,
             "pairs_missing_entities": missing_pairs,
             "pairs_label_namespace_fallback": fallback_pairs,

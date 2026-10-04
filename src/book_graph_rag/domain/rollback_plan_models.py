@@ -27,7 +27,10 @@ mutating the original), predicts the edge census and mirrors before anything is
 written, and fingerprints the whole plan so a reviewed dry-run can be bound to
 the later mutation. Post-apply, the same census arithmetic is re-computed from
 the live graph and compared (:func:`compare_census`); any drift is reported
-and fails the command.
+and fails the command. A *bidirectional original* — two inverse entries for
+the same (other, type) pair, one decided ``out`` and one ``in`` — is counted
+once per direction on both sides of that comparison (:func:`build_actual_outcomes`),
+so both restored directions are restores and neither is a mirror.
 """
 
 from __future__ import annotations
@@ -145,6 +148,11 @@ class PredictedCensus(BaseModel):
     mentions_restored: int
     related_restored: int
     #: RELATED entries restored in exactly one direction (inferred or kept).
+    #: "Single-direction" is a per-entry property: a bidirectional original
+    #: contributes TWO entries for the same (other, type) pair — one decided
+    #: ``out``, one ``in`` — and both count here, each restoring its own
+    #: direction (two entries, one per direction, are two single-direction
+    #: restores, not a fallback and not a mirror).
     directions_inferred: int
     fallback_both: int
     fallback_unknown: int
@@ -520,32 +528,60 @@ def build_actual_outcomes(
 ) -> list[ActualEntryOutcome]:
     """Measure restored edges and mirrors from post-apply probes (pure).
 
-    Each probe is taken with ``a`` = duplicate, ``b`` = other endpoint. For a
-    resolved direction, every observed edge is a restore and the *other*
-    direction (if present) is a mirror. For a legacy fallback both restore
-    statements ran, so the first observed direction is the restore and each
-    further one is the predicted mirror.
+    Each probe is taken with ``a`` = duplicate, ``b`` = other endpoint, and
+    the RELATED inverse entries are grouped by ``(other endpoint, edge
+    type)``: a *bidirectional original* — the duplicate held the relation in
+    BOTH directions, so the ledger carries two entries for the same pair with
+    different ``chunk_index`` values — probes the same edge pair twice and
+    must be counted ONCE PER DIRECTION, never twice and never as a mirror of
+    itself (the production false positive this grouping fixed: two entries
+    decided ``out`` + ``in`` measured 4 restored edges and 2 mirrors instead
+    of 2 and 0).
+
+    Per group:
+
+    * every observed direction counts as one restored edge;
+    * an observed direction that no entry's decided direction claims counts
+      as a mirror (single-entry arithmetic: ``out`` restores ``dup -> other``,
+      so a live ``other -> dup`` is the mirror);
+    * a group holding a fallback entry (``direction is None``) keeps the
+      documented legacy arithmetic: the first observed direction is the
+      restore and each further one is a predicted mirror.
     """
     probes = {(obs.seq, obs.map_index): obs.probe for obs in observations}
     outcomes: list[ActualEntryOutcome] = []
     for entry_plan in plan.plans:
         related_restored = 0
         mirrors_created = 0
+        # One group per (other endpoint, edge type): two ledger entries of a
+        # bidirectional original share it and therefore share ONE edge pair.
+        groups: dict[tuple[str, str], list[tuple[EdgeInverseMap, RelatedEdgeProbe]]] = {}
         for index, inverse in enumerate(entry_plan.inferred_entry.edge_inverse_map):
             if inverse.edge_kind != "RELATED":
                 continue
+            key = (inverse.original_other_endpoint_id, _edge_type(inverse))
             probe = probes.get(
                 (entry_plan.seq, index),
                 RelatedEdgeProbe(a_to_b=False, b_to_a=False),
             )
-            restored = int(probe.a_to_b) + int(probe.b_to_a)
+            groups.setdefault(key, []).append((inverse, probe))
+        for members in groups.values():
+            observed_out = any(probe.a_to_b for _, probe in members)
+            observed_in = any(probe.b_to_a for _, probe in members)
+            restored = int(observed_out) + int(observed_in)
             related_restored += restored
-            if inverse.direction == "out":
-                mirrors_created += 1 if probe.b_to_a else 0
-            elif inverse.direction == "in":
-                mirrors_created += 1 if probe.a_to_b else 0
-            else:
+            if any(inverse.direction is None for inverse, _ in members):
+                # Documented legacy fallback: first direction restores, each
+                # further one is the predicted mirror.
                 mirrors_created += max(0, restored - 1)
+                continue
+            claimed_out = any(inverse.direction == "out" for inverse, _ in members)
+            claimed_in = any(inverse.direction == "in" for inverse, _ in members)
+            # An observed direction no entry claims is a mirror; in a
+            # bidirectional pair each direction is claimed by one entry, so
+            # neither observed direction is a mirror.
+            mirrors_created += int(observed_out and not claimed_out)
+            mirrors_created += int(observed_in and not claimed_in)
         outcomes.append(
             ActualEntryOutcome(
                 seq=entry_plan.seq,

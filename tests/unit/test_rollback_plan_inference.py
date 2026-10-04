@@ -39,6 +39,7 @@ from book_graph_rag.domain.rollback_plan_models import (
     RelatedEdgeObservation,
     RelatedEdgeProbe,
     RollbackMeasurement,
+    build_actual_outcomes,
     build_entry_plan,
     build_rollback_plan,
     compare_census,
@@ -564,6 +565,92 @@ def test_compare_census_expects_plain_arithmetic_for_a_provenance_decision() -> 
     assert comparison.drift == []
     assert comparison.passed is True
     assert comparison.related_restored == 1
+    assert comparison.mirrors_created == 0
+
+
+def test_bidirectional_original_expects_two_restored_edges_and_zero_mirrors() -> None:
+    """Two entries, one decided ``out`` and one ``in``: 2 restorations, 0 mirrors.
+
+    Production batch-1 shape: the duplicate held the same (other, type)
+    relation in BOTH directions, so the ledger captured one inverse entry per
+    direction with different ``chunk_index`` values (e.g. ``acted-in-concept
+    [requires]`` at 260 and 237). The provenance rule correctly decides one
+    ``out`` and one ``in``, and the restore faithfully recreates both
+    directions — so the expectation must count TWO restored edges for the
+    pair and ZERO mirrors: the second direction is the other entry's
+    legitimate restore, not a mirror of the first. A single-entry pair keeps
+    the plain arithmetic (covered by the other tests), a fallback entry keeps
+    its documented mirror prediction.
+    """
+    entry = _entry(
+        [
+            _mentions(),
+            _related(chunk_index=260),  # the ``out`` direction of the pair
+            _related(chunk_index=237),  # the ``in`` direction of the pair
+        ]
+    )
+    # Live canonical holds both directions; each chunk rides its own direction.
+    entry_plan = build_entry_plan(
+        entry,
+        [
+            _obs_edges(1, [_live(260)], [_live(237)]),
+            _obs_edges(2, [_live(260)], [_live(237)]),
+        ],
+    )
+
+    assert [(inf.rule, inf.applied_direction) for inf in entry_plan.inferences] == [
+        ("provenance", "out"),
+        ("provenance", "in"),
+    ]
+    plan = build_rollback_plan([entry_plan])
+    assert plan.predicted == PredictedCensus(
+        mentions_restored=1,
+        related_restored=2,  # one per direction, not one per entry probed twice
+        directions_inferred=2,
+        fallback_both=0,
+        fallback_unknown=0,
+        predicted_mirrors=0,  # neither direction is a mirror of the other
+    )
+
+    # Post-apply probes (a = duplicate): the duplicate holds BOTH directions.
+    both = RelatedEdgeProbe(a_to_b=True, b_to_a=True)
+    outcomes = build_actual_outcomes(
+        plan,
+        [
+            RelatedEdgeObservation(seq=305, map_index=1, probe=both),
+            RelatedEdgeObservation(seq=305, map_index=2, probe=both),
+        ],
+    )
+    assert outcomes[0].related_restored == 2, (
+        "the pair must be counted once per direction: 2 restored edges, not 4"
+    )
+    assert outcomes[0].mirrors_created == 0, (
+        "each observed direction is claimed by one entry: no mirror anywhere"
+    )
+
+    before = EdgeCensus(
+        mentions_by_entity={_DUP: 0, _CANON: 1},
+        related_by_entity={_DUP: 0, _CANON: 2},
+        total_mentions=1,
+        total_related=2,
+        merged_into_count=1,
+    )
+    after = EdgeCensus(
+        mentions_by_entity={_DUP: 1, _CANON: 0},
+        related_by_entity={_DUP: 2, _CANON: 0},
+        total_mentions=1,
+        total_related=2,
+        merged_into_count=0,
+    )
+    comparison = compare_census(
+        plan,
+        before,
+        RollbackMeasurement(outcomes=outcomes, census=after),
+    )
+
+    assert comparison.drift == []
+    assert comparison.passed is True
+    assert comparison.related_restored == 2
     assert comparison.mirrors_created == 0
 
 

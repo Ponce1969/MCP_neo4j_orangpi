@@ -32,6 +32,15 @@ live canonical directions are removed, the duplicate regains both (one
 reported mirror) and the compensating entry stays direction-less. That limit
 is pinned on purpose, not by accident.
 
+Case 5 (bidirectional original): the duplicate held the SAME (other, type)
+relation in BOTH directions before the merge, so the ledger carries TWO
+inverse entries for the same pair with different ``chunk_index`` values
+(the production shape behind ``acted-in-concept [requires]`` 260/237).
+Provenance decides one ``out`` and one ``in``; the restore recreates both
+directions and the census must expect exactly two restored edges and ZERO
+mirrors — the second direction is the other entry's restore, not a mirror —
+so ``--apply`` must report ``drift: none``.
+
 The plan is produced twice to prove the fingerprint is stable across runs
 (that is what ``--expect-fingerprint`` binds to the reviewed review).
 """
@@ -66,6 +75,8 @@ _SEQ = 305
 _EDGE_TYPE = "requires"
 #: The loser's captured chunk_index in the provenance case (case 3).
 _PROVENANCE_CHUNK = 12
+#: The OTHER direction's loser chunk in the bidirectional case (case 5).
+_BIDIRECTIONAL_OTHER_CHUNK = 99
 
 
 def _seed(settings: Settings, *, both_directions: bool) -> None:
@@ -648,4 +659,148 @@ def test_legacy_directionless_entry_still_deletes_both_canonical_directions(
     assert len(entries) == 2
     assert entries[1].rollback_of == _SEQ
     assert entries[1].edge_inverse_map[1].direction is None
+    ledger.verify_chain()
+
+
+def _legacy_bidirectional_entry() -> MergeLedgerEntry:
+    """Pre-R1 entry with TWO inverse entries for the same (other, type) pair.
+
+    Production shape: the duplicate held ``dup -[requires]-> other`` AND
+    ``other -[requires]-> dup`` before the merge, so the inverse map captured
+    one entry per direction with a different ``chunk_index`` (260/237 in
+    production; 12/99 in the seeded graph). Both entries carry
+    ``direction=None`` as the legacy lines did.
+    """
+    return MergeLedgerEntry(
+        seq=_SEQ,
+        candidate_ids=[_DUP],
+        canonical_id=_CANON,
+        band=MergeBand.EXACT,
+        evidence=[],
+        aliases_folded=[],
+        edge_inverse_map=[
+            EdgeInverseMap(
+                edge_kind="MENTIONS",
+                duplicate_entity_id=_DUP,
+                original_other_endpoint_id=_CHUNK,
+                edge_properties={"source_page": 3},
+            ),
+            EdgeInverseMap(
+                edge_kind="RELATED",
+                duplicate_entity_id=_DUP,
+                original_other_endpoint_id=_OTHER,
+                edge_properties={
+                    "type": _EDGE_TYPE,
+                    "chunk_index": _PROVENANCE_CHUNK,
+                    "source_page": 4,
+                },
+            ),
+            EdgeInverseMap(
+                edge_kind="RELATED",
+                duplicate_entity_id=_DUP,
+                original_other_endpoint_id=_OTHER,
+                edge_properties={
+                    "type": _EDGE_TYPE,
+                    "chunk_index": _BIDIRECTIONAL_OTHER_CHUNK,
+                    "source_page": 5,
+                },
+            ),
+        ],
+        approver="auto:bypass",
+        applied_at=datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC),
+    )
+
+
+def test_bidirectional_original_restores_both_directions_without_drift(
+    neo4j_settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two entries, one ``out`` + one ``in``: 2 restored edges, 0 mirrors, no drift.
+
+    The duplicate held the relation in BOTH directions before the merge, so
+    the ledger carries two inverse entries for the same pair with different
+    ``chunk_index`` values (the production ``acted-in-concept [requires]``
+    260/237 shape). The provenance rule resolves one ``out`` and one ``in``,
+    the restore faithfully recreates both directions, and the census must
+    count the pair ONCE PER DIRECTION: two restored edges, zero mirrors —
+    the second direction is the other entry's legitimate restore, never a
+    mirror of the first. ``--apply`` must therefore report ``drift: none``.
+    """
+    settings = _cli_settings(neo4j_settings, tmp_path)
+    # The same seeded graph as the provenance case: canonical holds BOTH
+    # directions, each carrying its own loser chunk (12 forward, 99 reverse).
+    _seed_provenance_case(settings)
+
+    ledger_path = tmp_path / "merge_ledger.jsonl"
+    ledger = JSONLMergeLedger(ledger_path)
+    ledger.append(_legacy_bidirectional_entry())
+    assert len(ledger.read_all()) == 1
+
+    backup = tmp_path / "backup.json"
+    backup.write_text("{}", encoding="utf-8")
+    approval = tmp_path / "approval.txt"
+    approval.write_text("approve", encoding="utf-8")
+
+    runner = CliRunner()
+
+    # 1. Plan: provenance decides one out and one in; the pair predicts TWO
+    #    restored edges and ZERO mirrors.
+    plan = _plan_cli(runner, settings, monkeypatch)
+    assert plan["predicted"] == {
+        "mentions_restored": 1,
+        "related_restored": 2,
+        "directions_inferred": 2,
+        "fallback_both": 0,
+        "fallback_unknown": 0,
+        "predicted_mirrors": 0,
+    }
+    inferences = plan["plans"][0]["inferences"]
+    assert [(i["rule"], i["applied_direction"]) for i in inferences] == [
+        ("provenance", "out"),
+        ("provenance", "in"),
+    ]
+    fingerprint = plan["fingerprint"]
+    plan_again = _plan_cli(runner, settings, monkeypatch)
+    assert plan_again["fingerprint"] == fingerprint
+
+    # 2. Apply behind the §7.2 gate with the reviewed fingerprint.
+    result = runner.invoke(
+        cli,
+        [
+            "ledger",
+            "rollback",
+            "--seq",
+            str(_SEQ),
+            "--apply",
+            "--backup",
+            str(backup),
+            "--approval",
+            str(approval),
+            "--expect-fingerprint",
+            fingerprint,
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "mentions restored: 1 (predicted 1)" in result.output
+    assert "related restored: 2 (predicted 2)" in result.output
+    assert "mirrors created: 0 (predicted 0)" in result.output
+    assert "drift: none" in result.output
+
+    # 3. Graph: the duplicate regained BOTH original directions, the canonical
+    #    keeps neither (both of its directions were the re-pointed ones), and
+    #    no direction was double-counted anywhere.
+    assert _related_count(settings, source=_DUP, target=_OTHER) == 1
+    assert _related_count(settings, source=_OTHER, target=_DUP) == 1
+    assert _related_count(settings, source=_CANON, target=_OTHER) == 0
+    assert _related_count(settings, source=_OTHER, target=_CANON) == 0
+    assert _mention_target(settings) == _DUP
+    assert _merged_into(settings) is None
+
+    # 4. Ledger: the compensating entry records BOTH decided directions.
+    entries = ledger.read_all()
+    assert len(entries) == 2
+    assert entries[1].rollback_of == _SEQ
+    assert entries[1].edge_inverse_map[1].direction == "out"
+    assert entries[1].edge_inverse_map[2].direction == "in"
     ledger.verify_chain()
