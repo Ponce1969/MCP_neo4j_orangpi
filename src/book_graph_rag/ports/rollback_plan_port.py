@@ -2,9 +2,12 @@
 
 Everything the direction-aware rollback planner needs from the graph:
 
-* :meth:`probe_related_edges` — does ``a -[type]-> b`` / ``b -[type]-> a``
-  exist? The planner calls it with ``a`` = canonical (pre-apply inference) and
-  the post-apply measurement calls it with ``a`` = duplicate;
+* :meth:`probe_related_edges` — which ``a -[type]-> b`` / ``b -[type]-> a``
+  edges exist between the two entities **and each observed edge's
+  properties** (the provenance rule matches the loser's captured
+  ``chunk_index``/``source_page`` against them). The planner calls it with
+  ``a`` = canonical (pre-apply inference) and the post-apply measurement
+  calls it with ``a`` = duplicate;
 * :meth:`read_edge_census` — MENTIONS/RELATED counts per affected entity plus
   the db-wide MENTIONS/RELATED totals and the ``merged_into`` count, for the
   before/after census the CLI prints and compares.
@@ -30,11 +33,15 @@ class RollbackPlanPort(abc.ABC):
         b_id: str,
         edge_type: str,
     ) -> RelatedEdgeProbe:
-        """Return which RELATED directions of ``edge_type`` exist between a and b.
+        """Return the RELATED edges of ``edge_type`` between a and b, both ways.
 
-        ``a_to_b`` is ``a -[type]-> b`` and ``b_to_a`` the reverse. If either
-        entity is missing from the graph the probe is ``(False, False)`` so the
-        planner reports ``unknown`` (legacy fallback) instead of guessing.
+        ``a_to_b`` is ``a -[type]-> b`` and ``b_to_a`` the reverse;
+        ``a_to_b_edges`` / ``b_to_a_edges`` carry each observed edge's
+        ``properties(r)`` so the planner can run the provenance rule. If
+        either entity is missing from the graph the probe is
+        ``(False, False, [], [])`` so the planner reports ``unknown`` (legacy
+        fallback) instead of guessing. Read-only by contract: the
+        implementation must use MATCH-only reads.
         """
         ...
 

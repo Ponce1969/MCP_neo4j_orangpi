@@ -12,12 +12,22 @@ original apply preserved orientation:
 * ``other -> dup`` became ``other -> canonical``.
 
 So the original orientation is recoverable from the canonical's *current*
-edges (:func:`infer_related_direction`). The planner fills a copy of the entry
-with the inferred directions (never mutating the original), predicts the edge
-census and mirrors before anything is written, and fingerprints the whole plan
-so a reviewed dry-run can be bound to the later mutation. Post-apply, the same
-census arithmetic is re-computed from the live graph and compared
-(:func:`compare_census`); any drift is reported and fails the command.
+edges (:func:`infer_related_direction`). When the canonical holds BOTH
+directions of the same type (``both``) or the matching edge is gone
+(``unknown``), a second, provenance-based inference runs: the ledger's inverse
+map captured the duplicate's own ``edge_properties`` (``type``,
+``chunk_index``, ``source_page``) *before* the merge and the re-point copied
+them onto the canonical's edge (``MERGE ... SET r2 += properties(r)``), so the
+loser's provenance still identifies which live direction was originally the
+duplicate's (:func:`provenance_direction`). Each inference records which
+``rule`` decided it (``geometric`` vs ``provenance``) and why.
+
+The planner fills a copy of the entry with the inferred directions (never
+mutating the original), predicts the edge census and mirrors before anything is
+written, and fingerprints the whole plan so a reviewed dry-run can be bound to
+the later mutation. Post-apply, the same census arithmetic is re-computed from
+the live graph and compared (:func:`compare_census`); any drift is reported
+and fails the command.
 """
 
 from __future__ import annotations
@@ -25,7 +35,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -36,6 +46,13 @@ DirectionVerdict = Literal["out", "in", "both", "unknown"]
 
 #: RELATED orientation relative to the duplicate (``EdgeInverseMap.direction``).
 Direction = Literal["out", "in"]
+
+#: Which rule decided a RELATED entry's outcome.
+#: ``provenance`` only when the second, provenance-based inference resolved a
+#: direction (then ``fallback`` is False and that entry predicts 0 mirrors);
+#: ``geometric`` for stored/unambiguous verdicts and for kept fallbacks (any
+#: provenance evidence is appended to ``reason``).
+InferenceRule = Literal["geometric", "provenance"]
 
 
 def infer_related_direction(
@@ -70,17 +87,21 @@ def infer_related_direction(
 
 
 class RelatedEdgeProbe(BaseModel):
-    """Observed RELATED edges between two entities.
+    """Observed RELATED edges between two entities, with their properties.
 
-    ``a_to_b`` is ``a -[type]-> b``; ``b_to_a`` the reverse. The planner probes
-    with ``a`` = canonical (before apply) and the measurement probes with
-    ``a`` = duplicate (after apply).
+    ``a_to_b`` is ``a -[type]-> b``; ``b_to_a`` the reverse, and
+    ``a_to_b_edges``/``b_to_a_edges`` carry each observed edge's
+    ``properties(r)`` per direction — the input of the provenance rule. The
+    planner probes with ``a`` = canonical (before apply) and the measurement
+    probes with ``a`` = duplicate (after apply).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     a_to_b: bool
     b_to_a: bool
+    a_to_b_edges: list[dict[str, Any]] = []
+    b_to_a_edges: list[dict[str, Any]] = []
 
 
 class RelatedEdgeObservation(BaseModel):
@@ -106,6 +127,8 @@ class DirectionInference(BaseModel):
     observed_canonical_to_other: bool
     observed_other_to_canonical: bool
     verdict: DirectionVerdict
+    #: Which rule decided the outcome (see :data:`InferenceRule`).
+    rule: InferenceRule
     #: Direction the rollback will actually apply; ``None`` = legacy both-ways.
     applied_direction: Direction | None
     #: True when the legacy both-ways restore will run (``both``/``unknown``).
@@ -210,13 +233,82 @@ def _edge_type(inverse: EdgeInverseMap) -> str:
     return str(inverse.edge_properties.get("type", ""))
 
 
+def _carries_loser_identity(
+    edge: dict[str, Any],
+    loser: dict[str, Any],
+    chunk_index: Any,
+) -> bool:
+    """Does one live edge carry the loser's captured identity?
+
+    Matching order: ``chunk_index`` (the required key, already selected by
+    ``type`` in the probe), corroborated by ``source_page`` when it is present
+    on both the captured properties and the live edge.
+    """
+    if edge.get("chunk_index") != chunk_index:
+        return False
+    loser_page = loser.get("source_page")
+    edge_page = edge.get("source_page")
+    return not (loser_page is not None and edge_page is not None and edge_page != loser_page)
+
+
+def provenance_direction(
+    inverse: EdgeInverseMap,
+    probe: RelatedEdgeProbe,
+) -> tuple[Direction | None, str]:
+    """Second, provenance-based inference (only called for ``both``/``unknown``).
+
+    The inverse map stores the duplicate's own ``edge_properties`` as read
+    before the merge, and the re-point copied them onto the canonical's edge,
+    so the loser's provenance is still on the live edge. Matching order: the
+    captured ``chunk_index`` (required — without it the caller keeps the
+    geometric path), corroborated by ``source_page`` when present on both
+    sides; the probe already selected edges of the same ``type``.
+
+    Returns ``(direction, evidence)``:
+
+    * exactly one live direction carries the loser's identity → that direction
+      (``canonical -> other`` means the original was ``out``,
+      ``other -> canonical`` ``in``);
+    * both directions carry it (a collapsed MERGE) or neither does →
+      ``(None, evidence)`` so the caller keeps the geometric fallback and
+      reports why.
+    """
+    loser = inverse.edge_properties
+    chunk_index = loser.get("chunk_index")
+    if chunk_index is None:
+        return None, "inverse entry has no usable chunk_index"
+    forward = any(_carries_loser_identity(edge, loser, chunk_index) for edge in probe.a_to_b_edges)
+    reverse = any(_carries_loser_identity(edge, loser, chunk_index) for edge in probe.b_to_a_edges)
+    if forward and not reverse:
+        return "out", (
+            f"only the canonical -> other edge carries the loser's chunk_index={chunk_index}"
+        )
+    if reverse and not forward:
+        return "in", (
+            f"only the other -> canonical edge carries the loser's chunk_index={chunk_index}"
+        )
+    if forward and reverse:
+        return None, (
+            f"both directions carry the loser's chunk_index={chunk_index} (collapsed MERGE)"
+        )
+    return None, f"neither live edge carries the loser's chunk_index={chunk_index}"
+
+
 def _build_inference(
     entry: MergeLedgerEntry,
     index: int,
     inverse: EdgeInverseMap,
     probe: RelatedEdgeProbe,
 ) -> DirectionInference:
-    """Pure inference for one RELATED inverse entry (stored direction wins)."""
+    """Pure inference for one RELATED inverse entry (stored direction wins).
+
+    Rule order: (1) a stored ``direction`` is left as recorded; (2) an
+    unambiguous geometric verdict (``out``/``in``) is kept as is; (3) only for
+    geometric ``both``/``unknown`` does :func:`provenance_direction` run — it
+    decides a direction only when exactly one live direction carries the
+    loser's ``chunk_index``, otherwise the geometric fallback is kept and the
+    provenance evidence is appended to the reason.
+    """
     verdict = infer_related_direction(
         canonical_to_other=probe.a_to_b,
         other_to_canonical=probe.b_to_a,
@@ -232,6 +324,7 @@ def _build_inference(
             observed_canonical_to_other=probe.a_to_b,
             observed_other_to_canonical=probe.b_to_a,
             verdict=verdict,
+            rule="geometric",
             applied_direction=inverse.direction,
             fallback=False,
             reason=(
@@ -249,6 +342,7 @@ def _build_inference(
             observed_canonical_to_other=probe.a_to_b,
             observed_other_to_canonical=probe.b_to_a,
             verdict=verdict,
+            rule="geometric",
             applied_direction="out",
             fallback=False,
             reason=(
@@ -266,12 +360,39 @@ def _build_inference(
             observed_canonical_to_other=probe.a_to_b,
             observed_other_to_canonical=probe.b_to_a,
             verdict=verdict,
+            rule="geometric",
             applied_direction="in",
             fallback=False,
             reason=(
                 f"other -[{edge_type}]-> canonical exists and the forward does not: "
                 "original was other -> dup (in)"
             ),
+        )
+    # Geometric both/unknown: second, provenance-based inference over the
+    # loser's captured properties (chunk_index/source_page on the live edge).
+    direction, evidence = provenance_direction(inverse, probe)
+    if direction is not None:
+        consumed = (
+            "the unchanged canonical-edge removal also consumes the reverse "
+            "live edge (predicted net -1 RELATED on the batch census)"
+        )
+        if direction == "out":
+            reason = f"provenance: {evidence}: original was dup -> other (out); {consumed}"
+        else:
+            reason = f"provenance: {evidence}: original was other -> dup (in); {consumed}"
+        return DirectionInference(
+            seq=entry.seq,
+            map_index=index,
+            duplicate_entity_id=inverse.duplicate_entity_id,
+            original_other_endpoint_id=inverse.original_other_endpoint_id,
+            edge_type=edge_type,
+            observed_canonical_to_other=probe.a_to_b,
+            observed_other_to_canonical=probe.b_to_a,
+            verdict=direction,
+            rule="provenance",
+            applied_direction=direction,
+            fallback=False,
+            reason=reason,
         )
     if verdict == "both":
         reason = (
@@ -292,9 +413,10 @@ def _build_inference(
         observed_canonical_to_other=probe.a_to_b,
         observed_other_to_canonical=probe.b_to_a,
         verdict=verdict,
+        rule="geometric",
         applied_direction=None,
         fallback=True,
-        reason=reason,
+        reason=f"{reason}; provenance: {evidence}",
     )
 
 
@@ -445,7 +567,10 @@ def compare_census(
     restored edges and mirrors, batch mentions/related totals, the
     ``merged_into`` delta (one cleared marker per rolled-back duplicate) and
     the db-wide totals (mentions only move; related grows by 2 only for each
-    ``unknown`` fallback whose canonical edge was already gone).
+    ``unknown`` fallback whose canonical edge was already gone and shrinks by 1
+    for each provenance-decided entry: its geometry was ``both``, so the
+    unchanged canonical-edge removal deletes BOTH live directions while only
+    one restore runs).
     """
     drift: list[str] = []
     outcomes = {outcome.seq: outcome for outcome in measurement.outcomes}
@@ -503,6 +628,16 @@ def compare_census(
             f"{measurement.census.total_mentions} (mentions must only move)"
         )
     expected_related_total = census_before.total_related + 2 * plan.predicted.fallback_unknown
+    # A provenance-decided entry always comes from a both-directions geometry:
+    # the unchanged remove step deletes BOTH live canonical edges while only
+    # the resolved direction is restored, so the db-wide RELATED total nets -1.
+    provenance_collapses = sum(
+        1
+        for entry_plan in plan.plans
+        for inference in entry_plan.inferences
+        if inference.rule == "provenance"
+    )
+    expected_related_total -= provenance_collapses
     if measurement.census.total_related != expected_related_total:
         drift.append(
             f"RELATED total {census_before.total_related} -> "

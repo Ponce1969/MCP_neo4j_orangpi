@@ -3,10 +3,13 @@
 Turns a reviewed ``book-graph-rag ledger rollback`` into three steps:
 
 1. ``plan`` — verify the ledger chain, read each requested entry, probe the
-   canonical's current RELATED edges and build the pure domain plan: the
-   entry copy with inferred directions, the predicted census (restored edges,
-   inference successes, ``both``/``unknown`` fallbacks and therefore predicted
-   mirrors), the affected entities and the fingerprint. Read-only.
+   canonical's current RELATED edges (with their properties, so the provenance
+   rule can match the loser's captured ``chunk_index`` when the geometry is
+   ``both``/``unknown``) and build the pure domain plan: the entry copy with
+   inferred directions, the rule (``geometric``/``provenance``) and reason per
+   inference, the predicted census (restored edges, inference successes,
+   ``both``/``unknown`` fallbacks and therefore predicted mirrors), the
+   affected entities and the fingerprint. Read-only.
 2. ``read_census`` — the pre-apply edge census for the affected entities.
 3. ``measure`` — after the (CLI-orchestrated) apply, re-probe the duplicates
    and re-read the census so :func:`compare_census` can verify the mutation
@@ -102,7 +105,9 @@ class PlanRollbackUseCase:
         Fails closed: a broken chain raises ``LedgerChainBroken``, a missing
         seq ``RollbackTargetInvalid`` and a compensating entry
         ``MergeNotReversible`` — all before any graph probe can be mistaken
-        for an executable plan.
+        for an executable plan. The probe's edge properties travel with each
+        observation so ``build_entry_plan`` can run the provenance rule after
+        the geometric one.
         """
         self._ledger.verify_chain()
         entry_plans = []

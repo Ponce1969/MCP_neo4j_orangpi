@@ -8,12 +8,14 @@ from book_graph_rag.domain.rollback_plan_models import EdgeCensus, RelatedEdgePr
 from book_graph_rag.ports.rollback_plan_port import RollbackPlanPort
 
 # Both endpoints must exist; inline WHERE inside the pattern comprehension
-# filters by relationship type. A missing endpoint yields no row, which the
-# adapter reports as (False, False) -> planner verdict "unknown" (legacy path).
+# filters by relationship type and projects properties(r) per direction (the
+# provenance rule matches the loser's captured chunk_index/source_page against
+# them). MATCH-only, read-only. A missing endpoint yields no row, which the
+# adapter reports as (False, False, [], []) -> planner verdict "unknown".
 _PROBE_RELATED = """
 MATCH (a:Entity {id: $a_id}), (b:Entity {id: $b_id})
-RETURN size([(a)-[r:RELATED]->(b) WHERE r.type = $edge_type | r]) > 0 AS a_to_b,
-       size([(b)-[r:RELATED]->(a) WHERE r.type = $edge_type | r]) > 0 AS b_to_a
+RETURN [(a)-[r:RELATED]->(b) WHERE r.type = $edge_type | properties(r)] AS a_to_b_edges,
+       [(b)-[r:RELATED]->(a) WHERE r.type = $edge_type | properties(r)] AS b_to_a_edges
 """
 
 # MENTIONS counts (Chunk -> Entity) per affected entity.
@@ -31,9 +33,12 @@ RETURN n.id AS id, count(r) AS related
 """
 
 # Db-wide totals. Aggregation-only queries return a single row even when the
-# match set is empty, so count() is always 0 rather than "no result".
-_TOTAL_MENTIONS = "MATCH (m:MENTIONS) RETURN count(m) AS c"
-_TOTAL_RELATED = "MATCH (r:RELATED) RETURN count(r) AS c"
+# match set is empty, so count() is always 0 rather than "no result". The
+# patterns match RELATIONSHIP types: MENTIONS/RELATED are relationship types,
+# not node labels (a label match silently counts nothing — Neo4j warns
+# "unknown label" and the total stays 0, making the census comparison vacuous).
+_TOTAL_MENTIONS = "MATCH ()-[m:MENTIONS]->() RETURN count(m) AS c"
+_TOTAL_RELATED = "MATCH ()-[r:RELATED]->() RETURN count(r) AS c"
 _TOTAL_MERGED_INTO = """
 MATCH (e:Entity) WHERE e.merged_into IS NOT NULL RETURN count(e) AS c
 """
@@ -52,7 +57,7 @@ class Neo4jRollbackPlanAdapter(RollbackPlanPort):
         b_id: str,
         edge_type: str,
     ) -> RelatedEdgeProbe:
-        """Probe both RELATED directions between two entities (see the port)."""
+        """Probe both RELATED directions and their properties (see the port)."""
         async with self._driver.session() as session:
             result = await session.run(
                 _PROBE_RELATED,
@@ -63,9 +68,13 @@ class Neo4jRollbackPlanAdapter(RollbackPlanPort):
                 # One (or both) endpoints do not exist: nothing can be restored
                 # from a live edge, so the planner must fall back and report.
                 return RelatedEdgeProbe(a_to_b=False, b_to_a=False)
+            a_edges: list[dict[str, Any]] = [dict(edge) for edge in record["a_to_b_edges"]]
+            b_edges: list[dict[str, Any]] = [dict(edge) for edge in record["b_to_a_edges"]]
             return RelatedEdgeProbe(
-                a_to_b=bool(record["a_to_b"]),
-                b_to_a=bool(record["b_to_a"]),
+                a_to_b=bool(a_edges),
+                b_to_a=bool(b_edges),
+                a_to_b_edges=a_edges,
+                b_to_a_edges=b_edges,
             )
 
     async def read_edge_census(self, entity_ids: list[str]) -> EdgeCensus:
