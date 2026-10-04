@@ -75,6 +75,13 @@ from book_graph_rag.domain.quarantine_review_models import (
 )
 from book_graph_rag.domain.resolution_errors import ResolutionError
 from book_graph_rag.domain.resolution_models import ConfidenceBand
+from book_graph_rag.domain.rollback_plan_models import (
+    EdgeCensus,
+    RollbackComparison,
+    RollbackMeasurement,
+    RollbackPlan,
+    compare_census,
+)
 from book_graph_rag.domain.s4_band_assignment import BandThresholds
 from book_graph_rag.domain.validation_models import BookScope, SmokeManifest, TargetScope
 from book_graph_rag.infrastructure.brute_force_candidate_retrieval import (
@@ -104,8 +111,10 @@ from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter
 from book_graph_rag.infrastructure.resolution_wiring import (
     build_approve_quarantine_use_case,
     build_enqueue_cross_namespace_use_case,
+    build_plan_rollback_use_case,
     build_resolve_entities_use_case,
     build_review_quarantine_use_case,
+    build_rollback_apply_use_case,
 )
 from book_graph_rag.infrastructure.sentence_transformer_adapter import (
     SentenceTransformerAdapter,
@@ -1404,6 +1413,281 @@ def quarantine_reject(
 
     for outcome in outcomes:
         click.echo(f"seq {outcome.seq}: {outcome.decision} (reason stored in review_note)")
+
+
+@cli.group("ledger")
+def ledger() -> None:
+    """Merge-ledger operations (read-only unless ``--apply`` says otherwise).
+
+    ``rollback`` prints the plan — entry, inferred inverse map, predicted edge
+    census and fingerprint — without writing anything; ``--apply`` executes it
+    behind the AGENTS.md §7.2 gate (fresh backup + approval file, explicit
+    ``--seq`` values, never "all") and refuses when ``--expect-fingerprint``
+    does not match the recomputed plan.
+    """
+
+
+@ledger.command("rollback")
+@click.option(
+    "--seq",
+    "seqs",
+    type=int,
+    multiple=True,
+    help="Ledger seq to roll back (repeatable; explicit values only, never 'all').",
+)
+@click.option(
+    "--apply",
+    "apply_changes",
+    is_flag=True,
+    default=False,
+    help="Execute the reviewed plan (mutates; §7.2 gate required). Default: read-only plan.",
+)
+@click.option(
+    "--backup",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Fresh backup JSON required by the AGENTS.md §7.2 gate.",
+)
+@click.option(
+    "--approval",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Approval file containing the word 'approve' (AGENTS.md §7.2).",
+)
+@click.option(
+    "--allow-stale-backup",
+    is_flag=True,
+    default=False,
+    help=f"Permite un backup de mas de {STALE_BACKUP_HOURS} h.",
+)
+@click.option(
+    "--expect-fingerprint",
+    default=None,
+    help=(
+        "sha256 printed by the reviewed dry-run; refuse if the recomputed "
+        "plan differs (binds the review to the mutation)."
+    ),
+)
+@click.option(
+    "--reviewer",
+    default=None,
+    help="Reviewer id (default: human:<current user>); echoed in the apply report.",
+)
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help="Emit the plan (and the apply report) as JSON.",
+)
+def ledger_rollback(
+    seqs: tuple[int, ...],
+    apply_changes: bool,
+    backup: Path | None,
+    approval: Path | None,
+    allow_stale_backup: bool,
+    expect_fingerprint: str | None,
+    reviewer: str | None,
+    json_output: bool,
+) -> None:
+    """Roll back explicit ledger seqs, restoring the original edge directions.
+
+    Read-only by default: prints the plan with its predicted edge census,
+    every ``both``/``unknown`` fallback (with the reason legacy behaviour will
+    apply) and the fingerprint, writing nothing. ``--apply`` validates the
+    §7.2 gate FIRST (before any use-case call), recomputes the plan, refuses a
+    mismatched or missing-when-given ``--expect-fingerprint`` before any
+    write, applies through the existing RollbackMergeUseCase (entry copy with
+    inferred directions), then prints the actual census and compares it with
+    the prediction — exiting non-zero on any post-apply mismatch.
+    """
+    if not seqs:
+        raise click.UsageError(
+            "Provide at least one --seq (rollbacks are always explicit; there is no 'all')"
+        )
+    if apply_changes:
+        gate = _validate_approve_gates(
+            backup=backup,
+            approval=approval,
+            allow_stale_backup=allow_stale_backup,
+        )
+        click.echo(
+            f"gate §7.2 ok: backup {gate['path']} ({gate['age_hours']} h, "
+            f"{gate['size_mb']} MB) · approval {gate['approval_file']}"
+        )
+
+    try:
+        settings = Settings.model_validate({})
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Configuration error: {exc}", err=True)
+        sys.exit(1)
+    resolved_reviewer = reviewer or f"human:{getpass.getuser()}"
+
+    async def _run() -> tuple[RollbackPlan, EdgeCensus | None, RollbackMeasurement | None]:
+        plan_use_case, closables = build_plan_rollback_use_case(settings)
+        try:
+            plan = await plan_use_case.plan(seqs)
+            if not apply_changes:
+                return plan, None, None
+            if expect_fingerprint is None:
+                click.echo(
+                    "note: --expect-fingerprint not given "
+                    "(recommended: it binds the reviewed plan to this mutation)"
+                )
+            elif expect_fingerprint != plan.fingerprint:
+                sys.exit(
+                    f"FINGERPRINT abortado: reviewed {expect_fingerprint}, "
+                    f"recomputed {plan.fingerprint} "
+                    "(the ledger or the graph changed since review)"
+                )
+            else:
+                click.echo(f"fingerprint ok: {plan.fingerprint}")
+            census_before = await plan_use_case.read_census(plan)
+            apply_use_case, apply_closables = build_rollback_apply_use_case(settings, plan)
+            try:
+                for entry_plan in plan.plans:
+                    await apply_use_case.rollback(seq=entry_plan.seq)
+                    click.echo(
+                        f"seq {entry_plan.seq}: rollback applied "
+                        "(compensating ledger entry appended)"
+                    )
+            finally:
+                for closable in apply_closables:
+                    if hasattr(closable, "close"):
+                        await closable.close()
+            measurement = await plan_use_case.measure(plan)
+            return plan, census_before, measurement
+        finally:
+            for closable in closables:
+                if hasattr(closable, "close"):
+                    await closable.close()
+
+    try:
+        plan, census_before, measurement = asyncio.run(_run())
+    except ResolutionError as exc:
+        click.echo(f"Ledger rollback error: {exc}", err=True)
+        sys.exit(1)
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Ledger rollback error: {exc}", err=True)
+        sys.exit(3)
+
+    if not apply_changes:
+        if json_output:
+            click.echo(json.dumps(plan.model_dump(mode="json"), indent=2, ensure_ascii=False))
+        else:
+            click.echo(_format_rollback_plan(plan))
+        return
+
+    if census_before is None or measurement is None:
+        sys.exit("Ledger rollback error: --apply produced no post-apply measurement")
+
+    comparison = compare_census(plan, census_before, measurement)
+    if json_output:
+        click.echo(
+            json.dumps(
+                {
+                    "plan": plan.model_dump(mode="json"),
+                    "census_before": census_before.model_dump(mode="json"),
+                    "census_after": measurement.census.model_dump(mode="json"),
+                    "outcomes": [o.model_dump(mode="json") for o in measurement.outcomes],
+                    "comparison": comparison.model_dump(mode="json"),
+                    "reviewer": resolved_reviewer,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+    else:
+        click.echo(f"reviewer: {resolved_reviewer}")
+        click.echo(_format_rollback_result(plan, census_before, measurement, comparison))
+    if not comparison.passed:
+        click.echo(
+            "post-apply census MISMATCH: the graph does not match the reviewed plan "
+            "(inspect the MISMATCH lines before doing anything else)",
+            err=True,
+        )
+        sys.exit(1)
+    click.echo("Reminder: run the scoped and global audits afterwards (not run automatically):")
+    click.echo("  book-graph-rag audit --scope <corpus:source>  # per touched namespace")
+    click.echo("  book-graph-rag audit  # global")
+
+
+def _format_rollback_plan(plan: RollbackPlan) -> str:
+    """Human dry-run: per-seq census, every fallback with its reason, fingerprint."""
+    lines = ["ledger rollback plan (read-only: nothing written)"]
+    for entry_plan in plan.plans:
+        predicted = entry_plan.predicted
+        lines.append(f"seq {entry_plan.seq}: canonical {entry_plan.entry.canonical_id}")
+        lines.append(f"  candidates: {' · '.join(entry_plan.entry.candidate_ids)}")
+        lines.append(
+            f"  restore: MENTIONS {predicted.mentions_restored} · "
+            f"RELATED {predicted.related_restored} "
+            f"(single-direction {predicted.directions_inferred} · "
+            f"fallback both {predicted.fallback_both} · unknown {predicted.fallback_unknown})"
+        )
+        lines.append(
+            f"  predicted mirrors: {predicted.predicted_mirrors} "
+            "(mirrors only come from both/unknown fallbacks)"
+        )
+        lines.append(f"  affected entities: {len(entry_plan.affected_entities)}")
+        for inference in entry_plan.inferences:
+            if inference.fallback:
+                lines.append(
+                    f"  FALLBACK seq {inference.seq} {inference.edge_type} "
+                    f"{inference.duplicate_entity_id} -> "
+                    f"{inference.original_other_endpoint_id}: {inference.reason}"
+                )
+    totals = plan.predicted
+    lines.append(
+        f"totals: MENTIONS {totals.mentions_restored} · RELATED {totals.related_restored} "
+        f"(single-direction {totals.directions_inferred} · "
+        f"fallback both {totals.fallback_both} · unknown {totals.fallback_unknown})"
+    )
+    lines.append(f"predicted mirrors: {totals.predicted_mirrors}")
+    lines.append(f"fingerprint: {plan.fingerprint}")
+    seq_flags = " ".join(f"--seq {entry_plan.seq}" for entry_plan in plan.plans)
+    lines.append(
+        f"next: book-graph-rag ledger rollback {seq_flags} --apply "
+        f"--backup <fresh.json> --approval <file> --expect-fingerprint {plan.fingerprint}"
+    )
+    return "\n".join(lines)
+
+
+def _format_rollback_result(
+    plan: RollbackPlan,
+    census_before: EdgeCensus,
+    measurement: RollbackMeasurement,
+    comparison: RollbackComparison,
+) -> str:
+    """Post-apply report: prediction vs actual census plus every drift line."""
+    before = census_before
+    after = measurement.census
+    lines = [
+        "census before -> after:",
+        (
+            f"  mentions restored: {comparison.mentions_restored} "
+            f"(predicted {plan.predicted.mentions_restored})"
+        ),
+        (
+            f"  related restored: {comparison.related_restored} "
+            f"(predicted {plan.predicted.related_restored})"
+        ),
+        (
+            f"  mirrors created: {comparison.mirrors_created} "
+            f"(predicted {plan.predicted.predicted_mirrors})"
+        ),
+        (
+            f"  MENTIONS total: {before.total_mentions} -> {after.total_mentions} · "
+            f"RELATED total: {before.total_related} -> {after.total_related} · "
+            f"merged_into: {before.merged_into_count} -> {after.merged_into_count}"
+        ),
+    ]
+    if comparison.drift:
+        lines.append(f"  drift: {len(comparison.drift)} mismatch(es)")
+        lines.extend(f"    MISMATCH {item}" for item in comparison.drift)
+    else:
+        lines.append("  drift: none")
+    return "\n".join(lines)
 
 
 def main() -> None:

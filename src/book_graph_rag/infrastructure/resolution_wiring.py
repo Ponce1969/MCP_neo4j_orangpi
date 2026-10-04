@@ -16,10 +16,16 @@ from book_graph_rag.application.approve_quarantine_use_case import ApproveQuaran
 from book_graph_rag.application.enqueue_cross_namespace_quarantine_use_case import (
     EnqueueCrossNamespaceQuarantineUseCase,
 )
+from book_graph_rag.application.plan_rollback_use_case import (
+    PlanRollbackUseCase,
+    planned_entry_ledger,
+)
 from book_graph_rag.application.resolve_entities_use_case import ResolveEntitiesUseCase
 from book_graph_rag.application.review_quarantine_use_case import ReviewQuarantineUseCase
+from book_graph_rag.application.rollback_merge_use_case import RollbackMergeUseCase
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import Entity
+from book_graph_rag.domain.rollback_plan_models import RollbackPlan
 from book_graph_rag.domain.s4_band_assignment import BandThresholds
 from book_graph_rag.infrastructure.brute_force_candidate_retrieval import (
     BruteForceCandidateRetrieval,
@@ -33,6 +39,9 @@ from book_graph_rag.infrastructure.neo4j_neighborhood_query_adapter import (
 )
 from book_graph_rag.infrastructure.neo4j_quarantine_review_adapter import (
     Neo4jQuarantineReviewAdapter,
+)
+from book_graph_rag.infrastructure.neo4j_rollback_plan_adapter import (
+    Neo4jRollbackPlanAdapter,
 )
 from book_graph_rag.infrastructure.sentence_transformer_adapter import (
     SentenceTransformerAdapter,
@@ -178,3 +187,34 @@ def build_enqueue_cross_namespace_use_case(
         review=review,
     )
     return use_case, [review]
+
+
+def build_plan_rollback_use_case(
+    settings: Settings,
+) -> tuple[PlanRollbackUseCase, list[Any]]:
+    """Wire the T8c read-only planner (``ledger rollback`` without ``--apply``).
+
+    Probes + census read the graph through ``Neo4jRollbackPlanAdapter``; the
+    ledger is the same JSONL file the applier reads. Nothing here writes.
+    """
+    driver = _make_driver(settings)
+    ledger = JSONLMergeLedger(settings.merge_ledger_path)
+    plan_port = Neo4jRollbackPlanAdapter(driver)
+    use_case = PlanRollbackUseCase(ledger=ledger, plan_port=plan_port)
+    return use_case, [plan_port]
+
+
+def build_rollback_apply_use_case(
+    settings: Settings,
+    plan: RollbackPlan,
+) -> tuple[RollbackMergeUseCase, list[Any]]:
+    """Wire the existing ``RollbackMergeUseCase`` to the reviewed plan.
+
+    The use case keeps its signature: it reads entries through a planned-ledger
+    view that serves each plan's inferred (direction-filled) entry copy, so the
+    rollback restores exactly what the reviewed plan said it would.
+    """
+    graph_merge = Neo4jGraphMergeAdapter(_make_driver(settings))
+    ledger = planned_entry_ledger(JSONLMergeLedger(settings.merge_ledger_path), plan)
+    use_case = RollbackMergeUseCase(ledger=ledger, graph_merge=graph_merge)
+    return use_case, [graph_merge]
