@@ -11,6 +11,9 @@ planner reads from the live canonical, then asserts the pure domain output:
   ``chunk_index``/``source_page`` against the live edges' properties,
 * the predicted census arithmetic and the mirror prediction (mirrors are only
   expected from ``both``/``unknown`` fallbacks),
+* the post-apply census comparison (``compare_census``): plain arithmetic —
+  no ``-1`` for provenance-decided entries, whose direction-aware removal
+  leaves the db-wide RELATED total unchanged,
 * the fingerprint's stability (same plan -> same hash, changed direction ->
   different hash),
 * the plan's entry copy carries the inferred directions without mutating the
@@ -30,11 +33,15 @@ from book_graph_rag.domain.merge_ledger_models import (
     MergeLedgerEntry,
 )
 from book_graph_rag.domain.rollback_plan_models import (
+    ActualEntryOutcome,
+    EdgeCensus,
     PredictedCensus,
     RelatedEdgeObservation,
     RelatedEdgeProbe,
+    RollbackMeasurement,
     build_entry_plan,
     build_rollback_plan,
+    compare_census,
     infer_related_direction,
 )
 
@@ -508,3 +515,74 @@ def test_fingerprint_changes_when_the_provenance_decision_changes() -> None:
     assert decided.plans[0].inferred_entry.edge_inverse_map[0].direction == "out"
     assert fallback.plans[0].inferred_entry.edge_inverse_map[0].direction is None
     assert fallback.plans[0].predicted.predicted_mirrors == 1
+
+
+# --- Post-apply census (compare_census) --------------------------------------
+
+
+def _census(*, total_related: int, merged_into_count: int) -> EdgeCensus:
+    """Census shell: only ``total_related``/``merged_into_count`` move per rollback."""
+    return EdgeCensus(
+        mentions_by_entity={_DUP: 0, _CANON: 0},
+        related_by_entity={_DUP: 1, _CANON: 1},
+        total_mentions=0,
+        total_related=total_related,
+        merged_into_count=merged_into_count,
+    )
+
+
+def test_compare_census_expects_plain_arithmetic_for_a_provenance_decision() -> None:
+    """Provenance decision -> direction-aware removal -> net 0 RELATED, no drift.
+
+    The old remove step deleted BOTH live canonical directions, so
+    ``compare_census`` compensated with ``-1`` per provenance-decided entry.
+    The removal now deletes only the decided direction: the duplicate regains
+    its direction and the canonical keeps its own reverse edge, so the db-wide
+    total is unchanged and the plain arithmetic (``+2`` only per unknown
+    fallback) must pass with no drift — no ``-1`` anywhere.
+    """
+    entry = _entry([_related(chunk_index=_LOSER_CHUNK)])
+    plan = build_rollback_plan(
+        [build_entry_plan(entry, [_obs_edges(0, [_live(_LOSER_CHUNK)], [_live(99)])])]
+    )
+    inference = plan.plans[0].inferences[0]
+    assert inference.rule == "provenance"
+    assert inference.applied_direction == "out"
+    assert plan.predicted.related_restored == 1
+    assert plan.predicted.predicted_mirrors == 0  # provenance-decided entry
+
+    before = _census(total_related=2, merged_into_count=1)
+    # -1 re-pointed direction removed, +1 restored: total unchanged at 2.
+    after = _census(total_related=2, merged_into_count=0)
+    measurement = RollbackMeasurement(
+        outcomes=[ActualEntryOutcome(seq=305, related_restored=1, mirrors_created=0)],
+        census=after,
+    )
+
+    comparison = compare_census(plan, before, measurement)
+
+    assert comparison.drift == []
+    assert comparison.passed is True
+    assert comparison.related_restored == 1
+    assert comparison.mirrors_created == 0
+
+
+def test_compare_census_still_expects_plus_two_for_an_unknown_fallback() -> None:
+    """An unknown fallback still removes nothing and restores both: +2 RELATED."""
+    entry = _entry([_related(chunk_index=_LOSER_CHUNK)])
+    plan = build_rollback_plan([build_entry_plan(entry, [_obs_edges(0, [], [])])])
+    assert plan.predicted.fallback_unknown == 1
+    assert plan.predicted.related_restored == 2
+    assert plan.predicted.predicted_mirrors == 1
+
+    before = _census(total_related=0, merged_into_count=1)
+    after = _census(total_related=2, merged_into_count=0)
+    measurement = RollbackMeasurement(
+        outcomes=[ActualEntryOutcome(seq=305, related_restored=2, mirrors_created=1)],
+        census=after,
+    )
+
+    comparison = compare_census(plan, before, measurement)
+
+    assert comparison.drift == []
+    assert comparison.passed is True

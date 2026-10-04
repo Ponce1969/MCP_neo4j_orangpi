@@ -21,8 +21,16 @@ Case 3 (provenance ``out``): mirrors the production batch-1 shape — the
 canonical holds both directions of the same type while only
 ``canonical -> other`` carries the duplicate's captured ``chunk_index``. The
 geometric probe says ``both``, the provenance rule resolves ``out`` (rule
-``provenance``), the plan predicts 0 mirrors and apply restores exactly the
-duplicate's original direction.
+``provenance``), the plan predicts 0 mirrors, and apply restores exactly the
+duplicate's original direction while the canonical **keeps its own reverse
+edge** (the removal is direction-aware: it consumes only the re-pointed
+direction).
+
+Case 4 (legacy ``direction=None`` in the same batch-1 shape): the direction is
+undecidable (no usable chunk_index), so the documented limit applies — BOTH
+live canonical directions are removed, the duplicate regains both (one
+reported mirror) and the compensating entry stays direction-less. That limit
+is pinned on purpose, not by accident.
 
 The plan is produced twice to prove the fingerprint is stable across runs
 (that is what ``--expect-fingerprint`` binds to the reviewed review).
@@ -438,7 +446,8 @@ def test_provenance_decides_out_and_restores_one_direction_without_a_mirror(
     ``canonical -> other`` carries the duplicate's captured ``chunk_index``.
     The plan must record the ``provenance`` rule, predict zero mirrors and —
     once applied — restore exactly the duplicate's original direction with no
-    mirror in either direction.
+    mirror, while the canonical **keeps its own reverse edge** (the removal
+    is direction-aware and consumes only the re-pointed direction).
     """
     settings = _cli_settings(neo4j_settings, tmp_path)
     _seed_provenance_case(settings)
@@ -490,7 +499,13 @@ def test_provenance_decides_out_and_restores_one_direction_without_a_mirror(
     plan_again = _plan_cli(runner, settings, monkeypatch)
     assert plan_again["fingerprint"] == fingerprint
 
-    # 2. Apply behind the §7.2 gate with the reviewed fingerprint.
+    # 2. Graph counted BEFORE the apply: both canonical directions are live.
+    canon_to_other_before = _related_count(settings, source=_CANON, target=_OTHER)
+    other_to_canon_before = _related_count(settings, source=_OTHER, target=_CANON)
+    assert canon_to_other_before == 1
+    assert other_to_canon_before == 1
+
+    # 3. Apply behind the §7.2 gate with the reviewed fingerprint.
     result = runner.invoke(
         cli,
         [
@@ -514,21 +529,123 @@ def test_provenance_decides_out_and_restores_one_direction_without_a_mirror(
     assert "mirrors created: 0 (predicted 0)" in result.output
     assert "drift: none" in result.output
 
-    # 3. Graph: exactly the duplicate's direction, no mirror counted either way.
+    # 4. Graph: exactly the duplicate's direction, no mirror anywhere, and the
+    # canonical's own reverse edge is preserved (never the merge's business).
+    # (a) The duplicate regains its original direction only.
     assert _related_count(settings, source=_DUP, target=_OTHER) == 1
     assert _related_count(settings, source=_OTHER, target=_DUP) == 0, (
         "mirror created: the provenance decision must restore one direction only"
     )
+    # (b) The canonical keeps its own reverse edge: the direction-aware removal
+    # consumed only the re-pointed (loser's) direction.
     assert _related_count(settings, source=_CANON, target=_OTHER) == 0
-    assert _related_count(settings, source=_OTHER, target=_CANON) == 0, (
-        "the unchanged canonical-edge removal consumes the reverse live edge"
+    assert _related_count(settings, source=_OTHER, target=_CANON) == other_to_canon_before == 1, (
+        "the canonical's own reverse edge must be preserved, not consumed"
     )
+    # (c) No mirror was created: each direction appears at most once and the
+    # total across each pair is exactly the one edge that belongs to it.
+    duplicate_pair = _related_count(settings, source=_DUP, target=_OTHER) + _related_count(
+        settings, source=_OTHER, target=_DUP
+    )
+    canonical_pair = _related_count(settings, source=_CANON, target=_OTHER) + _related_count(
+        settings, source=_OTHER, target=_CANON
+    )
+    assert duplicate_pair == 1, f"duplicate pair holds {duplicate_pair} edges, expected 1"
+    assert canonical_pair == 1, f"canonical pair holds {canonical_pair} edges, expected 1"
     assert _mention_target(settings) == _DUP
     assert _merged_into(settings) is None
 
-    # 4. Ledger: compensating entry records the provenance-decided direction.
+    # 5. Ledger: compensating entry records the provenance-decided direction.
     entries = ledger.read_all()
     assert len(entries) == 2
     assert entries[1].rollback_of == _SEQ
     assert entries[1].edge_inverse_map[1].direction == "out"
+    ledger.verify_chain()
+
+
+def test_legacy_directionless_entry_still_deletes_both_canonical_directions(
+    neo4j_settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Documented limit: ``direction=None`` removes BOTH canonical directions.
+
+    Same batch-1 graph shape as the provenance case, but the ledger entry was
+    written before direction tracking and carries no usable ``chunk_index``,
+    so the direction is undecidable: the rollback cannot tell which of the two
+    live canonical directions is the duplicate's and must keep the legacy
+    both-directions removal. The canonical loses BOTH edges, the duplicate
+    regains both (one mirror, predicted and reported) and the compensating
+    entry stays direction-less. Pinned on purpose: this is the documented
+    limit, not an accident.
+    """
+    settings = _cli_settings(neo4j_settings, tmp_path)
+    _seed_provenance_case(settings)
+
+    ledger_path = tmp_path / "merge_ledger.jsonl"
+    ledger = JSONLMergeLedger(ledger_path)
+    ledger.append(_legacy_entry())  # direction=None, no chunk_index -> undecidable
+    assert len(ledger.read_all()) == 1
+
+    backup = tmp_path / "backup.json"
+    backup.write_text("{}", encoding="utf-8")
+    approval = tmp_path / "approval.txt"
+    approval.write_text("approve", encoding="utf-8")
+
+    runner = CliRunner()
+
+    # 1. Plan: geometry both, direction undecidable -> legacy both-ways fallback.
+    plan = _plan_cli(runner, settings, monkeypatch)
+    assert plan["predicted"] == {
+        "mentions_restored": 1,
+        "related_restored": 2,
+        "directions_inferred": 0,
+        "fallback_both": 1,
+        "fallback_unknown": 0,
+        "predicted_mirrors": 1,
+    }
+    inference = plan["plans"][0]["inferences"][0]
+    assert inference["fallback"] is True
+    assert inference["applied_direction"] is None
+    assert "legacy both-ways restore" in inference["reason"]
+    fingerprint = plan["fingerprint"]
+
+    # 2. Apply behind the §7.2 gate with the reviewed fingerprint.
+    result = runner.invoke(
+        cli,
+        [
+            "ledger",
+            "rollback",
+            "--seq",
+            str(_SEQ),
+            "--apply",
+            "--backup",
+            str(backup),
+            "--approval",
+            str(approval),
+            "--expect-fingerprint",
+            fingerprint,
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "related restored: 2 (predicted 2)" in result.output
+    assert "mirrors created: 1 (predicted 1)" in result.output
+    assert "drift: none" in result.output
+
+    # 3. The documented limit, pinned: BOTH canonical directions are gone and
+    # the duplicate holds BOTH directions (one restore + one legacy mirror).
+    assert _related_count(settings, source=_CANON, target=_OTHER) == 0
+    assert _related_count(settings, source=_OTHER, target=_CANON) == 0, (
+        "direction=None must keep the legacy both-directions removal (documented limit)"
+    )
+    assert _related_count(settings, source=_DUP, target=_OTHER) == 1
+    assert _related_count(settings, source=_OTHER, target=_DUP) == 1
+    assert _mention_target(settings) == _DUP
+    assert _merged_into(settings) is None
+
+    # 4. Ledger: the compensating entry stays direction-less too.
+    entries = ledger.read_all()
+    assert len(entries) == 2
+    assert entries[1].rollback_of == _SEQ
+    assert entries[1].edge_inverse_map[1].direction is None
     ledger.verify_chain()

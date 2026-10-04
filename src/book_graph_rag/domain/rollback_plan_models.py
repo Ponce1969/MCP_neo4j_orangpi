@@ -372,14 +372,14 @@ def _build_inference(
     # loser's captured properties (chunk_index/source_page on the live edge).
     direction, evidence = provenance_direction(inverse, probe)
     if direction is not None:
-        consumed = (
-            "the unchanged canonical-edge removal also consumes the reverse "
-            "live edge (predicted net -1 RELATED on the batch census)"
+        scoped = (
+            "the direction-aware removal deletes only that direction "
+            "(the canonical keeps its own reverse edge; census net 0)"
         )
         if direction == "out":
-            reason = f"provenance: {evidence}: original was dup -> other (out); {consumed}"
+            reason = f"provenance: {evidence}: original was dup -> other (out); {scoped}"
         else:
-            reason = f"provenance: {evidence}: original was other -> dup (in); {consumed}"
+            reason = f"provenance: {evidence}: original was other -> dup (in); {scoped}"
         return DirectionInference(
             seq=entry.seq,
             map_index=index,
@@ -567,10 +567,9 @@ def compare_census(
     restored edges and mirrors, batch mentions/related totals, the
     ``merged_into`` delta (one cleared marker per rolled-back duplicate) and
     the db-wide totals (mentions only move; related grows by 2 only for each
-    ``unknown`` fallback whose canonical edge was already gone and shrinks by 1
-    for each provenance-decided entry: its geometry was ``both``, so the
-    unchanged canonical-edge removal deletes BOTH live directions while only
-    one restore runs).
+    ``unknown`` fallback whose canonical edge was already gone — a
+    provenance-decided entry nets 0 because the direction-aware removal
+    deletes only the re-pointed direction and the restore recreates it).
     """
     drift: list[str] = []
     outcomes = {outcome.seq: outcome for outcome in measurement.outcomes}
@@ -628,16 +627,9 @@ def compare_census(
             f"{measurement.census.total_mentions} (mentions must only move)"
         )
     expected_related_total = census_before.total_related + 2 * plan.predicted.fallback_unknown
-    # A provenance-decided entry always comes from a both-directions geometry:
-    # the unchanged remove step deletes BOTH live canonical edges while only
-    # the resolved direction is restored, so the db-wide RELATED total nets -1.
-    provenance_collapses = sum(
-        1
-        for entry_plan in plan.plans
-        for inference in entry_plan.inferences
-        if inference.rule == "provenance"
-    )
-    expected_related_total -= provenance_collapses
+    # Plain arithmetic: a provenance-decided entry nets 0 (its direction-aware
+    # removal deletes the re-pointed direction and the restore recreates it),
+    # so no per-entry compensation is needed anymore.
     if measurement.census.total_related != expected_related_total:
         drift.append(
             f"RELATED total {census_before.total_related} -> "

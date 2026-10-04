@@ -151,12 +151,25 @@ WHERE (c.id = inv.original_other_endpoint_id)
 DELETE m
 """
 
+# Delete the canonical-side edges this merge created, one direction per entry.
+# ``direction`` is the orientation captured relative to the duplicate and
+# re-pointed onto the canonical (``out`` -> canon->other, ``in`` -> other->canon),
+# so a decided entry removes ONLY that direction and the canonical's own reverse
+# edge — which the merge never created — survives. ``direction IS NULL``
+# (pre-R1 ledger entries, or a direction the plan could not decide) keeps the
+# legacy BOTH-directions removal: one of the two live edges is the duplicate's
+# and there is no way to tell which.
 _ROLLBACK_REMOVE_CANON_RELATED = """
 UNWIND $related AS inv
 MATCH (canon:Entity {id: $canonical_id})-[r:RELATED]-(other:Entity {
     id: inv.original_other_endpoint_id
 })
 WHERE r.type = inv.edge_properties.type
+  AND (
+    inv.direction IS NULL
+    OR (inv.direction = 'out' AND startNode(r) = canon)
+    OR (inv.direction = 'in' AND endNode(r) = canon)
+  )
 DELETE r
 """
 
@@ -328,11 +341,17 @@ class Neo4jGraphMergeAdapter(GraphMergePort):
 
         Direction compatibility rule (debt R1): every RELATED inverse entry
         carries the orientation captured at merge time. When ``direction`` is
-        known (``"out"`` / ``"in"``, relative to the duplicate) only that
-        orientation is restored, so a rollback rebuilds exactly the edges that
-        existed before the merge. When ``direction`` is ``None`` — entries
-        written before direction tracking landed (the historical ledger) — the
-        legacy behavior is kept: BOTH restore statements run for that entry,
+        known (``"out"`` / ``"in"``, relative to the duplicate) both steps are
+        direction-aware: the removal deletes only the re-pointed direction from
+        the canonical (``out`` -> canon->other, ``in`` -> other->canon), leaving
+        the canonical's own reverse edge untouched, and only that orientation is
+        restored, so a rollback rebuilds exactly the edges that existed before
+        the merge. When ``direction`` is ``None`` — entries written before
+        direction tracking landed (the historical ledger), or a direction the
+        plan could not decide — the legacy behavior is kept: the removal
+        deletes BOTH directions (one of the two live canonical edges is the
+        duplicate's and there is no way to tell which) and BOTH restore
+        statements run for that entry,
         rebuilding a mirror direction that may never have existed. MENTIONS
         entries always keep ``direction=None``, which is unambiguous because
         the MENTIONS restore is single-directional by schema.
