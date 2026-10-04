@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
+from book_graph_rag.application.plan_rollback_use_case import PlanRollbackUseCase
 from book_graph_rag.domain.merge_ledger_models import (
     EdgeInverseMap,
     MergeBand,
@@ -40,11 +41,16 @@ from book_graph_rag.domain.rollback_plan_models import (
     build_rollback_plan,
 )
 from book_graph_rag.main import cli
+from book_graph_rag.ports.merge_ledger_port import MergeLedgerPort
+from book_graph_rag.ports.rollback_plan_port import RollbackPlanPort
 
 _CANON = "graphrag-agentic:api-calls-tool"
 _DUP = "agentic-patterns:api-calls-tool"
+_DUP_B = "essential-graphrag:api-calls-tool"
 _OTHER = "graphrag-agentic:tool-invocation"
+_OTHER_B = "graphrag-agentic:tool-router"
 _CHUNK = "graphrag-agentic:chunk-7"
+_CHUNK_B = "graphrag-agentic:chunk-8"
 _SEQ = 305
 
 
@@ -85,6 +91,62 @@ def _plan() -> RollbackPlan:
                 probe=RelatedEdgeProbe(a_to_b=True, b_to_a=False),
             )
         ],
+    )
+    return build_rollback_plan([entry_plan])
+
+
+def _multi_entry() -> MergeLedgerEntry:
+    """A 2-candidate entry (T8f): one MENTIONS + one RELATED per candidate."""
+    return MergeLedgerEntry(
+        seq=_SEQ,
+        candidate_ids=[_DUP, _DUP_B],
+        canonical_id=_CANON,
+        band=MergeBand.EXACT,
+        evidence=[],
+        aliases_folded=[],
+        edge_inverse_map=[
+            EdgeInverseMap(
+                edge_kind="MENTIONS",
+                duplicate_entity_id=_DUP,
+                original_other_endpoint_id=_CHUNK,
+                edge_properties={"source_page": 3},
+            ),
+            EdgeInverseMap(
+                edge_kind="RELATED",
+                duplicate_entity_id=_DUP,
+                original_other_endpoint_id=_OTHER,
+                edge_properties={"type": "requires", "source_page": 4},
+            ),
+            EdgeInverseMap(
+                edge_kind="MENTIONS",
+                duplicate_entity_id=_DUP_B,
+                original_other_endpoint_id=_CHUNK_B,
+                edge_properties={"source_page": 5},
+            ),
+            EdgeInverseMap(
+                edge_kind="RELATED",
+                duplicate_entity_id=_DUP_B,
+                original_other_endpoint_id=_OTHER_B,
+                edge_properties={"type": "requires", "source_page": 6},
+            ),
+        ],
+        approver="auto:bypass",
+        applied_at=datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC),
+    )
+
+
+def _partial_plan() -> RollbackPlan:
+    """Plan of the 2-candidate entry restricted to ``_DUP`` (1 of 2)."""
+    entry_plan = build_entry_plan(
+        _multi_entry(),
+        [
+            RelatedEdgeObservation(
+                seq=_SEQ,
+                map_index=1,
+                probe=RelatedEdgeProbe(a_to_b=True, b_to_a=False),
+            )
+        ],
+        selected_candidates=[_DUP],
     )
     return build_rollback_plan([entry_plan])
 
@@ -136,9 +198,15 @@ class _StubPlanUseCase:
         self.plan_result = plan
         self.measurement_result = measurement
         self.plan_calls: list[tuple[int, ...]] = []
+        self.plan_candidates: list[tuple[str, ...] | None] = []
 
-    async def plan(self, seqs: Sequence[int]) -> RollbackPlan:
+    async def plan(
+        self,
+        seqs: Sequence[int],
+        candidates: Sequence[str] | None = None,
+    ) -> RollbackPlan:
         self.plan_calls.append(tuple(seqs))
+        self.plan_candidates.append(None if candidates is None else tuple(candidates))
         return self.plan_result
 
     async def read_census(self, plan: RollbackPlan) -> EdgeCensus:
@@ -171,8 +239,11 @@ def _install(
     *,
     measurement: RollbackMeasurement | None = None,
     forbid_gate: bool = False,
+    plan: RollbackPlan | None = None,
 ) -> _Harness:
     harness = _Harness(measurement or _measurement())
+    if plan is not None:
+        harness.plan_use_case = _StubPlanUseCase(plan, measurement or _measurement())
 
     class _StubSettings:
         @classmethod
@@ -427,3 +498,165 @@ def test_post_apply_mismatch_exits_non_zero(
     assert result.exit_code == 1
     assert "mirrors created: 1 (predicted 0)" in result.output
     assert "MISMATCH" in result.output
+
+
+# ── T8f: --candidate partial rollback ────────────────────────────────────────
+
+
+def test_candidate_requires_exactly_one_seq() -> None:
+    """A candidate selection belongs to one seq: 0 or 2 --seq values -> exit 2."""
+    runner = CliRunner()
+
+    no_seq = runner.invoke(cli, ["ledger", "rollback", "--candidate", _DUP])
+    assert no_seq.exit_code == 2
+    assert "candidate selection belongs to exactly one --seq" in no_seq.output
+
+    two_seqs = runner.invoke(
+        cli,
+        ["ledger", "rollback", "--seq", "1", "--seq", "2", "--candidate", _DUP],
+    )
+    assert two_seqs.exit_code == 2
+    assert "candidate selection belongs to exactly one --seq" in two_seqs.output
+
+
+def test_candidate_selection_reaches_the_plan_and_marks_the_report_partial(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--candidate + one --seq: the selection reaches plan() and the report says partial."""
+    harness = _install(monkeypatch, forbid_gate=True, plan=_partial_plan())
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        ["ledger", "rollback", "--seq", str(_SEQ), "--candidate", _DUP],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert harness.plan_use_case.plan_calls == [(_SEQ,)]
+    assert harness.plan_use_case.plan_candidates == [(_DUP,)]
+    assert f"candidates: {_DUP} (partial 1/2 of " in result.output
+    # The next: hint repeats the --candidate flag so --apply carries the same selection.
+    assert f"--candidate {_DUP}" in result.output
+    assert harness.apply_builder_calls == 0
+    assert harness.apply_use_case.rolled == []
+
+    json_result = runner.invoke(
+        cli,
+        ["ledger", "rollback", "--seq", str(_SEQ), "--candidate", _DUP, "--json"],
+    )
+    assert json_result.exit_code == 0, json_result.output
+    payload = json.loads(json_result.output)
+    assert payload["plans"][0]["selected_candidates"] == [_DUP]
+    assert payload["plans"][0]["inferred_entry"]["candidate_ids"] == [_DUP]
+    assert len(payload["fingerprint"]) == 64
+
+
+def test_apply_carries_the_candidate_selection_to_the_recomputed_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--apply recomputes the plan with the same selection (same fingerprint gate)."""
+    harness = _install(monkeypatch, plan=_partial_plan())
+    backup, approval = _gate_files(tmp_path)
+    fingerprint = harness.plan_use_case.plan_result.fingerprint
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "ledger",
+            "rollback",
+            "--seq",
+            str(_SEQ),
+            "--candidate",
+            _DUP,
+            "--apply",
+            "--backup",
+            str(backup),
+            "--approval",
+            str(approval),
+            "--expect-fingerprint",
+            fingerprint,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert harness.plan_use_case.plan_candidates == [(_DUP,)]
+    assert f"fingerprint ok: {fingerprint}" in result.output
+    assert harness.apply_use_case.rolled == [_SEQ]
+    assert "drift: none" in result.output
+
+
+def test_unknown_candidate_exits_non_zero_before_any_apply(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An id that is not a candidate of the entry fails before any mutation.
+
+    Wires the REAL ``PlanRollbackUseCase`` (fake ledger + fake probe port over
+    the 2-candidate entry) so the domain validation runs end-to-end: the
+    unknown ``--candidate`` must exit non-zero with the id in the message and
+    the apply builder must never run — the missing test the verifier flagged.
+    """
+    harness = _install(monkeypatch)
+    backup, approval = _gate_files(tmp_path)
+
+    class _LocalLedger(MergeLedgerPort):
+        def __init__(self) -> None:
+            self._entries = [_multi_entry()]
+
+        def append(self, entry: MergeLedgerEntry) -> None:
+            raise AssertionError("the plan phase is read-only: no append expected")
+
+        def read_all(self) -> list[MergeLedgerEntry]:
+            return list(self._entries)
+
+        def read_by_seq(self, seq: int) -> MergeLedgerEntry | None:
+            return self._entries[0] if seq == _SEQ else None
+
+        def verify_chain(self) -> None:
+            return None
+
+    class _LocalPlanPort(RollbackPlanPort):
+        async def probe_related_edges(
+            self,
+            *,
+            a_id: str,
+            b_id: str,
+            edge_type: str,
+        ) -> RelatedEdgeProbe:
+            return RelatedEdgeProbe(a_to_b=True, b_to_a=False)
+
+        async def read_edge_census(self, entity_ids: list[str]) -> EdgeCensus:
+            raise AssertionError("the plan fails before any census is read")
+
+    real_use_case = PlanRollbackUseCase(
+        ledger=_LocalLedger(),
+        plan_port=_LocalPlanPort(),
+    )
+    monkeypatch.setattr(
+        "book_graph_rag.main.build_plan_rollback_use_case",
+        lambda settings: (real_use_case, []),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "ledger",
+            "rollback",
+            "--seq",
+            str(_SEQ),
+            "--candidate",
+            "graphrag-agentic:tool-oracle",
+            "--apply",
+            "--backup",
+            str(backup),
+            "--approval",
+            str(approval),
+        ],
+    )
+
+    assert result.exit_code != 0, result.output
+    assert "tool-oracle" in result.output, "the offending id must be named"
+    assert harness.apply_builder_calls == 0, "no apply builder may run"
+    assert harness.apply_use_case.rolled == []

@@ -99,7 +99,11 @@ class PlanRollbackUseCase:
         self._ledger = ledger
         self._plan_port = plan_port
 
-    async def plan(self, seqs: Sequence[int]) -> RollbackPlan:
+    async def plan(
+        self,
+        seqs: Sequence[int],
+        candidates: Sequence[str] | None = None,
+    ) -> RollbackPlan:
         """Build the read-only plan for every requested seq, in order.
 
         Fails closed: a broken chain raises ``LedgerChainBroken``, a missing
@@ -108,8 +112,33 @@ class PlanRollbackUseCase:
         for an executable plan. The probe's edge properties travel with each
         observation so ``build_entry_plan`` can run the provenance rule after
         the geometric one.
+
+        ``candidates`` selects a subset of ONE entry's candidates (partial
+        rollback, T8f): with more than one seq there is no single entry to
+        select from, so ``RollbackTargetInvalid`` is raised before any read.
+        When given, only the selected candidates' RELATED inverse entries are
+        probed and the resulting plan carries the selection (the census, the
+        affected entities and the fingerprint all cover only it).
+
+        Overlap rule (fail closed at plan time): compensating entries for the
+        seq record the candidates they already reversed, so any requested
+        candidate that overlaps that compensated set would be re-reversed by
+        the apply (a second compensating entry claiming it again) and only
+        fail later in ``compare_census`` — after the graph was mutated. The
+        plan therefore raises ``MergeNotReversible`` BEFORE any probe, naming
+        the overlap and pointing at the explicit ``--candidate`` path for the
+        remaining candidates, so the plan always equals the mutation. The
+        candidate-aware union check inside ``RollbackMergeUseCase`` stays as
+        the defensive backstop (direct drives, or a ledger that changes
+        between plan and apply).
         """
+        if candidates is not None and len(seqs) != 1:
+            raise RollbackTargetInvalid(
+                f"A candidate selection applies to exactly one seq (got {len(seqs)} seqs)"
+            )
         self._ledger.verify_chain()
+        selected = list(candidates) if candidates is not None else None
+        selected_set = set(selected) if selected is not None else None
         entry_plans = []
         for seq in seqs:
             entry = self._ledger.read_by_seq(seq)
@@ -120,9 +149,37 @@ class PlanRollbackUseCase:
                     f"Entry seq={seq} is already a compensating rollback "
                     f"(rollback_of={entry.rollback_of})"
                 )
+            # Fail closed before any probe: a candidate already compensated by
+            # a prior rollback must never reach the graph again.
+            compensated: set[str] = set()
+            for prior in self._ledger.read_all():
+                if prior.rollback_of == seq:
+                    compensated.update(prior.candidate_ids)
+            requested = set(candidates) if candidates is not None else set(entry.candidate_ids)
+            overlap = sorted(requested & compensated)
+            if overlap:
+                remaining = sorted(requested - compensated)
+                if remaining:
+                    hint = (
+                        "request only the remaining candidates explicitly with "
+                        "--candidate: "
+                        + " ".join(f"--candidate {candidate}" for candidate in remaining)
+                    )
+                else:
+                    hint = (
+                        "no uncompensated candidates remain for this entry; "
+                        "there is nothing left to roll back"
+                    )
+                raise MergeNotReversible(
+                    f"Entry seq={seq} overlaps prior compensations: already-"
+                    f"compensated candidates {sorted(compensated)}, requested "
+                    f"{sorted(requested)}, overlap {overlap}. {hint}"
+                )
             observations: list[RelatedEdgeObservation] = []
             for index, inverse in enumerate(entry.edge_inverse_map):
                 if inverse.edge_kind != "RELATED":
+                    continue
+                if selected_set is not None and inverse.duplicate_entity_id not in selected_set:
                     continue
                 probe = await self._plan_port.probe_related_edges(
                     a_id=entry.canonical_id,
@@ -132,7 +189,7 @@ class PlanRollbackUseCase:
                 observations.append(
                     RelatedEdgeObservation(seq=entry.seq, map_index=index, probe=probe)
                 )
-            entry_plans.append(build_entry_plan(entry, observations))
+            entry_plans.append(build_entry_plan(entry, observations, selected_candidates=selected))
         return build_rollback_plan(entry_plans)
 
     async def read_census(self, plan: RollbackPlan) -> EdgeCensus:

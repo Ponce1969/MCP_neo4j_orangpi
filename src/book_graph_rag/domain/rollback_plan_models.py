@@ -161,19 +161,31 @@ class PredictedCensus(BaseModel):
 
 
 class RollbackEntryPlan(BaseModel):
-    """Read-only plan for one ledger seq."""
+    """Read-only plan for one ledger seq.
+
+    ``selected_candidates`` is the T8f partial-rollback selection: ``None``
+    means the whole entry (the historic behaviour, bit-identical), a list is
+    the validated, entry-ordered subset this plan reverses — then ``entry``
+    stays the stored whole entry while ``inferred_entry``, the inferences,
+    the predicted census and ``affected_entities`` cover only the selection.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     seq: int
     #: The entry exactly as stored (legacy ``direction=None`` preserved).
     entry: MergeLedgerEntry
-    #: Copy of ``entry`` with directions filled where inference succeeded.
+    #: Copy of ``entry`` with directions filled where inference succeeded;
+    #: for a partial plan it additionally carries the filtered candidate_ids,
+    #: inverse map and folded aliases of the selection.
     inferred_entry: MergeLedgerEntry
     inferences: list[DirectionInference]
     predicted: PredictedCensus
     #: Canonical + duplicates + other endpoints touched by this rollback.
     affected_entities: list[str]
+    #: ``None`` = the whole entry; a list = partial rollback of exactly these
+    #: candidates (non-empty subset of ``entry.candidate_ids``, entry order).
+    selected_candidates: list[str] | None = None
 
 
 class RollbackPlan(BaseModel):
@@ -184,7 +196,12 @@ class RollbackPlan(BaseModel):
     ledger+graph state always yields the same hash and any changed direction
     changes it. The graph census is deliberately not fingerprinted: unrelated
     graph activity must not invalidate a reviewed plan, only the plan's own
-    inputs (entries + inference verdicts).
+    inputs (entries + inference verdicts + the candidate selection).
+
+    A tool change that adds a plan field (T8f's ``selected_candidates``) does
+    change every fingerprint — the ``--expect-fingerprint`` guard then fails
+    closed, which is the correct behaviour: a reviewed plan must be
+    re-reviewed after a tool change.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -452,9 +469,71 @@ def _predicted_census(
     )
 
 
+def _normalize_selection(
+    entry: MergeLedgerEntry,
+    selected_candidates: Sequence[str] | None,
+) -> list[str] | None:
+    """Validate the T8f candidate selection and return it in entry order.
+
+    ``None`` means "the whole entry" and stays ``None``. Otherwise the
+    selection must be a non-empty subset of ``entry.candidate_ids`` — an empty
+    selection or any non-candidate id raises ``ValueError`` (fail-closed: a
+    typo in ``--candidate`` must never widen or silently shrink the rollback).
+    The returned order is the entry's own ``candidate_ids`` order so the same
+    selection always yields the same plan (and the same fingerprint).
+
+    Data-model limitation (fail closed): ``FoldedAlias`` records only
+    ``from_entity_id`` + ``alias_value`` and the canonical's alias list keeps
+    NO provenance of which candidate contributed a value, while
+    ``Neo4jGraphMergeAdapter._ROLLBACK_REMOVE_ALIASES`` removes folded aliases
+    from the canonical **by value**. If a selected candidate and a
+    NON-selected candidate folded the same value, a partial rollback would
+    delete the still-merged candidate's alias from the canonical (data loss),
+    so such a selection is refused with ``ValueError``. The whole entry (or
+    every candidate of it) removes exactly the values it folded and stays
+    allowed.
+    """
+    if selected_candidates is None:
+        return None
+    requested = set(selected_candidates)
+    if not requested:
+        raise ValueError(
+            f"selected_candidates for entry seq={entry.seq} must be non-empty "
+            "(omit the selection to roll back the whole entry)"
+        )
+    unknown = requested - set(entry.candidate_ids)
+    if unknown:
+        raise ValueError(
+            f"selected_candidates for entry seq={entry.seq} must be a subset of "
+            f"its candidate_ids; not a candidate: {sorted(unknown)}"
+        )
+    selected_values: dict[str, list[str]] = {}
+    other_values: dict[str, list[str]] = {}
+    for alias in entry.aliases_folded:
+        bucket = selected_values if alias.from_entity_id in requested else other_values
+        bucket.setdefault(alias.alias_value, []).append(alias.from_entity_id)
+    shared = sorted(set(selected_values) & set(other_values))
+    if shared:
+        details = "; ".join(
+            f"{value!r} folded by selected {sorted(selected_values[value])} "
+            f"and non-selected {sorted(other_values[value])}"
+            for value in shared
+        )
+        raise ValueError(
+            f"partial rollback of entry seq={entry.seq} refused: shared alias "
+            f"value(s): {details}. The ledger records folded aliases by value "
+            "only and Neo4jGraphMergeAdapter._ROLLBACK_REMOVE_ALIASES removes "
+            "them from the canonical by value, so reviving the selected "
+            "candidate would delete the non-selected candidate's alias from "
+            "the canonical (data loss); roll back the whole entry instead"
+        )
+    return [candidate for candidate in entry.candidate_ids if candidate in requested]
+
+
 def build_entry_plan(
     entry: MergeLedgerEntry,
     observations: Sequence[RelatedEdgeObservation],
+    selected_candidates: Sequence[str] | None = None,
 ) -> RollbackEntryPlan:
     """Build the read-only plan for one entry (pure; never mutates ``entry``).
 
@@ -464,12 +543,28 @@ def build_entry_plan(
     inference; entries that already carry a direction are reported but kept as
     recorded. Missing observations behave as ``unknown`` (fail-safe: the
     legacy restore is kept and reported rather than guessed).
+
+    ``selected_candidates`` (T8f) narrows the plan to a validated subset of
+    ``entry.candidate_ids``: the inverse map is filtered by
+    ``duplicate_entity_id``, the folded aliases by ``from_entity_id``, the
+    ``inferred_entry`` carries the selected ``candidate_ids``, and the
+    inferences, predicted census and affected entities cover ONLY the
+    selection (directions are still inferred over the filtered RELATED
+    entries — the provenance rule is unchanged). ``None`` keeps the whole
+    entry behaviour bit-identical to the pre-T8f plan. Validation is
+    fail-closed: unknown ids are refused, and so is a selection sharing a
+    folded alias VALUE with a non-selected candidate (the adapter removes
+    aliases by value — data-model limitation, see :func:`_normalize_selection`).
     """
+    selected = _normalize_selection(entry, selected_candidates)
+    selected_set: frozenset[str] = frozenset(selected) if selected is not None else frozenset()
     probes = {obs.map_index: obs.probe for obs in observations}
     inferences: list[DirectionInference] = []
     new_map: list[EdgeInverseMap] = []
     others: set[str] = set()
     for index, inverse in enumerate(entry.edge_inverse_map):
+        if selected is not None and inverse.duplicate_entity_id not in selected_set:
+            continue
         if inverse.edge_kind == "MENTIONS":
             new_map.append(inverse)
             continue
@@ -482,15 +577,32 @@ def build_entry_plan(
         else:
             new_map.append(inverse.model_copy(update={"direction": inference.applied_direction}))
 
-    inferred_entry = entry.model_copy(update={"edge_inverse_map": new_map})
-    affected = sorted({entry.canonical_id, *entry.candidate_ids, *others})
+    if selected is None:
+        inferred_entry = entry.model_copy(update={"edge_inverse_map": new_map})
+        affected_candidates = list(entry.candidate_ids)
+    else:
+        # Partial plan: the copy reverses exactly the selection — filtered
+        # candidate_ids, filtered map and filtered aliases — so the later
+        # compensating entry records the subset and the chain stays verifiable.
+        inferred_entry = entry.model_copy(
+            update={
+                "edge_inverse_map": new_map,
+                "candidate_ids": list(selected),
+                "aliases_folded": [
+                    alias for alias in entry.aliases_folded if alias.from_entity_id in selected_set
+                ],
+            }
+        )
+        affected_candidates = list(selected)
+    affected = sorted({entry.canonical_id, *affected_candidates, *others})
     return RollbackEntryPlan(
         seq=entry.seq,
         entry=entry,
         inferred_entry=inferred_entry,
         inferences=inferences,
-        predicted=_predicted_census(inferences, entry.edge_inverse_map),
+        predicted=_predicted_census(inferences, new_map),
         affected_entities=affected,
+        selected_candidates=None if selected is None else list(selected),
     )
 
 
@@ -601,8 +713,9 @@ def compare_census(
 
     Every mismatch lands in ``drift`` (and fails the command): per-entry
     restored edges and mirrors, batch mentions/related totals, the
-    ``merged_into`` delta (one cleared marker per rolled-back duplicate) and
-    the db-wide totals (mentions only move; related grows by 2 only for each
+    ``merged_into`` delta (one cleared marker per rolled-back duplicate — for
+    a T8f partial plan only the SELECTION's markers are expected to clear)
+    and the db-wide totals (mentions only move; related grows by 2 only for each
     ``unknown`` fallback whose canonical edge was already gone — a
     provenance-decided entry nets 0 because the direction-aware removal
     deletes only the re-pointed direction and the restore recreates it).
@@ -631,7 +744,15 @@ def compare_census(
             )
 
     candidates = sorted(
-        {candidate for entry_plan in plan.plans for candidate in entry_plan.entry.candidate_ids}
+        {
+            candidate
+            for entry_plan in plan.plans
+            for candidate in (
+                entry_plan.selected_candidates
+                if entry_plan.selected_candidates is not None
+                else entry_plan.entry.candidate_ids
+            )
+        }
     )
     mentions_restored = sum(
         measurement.census.mentions_by_entity.get(candidate, 0)

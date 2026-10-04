@@ -211,13 +211,63 @@ maps and debt R1 corrupts exactly that population.
       **Remaining**: **180 suspicious pairs** (185 - the 5 rolled-back pairs), needs_reading 5, high risk 7, silent_same_language 14; consolidated queue
       `evidence-bundles/applied-cross-namespace-audit-consolidated-after2a-20261004.json` (972 entries / 302 cross-namespace /
       14 compensating / **288 still applied**). `seq 496` `Prompt` still deliberately retained.
-- [ ] **T8f** Partial rollback by candidate (blocked on maintainer priority).
-      **Finding from batch 2A**: a ledger entry can hold **several candidates** (`seq 480` = 2 losers) but
-      `RollbackMergeUseCase.rollback(seq)` reverses the whole entry, so a distinct concept merged alongside an
-      identity one cannot be separated without reviving both and then re-merging (or repointing) the identity one.
-      **16 of the suspicious seqs hold 2 pairs**, so this will recur in every remaining batch. Proposed: `ledger
-      rollback --candidate <id>` (plan filters the inverse map to one candidate; the compensating entry records the
-      subset), with its own tests and the same §7.2 gate.
+- [ ] **T8f** Partial rollback by candidate (`ledger rollback --candidate ENTITY_ID`).
+      **Why (finding from batch 2A)**: a ledger entry can hold **several candidates** (`seq 480` = 2 losers) but
+      `RollbackMergeUseCase.rollback(seq)` reverses the whole entry, so a distinct concept merged next to an identity
+      one cannot be separated without reviving both and then re-merging (or repointing) the identity one. **16 of the
+      remaining suspicious seqs hold 2 pairs**, so this recurs in every remaining batch.
+      **Design**:
+      - `RollbackEntryPlan` gains `selected_candidates: list[str] | None = None` (`None` = the whole entry, the current
+        behaviour).
+      - `build_entry_plan(entry, observations, selected_candidates=None)`: validate the selection as a non-empty subset
+        of `entry.candidate_ids` (order taken from the entry; a non-candidate raises `ValueError`) and, when partial,
+        filter `edge_inverse_map` by `duplicate_entity_id`, `aliases_folded` by `from_entity_id`, `candidate_ids` and
+        `affected_entities`. Inferences and the predicted census cover only the selection.
+      - `PlanRollbackUseCase.plan(seqs, candidates=None)`: when `candidates` is given, require exactly ONE seq (else
+        `RollbackTargetInvalid`) and probe only the selected candidates' RELATED entries.
+      - CLI `--candidate ENTITY_ID` (repeatable): requires exactly one `--seq` (else `click.UsageError`, exit 2); the
+        dry-run marks the entry `partial (n/m)` and the `next:` hint repeats the `--candidate` flags so `--apply`
+        carries the same selection (and therefore the same fingerprint).
+      - `RollbackMergeUseCase.rollback` idempotence becomes **candidate-aware**: an existing compensating entry for
+        `seq` covers only the candidates it recorded, so the no-op happens only when the union of prior compensations
+        covers the requested set; a complementary partial rollback of the same seq proceeds normally.
+      - The compensating entry records the selected `candidate_ids`, the filtered map and the filtered aliases, so the
+        ledger stays append-only and chain-verifiable.
+      - **No adapter change**: `Neo4jGraphMergeAdapter.rollback_merge(entry)` already reverses exactly the entry it is
+        given (`edge_inverse_map` + `candidate_ids` + `aliases_folded`).
+      - **Overlap rule (fail closed at plan time)**: `PlanRollbackUseCase.plan` unions the `candidate_ids` of every
+        prior compensating entry for the seq and raises `MergeNotReversible` BEFORE any probe when the request
+        overlaps that set (naming the overlap and the remaining `--candidate` flags). Without it, a full `--seq` after
+        a partial A would re-reverse A, append a second compensating entry claiming A again and only fail later in
+        `compare_census` — after the graph was mutated. The same refusal lives in `RollbackMergeUseCase` as the
+        backstop for a direct drive or a ledger that changed between plan and apply, so both layers enforce one rule.
+      - **Alias-value collision (fail closed)**: `build_entry_plan` refuses a partial selection whose folded alias
+        VALUE also appears under a non-selected candidate of the same entry. The ledger records folded aliases by
+        value and `_ROLLBACK_REMOVE_ALIASES` removes them from the canonical by value, so a partial rollback would
+        delete the still-merged candidate's alias (data loss). Such entries can only be rolled back whole; the
+        limitation is surfaced, never silent, and is a data-model constraint (T8f does not change the adapter).
+      **Tests (TDD, RED first)**:
+      - unit — the selection filters the model/census/aliases; a non-candidate is refused; selecting every candidate
+        equals the full plan; the fingerprint differs from the full plan; `plan()` validates the single-seq rule.
+      - unit — idempotence: partial A then partial B proceeds; partial A then partial A is a no-op; a partially
+        overlapping direct request is refused without touching the graph.
+      - unit — `plan()` refuses an overlapping request before probing (the probe port is never called) and proceeds
+        for the complementary candidate; the alias-value collision is refused while whole-entry and all-selected plans
+        stay lossless.
+      - CLI — `--candidate` without exactly one `--seq` exits 2; an unknown candidate exits non-zero before any write.
+      - integration (testcontainers, `neo4j_integration`) — a 2-candidate entry: roll back A only (A alive, B still
+        merged, canonical alive, compensating entry `[A]`, chain valid), a following full `--seq` refused in BOTH
+        dry-run and `--apply` with the ledger and B untouched, then B (all alive), then the backstop no-op driven
+        directly (no second compensating entry).
+      **Notes**: adding a field to `RollbackEntryPlan` changes every plan fingerprint; the guard fails closed, which is
+      the correct behaviour (a reviewed plan must be re-reviewed after a tool change). The consolidated retro-audit in
+      `scripts-ops/audit_applied_cross_namespace.py` still treats a partially compensated entry as fully rolled back,
+      so **T8f.2** is required before the next batch uses partial rollbacks.
+- [ ] **T8f.2** Candidate-aware compensation in the consolidated retro-audit.
+      A compensating entry records only the candidates it reversed, so the original entry's remaining candidates must
+      keep their pairs in the stratified population instead of being excluded as fully rolled back. The
+      `applied + compensating == 302` guard and the `rolled_back` flag must keep holding (decide and document whether
+      the guard becomes pair-based or coverage-based).
 - [ ] **T9** R5b: case-insensitive grouping in `duplicates_entity` via `normalize_key`, together with the cleanup of
       the 64 case-only groups (approval-gated merge), and the confirmation of how the `uniqueness` gate dimension
       treats warnings.

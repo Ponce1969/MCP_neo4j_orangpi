@@ -1423,7 +1423,9 @@ def ledger() -> None:
     census and fingerprint — without writing anything; ``--apply`` executes it
     behind the AGENTS.md §7.2 gate (fresh backup + approval file, explicit
     ``--seq`` values, never "all") and refuses when ``--expect-fingerprint``
-    does not match the recomputed plan.
+    does not match the recomputed plan. ``--candidate`` (repeatable, one
+    ``--seq`` only) restricts the rollback to a subset of the entry's
+    candidates (partial rollback).
     """
 
 
@@ -1434,6 +1436,15 @@ def ledger() -> None:
     type=int,
     multiple=True,
     help="Ledger seq to roll back (repeatable; explicit values only, never 'all').",
+)
+@click.option(
+    "--candidate",
+    "candidates",
+    multiple=True,
+    help=(
+        "Candidate entity id to reverse within the single --seq entry "
+        "(repeatable; requires exactly one --seq)."
+    ),
 )
 @click.option(
     "--apply",
@@ -1482,6 +1493,7 @@ def ledger() -> None:
 )
 def ledger_rollback(
     seqs: tuple[int, ...],
+    candidates: tuple[str, ...],
     apply_changes: bool,
     backup: Path | None,
     approval: Path | None,
@@ -1494,13 +1506,22 @@ def ledger_rollback(
 
     Read-only by default: prints the plan with its predicted edge census,
     every ``both``/``unknown`` fallback (with the reason legacy behaviour will
-    apply) and the fingerprint, writing nothing. ``--apply`` validates the
+    apply) and the fingerprint, writing nothing. ``--candidate`` restricts the
+    plan (and the later apply) to a subset of the entry's candidates; the
+    report marks such a plan ``partial n/m`` and the ``next:`` hint repeats
+    the ``--candidate`` flags so ``--apply`` recomputes the same plan and
+    therefore the same fingerprint. ``--apply`` validates the
     §7.2 gate FIRST (before any use-case call), recomputes the plan, refuses a
     mismatched or missing-when-given ``--expect-fingerprint`` before any
     write, applies through the existing RollbackMergeUseCase (entry copy with
     inferred directions), then prints the actual census and compares it with
     the prediction — exiting non-zero on any post-apply mismatch.
     """
+    if candidates and len(seqs) != 1:
+        raise click.UsageError(
+            "--candidate selects candidates inside one ledger entry: a candidate "
+            f"selection belongs to exactly one --seq (got {len(seqs)} --seq values)"
+        )
     if not seqs:
         raise click.UsageError(
             "Provide at least one --seq (rollbacks are always explicit; there is no 'all')"
@@ -1526,7 +1547,7 @@ def ledger_rollback(
     async def _run() -> tuple[RollbackPlan, EdgeCensus | None, RollbackMeasurement | None]:
         plan_use_case, closables = build_plan_rollback_use_case(settings)
         try:
-            plan = await plan_use_case.plan(seqs)
+            plan = await plan_use_case.plan(seqs, candidates=candidates or None)
             if not apply_changes:
                 return plan, None, None
             if expect_fingerprint is None:
@@ -1618,7 +1639,16 @@ def _format_rollback_plan(plan: RollbackPlan) -> str:
     for entry_plan in plan.plans:
         predicted = entry_plan.predicted
         lines.append(f"seq {entry_plan.seq}: canonical {entry_plan.entry.canonical_id}")
-        lines.append(f"  candidates: {' · '.join(entry_plan.entry.candidate_ids)}")
+        selected = entry_plan.selected_candidates
+        if selected is None:
+            lines.append(f"  candidates: {' · '.join(entry_plan.entry.candidate_ids)}")
+        else:
+            all_candidates = entry_plan.entry.candidate_ids
+            lines.append(
+                f"  candidates: {' · '.join(selected)} "
+                f"(partial {len(selected)}/{len(all_candidates)} of "
+                f"{' · '.join(all_candidates)})"
+            )
         lines.append(
             f"  restore: MENTIONS {predicted.mentions_restored} · "
             f"RELATED {predicted.related_restored} "
@@ -1645,11 +1675,24 @@ def _format_rollback_plan(plan: RollbackPlan) -> str:
     )
     lines.append(f"predicted mirrors: {totals.predicted_mirrors}")
     lines.append(f"fingerprint: {plan.fingerprint}")
-    seq_flags = " ".join(f"--seq {entry_plan.seq}" for entry_plan in plan.plans)
-    lines.append(
-        f"next: book-graph-rag ledger rollback {seq_flags} --apply "
-        f"--backup <fresh.json> --approval <file> --expect-fingerprint {plan.fingerprint}"
+    command_parts = ["book-graph-rag", "ledger", "rollback"]
+    for entry_plan in plan.plans:
+        command_parts.append(f"--seq {entry_plan.seq}")
+    for entry_plan in plan.plans:
+        for candidate in entry_plan.selected_candidates or ():
+            command_parts.append(f"--candidate {candidate}")
+    command_parts.extend(
+        [
+            "--apply",
+            "--backup",
+            "<fresh.json>",
+            "--approval",
+            "<file>",
+            "--expect-fingerprint",
+            plan.fingerprint,
+        ]
     )
+    lines.append(f"next: {' '.join(command_parts)}")
     return "\n".join(lines)
 
 

@@ -34,9 +34,20 @@ class RollbackMergeUseCase:
         4. Reverse the graph mutation.
         5. Append a compensating ledger entry pointing back to ``seq``.
 
-        Idempotency (spec R6.5): if a compensating entry for ``seq`` already
-        exists in the ledger, the rollback already happened - return as a safe
-        no-op instead of mutating the graph twice or raising.
+        Idempotency (spec R6.5, candidate-aware since T8f): compensating
+        entries for ``seq`` record the candidates they reversed, so the no-op
+        only fires when the union of their ``candidate_ids`` COVERS the
+        requested set (``entry.candidate_ids`` — the entry this use case read,
+        i.e. the selection the injected ``PlannedEntryLedger`` serves for a
+        partial rollback). A complementary partial rollback of the same seq
+        is not covered yet and proceeds normally.
+
+        Overlap rule (same as the plan-time guard): a request that PARTIALLY
+        overlaps the already-compensated candidates is refused, never
+        re-reversed. The CLI preempts this case in ``PlanRollbackUseCase``, so
+        this is the backstop for a direct drive or a ledger that changed
+        between plan and apply; keeping both layers on the same rule means a
+        second caller cannot reintroduce the double reversal.
         """
         try:
             self._ledger.verify_chain()
@@ -54,14 +65,23 @@ class RollbackMergeUseCase:
                 f"(rollback_of={entry.rollback_of})"
             )
 
-        # Idempotency: an existing compensating entry for this seq means the
-        # rollback was already applied. Safe no-op (spec R6.5).
-        if any(
-            prior.rollback_of == seq
-            for prior in self._ledger.read_all()
-            if prior.rollback_of is not None
-        ):
+        # Idempotency (spec R6.5): compensating entries for this seq cover
+        # only the candidates they recorded. No-op only when that union covers
+        # everything still requested; a complementary partial rollback must
+        # proceed, and a partial overlap must never re-reverse.
+        compensated: set[str] = set()
+        for prior in self._ledger.read_all():
+            if prior.rollback_of == seq:
+                compensated.update(prior.candidate_ids)
+        requested = set(entry.candidate_ids)
+        if compensated.issuperset(requested):
             return
+        overlap = requested & compensated
+        if overlap:
+            raise MergeNotReversible(
+                f"Entry seq={seq} overlaps prior compensations for "
+                f"{sorted(overlap)}; request only the uncompensated candidates"
+            )
 
         await self._graph_merge.rollback_merge(entry)
 

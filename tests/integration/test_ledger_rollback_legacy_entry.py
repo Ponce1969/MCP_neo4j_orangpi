@@ -47,6 +47,7 @@ The plan is produced twice to prove the fingerprint is stable across runs
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -54,23 +55,36 @@ from typing import Any
 
 import pytest
 from click.testing import CliRunner
-from neo4j import GraphDatabase
+from neo4j import AsyncGraphDatabase, GraphDatabase
 
+from book_graph_rag.application.plan_rollback_use_case import planned_entry_ledger
+from book_graph_rag.application.rollback_merge_use_case import RollbackMergeUseCase
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.merge_ledger_models import (
     EdgeInverseMap,
+    FoldedAlias,
     MergeBand,
     MergeLedgerEntry,
 )
+from book_graph_rag.domain.rollback_plan_models import (
+    RollbackPlan,
+    build_entry_plan,
+    build_rollback_plan,
+)
 from book_graph_rag.infrastructure.jsonl_merge_ledger import JSONLMergeLedger
+from book_graph_rag.infrastructure.neo4j_graph_merge_adapter import Neo4jGraphMergeAdapter
 from book_graph_rag.main import cli
 
 pytestmark = pytest.mark.neo4j_integration
 
 _CANON = "graphrag-agentic:api-calls-tool"
 _DUP = "agentic-patterns:api-calls-tool"
+_DUP_B = "essential-graphrag:api-calls-tool"
 _OTHER = "graphrag-agentic:tool-invocation"
+_OTHER_B = "graphrag-agentic:tool-router"
 _CHUNK = "graphrag-agentic:chunk-7"
+_CHUNK_A = "graphrag-agentic:chunk-1"
+_CHUNK_B = "graphrag-agentic:chunk-2"
 _SEQ = 305
 _EDGE_TYPE = "requires"
 #: The loser's captured chunk_index in the provenance case (case 3).
@@ -234,7 +248,7 @@ def _related_count(settings: Settings, *, source: str, target: str) -> int:
     )
 
 
-def _mention_target(settings: Settings) -> str | None:
+def _mention_target(settings: Settings, *, chunk_id: str = _CHUNK) -> str | None:
     driver = GraphDatabase.driver(
         settings.neo4j_uri,
         auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value()),
@@ -243,9 +257,45 @@ def _mention_target(settings: Settings) -> str | None:
         with driver.session() as session:
             record = session.run(
                 "MATCH (k:Chunk {id: $chunk})-[:MENTIONS]->(e) RETURN e.id AS id",
-                chunk=_CHUNK,
+                chunk=chunk_id,
             ).single()
             return None if record is None else str(record["id"])
+    finally:
+        driver.close()
+
+
+def _merged_into_of(settings: Settings, entity_id: str) -> str | None:
+    """The ``merged_into`` marker of ANY entity (partial rollbacks need it per id)."""
+    driver = GraphDatabase.driver(
+        settings.neo4j_uri,
+        auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value()),
+    )
+    try:
+        with driver.session() as session:
+            record = session.run(
+                "MATCH (n:Entity {id: $id}) RETURN n.merged_into AS merged",
+                id=entity_id,
+            ).single()
+            assert record is not None, f"entity {entity_id} missing from the graph"
+            merged = record["merged"]
+            return None if merged is None else str(merged)
+    finally:
+        driver.close()
+
+
+def _canonical_aliases(settings: Settings) -> list[str]:
+    driver = GraphDatabase.driver(
+        settings.neo4j_uri,
+        auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value()),
+    )
+    try:
+        with driver.session() as session:
+            record = session.run(
+                "MATCH (n:Entity {id: $id}) RETURN n.aliases AS aliases",
+                id=_CANON,
+            ).single()
+            assert record is not None, "canonical missing from the graph"
+            return [str(alias) for alias in (record["aliases"] or [])]
     finally:
         driver.close()
 
@@ -272,8 +322,10 @@ def _plan_cli(
     runner: CliRunner,
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    candidates: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    """Dry-run ``ledger rollback --seq 305 --json`` and return the plan payload."""
+    """Dry-run ``ledger rollback --seq 305 --json`` (optionally partial) and return the payload."""
 
     class _StubSettings:
         @classmethod
@@ -281,7 +333,10 @@ def _plan_cli(
             return settings
 
     monkeypatch.setattr("book_graph_rag.main.Settings", _StubSettings)
-    result = runner.invoke(cli, ["ledger", "rollback", "--seq", str(_SEQ), "--json"])
+    args = ["ledger", "rollback", "--seq", str(_SEQ), "--json"]
+    for candidate in candidates:
+        args.extend(["--candidate", candidate])
+    result = runner.invoke(cli, args)
     assert result.exit_code == 0, result.output
     payload: dict[str, Any] = json.loads(result.output)
     return payload
@@ -804,3 +859,344 @@ def test_bidirectional_original_restores_both_directions_without_drift(
     assert entries[1].edge_inverse_map[1].direction == "out"
     assert entries[1].edge_inverse_map[2].direction == "in"
     ledger.verify_chain()
+
+
+# ── T8f: partial rollback of one candidate inside a 2-candidate entry ────────
+
+
+def _seed_two_candidate_case(settings: Settings) -> None:
+    """Post-merge shape of a 2-candidate legacy merge (entry with 2 losers).
+
+    ``dA`` and ``dB`` are both soft-deleted onto the canonical; the canonical
+    holds A's re-pointed ``c -[requires]-> oa`` and B's re-pointed
+    ``ob -[requires]-> c``, plus both re-pointed MENTIONS. The ledger entry
+    carries ``direction=None`` on every RELATED entry (legacy line).
+    """
+    driver = GraphDatabase.driver(
+        settings.neo4j_uri,
+        auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value()),
+    )
+    try:
+        with driver.session() as session:
+            session.run(
+                """
+                CREATE (c:Entity {id: $canon, name: 'API Calls Tool', type: 'tool',
+                                  aliases: ['Alias A', 'Alias B']})
+                CREATE (da:Entity {id: $dup_a, name: 'API Calls Tool', type: 'tool',
+                                   merged_into: $canon, merged_at: datetime()})
+                CREATE (db:Entity {id: $dup_b, name: 'API Calls Tool', type: 'tool',
+                                   merged_into: $canon, merged_at: datetime()})
+                CREATE (oa:Entity {id: $other_a, name: 'Tool Invocation', type: 'tool'})
+                CREATE (ob:Entity {id: $other_b, name: 'Tool Router', type: 'tool'})
+                CREATE (ka:Chunk {id: $chunk_a, source_id: 'graphrag-agentic',
+                                  chunk_index: 1, text: 'chunk a'})
+                CREATE (kb:Chunk {id: $chunk_b, source_id: 'graphrag-agentic',
+                                  chunk_index: 2, text: 'chunk b'})
+                CREATE (ka)-[:MENTIONS {source_page: 3}]->(c)
+                CREATE (kb)-[:MENTIONS {source_page: 5}]->(c)
+                CREATE (c)-[:RELATED {type: $rel_type, source_page: 4}]->(oa)
+                CREATE (ob)-[:RELATED {type: $rel_type, source_page: 6}]->(c)
+                """,
+                {
+                    "canon": _CANON,
+                    "dup_a": _DUP,
+                    "dup_b": _DUP_B,
+                    "other_a": _OTHER,
+                    "other_b": _OTHER_B,
+                    "chunk_a": _CHUNK_A,
+                    "chunk_b": _CHUNK_B,
+                    "rel_type": _EDGE_TYPE,
+                },
+            ).consume()
+    finally:
+        driver.close()
+
+
+def _two_candidate_entry() -> MergeLedgerEntry:
+    """Legacy-shaped entry holding TWO candidates (the seq 480 production shape)."""
+    return MergeLedgerEntry(
+        seq=_SEQ,
+        candidate_ids=[_DUP, _DUP_B],
+        canonical_id=_CANON,
+        band=MergeBand.EXACT,
+        evidence=[],
+        aliases_folded=[
+            FoldedAlias(from_entity_id=_DUP, alias_value="Alias A"),
+            FoldedAlias(from_entity_id=_DUP_B, alias_value="Alias B"),
+        ],
+        edge_inverse_map=[
+            EdgeInverseMap(
+                edge_kind="MENTIONS",
+                duplicate_entity_id=_DUP,
+                original_other_endpoint_id=_CHUNK_A,
+                edge_properties={"source_page": 3},
+            ),
+            EdgeInverseMap(
+                edge_kind="RELATED",
+                duplicate_entity_id=_DUP,
+                original_other_endpoint_id=_OTHER,
+                edge_properties={"type": _EDGE_TYPE, "source_page": 4},
+            ),
+            EdgeInverseMap(
+                edge_kind="MENTIONS",
+                duplicate_entity_id=_DUP_B,
+                original_other_endpoint_id=_CHUNK_B,
+                edge_properties={"source_page": 5},
+            ),
+            EdgeInverseMap(
+                edge_kind="RELATED",
+                duplicate_entity_id=_DUP_B,
+                original_other_endpoint_id=_OTHER_B,
+                edge_properties={"type": _EDGE_TYPE, "source_page": 6},
+            ),
+        ],
+        approver="auto:bypass",
+        applied_at=datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC),
+    )
+
+
+def _apply_partial(
+    runner: CliRunner,
+    *,
+    backup: Path,
+    approval: Path,
+    candidate: str,
+    fingerprint: str,
+) -> Any:
+    """Dry-run-shaped apply of ONE candidate behind the full §7.2 gate."""
+    return runner.invoke(
+        cli,
+        [
+            "ledger",
+            "rollback",
+            "--seq",
+            str(_SEQ),
+            "--candidate",
+            candidate,
+            "--apply",
+            "--backup",
+            str(backup),
+            "--approval",
+            str(approval),
+            "--expect-fingerprint",
+            fingerprint,
+        ],
+    )
+
+
+def _run_candidate_aware_noop(
+    settings: Settings,
+    ledger: JSONLMergeLedger,
+    plan: RollbackPlan,
+) -> None:
+    """Drive ``RollbackMergeUseCase.rollback`` for a partial plan directly.
+
+    The CLI refuses a repeat of compensated candidates at PLAN time (defect 1
+    fix), so the candidate-aware idempotence UNION inside the use case is the
+    defensive backstop, reachable only when the use case is driven directly
+    (this helper) or the ledger changes between plan and apply. The ledger and
+    graph are asserted unchanged afterwards.
+    """
+    driver = AsyncGraphDatabase.driver(
+        settings.neo4j_uri,
+        auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value()),
+    )
+
+    async def _run() -> None:
+        try:
+            use_case = RollbackMergeUseCase(
+                ledger=planned_entry_ledger(ledger, plan),
+                graph_merge=Neo4jGraphMergeAdapter(driver),
+            )
+            await use_case.rollback(seq=_SEQ)
+        finally:
+            await driver.close()
+
+    asyncio.run(_run())
+
+
+def test_partial_rollback_by_candidate_revives_one_loser_at_a_time(
+    neo4j_settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """T8f: roll back candidate A, then B, then A again (backstop no-op).
+
+    After partial A: A alive (mention, related, alias restored), B still
+    merged, canonical alive, compensating entry records only ``[A]`` and the
+    chain verifies. A following full ``--seq`` (no ``--candidate``) is REFUSED
+    at plan time — dry-run and ``--apply`` both exit 1 and write nothing —
+    because A is already compensated. After partial B: both losers alive.
+    Repeating partial A through the CLI is refused the same way; the
+    candidate-aware no-op backstop is then driven directly through
+    ``RollbackMergeUseCase``: no third compensating entry, ledger unchanged.
+    """
+    settings = _cli_settings(neo4j_settings, tmp_path)
+    _seed_two_candidate_case(settings)
+
+    ledger_path = tmp_path / "merge_ledger.jsonl"
+    ledger = JSONLMergeLedger(ledger_path)
+    ledger.append(_two_candidate_entry())
+    assert len(ledger.read_all()) == 1
+
+    backup = tmp_path / "backup.json"
+    backup.write_text("{}", encoding="utf-8")
+    approval = tmp_path / "approval.txt"
+    approval.write_text("approve", encoding="utf-8")
+
+    runner = CliRunner()
+
+    # 1. Partial dry-run for A: only A's surfaces are planned.
+    plan_a = _plan_cli(runner, settings, monkeypatch, candidates=(_DUP,))
+    assert plan_a["plans"][0]["selected_candidates"] == [_DUP]
+    assert plan_a["plans"][0]["inferred_entry"]["candidate_ids"] == [_DUP]
+    assert plan_a["predicted"] == {
+        "mentions_restored": 1,
+        "related_restored": 1,
+        "directions_inferred": 1,
+        "fallback_both": 0,
+        "fallback_unknown": 0,
+        "predicted_mirrors": 0,
+    }
+    fingerprint_a = plan_a["fingerprint"]
+    # The partial fingerprint is NOT the full entry's fingerprint.
+    plan_full = _plan_cli(runner, settings, monkeypatch)
+    assert plan_full["fingerprint"] != fingerprint_a
+    assert plan_full["plans"][0]["selected_candidates"] is None
+
+    result = _apply_partial(
+        runner,
+        backup=backup,
+        approval=approval,
+        candidate=_DUP,
+        fingerprint=fingerprint_a,
+    )
+    assert result.exit_code == 0, result.output
+    assert f"fingerprint ok: {fingerprint_a}" in result.output
+    assert "drift: none" in result.output
+
+    # Graph: A revived, B still merged, canonical untouched, B's side intact.
+    assert _merged_into_of(settings, _DUP) is None
+    assert _merged_into_of(settings, _DUP_B) == _CANON, "B must stay merged after A's rollback"
+    assert _merged_into_of(settings, _CANON) is None, "canonical must stay alive"
+    assert _related_count(settings, source=_DUP, target=_OTHER) == 1
+    assert _related_count(settings, source=_CANON, target=_OTHER) == 0
+    assert _related_count(settings, source=_OTHER_B, target=_CANON) == 1, "B's edge untouched"
+    assert _mention_target(settings, chunk_id=_CHUNK_A) == _DUP
+    assert _mention_target(settings, chunk_id=_CHUNK_B) == _CANON, "B's mention untouched"
+    assert _canonical_aliases(settings) == ["Alias B"], "only A's alias is unfolded"
+
+    # Ledger: one compensating entry recording ONLY candidate A.
+    entries = ledger.read_all()
+    assert len(entries) == 2
+    compensating_a = entries[1]
+    assert compensating_a.rollback_of == _SEQ
+    assert compensating_a.candidate_ids == [_DUP]
+    assert [m.duplicate_entity_id for m in compensating_a.edge_inverse_map] == [_DUP, _DUP]
+    assert compensating_a.edge_inverse_map[1].direction == "out"
+    assert compensating_a.aliases_folded == [
+        FoldedAlias(from_entity_id=_DUP, alias_value="Alias A")
+    ]
+    ledger.verify_chain()
+
+    # 1b. Defect 1: an overlapping FULL request is refused at PLAN time,
+    # BEFORE any write — dry-run and --apply alike (exit 1 via
+    # MergeNotReversible, the message points at the explicit --candidate
+    # selection for the remaining candidate).
+    full_dry = runner.invoke(cli, ["ledger", "rollback", "--seq", str(_SEQ)])
+    assert full_dry.exit_code == 1, full_dry.output
+    assert _DUP in full_dry.output, "the overlap/compensated candidate must be named"
+    assert "--candidate" in full_dry.output, "the operator must be told how to proceed"
+
+    full_apply = runner.invoke(
+        cli,
+        [
+            "ledger",
+            "rollback",
+            "--seq",
+            str(_SEQ),
+            "--apply",
+            "--backup",
+            str(backup),
+            "--approval",
+            str(approval),
+        ],
+    )
+    assert full_apply.exit_code == 1, full_apply.output
+    assert _DUP in full_apply.output
+    # Nothing was written: same ledger, no second compensating entry, B still
+    # merged, A's restore untouched.
+    entries = ledger.read_all()
+    assert len(entries) == 2, "the refused request must not append anything"
+    assert [e.candidate_ids for e in entries[1:]] == [[_DUP]]
+    assert _merged_into_of(settings, _DUP_B) == _CANON, "B must stay merged"
+    assert _merged_into_of(settings, _DUP) is None, "A's revival must be untouched"
+    assert _related_count(settings, source=_DUP, target=_OTHER) == 1
+
+    # 2. Partial dry-run + apply for B: the complementary candidate proceeds.
+    plan_b = _plan_cli(runner, settings, monkeypatch, candidates=(_DUP_B,))
+    assert plan_b["plans"][0]["selected_candidates"] == [_DUP_B]
+    assert plan_b["predicted"] == {
+        "mentions_restored": 1,
+        "related_restored": 1,
+        "directions_inferred": 1,
+        "fallback_both": 0,
+        "fallback_unknown": 0,
+        "predicted_mirrors": 0,
+    }
+    result = _apply_partial(
+        runner,
+        backup=backup,
+        approval=approval,
+        candidate=_DUP_B,
+        fingerprint=plan_b["fingerprint"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "drift: none" in result.output
+
+    # Both losers alive now; B regained its own direction (in: other -> dup),
+    # with no mirror (dup -> other would be one).
+    assert _merged_into_of(settings, _DUP) is None
+    assert _merged_into_of(settings, _DUP_B) is None
+    assert _merged_into_of(settings, _CANON) is None
+    assert _related_count(settings, source=_OTHER_B, target=_DUP_B) == 1
+    assert _related_count(settings, source=_DUP_B, target=_OTHER_B) == 0, (
+        "mirror created: B's original direction was other -> dup only"
+    )
+    assert _related_count(settings, source=_OTHER_B, target=_CANON) == 0
+    assert _mention_target(settings, chunk_id=_CHUNK_B) == _DUP_B
+    assert _canonical_aliases(settings) == []
+
+    entries = ledger.read_all()
+    assert len(entries) == 3
+    compensating_b = entries[2]
+    assert compensating_b.rollback_of == _SEQ
+    assert compensating_b.candidate_ids == [_DUP_B]
+    assert [m.duplicate_entity_id for m in compensating_b.edge_inverse_map] == [_DUP_B, _DUP_B]
+    ledger.verify_chain()
+
+    # 3. Re-requesting A is refused at PLAN time now (defect 1: the plan must
+    # always equal the mutation), while the use-case backstop — reachable only
+    # when RollbackMergeUseCase is driven directly or the ledger changes
+    # between plan and apply — still no-ops without touching anything.
+    repeat = runner.invoke(
+        cli,
+        ["ledger", "rollback", "--seq", str(_SEQ), "--candidate", _DUP],
+    )
+    assert repeat.exit_code == 1, repeat.output
+    assert _DUP in repeat.output, "the already-compensated candidate must be named"
+    assert len(ledger.read_all()) == 3, "the refused repeat must not append anything"
+
+    backstop_plan = build_rollback_plan(
+        [build_entry_plan(_two_candidate_entry(), [], selected_candidates=[_DUP])]
+    )
+    _run_candidate_aware_noop(settings, ledger, backstop_plan)
+
+    assert len(ledger.read_all()) == 3, "the repeat must not append a compensating entry"
+    ledger.verify_chain()
+    assert _merged_into_of(settings, _DUP) is None
+    assert _merged_into_of(settings, _DUP_B) is None
+    assert _related_count(settings, source=_DUP, target=_OTHER) == 1, "A's edges stay restored"
+    assert _related_count(settings, source=_OTHER_B, target=_DUP_B) == 1
+    assert _mention_target(settings, chunk_id=_CHUNK_A) == _DUP
+    assert _mention_target(settings, chunk_id=_CHUNK_B) == _DUP_B
