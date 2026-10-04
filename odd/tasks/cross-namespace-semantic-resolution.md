@@ -125,7 +125,7 @@ maps and debt R1 corrupts exactly that population.
       wrong/missing/extra candidate cases) + 2 hypothesis properties (no band and no forged evidence crosses).
       **Remaining part of T7** (the `quarantine approve` command itself, behind the AGENTS.md §7.2 gate with explicit
       `--seq`) ships with the T6 CLI surface, whose mockup is awaiting the maintainer's visual approval.
-- [~] **T8** Retro-audit of the 302 applied merges.
+- [x] **T8** Retro-audit of the 302 applied merges.
       **T8a done**: read-only tool `scripts-ops/audit_applied_cross_namespace.py` (ledger-driven selection, graph
       recompute through the shared model, matrix + lists; 8 unit tests). First live run: 302 entries / 322 pairs,
       **every selected entry stored `band=exact` with `s3 is None`** (the bypass left no scoring at all), strong 0,
@@ -170,6 +170,54 @@ maps and debt R1 corrupts exactly that population.
       **New debt found by the pilot**: the audit **does not consult the quarantine decisions**, so a pair the
       maintainer rejected keeps counting in the warning total forever. R5a (or its successor) should subtract pairs
       whose quarantine record is `REJECTED`, otherwise the metric never reaches zero and stops being a metric.
+      **Lote 1 closed (2026-10-04)**: **10 of the 302** cross-namespace merges rolled back (pilot 305/501, clean
+      subset 536/391/307/360/404, final 584/342/443) with the rollback tool's direction inference. 0 mirrors in 8 of
+      them; the other 2 (342 `agent b`, 443 `generation`) keep **2 symmetric intra-book edges each, accepted by the
+      maintainer** (option (a): keeping different concepts merged is worse than tolerating 2 symmetric edges).
+      Verification: shared neighbours **0** on the reverted pairs, 47/47 mentions restored, every entity alive again,
+      ledger **968 entries / 0 hash inconsistencies**, global audit `passed` (0 blocking). The rollback restored 8
+      RELATED edges into already-merged endpoints; the audit rule `ENDPOINT_RELATED_MERGED_INVALID` flagged them as
+      8 blocking and `scripts-ops/repoint_merged_endpoint_edges.py --mode repoint` closed them (0/0).
+      **Tools matured in the process**: `both` fallbacks are resolved by **provenance inference** (the ledger's
+      inverse map keeps the loser's `chunk_index`/`source_page` and the re-point copied them to the canonical);
+      `unknown` fallbacks are an honest limit (the canonical's edge was already deleted).
+- [x] **T8d** Two measurement fixes the real batches exposed.
+      (a) The rollback census predicted one edge per `(other, type)` pair, but a bidirectional original stores two
+      inverse entries with different chunk indexes, so the restore faithfully recreated both and the census counted
+      the second as a mirror. It now groups by pair and counts the union of observed directions.
+      (b) The retro-audit selected the compensating entries the rollback appends (also cross-namespace), so its guard
+      aborted with 312 against the 302 ground truth; it now separates them, keeps the compensated originals flagged
+      as rolled back, and stratifies only the still-applied population.
+      Evidence: `evidence-bundles/applied-cross-namespace-audit-consolidated-20261004.json` — 968 entries / 302
+      cross-namespace / 10 compensating / **292 still applied**; suspicious **185**, needs_reading 5, high risk 7;
+      live global audit `passed` (blocking 0 / warning 465).
+- [x] **T8e** Lote 2: roll back the remaining suspicious pairs in review batches.
+      Flow: cosine ascending shortlist (join `cosine-all-pairs` with the consolidated suspicious list) -> human picks
+      a batch -> read-only decision sheets (`quarantine render --pair`) -> maintainer keep/rollback per pair ->
+      `ledger rollback` dry-run with fingerprint -> §7.2 gate (fresh backup + approval + `--expect-fingerprint`) ->
+      post-apply census + shared-neighbour check + scoped/global audits.
+      **Batch 2A closed (2026-10-04)**: maintainer picked `cosine < 0.25` (6 entries). Rollback applied to **375**
+      `Automation`, **489** `Peer Review`, **503** `redundancy`, **480** `Node` (multi-candidate); **kept** 413
+      `Databases` and 475 `Microservices` (same concept, different phrasing). Two applies: the three single-candidate
+      entries (fingerprint `714dfd57…`, 0 mirrors) and **480** alone (fingerprint `4b89c961…`, **1 accepted mirror** —
+      an `unknown` fallback whose canonical `composes` edge was already gone). Census: MENTIONS 12/12, RELATED 20/20,
+      1 mirror (predicted), `merged_into` 921 -> 916, drift none. Ledger **972 entries / 0 hash inconsistencies**.
+      All revived entities alive; shared neighbours **0**. The 480 revival put 2 `composes` edges on a merged endpoint
+      -> audit `violations` with 2 blocking in essential-graphrag; `repoint_merged_endpoint_edges.py --apply` closed
+      them (2 edges, 0 collapses) and the global audit is back to **`passed` (blocking 0 / warning 469)**.
+      Backups: `bookgraph_backup_20261004T162259Z.json`, `…T162618Z.json`, `…T163031Z.json`.
+      Evidence: `evidence-bundles/batch2a-decision-sheets-20261004.txt`,
+      `evidence-bundles/lote2a-rollback-20261004.json`.
+      **Remaining**: **180 suspicious pairs** (185 - the 5 rolled-back pairs), needs_reading 5, high risk 7, silent_same_language 14; consolidated queue
+      `evidence-bundles/applied-cross-namespace-audit-consolidated-after2a-20261004.json` (972 entries / 302 cross-namespace /
+      14 compensating / **288 still applied**). `seq 496` `Prompt` still deliberately retained.
+- [ ] **T8f** Partial rollback by candidate (blocked on maintainer priority).
+      **Finding from batch 2A**: a ledger entry can hold **several candidates** (`seq 480` = 2 losers) but
+      `RollbackMergeUseCase.rollback(seq)` reverses the whole entry, so a distinct concept merged alongside an
+      identity one cannot be separated without reviving both and then re-merging (or repointing) the identity one.
+      **16 of the suspicious seqs hold 2 pairs**, so this will recur in every remaining batch. Proposed: `ledger
+      rollback --candidate <id>` (plan filters the inverse map to one candidate; the compensating entry records the
+      subset), with its own tests and the same §7.2 gate.
 - [ ] **T9** R5b: case-insensitive grouping in `duplicates_entity` via `normalize_key`, together with the cleanup of
       the 64 case-only groups (approval-gated merge), and the confirmation of how the `uniqueness` gate dimension
       treats warnings.
@@ -198,3 +246,5 @@ maps and debt R1 corrupts exactly that population.
 | T6a/T6b/T6c | `4cda365`…`6bec401` | CLI surface + real enqueue (20 pending records, graph untouched) + corpus risk marker and siblings |
 | T2b | `d95cbc6` | renderer imports the shared model; AST anti-drift; re-render moves the sample from 6 to 43 readable pairs |
 | T8a | (this commit) | read-only retro-audit tool; 302 entries / 322 pairs; strong 0 · ambiguous 143 · silent 23 · none 156; suspicious 176 |
+| T8c/T8d | `f9737b7`…`b35ff12` | `ledger rollback` with direction inference + census + fingerprint; Lote 1: 10/302 reverted, 0 mirrors in 8, 8 symmetric edges accepted in 2; ledger 968 / 0 inconsistencies; consolidated audit 292 applied · 185 suspicious · global `passed` 0 blocking / 465 warnings; `repoint` closed the 8 restored blocking edges |
+| T8e | (in progress) | Lote 2A: 4 entries rolled back (375/489/503/480), 413/475 kept; 12/12 MENTIONS, 20/20 RELATED, 1 accepted mirror, ledger 972/0 inconsistencies, audits `passed` 0 blocking / 469 warnings after repoint |
