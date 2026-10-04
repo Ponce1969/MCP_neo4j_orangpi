@@ -11,7 +11,10 @@ CLI) that:
 * the evidence labels are right (primary vs structural), no S4 band is claimed
   and routing is always quarantine (R6.2),
 * ``list --generic-only`` returns only the generic pair,
-* ``--json`` output is valid and complete.
+* ``--json`` output is valid and complete,
+* T6c: the combined risk marker (``--risk`` filter, ``--generic-only`` keeps
+  its meaning), the ``render --seq`` siblings section with the joint approve
+  command, and ``render --pair`` reporting the record that already exists.
 
 Fixture note: the seeded records carry ``band=medium`` (the maintainer's
 approved ``--band medium|high`` surface); same-name cross-namespace pairs in
@@ -41,10 +44,12 @@ from book_graph_rag.domain.models import Entity
 from book_graph_rag.domain.quarantine_models import QuarantineDecision, QuarantineRecord
 from book_graph_rag.domain.quarantine_review_models import (
     EvidenceReading,
+    RiskLevel,
     format_sheet,
+    label_risk,
 )
 from book_graph_rag.domain.resolution_models import ConfidenceBand
-from book_graph_rag.domain.s0_normalization import s0_match
+from book_graph_rag.domain.s0_normalization import namespace_from_id, s0_match
 from book_graph_rag.infrastructure.jsonl_merge_ledger import JSONLMergeLedger
 from book_graph_rag.infrastructure.jsonl_quarantine_writer import JSONLQuarantineWriter
 from book_graph_rag.infrastructure.neo4j_quarantine_review_adapter import (
@@ -78,6 +83,7 @@ _LIST_ROW_KEYS = {
     "anchor_id",
     "candidate_id",
     "generic",
+    "risk",
     "decision",
 }
 
@@ -96,6 +102,8 @@ _SHEET_KEYS = {
     "shared_neighbors",
     "prior_merge",
     "thresholds",
+    "siblings",
+    "approve_command",
 }
 
 # ── Seed data ───────────────────────────────────────────────────────────────
@@ -184,6 +192,41 @@ _ENTITY_ROWS: list[dict[str, Any]] = [
             "Memoria compartida entre agentes para coordinar trabajo conjunto y estado persistente."
         ),
         "source_page": 9,
+        "aliases": [],
+    },
+    # T6c: a single-word label spanning THREE namespaces — the only group
+    # that must read high risk (single word AND ≥3 namespaces).
+    {
+        "id": "knowledge:alpha:modularity",
+        "name": "Modularity",
+        "type": "pattern",
+        "description": (
+            "Patrón de diseño que separa un sistema en módulos independientes "
+            "con interfaces claras."
+        ),
+        "source_page": 5,
+        "aliases": [],
+    },
+    {
+        "id": "knowledge:beta:modularity",
+        "name": "Modularity",
+        "type": "pattern",
+        "description": (
+            "Patrón de diseño que separa un sistema en módulos independientes "
+            "con contratos explícitos."
+        ),
+        "source_page": 15,
+        "aliases": [],
+    },
+    {
+        "id": "knowledge:essential:modularity",
+        "name": "Modularity",
+        "type": "pattern",
+        "description": (
+            "Patrón de diseño que divide el sistema en módulos independientes "
+            "con interfaces claras."
+        ),
+        "source_page": 25,
         "aliases": [],
     },
 ]
@@ -533,7 +576,8 @@ def test_cli_quarantine_list_and_render(
 
     result = runner.invoke(cli, ["quarantine", "list"])
     assert result.exit_code == 0, result.output
-    assert result.output.count("⚠ genérica") == 1
+    # agent: single word in 2 namespaces → medium with its reason printed.
+    assert result.output.count("⚠ media (genérica)") == 1
 
     result = runner.invoke(cli, ["quarantine", "render", "--seq", "1"])
     assert result.exit_code == 0, result.output
@@ -567,3 +611,214 @@ def test_cli_quarantine_list_and_render(
     assert result.exit_code != 0
     result = runner.invoke(cli, ["quarantine", "render", "--seq", "1", "--pair", A1_ID, A2_ID])
     assert result.exit_code != 0
+
+
+# ── T6c: combined risk filter, siblings section, --pair record lookup ───────
+
+
+def test_t6c_combined_risk_siblings_and_pair_record(
+    neo4j_settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """T6c ergonomics: ``--risk`` isolates the high-risk batch, ``render
+    --seq`` cross-references the group's sibling records with the composed
+    joint approve command, and ``render --pair`` reports the record that
+    already exists for the pair instead of always ``sin registro``."""
+    _seed_sync(neo4j_settings)
+    quarantine_path, ledger_path = _paths(tmp_path)
+
+    cli_settings = Settings.model_validate(
+        {
+            "neo4j_uri": neo4j_settings.neo4j_uri,
+            "neo4j_user": neo4j_settings.neo4j_user,
+            "neo4j_password": neo4j_settings.neo4j_password.get_secret_value(),
+            "quarantine_path": str(quarantine_path),
+            "merge_ledger_path": str(ledger_path),
+        }
+    )
+
+    class _StubSettings:
+        @classmethod
+        def model_validate(cls, data: object) -> Settings:
+            return cli_settings
+
+    monkeypatch.setattr("book_graph_rag.main.Settings", _StubSettings)
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["quarantine", "enqueue", "--cross-namespace"])
+    assert result.exit_code == 0, result.output
+
+    result = runner.invoke(cli, ["quarantine", "list", "--json"])
+    assert result.exit_code == 0, result.output
+    rows = json.loads(result.output)
+
+    # The 3-member group: one single-word label across three namespaces.
+    modularity = [row for row in rows if row["label"] == "modularity"]
+    assert len(modularity) == 3
+    mod_seqs = sorted(row["seq"] for row in modularity)
+    assert all(row["risk"]["level"] == "high" for row in modularity)
+    assert all(row["risk"]["reason"] == "genérica · 3 nss" for row in modularity)
+    # --generic-only keeps its approved meaning: single-word labels, any risk.
+    generic_labels = {row["label"] for row in rows if row["generic"]}
+    assert generic_labels == {"agent", "modularity"}
+
+    # --risk high isolates exactly the high-risk batch (the 3-member group).
+    result = runner.invoke(cli, ["quarantine", "list", "--risk", "high", "--json"])
+    assert result.exit_code == 0, result.output
+    assert [row["seq"] for row in json.loads(result.output)] == mod_seqs
+    # --risk medium: the single-word label in exactly two namespaces.
+    result = runner.invoke(cli, ["quarantine", "list", "--risk", "medium", "--json"])
+    assert result.exit_code == 0, result.output
+    assert [row["label"] for row in json.loads(result.output)] == ["agent"]
+    # The printed list carries level AND reason per row.
+    result = runner.invoke(cli, ["quarantine", "list"])
+    assert result.exit_code == 0, result.output
+    assert result.output.count("⚠ alta (genérica · 3 nss)") == 3
+    assert "⚠ media (genérica)" in result.output
+
+    # (b) render --seq: the two siblings, their state and the joint command.
+    result = runner.invoke(cli, ["quarantine", "render", "--seq", str(mod_seqs[0]), "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    sibling_seqs = sorted(sibling["seq"] for sibling in payload["siblings"])
+    assert sibling_seqs == [seq for seq in mod_seqs if seq != mod_seqs[0]]
+    assert all(sibling["decision"] == "pending" for sibling in payload["siblings"])
+    assert all(sibling["description_overlap"] is not None for sibling in payload["siblings"])
+    expected_command = (
+        "quarantine approve "
+        + " ".join(f"--seq {seq}" for seq in mod_seqs)
+        + " --backup … --approval …"
+    )
+    assert payload["approve_command"] == expected_command
+
+    result = runner.invoke(cli, ["quarantine", "render", "--seq", str(mod_seqs[0])])
+    assert result.exit_code == 0, result.output
+    assert "hermanos (mismo grupo)" in result.output
+    for sibling_seq in (seq for seq in mod_seqs if seq != mod_seqs[0]):
+        assert f"seq {sibling_seq} · PENDING · evid" in result.output
+    assert expected_command in result.output
+
+    # Reverse: --pair reports the pending record that already exists …
+    result = runner.invoke(cli, ["quarantine", "render", "--pair", A1_ID, A2_ID])
+    assert result.exit_code == 0, result.output
+    header = result.output.splitlines()[0]
+    assert "sin registro" not in header
+    assert "PENDING" in header
+    # … while a pair that has no record at all stays honest.
+    no_record_pair = (_SHARED_NEIGHBOURS[0], _SHARED_NEIGHBOURS[1])
+    result = runner.invoke(cli, ["quarantine", "render", "--pair", *no_record_pair])
+    assert result.exit_code == 0, result.output
+    assert "sin registro" in result.output.splitlines()[0]
+
+
+# ── T6c correction: the risk marker reads the corpus, not the queue ─────────
+
+
+def test_t6c_risk_marker_counts_the_corpus_not_the_queue(
+    neo4j_settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A label cut by ``enqueue --limit`` keeps its CORPUS risk level.
+
+    The three-namespace ``modularity`` label is enqueued down to ONE pair
+    (``--generic-only --limit 1``), so the quarantine file only covers two
+    namespaces. A queue-based count would read ``media (genérica)``; the
+    marker must instead read the corpus level ``alta (genérica · 3 nss)`` for
+    both ``list`` rows and the decision sheet — the queue can never
+    downgrade a label's coverage. Filling the queue afterwards changes
+    nothing: the count stays a corpus property.
+    """
+    _seed_sync(neo4j_settings)
+    quarantine_path, ledger_path = _paths(tmp_path)
+
+    cli_settings = Settings.model_validate(
+        {
+            "neo4j_uri": neo4j_settings.neo4j_uri,
+            "neo4j_user": neo4j_settings.neo4j_user,
+            "neo4j_password": neo4j_settings.neo4j_password.get_secret_value(),
+            "quarantine_path": str(quarantine_path),
+            "merge_ledger_path": str(ledger_path),
+        }
+    )
+
+    class _StubSettings:
+        @classmethod
+        def model_validate(cls, data: object) -> Settings:
+            return cli_settings
+
+    monkeypatch.setattr("book_graph_rag.main.Settings", _StubSettings)
+    runner = CliRunner()
+
+    # Cut the queue: the three Spanish modularity descriptions outrank the
+    # disjoint agent pair, so limit 1 enqueues exactly ONE modularity pair.
+    result = runner.invoke(
+        cli,
+        ["quarantine", "enqueue", "--cross-namespace", "--generic-only", "--limit", "1"],
+    )
+    assert result.exit_code == 0, result.output
+
+    records = JSONLQuarantineWriter(quarantine_path).read_all()
+    assert len(records) == 1
+    queue_namespaces = {
+        namespace_from_id(records[0].anchor_id),
+        namespace_from_id(records[0].candidate_id),
+    }
+    assert len(queue_namespaces) == 2  # the incomplete queue covers 2 of 3
+    # What the queue-based count would have said: downgraded to medium.
+    assert label_risk(single_word=True, namespace_count=len(queue_namespaces)).level is (
+        RiskLevel.MEDIUM
+    )
+
+    # The marker reads the CORPUS instead: the label spans three namespaces.
+    result = runner.invoke(cli, ["quarantine", "list", "--json"])
+    assert result.exit_code == 0, result.output
+    rows = json.loads(result.output)
+    assert [row["label"] for row in rows] == ["modularity"]
+    row = rows[0]
+    assert len(row["namespaces"]) == 2  # the record's own pair …
+    assert row["risk"]["namespace_count"] == 3  # … but the marker counts the corpus
+    assert row["risk"]["level"] == "high"
+    assert row["risk"]["reason"] == "genérica · 3 nss"
+
+    result = runner.invoke(cli, ["quarantine", "list"])
+    assert result.exit_code == 0, result.output
+    print("\n--- `book-graph-rag quarantine list` (cut queue, corpus markers) ---")
+    print(result.output)
+    assert "⚠ alta (genérica · 3 nss)" in result.output
+
+    # The --risk filter sees the same corpus level.
+    result = runner.invoke(cli, ["quarantine", "list", "--risk", "high", "--json"])
+    assert result.exit_code == 0, result.output
+    assert [r["label"] for r in json.loads(result.output)] == ["modularity"]
+
+    # The decision sheet carries the same corpus risk (queue group = 2 nss).
+    seq = records[0].seq
+    result = runner.invoke(cli, ["quarantine", "render", "--seq", str(seq), "--json"])
+    assert result.exit_code == 0, result.output
+    sheet = json.loads(result.output)
+    assert sheet["risk"]["namespace_count"] == 3
+    assert sheet["risk"]["level"] == "high"
+    assert sheet["risk"]["reason"] == "genérica · 3 nss"
+    result = runner.invoke(cli, ["quarantine", "render", "--seq", str(seq)])
+    assert result.exit_code == 0, result.output
+    assert "riesgo: ⚠ alta (genérica · 3 nss)" in result.output
+
+    # Filling the queue changes nothing: every row keeps the corpus count.
+    result = runner.invoke(cli, ["quarantine", "enqueue", "--cross-namespace"])
+    assert result.exit_code == 0, result.output
+    result = runner.invoke(cli, ["quarantine", "list", "--json"])
+    assert result.exit_code == 0, result.output
+    final_rows = json.loads(result.output)
+    mod_rows = [r for r in final_rows if r["label"] == "modularity"]
+    assert len(mod_rows) == 3
+    assert all(r["risk"]["level"] == "high" for r in mod_rows)
+    assert all(r["risk"]["namespace_count"] == 3 for r in mod_rows)
+
+    result = runner.invoke(cli, ["quarantine", "list"])
+    assert result.exit_code == 0, result.output
+    print("--- `book-graph-rag quarantine list` (queue filled, corpus markers) ---")
+    print(result.output)
+    assert result.output.count("⚠ alta (genérica · 3 nss)") == 3
+    assert "⚠ media (genérica)" in result.output

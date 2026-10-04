@@ -16,13 +16,19 @@ from book_graph_rag.domain.quarantine_models import QuarantineRecord
 from book_graph_rag.domain.quarantine_review_models import (
     DecisionSheet,
     EntityReviewFacts,
+    LabelRisk,
     QuarantineListRow,
+    RiskLevel,
     SharedNeighbor,
     SheetEvidence,
     SheetMember,
+    SiblingRecord,
+    approve_command_for,
     is_generic_label,
+    label_risk,
     mention_snippet,
     reading_for,
+    record_groups,
 )
 from book_graph_rag.domain.resolution_errors import ResolutionError
 from book_graph_rag.domain.resolution_models import ConfidenceBand
@@ -60,16 +66,24 @@ class ReviewQuarantineUseCase:
         namespace: str | None = None,
         limit: int | None = None,
         generic_only: bool = False,
+        risk: RiskLevel | None = None,
     ) -> list[QuarantineListRow]:
         """Build the list rows (pending records, or all with ``show_all``).
 
         Ordering is deterministic (ascending ``seq``); ``limit`` applies after
         the filters. ``description_overlap`` is recomputed from the live graph
         so the primary signal reflects the current descriptions.
+
+        ``generic_only`` keeps its T6a meaning (single-word labels);
+        ``risk`` filters the T6c combined marker (single word × namespace
+        count). The namespace count is a **corpus** property read from the
+        graph in one batched query per call, so no queue filter (``--limit``,
+        a partial enqueue) can change a row's level; labels the graph read
+        does not match fall back to the record's own pair (T9 caveat).
         """
         records = self._quarantine.read_all() if show_all else self._quarantine.read_pending()
 
-        picked: list[tuple[QuarantineRecord, str]] = []
+        candidates: list[tuple[QuarantineRecord, str]] = []
         for record in records:
             if band is not None and record.band is not band:
                 continue
@@ -82,7 +96,31 @@ class ReviewQuarantineUseCase:
             label = normalize_key(record.evidence.anchor_normalized.original)
             if generic_only and not is_generic_label(label):
                 continue
-            picked.append((record, label))
+            candidates.append((record, label))
+
+        # Risk marker = corpus property: ONE batched graph read for every
+        # label shown; the quarantine file's grouping never feeds the risk.
+        corpus_counts = await self._review.count_label_namespaces(
+            sorted({label for _, label in candidates})
+        )
+
+        picked: list[tuple[QuarantineRecord, str, LabelRisk]] = []
+        for record, label in candidates:
+            row_risk = label_risk(
+                single_word=is_generic_label(label),
+                namespace_count=corpus_counts.get(
+                    label,
+                    len(
+                        {
+                            record.evidence.anchor_namespace,
+                            record.evidence.candidate_namespace,
+                        }
+                    ),
+                ),
+            )
+            if risk is not None and row_risk.level is not risk:
+                continue
+            picked.append((record, label, row_risk))
         picked.sort(key=lambda item: item[0].seq)
         if limit is not None:
             picked = picked[:limit]
@@ -90,12 +128,12 @@ class ReviewQuarantineUseCase:
         descriptions = await self._review.read_descriptions(
             [
                 entity_id
-                for record, _ in picked
+                for record, _, _ in picked
                 for entity_id in (record.anchor_id, record.candidate_id)
             ]
         )
         rows: list[QuarantineListRow] = []
-        for record, label in picked:
+        for record, label, row_risk in picked:
             anchor_description = descriptions.get(record.anchor_id)
             candidate_description = descriptions.get(record.candidate_id)
             overlap = (
@@ -121,6 +159,7 @@ class ReviewQuarantineUseCase:
                     anchor_id=record.anchor_id,
                     candidate_id=record.candidate_id,
                     generic=is_generic_label(label),
+                    risk=row_risk,
                     decision=record.decision,
                 )
             )
@@ -132,23 +171,36 @@ class ReviewQuarantineUseCase:
         seq: int | None = None,
         pair: tuple[str, str] | None = None,
     ) -> DecisionSheet:
-        """Build the decision sheet for a quarantine record or a bare pair.
+        """Build the decision sheet for a quarantine record or an entity pair.
 
         Exactly one of ``seq``/``pair`` must be given. ``pair`` supports the
-        retro-audit of already-applied merges, which have no record.
+        retro-audit of already-applied merges and now also reports the
+        record(s) that already exist for that exact pair (T6c) instead of
+        always reading ``sin registro``.
         """
         if (seq is None) == (pair is None):
             raise ResolutionError("Provide exactly one of seq or pair")
 
+        all_records = self._quarantine.read_all()
         record: QuarantineRecord | None = None
         if seq is not None:
-            record = next((r for r in self._quarantine.read_all() if r.seq == seq), None)
+            record = next((r for r in all_records if r.seq == seq), None)
             if record is None:
                 raise ResolutionError(f"Quarantine record with seq={seq} not found")
             anchor_id, candidate_id = record.anchor_id, record.candidate_id
         else:
             assert pair is not None  # guarded by the check above
             anchor_id, candidate_id = pair
+            wanted = frozenset((anchor_id, candidate_id))
+            matching = sorted(
+                (
+                    existing
+                    for existing in all_records
+                    if frozenset((existing.anchor_id, existing.candidate_id)) == wanted
+                ),
+                key=lambda existing: existing.seq,
+            )
+            record = matching[0] if matching else None
 
         facts = await self._review.read_pair_facts(anchor_id, candidate_id)
         anchor, candidate = facts.anchor.entity, facts.candidate.entity
@@ -174,6 +226,60 @@ class ReviewQuarantineUseCase:
         )
         label = normalize_key(anchor.name)
 
+        # Risk marker = corpus property: one batched read for this sheet's
+        # label. The file-based grouping below feeds `siblings` ONLY; if the
+        # graph read does not match the label, fall back to this pair.
+        pair_namespaces = {evidence.anchor_namespace, evidence.candidate_namespace}
+        corpus_counts = await self._review.count_label_namespaces([label])
+        sheet_risk = label_risk(
+            single_word=is_generic_label(label),
+            namespace_count=corpus_counts.get(label, len(pair_namespaces)),
+        )
+
+        # T6c: sibling records of the same group (same normalized label +
+        # type, namespaces overlapping the group's) — decide them together.
+        groups = record_groups(all_records)
+        if record is not None:
+            matched_seqs = set(groups[record.seq].seqs)
+        else:
+            pair_namespaces = {namespace_from_id(anchor_id), namespace_from_id(candidate_id)}
+            pair_labels = {label, normalize_key(candidate.name)}
+            matched_seqs = {
+                member_seq
+                for group in set(groups.values())
+                if group.label in pair_labels and set(group.namespaces) & pair_namespaces
+                for member_seq in group.seqs
+            }
+        sibling_records = sorted(
+            (
+                sibling
+                for sibling in all_records
+                if sibling.seq in matched_seqs and (record is None or sibling.seq != record.seq)
+            ),
+            key=lambda sibling: sibling.seq,
+        )
+        sibling_descriptions: dict[str, str] = {}
+        if sibling_records:
+            sibling_descriptions = await self._review.read_descriptions(
+                [
+                    entity_id
+                    for sibling in sibling_records
+                    for entity_id in (sibling.anchor_id, sibling.candidate_id)
+                ]
+            )
+        siblings = tuple(
+            SiblingRecord(
+                seq=sibling.seq,
+                decision=sibling.decision,
+                description_overlap=self._pair_overlap(
+                    sibling_descriptions, sibling.anchor_id, sibling.candidate_id
+                ),
+                anchor_id=sibling.anchor_id,
+                candidate_id=sibling.candidate_id,
+            )
+            for sibling in sibling_records
+        )
+
         return DecisionSheet(
             seq=record.seq if record is not None else None,
             band=record.band if record is not None else None,
@@ -183,6 +289,7 @@ class ReviewQuarantineUseCase:
             entity_type=anchor.type,
             generic_label=is_generic_label(label),
             cross_namespace=evidence.cross_namespace,
+            risk=sheet_risk,
             members=(self._member(facts.anchor), self._member(facts.candidate)),
             evidence=SheetEvidence(
                 description_overlap=overlap,
@@ -206,8 +313,21 @@ class ReviewQuarantineUseCase:
                 for neighbor_id in facts.shared_neighbor_ids
             ),
             prior_merge=facts.prior_merge,
+            siblings=siblings,
+            approve_command=approve_command_for(sorted(matched_seqs)) if siblings else None,
             thresholds=self._thresholds,
         )
+
+    @staticmethod
+    def _pair_overlap(
+        descriptions: dict[str, str], anchor_id: str, candidate_id: str
+    ) -> float | None:
+        """Fresh description_overlap for a sibling pair (None if unreadable)."""
+        anchor_description = descriptions.get(anchor_id)
+        candidate_description = descriptions.get(candidate_id)
+        if anchor_description is None or candidate_description is None:
+            return None
+        return description_overlap(anchor_description, candidate_description)
 
     @staticmethod
     def _member(facts: EntityReviewFacts) -> SheetMember:

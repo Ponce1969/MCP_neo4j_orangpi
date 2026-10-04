@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from book_graph_rag.domain.audit_models import normalize_key
 from book_graph_rag.domain.models import Entity, EntityType
-from book_graph_rag.domain.quarantine_models import QuarantineDecision
+from book_graph_rag.domain.quarantine_models import QuarantineDecision, QuarantineRecord
 from book_graph_rag.domain.resolution_models import ConfidenceBand
 from book_graph_rag.domain.s4_band_assignment import BandThresholds
 
@@ -69,6 +69,89 @@ def is_generic_label(label: str) -> bool:
     if not label.strip():
         return False
     return len(normalize_key(label).split()) == 1
+
+
+# ── T6c: combined risk (single word × namespace coverage) ─────────────────
+
+
+class RiskLevel(StrEnum):
+    """Three-level combined risk of a quarantine group (T6c)."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    NONE = "none"
+
+
+class LabelRisk(BaseModel):
+    """Combined risk: generic (single-word) label × namespace coverage.
+
+    ``high`` = single word AND the group spans ≥3 namespaces; ``medium`` =
+    exactly one of the two signals; ``none`` = neither. ``reason`` names the
+    signal(s) that fired so the printed marker explains itself.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    level: RiskLevel
+    single_word: bool
+    namespace_count: int = Field(ge=1)
+    reason: str = ""
+
+
+def label_risk(single_word: bool, namespace_count: int) -> LabelRisk:
+    """Pure three-level risk rule — lives in the domain, never in the CLI.
+
+    The risk marker is a **corpus** property: ``namespace_count`` must come
+    from a graph read (the review port), never from the quarantine file.
+    """
+    wide = namespace_count >= 3
+    if single_word and wide:
+        return LabelRisk(
+            level=RiskLevel.HIGH,
+            single_word=True,
+            namespace_count=namespace_count,
+            reason=f"genérica · {namespace_count} nss",
+        )
+    if single_word:
+        return LabelRisk(
+            level=RiskLevel.MEDIUM,
+            single_word=True,
+            namespace_count=namespace_count,
+            reason="genérica",
+        )
+    if wide:
+        return LabelRisk(
+            level=RiskLevel.MEDIUM,
+            single_word=False,
+            namespace_count=namespace_count,
+            reason=f"{namespace_count} nss",
+        )
+    return LabelRisk(
+        level=RiskLevel.NONE,
+        single_word=False,
+        namespace_count=namespace_count,
+    )
+
+
+#: Printed level names (the CLI flag stays English: ``--risk high|medium``).
+_RISK_LEVEL_ES: dict[RiskLevel, str] = {
+    RiskLevel.HIGH: "alta",
+    RiskLevel.MEDIUM: "media",
+    RiskLevel.NONE: "",
+}
+
+
+def format_risk_marker(risk: LabelRisk) -> str:
+    """``⚠ alta (genérica · 3 nss)`` … or ``''`` when there is no risk."""
+    if risk.level is RiskLevel.NONE:
+        return ""
+    return f"⚠ {_RISK_LEVEL_ES[risk.level]} ({risk.reason})"
+
+
+def approve_command_for(seqs: Sequence[int]) -> str:
+    """Ready-to-run joint decision command (T6c), sorted and deduplicated."""
+    flags = " ".join(f"--seq {seq}" for seq in sorted(set(seqs)))
+    return f"quarantine approve {flags} --backup … --approval …"
 
 
 def mention_snippet(text: str, cap: int = MENTION_SNIPPET_CAP) -> str:
@@ -170,6 +253,18 @@ class SharedNeighbor(BaseModel):
     namespace: str
 
 
+class SiblingRecord(BaseModel):
+    """Another record of the same group (any decision) — the T6c cross-ref."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    seq: int
+    decision: QuarantineDecision
+    description_overlap: float | None = None
+    anchor_id: str
+    candidate_id: str
+
+
 class DecisionSheet(BaseModel):
     """The full decision sheet rendered by ``quarantine render``."""
 
@@ -183,11 +278,18 @@ class DecisionSheet(BaseModel):
     entity_type: EntityType
     generic_label: bool
     cross_namespace: bool
+    #: Risk of this label in the CORPUS (graph read — see ``label_risk``);
+    #: the file-based grouping feeds ``siblings``, never this marker.
+    risk: LabelRisk
     routing: str = ROUTING_NOTE
     members: tuple[SheetMember, SheetMember]
     evidence: SheetEvidence
     shared_neighbors: tuple[SharedNeighbor, ...] = ()
     prior_merge: PriorMergeFacts | None = None
+    #: Other records of the same group (any decision) — decide them together
+    #: with ``approve_command`` (T6c); empty when the record stands alone.
+    siblings: tuple[SiblingRecord, ...] = ()
+    approve_command: str | None = None
     thresholds: BandThresholds = BandThresholds()
 
     @field_validator("shared_neighbors")
@@ -197,6 +299,12 @@ class DecisionSheet(BaseModel):
     ) -> tuple[SharedNeighbor, ...]:
         """Deterministic render order independent of read order."""
         return tuple(sorted(value, key=lambda neighbor: neighbor.entity_id))
+
+    @field_validator("siblings")
+    @classmethod
+    def _sort_siblings(cls, value: tuple[SiblingRecord, ...]) -> tuple[SiblingRecord, ...]:
+        """Siblings render in ascending seq regardless of read order."""
+        return tuple(sorted(value, key=lambda sibling: sibling.seq))
 
 
 class CrossNamespaceCandidateGroup(BaseModel):
@@ -248,6 +356,10 @@ class QuarantineListRow(BaseModel):
     anchor_id: str
     candidate_id: str
     generic: bool = False
+    #: Combined risk of the row's LABEL in the corpus (single word × the
+    #: label's namespace count as read from the graph, T6c); ``generic``
+    #: keeps its T6a single-word meaning.
+    risk: LabelRisk
     decision: QuarantineDecision
 
     @field_validator("namespaces")
@@ -255,6 +367,69 @@ class QuarantineListRow(BaseModel):
     def _sort_namespaces(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         """Deterministic namespace order regardless of evidence order."""
         return tuple(sorted(set(value)))
+
+
+class QuarantineRecordGroup(BaseModel):
+    """Records of the quarantine file that must be decided together (T6c).
+
+    A group is a connected component: same normalized label + type and
+    overlapping namespaces (transitively) — e.g. the three records of a
+    three-member, three-namespace duplicate group.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    label: str
+    entity_type: EntityType
+    namespaces: tuple[str, ...]
+    seqs: tuple[int, ...]
+
+
+def record_groups(
+    records: Sequence[QuarantineRecord],
+) -> dict[int, QuarantineRecordGroup]:
+    """Group the quarantine file into decision units, keyed by record seq.
+
+    Pure over records already read through the port: same normalized label
+    + type, namespaces overlapping the group's (transitive closure). The
+    siblings are a **queue** property: this file grouping feeds the siblings
+    section and the joint approve command ONLY — the risk marker never reads
+    it (that count is a corpus property, see ``label_risk``).
+    """
+    buckets: dict[tuple[str, EntityType], list[QuarantineRecord]] = {}
+    for record in records:
+        label = normalize_key(record.evidence.anchor_normalized.original)
+        buckets.setdefault((label, record.evidence.anchor_type), []).append(record)
+
+    groups: dict[int, QuarantineRecordGroup] = {}
+    for (label, _entity_type), members in buckets.items():
+        clusters: list[tuple[set[str], list[QuarantineRecord]]] = []
+        for record in members:
+            namespaces = {
+                record.evidence.anchor_namespace,
+                record.evidence.candidate_namespace,
+            }
+            merged_namespaces = set(namespaces)
+            merged_records = [record]
+            kept: list[tuple[set[str], list[QuarantineRecord]]] = []
+            for cluster_namespaces, cluster_records in clusters:
+                if cluster_namespaces & namespaces:
+                    merged_namespaces |= cluster_namespaces
+                    merged_records.extend(cluster_records)
+                else:
+                    kept.append((cluster_namespaces, cluster_records))
+            kept.append((merged_namespaces, merged_records))
+            clusters = kept
+        for cluster_namespaces, cluster_records in clusters:
+            group = QuarantineRecordGroup(
+                label=label,
+                entity_type=cluster_records[0].evidence.anchor_type,
+                namespaces=tuple(sorted(cluster_namespaces)),
+                seqs=tuple(sorted(member.seq for member in cluster_records)),
+            )
+            for member in cluster_records:
+                groups[member.seq] = group
+    return groups
 
 
 # ── Pure terminal formatting ────────────────────────────────────────────────
@@ -295,6 +470,8 @@ def format_sheet(sheet: DecisionSheet) -> str:
             f'  label "{sheet.label}" | type {sheet.entity_type} | '
             f"routing: {sheet.routing} | cosine: no computado"
         ),
+        # Corpus property of the label (graph read), never the queue's.
+        f"  riesgo: {format_risk_marker(sheet.risk) or '—'}",
         "",
     ]
 
@@ -395,6 +572,24 @@ def format_sheet(sheet: DecisionSheet) -> str:
         if sheet.prior_merge.rolled_back:
             ledger_text += " · rollback"
     lines.append("  " + "ledger".ljust(_SIDE_LABEL_WIDTH) + ledger_text)
+
+    if sheet.siblings:
+        lines.append("")
+        for index, sibling in enumerate(sheet.siblings):
+            head = "hermanos (mismo grupo)" if index == 0 else ""
+            overlap = (
+                f"{sibling.description_overlap:.3f}"
+                if sibling.description_overlap is not None
+                else "—"
+            )
+            lines.append(
+                "  "
+                + head.ljust(_SIDE_LABEL_WIDTH)
+                + f"seq {sibling.seq} · {sibling.decision.value.upper()} · evid {overlap}"
+                + f" · {sibling.anchor_id} → {sibling.candidate_id}"
+            )
+        if sheet.approve_command is not None:
+            lines.append("  " + "decidir juntos".ljust(_SIDE_LABEL_WIDTH) + sheet.approve_command)
     lines.extend(
         [
             "",
@@ -431,7 +626,8 @@ def format_list(rows: Sequence[QuarantineListRow]) -> str:
         return "\n".join(lines)
     for row in sorted(rows, key=lambda item: item.seq):
         evid = f"{row.description_overlap:.3f}" if row.description_overlap is not None else "—"
-        marker = "  ⚠ genérica" if row.generic else ""
+        risk_marker = format_risk_marker(row.risk)
+        marker = f"  {risk_marker}" if risk_marker else ""
         lines.append(
             "  "
             + str(row.seq).rjust(5)

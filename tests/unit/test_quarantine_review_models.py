@@ -15,12 +15,17 @@ from book_graph_rag.domain.quarantine_review_models import (
     EvidenceReading,
     PriorMergeFacts,
     QuarantineListRow,
+    RiskLevel,
     SharedNeighbor,
     SheetEvidence,
     SheetMember,
+    SiblingRecord,
+    approve_command_for,
     format_list,
+    format_risk_marker,
     format_sheet,
     is_generic_label,
+    label_risk,
     mention_snippet,
     reading_for,
 )
@@ -96,7 +101,11 @@ def _evidence() -> SheetEvidence:
     )
 
 
-def _sheet() -> DecisionSheet:
+def _sheet(
+    *,
+    siblings: tuple[SiblingRecord, ...] = (),
+    approve_command: str | None = None,
+) -> DecisionSheet:
     anchor = _member(
         _ANCHOR_ID,
         name="Embeddings",
@@ -128,6 +137,9 @@ def _sheet() -> DecisionSheet:
         entity_type="concept",
         generic_label=True,
         cross_namespace=True,
+        # The sheet's marker is corpus-fed; the helper pins the common
+        # single-word-in-two-namespaces level (→ "⚠ media (genérica)").
+        risk=label_risk(single_word=True, namespace_count=2),
         members=(anchor, candidate),
         evidence=_evidence(),
         # Deliberately out of order: the model must impose deterministic order.
@@ -135,10 +147,18 @@ def _sheet() -> DecisionSheet:
             SharedNeighbor(entity_id="knowledge:beta:zeta", namespace="knowledge:beta"),
             SharedNeighbor(entity_id="knowledge:alpha:alfa", namespace="knowledge:alpha"),
         ),
+        siblings=siblings,
+        approve_command=approve_command,
     )
 
 
-def _row(seq: int, label: str, *, generic: bool = False) -> QuarantineListRow:
+def _row(
+    seq: int,
+    label: str,
+    *,
+    generic: bool = False,
+    namespace_count: int = 2,
+) -> QuarantineListRow:
     return QuarantineListRow(
         seq=seq,
         band=ConfidenceBand.MEDIUM,
@@ -150,6 +170,7 @@ def _row(seq: int, label: str, *, generic: bool = False) -> QuarantineListRow:
         anchor_id=f"knowledge:alpha:{label}",
         candidate_id=f"knowledge:beta:{label}",
         generic=generic,
+        risk=label_risk(single_word=generic, namespace_count=namespace_count),
         decision=QuarantineDecision.PENDING,
     )
 
@@ -249,10 +270,18 @@ def test_format_list_orders_rows_by_seq_regardless_of_input_order() -> None:
     assert text.index("embeddings") < text.index("agent") < text.index("pipeline")
 
 
-def test_format_list_marks_only_generic_rows() -> None:
-    """Only the single-word label carries the ⚠ genérica marker."""
-    text = format_list([_row(1, "embeddings"), _row(2, "agent", generic=True)])
-    assert text.count("⚠ genérica") == 1
+def test_format_list_marks_only_rows_at_some_risk() -> None:
+    """Rows without a risk stay clean; risky rows carry level AND reason."""
+    text = format_list(
+        [
+            _row(1, "embeddings"),  # two words, 2 namespaces → none
+            _row(2, "agent", generic=True),  # single word, 2 namespaces → media
+        ]
+    )
+    assert text.count("⚠ media (genérica)") == 1
+    assert "⚠ alta" not in text
+    embeddings_line = next(line for line in text.splitlines() if "embeddings" in line)
+    assert "⚠" not in embeddings_line
     assert "knowledge:alpha|knowledge:beta" in text
 
 
@@ -398,3 +427,129 @@ def test_format_sheet_pair_without_record_reports_no_record() -> None:
     assert format_sheet(pair_sheet).splitlines()[0] == (
         "  seq — · band — · cross-namespace · sin registro · created —"
     )
+
+
+# ── T6c: combined risk (single word × namespace coverage) ───────────────────
+
+
+def test_risk_single_word_in_two_namespaces_is_medium_generic() -> None:
+    """A generic label in only two namespaces is medium, reason 'genérica'."""
+    risk = label_risk(single_word=True, namespace_count=2)
+    assert risk.level is RiskLevel.MEDIUM
+    assert risk.single_word is True
+    assert risk.namespace_count == 2
+    assert risk.reason == "genérica"
+    assert format_risk_marker(risk) == "⚠ media (genérica)"
+
+
+def test_risk_two_word_label_in_three_namespaces_is_medium_wide() -> None:
+    """A specific label spanning three namespaces is medium on coverage alone."""
+    risk = label_risk(single_word=False, namespace_count=3)
+    assert risk.level is RiskLevel.MEDIUM
+    assert risk.reason == "3 nss"
+    assert format_risk_marker(risk) == "⚠ media (3 nss)"
+
+
+def test_risk_single_word_in_three_namespaces_is_high() -> None:
+    """Both signals together (the dangerous homonymy) is high."""
+    risk = label_risk(single_word=True, namespace_count=3)
+    assert risk.level is RiskLevel.HIGH
+    assert risk.reason == "genérica · 3 nss"
+    assert format_risk_marker(risk) == "⚠ alta (genérica · 3 nss)"
+
+
+def test_risk_two_word_label_in_two_namespaces_is_none() -> None:
+    """Neither signal → no risk, no reason, no marker."""
+    risk = label_risk(single_word=False, namespace_count=2)
+    assert risk.level is RiskLevel.NONE
+    assert risk.reason == ""
+    assert format_risk_marker(risk) == ""
+
+
+def test_risk_reason_prints_the_real_namespace_count() -> None:
+    """The reason carries the actual count, never a hardcoded '3'."""
+    assert label_risk(single_word=True, namespace_count=4).reason == "genérica · 4 nss"
+    assert label_risk(single_word=False, namespace_count=5).reason == "5 nss"
+    assert format_risk_marker(label_risk(single_word=False, namespace_count=5)) == "⚠ media (5 nss)"
+
+
+def test_format_list_prints_level_and_reason_per_row() -> None:
+    """Each row's marker states the level and why (genérica / N nss / both)."""
+    text = format_list(
+        [
+            _row(1, "embeddings"),  # none: no marker
+            _row(2, "agent", generic=True),  # medium: genérica
+            _row(3, "llm", generic=True, namespace_count=3),  # high: both
+        ]
+    )
+    assert "⚠ media (genérica)" in text
+    assert "⚠ alta (genérica · 3 nss)" in text
+    embeddings_line = next(line for line in text.splitlines() if "embeddings" in line)
+    assert "⚠" not in embeddings_line
+
+
+# ── T6c: sibling records + the joint approve command ────────────────────────
+
+
+def test_approve_command_sorts_and_dedupes_seqs() -> None:
+    """The composed command is ready to run: sorted, unique, gated flags."""
+    assert approve_command_for([17, 4, 19, 4]) == (
+        "quarantine approve --seq 4 --seq 17 --seq 19 --backup … --approval …"
+    )
+
+
+def _sheet_with_siblings() -> DecisionSheet:
+    # Deliberately out of order: the model must sort siblings by seq.
+    return _sheet(
+        siblings=(
+            SiblingRecord(
+                seq=19,
+                decision=QuarantineDecision.REJECTED,
+                description_overlap=0.377,
+                anchor_id="knowledge:alpha:embeddings-concept",
+                candidate_id="knowledge:gamma:embeddings-concept",
+            ),
+            SiblingRecord(
+                seq=17,
+                decision=QuarantineDecision.PENDING,
+                description_overlap=0.412,
+                anchor_id="knowledge:alpha:embeddings-concept",
+                candidate_id="knowledge:delta:embeddings-concept",
+            ),
+        ),
+        approve_command=approve_command_for([1462, 17, 19]),
+    )
+
+
+def test_sheet_sorts_siblings_by_seq_on_construction() -> None:
+    """Sibling order is deterministic regardless of read order."""
+    sheet = _sheet_with_siblings()
+    assert [sibling.seq for sibling in sheet.siblings] == [17, 19]
+
+
+def test_format_sheet_lists_siblings_with_decision_evidence_and_command() -> None:
+    """The sheet cross-references the group's other records and how to decide
+    them together (seq, decision, evidence, composed approve command)."""
+    text = format_sheet(_sheet_with_siblings())
+    lines = text.splitlines()
+    assert "hermanos (mismo grupo)" in text
+    assert "seq 17 · PENDING · evid 0.412" in text
+    assert "seq 19 · REJECTED · evid 0.377" in text
+    command = "quarantine approve --seq 17 --seq 19 --seq 1462 --backup … --approval …"
+    assert command in text
+    hermanos_index = next(i for i, line in enumerate(lines) if "hermanos" in line)
+    command_index = next(i for i, line in enumerate(lines) if "decidir juntos" in line)
+    decidir_index = next(i for i, line in enumerate(lines) if "decidir      identity" in line)
+    assert hermanos_index < command_index < decidir_index
+    # Sibling lines print in seq order.
+    seq17_index = next(i for i, line in enumerate(lines) if "seq 17 ·" in line)
+    seq19_index = next(i for i, line in enumerate(lines) if "seq 19 ·" in line)
+    assert seq17_index < seq19_index
+
+
+def test_format_sheet_without_siblings_omits_the_section() -> None:
+    """A sheet with no group mates prints no siblings section at all."""
+    text = format_sheet(_sheet())
+    assert "hermanos" not in text
+    assert "decidir juntos" not in text
+    assert "decidir      identity" in text

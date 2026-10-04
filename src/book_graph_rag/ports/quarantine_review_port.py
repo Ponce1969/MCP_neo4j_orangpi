@@ -44,6 +44,25 @@ class QuarantineReviewPort(abc.ABC):
         case never carries a query of its own.
         """
 
+    async def count_label_namespaces(self, labels: Sequence[str]) -> dict[str, int]:
+        """Batched corpus coverage: ``{label: distinct corpus:source namespaces}``.
+
+        One read for every label the caller shows (T6c correction): the
+        namespace component derives exactly like the detection query
+        (``split(id, ':')``) and labels group with the audit's
+        ``toLower(trim(name))`` expression — the T9 unification with
+        ``normalize_key`` still applies. Labels matching nothing are absent
+        from the result so callers can fall back to the record's own pair.
+
+        Non-abstract on purpose: adapters serving ``list``/``render`` must
+        override it, while stubs that never risk-marker (the enqueue tests)
+        keep implementing only the abstract reads; the default raises rather
+        than silently reporting a wrong corpus count.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} cannot count label namespaces; override count_label_namespaces"
+        )
+
     @abc.abstractmethod
     async def close(self) -> None:
         """Release the underlying resources."""

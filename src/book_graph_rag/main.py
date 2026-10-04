@@ -69,6 +69,7 @@ from book_graph_rag.domain.namespaces import SourceNamespace, UnknownNamespaceEr
 from book_graph_rag.domain.quarantine_review_models import (
     DecisionSheet,
     QuarantineListRow,
+    RiskLevel,
     format_list,
     format_sheet,
 )
@@ -971,7 +972,19 @@ def quarantine() -> None:
     "--generic-only",
     is_flag=True,
     default=False,
-    help="Only single-word labels (the generic-collision batch).",
+    help=(
+        "Only single-word labels (the generic-collision batch; unchanged T6a "
+        "meaning — see --risk for the combined marker)."
+    ),
+)
+@click.option(
+    "--risk",
+    type=click.Choice(["high", "medium", "none"]),
+    default=None,
+    help=(
+        "Only rows at this combined risk level: high = single word AND ≥3 "
+        "namespaces, medium = exactly one of the two (reason printed per row)."
+    ),
 )
 @click.option("--json", "json_output", is_flag=True, default=False, help="Emit rows as JSON.")
 def quarantine_list(
@@ -980,9 +993,16 @@ def quarantine_list(
     namespace: str | None,
     limit: int | None,
     generic_only: bool,
+    risk: str | None,
     json_output: bool,
 ) -> None:
-    """Print one row per quarantine record (pending unless --all)."""
+    """Print one row per quarantine record (pending unless --all).
+
+    Two independent filters over the same rows: ``--generic-only`` keeps
+    single-word labels (its approved T6a meaning), while ``--risk`` filters
+    the combined marker — high = single word AND ≥3 namespaces, medium =
+    exactly one of the two, none = neither.
+    """
     try:
         settings = Settings.model_validate({})
     except Exception as exc:  # noqa: BLE001
@@ -1000,6 +1020,7 @@ def quarantine_list(
                 namespace=namespace,
                 limit=limit,
                 generic_only=generic_only,
+                risk=RiskLevel(risk) if risk is not None else None,
             )
         finally:
             for closable in closables:

@@ -85,6 +85,24 @@ RETURN coalesce(name, '') AS group_key,
 ORDER BY group_key, entity_type
 """
 
+# Batched corpus coverage for the T6c risk marker: one query per ``list`` /
+# ``render`` call for every label shown. Same active-entity predicate and
+# same namespace-component derivation as the detection query above
+# (split(n.id, ':')), grouped with the audit's toLower(trim(name))
+# expression; labels are passed in as given (normalize_key outputs on the
+# caller side) and unmatched labels stay absent so the caller can fall
+# back — the Cypher/Python normalization divergence remains a T9 item.
+_QUERY_LABEL_NAMESPACES = """
+MATCH (n:Entity)
+WHERE (n.merged_into IS NULL OR n.merged_into = '') AND n.id IS NOT NULL
+  AND toLower(trim(n.name)) IN $labels
+WITH n, split(n.id, ':') AS parts
+WHERE size(parts) >= 2
+WITH toLower(trim(n.name)) AS label, parts[0] + ':' + parts[1] AS namespace
+RETURN label, collect(DISTINCT namespace) AS namespaces
+ORDER BY label
+"""
+
 
 def _batched(items: list[str]) -> list[list[str]]:
     return [items[i : i + BATCH_SIZE] for i in range(0, len(items), BATCH_SIZE)]
@@ -142,6 +160,18 @@ class Neo4jQuarantineReviewAdapter(QuarantineReviewPort):
                     )
                 )
         return groups
+
+    async def count_label_namespaces(self, labels: Sequence[str]) -> dict[str, int]:
+        """Corpus namespace count per label — one batched read, read-only."""
+        unique = sorted({label.strip() for label in labels if label.strip()})
+        if not unique:
+            return {}
+        counts: dict[str, int] = {}
+        async with self._driver.session() as session:
+            result = await session.run(_QUERY_LABEL_NAMESPACES, labels=unique)
+            async for record in result:
+                counts[str(record["label"])] = len(record["namespaces"])
+        return counts
 
     async def close(self) -> None:
         """Close the underlying Neo4j driver."""
