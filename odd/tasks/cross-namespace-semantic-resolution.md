@@ -125,11 +125,24 @@ maps and debt R1 corrupts exactly that population.
       wrong/missing/extra candidate cases) + 2 hypothesis properties (no band and no forged evidence crosses).
       **Remaining part of T7** (the `quarantine approve` command itself, behind the AGENTS.md §7.2 gate with explicit
       `--seq`) ships with the T6 CLI surface, whose mockup is awaiting the maintainer's visual approval.
-- [ ] **T8** Retro-audit of the 302 applied merges with the T2 renderer + R5a, stratified by label genericity;
-      read-only report first, then per-case human decisions (keep / rollback via ledger).
-      **Ordering decision (maintainer, 2026-10-03): no `quarantine approve` runs on production until T8 closes.** The
-      20 pending records stay pending on purpose: audit the past before mutating the present. Any future cross-namespace
-      merge request must wait for the retro-audit verdicts.
+- [~] **T8** Retro-audit of the 302 applied merges. **T8a done** (read-only tool
+      `scripts-ops/audit_applied_cross_namespace.py`: ledger-driven selection, graph recompute through the shared
+      model, risk × evidence matrix, no graph mutation; 8 unit tests, anti-drift assertions like the T2b renderer).
+      **First live run (2026-10-03, evidence `evidence-bundles/applied-cross-namespace-audit-20261003.json`,
+      sha256 `f5ab97185fb4b20b474c3c78`): 302 entries / 322 pairs, every selected entry stored `band=exact` with
+      `s3 is None` (the bypass left no scoring at all). Matrix: strong **0**, ambiguous 143, none_silent 23,
+      none_rest 156; by risk high 8 / medium 183 / none 131. Lists: clear identities **0**, suspicious **176**,
+      needs reading 23.** Reading a sample of both lists showed same-language pairs with completely different
+      concepts among the "silent" ones too (`agent-b` merged with an unrelated `summarization-agent-b`), so the
+      `lexically_silent` flag currently conflates *different language* with *different concept*.
+      Pending, in order: (1) **T8b** make the strata language-aware (same-language silence is evidence *against*
+      identity, cross-language silence is uninformative) — small tool change; (2) calibrate with the approved
+      optional cosine on a stratified sample (~20 pairs across the four strata) to measure how much of the 176 is
+      real wrongness before deciding any rollback; (3) **T8c** the rollback procedure for these specific entries:
+      they were written **before the R1 fix**, so their inverse maps carry `direction=None` and `rollback_merge`
+      falls back to the legacy both-ways restore, which can rebuild mirror edges — a pilot on the clearest wrong
+      merges must measure edges before/after and clean mirrors if they appear; (4) per-case human decisions.
+      **Nothing is mutated until the maintainer reviews these numbers** (their explicit condition).
 - [ ] **T9** R5b: case-insensitive grouping in `duplicates_entity` via `normalize_key`, together with the cleanup of
       the 64 case-only groups (approval-gated merge), and the confirmation of how the `uniqueness` gate dimension
       treats warnings.
@@ -155,3 +168,6 @@ maps and debt R1 corrupts exactly that population.
 | T2 | `refactor` + `feat(ops)` commits | renderer 722 lines; production render read-only; 456 groups / 212 rendered / 242 pairs; JSON evidence sha256 `eb5da6995248a5b03944b899…`; 567 unit tests green, ruff/mypy/architecture green |
 | T3+T4 | (this commit) | RED `7 failed` → GREEN `7 passed` (80 s) + regression `34 passed`; catalog 23; ruff/mypy/architecture green |
 | T5 | (this commit) | hash investigation with quoted lines; RED unit `5 failed` / integration `4 failed, 6 passed` → GREEN `5 passed` + `10 passed`; real ledger read-only: 958 entries, 0 mismatches, 0 broken links |
+| T6a/T6b/T6c | `4cda365`…`6bec401` | CLI surface + real enqueue (20 pending records, graph untouched) + corpus risk marker and siblings |
+| T2b | `d95cbc6` | renderer imports the shared model; AST anti-drift; re-render moves the sample from 6 to 43 readable pairs |
+| T8a | (this commit) | read-only retro-audit tool; 302 entries / 322 pairs; strong 0 · ambiguous 143 · silent 23 · none 156; suspicious 176 |
