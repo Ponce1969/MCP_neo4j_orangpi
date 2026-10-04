@@ -224,6 +224,22 @@ maps and debt R1 corrupts exactly that population.
       needs_reading 5, high risk 7. Evidence: `evidence-bundles/batch2b-decision-sheets-20261004.txt`,
       `evidence-bundles/applied-cross-namespace-audit-consolidated-after2b-20261004.json`,
       `evidence-bundles/lote2b-plan-20261004.json`.
+      **Branch deployed to the production host + 2B-B partial closed (2026-10-04)**: the host's dirty tree (33 files
+      staged from an older feature snapshot + 1 modified + 7 untracked) was snapshotted into the throwaway branch
+      `host-dirty-backup-20261004` (`bc1f358`, patches in `/tmp/host_staged_before.patch`), keeping the previously
+      existing stashes; the local branch `feat/cross-namespace-semantic-resolution` was then checked out at `174e18d`
+      (the host's `main` @ `56ca06c` is an ancestor of the branch, so nothing from main was removed; dependencies are
+      identical, so no `uv sync`; the gitignored ledger was never at risk) and the 7 untracked files were restored
+      from the backup branch. The MCP service was deliberately **not** restarted. Then `ledger rollback --seq 508
+      --candidate agentic-architectural-patterns:retrieval-concept` (fingerprint `d84a8a48…`) applied the **first
+      partial rollback in production**: census MENTIONS 2/2, RELATED 5/5, 1 accepted mirror (the same `unknown`
+      fallback family on `vector-database-component`), `merged_into` 907 -> 906, drift none; the reverted candidate is
+      alive while the **non-selected sibling stays `merged_into`** and the compensating entry 982 records only the
+      subset. `repoint --apply` closed the 2 blocking edges the mirror created; global audit **`passed` (0 blocking /
+      477 warnings)**. The candidate-aware audit reports its first partial: `full 23 · partially_compensated 1 ·
+      compensated_pairs 25 · stratified 297 · suspicious 170`. Evidence:
+      `evidence-bundles/applied-cross-namespace-audit-consolidated-after508-20261004.json`. Backups
+      `bookgraph_backup_20261004T232545Z.json`, `…T232650Z.json`.
       **Remaining**: **180 suspicious pairs** (185 - the 5 rolled-back pairs), needs_reading 5, high risk 7, silent_same_language 14; consolidated queue
       `evidence-bundles/applied-cross-namespace-audit-consolidated-after2a-20261004.json` (972 entries / 302 cross-namespace /
       14 compensating / **288 still applied**). `seq 496` `Prompt` still deliberately retained.
@@ -326,6 +342,6 @@ maps and debt R1 corrupts exactly that population.
 | T2b | `d95cbc6` | renderer imports the shared model; AST anti-drift; re-render moves the sample from 6 to 43 readable pairs |
 | T8a | (this commit) | read-only retro-audit tool; 302 entries / 322 pairs; strong 0 · ambiguous 143 · silent 23 · none 156; suspicious 176 |
 | T8c/T8d | `f9737b7`…`b35ff12` | `ledger rollback` with direction inference + census + fingerprint; Lote 1: 10/302 reverted, 0 mirrors in 8, 8 symmetric edges accepted in 2; ledger 968 / 0 inconsistencies; consolidated audit 292 applied · 185 suspicious · global `passed` 0 blocking / 465 warnings; `repoint` closed the 8 restored blocking edges |
-| T8e | (in progress) | 2A: 375/489/503/480 rolled back, 413/475 kept. 2B-A: 9 rolled back (492/455/423/583/532/491/347/537/451), 6 kept, 1 accepted mirror; ledger 981/0 inconsistencies, shared neighbours 0, global audit `passed` after repoint. Deferred: 508 partial (needs the branch on the production host). Queue 171 suspicious / 298 stratified |
+| T8e | (in progress) | 2A: 375/489/503/480 rolled back, 413/475 kept. 2B-A: 9 rolled back (492/455/423/583/532/491/347/537/451), 6 kept, 1 accepted mirror; shared neighbours 0; global audit `passed` after repoint. 2B-B: branch deployed to the host (`host-dirty-backup-20261004`), **first partial rollback** (`508` candidate `agentic-patterns:retrieval-concept`, fingerprint `d84a8a48…`) with the non-selected sibling still merged and compensating entry `[subset]`; repoint closed 2 blockings; ledger 982 / 0 inconsistencies; candidate-aware audit `full 23 · partial 1 · suspicious 170` |
 | T8f | `f7fb0ef` | `--candidate` partial rollback: plan-time overlap refusal + alias-value collision refusal + candidate-aware idempotence backstop; RED `DID NOT RAISE MergeNotReversible` → GREEN; 52 focused unit · 747 unit suite · 6 testcontainers integration; ruff/mypy/architecture green; independent verification confirmed partial-then-full can no longer mutate |
 | T8f.2 | (this commit) | candidate-aware retro-audit: `rolled_back` per candidate, guard on the ORIGINAL population + compensation reference check (unknown target / canonical mismatch / unknown candidate / duplicate all exit 2 pre-graph); RED 6 failed → GREEN 17 passed; 753 unit suite; ruff/mypy/architecture green; production read-only run unchanged 288 applied / 322 pairs / 307 stratified / 180 suspicious |
