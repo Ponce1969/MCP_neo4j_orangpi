@@ -30,14 +30,18 @@ Contrato T10 (cuatro piezas):
 4. **Censo antes/despues**: entidades activas, ``merged_into``, MENTIONS y
    RELATED, por namespace y db-wide. La delta de entidades es UNA entidad activa
    menos y UN ``merged_into`` mas por duplicado fusionado. Las aristas NO son
-   invariantes: el apply colapsa los ``MENTIONS`` cuyo ``(chunk, duplicado)`` ya
-   menciona al canonical (``MERGE`` + ``DELETE`` en ``_REPOINT_MENTIONS_BATCH``) y
-   ``_DELETE_INTRA_GROUP_RELATED`` borra cada arista ``RELATED`` dirigida cuyos
-   dos extremos caen en el grupo fusionado. El plan MIDE ambas poblaciones
-   (read-only, por arista dirigida, sin filtro de orden de id, sobre los grupos
-   del plan) y las resta de la delta: ``MENTIONS − colapsos`` y
-   ``RELATED − intra-grupo``. Tras ``--apply`` se mide y cualquier drift imprime
-   lineas DRIFT y sale con codigo distinto de cero.
+   invariantes: el apply colapsa los ``MENTIONS`` cuyo ``(chunk, entidad del
+   grupo)`` ya menciona al canonical (``MERGE`` + ``DELETE`` en
+   ``_REPOINT_MENTIONS_BATCH``), ``_DELETE_INTRA_GROUP_RELATED`` borra cada arista
+   ``RELATED`` dirigida cuyos dos extremos caen en el grupo fusionado, y
+   ``_REPOINT_RELATED_{OUT,IN}_BATCH`` colapsa aristas re-apuntadas cuando el
+   canonical YA tenia una arista con la misma clave
+   ``(direccion, otro extremo, type)`` (``MERGE`` sobre la existente + ``DELETE``
+   de la del miembro). El plan MIDE las tres poblaciones (read-only, sobre los
+   grupos del plan, contando en Python puro y testeable) y las resta de la delta:
+   ``MENTIONS − colapsos`` y ``RELATED − (intra-grupo + re-point)``. Tras
+   ``--apply`` se mide y cualquier drift imprime lineas DRIFT y sale con codigo
+   distinto de cero.
 
 Fases:
   Fase 1 (default, READ-ONLY): reporta el plan completo, fingerprint, censo y
@@ -58,14 +62,25 @@ Efectos sobre las aristas que el script MIDE y reporta (no asume):
   soft-deleted, y no hace falta un paso aparte de aprobacion.
 - ``_REPOINT_MENTIONS_BATCH`` hace ``MERGE (chunk)-[:MENTIONS]->(canonical)``
   y luego ``DELETE`` la arista del duplicado: cuando el chunk YA mencionaba al
-  canonical, el total colapsa en uno por ese ``(chunk, duplicado)``.
+  canonical — o a otro miembro del grupo — el total colapsa en UNA arista por
+  ``(chunk, grupo)``.
+- ``_REPOINT_RELATED_{OUT,IN}_BATCH`` hacen
+  ``MERGE (canon)-[r2:RELATED {type: r.type}]->(other)`` (y la simetrica
+  ``(other)-[r2]->(canon)``) por cada arista capturada del miembro y despues
+  ``DELETE`` la original: por cada clave ``(direccion, otro extremo, type)``
+  sobrevive 1 arista cuando ``existing + incoming >= 1``, asi que la perdida es
+  ``max(0, existing + incoming - 1)`` — ``existing`` es la arista pre-merge del
+  canonical (el adapter solo captura ``duplicate_ids``) y ``incoming`` las aristas
+  de miembros que mapean a esa misma clave. Las aristas cuyo otro extremo cae en
+  el grupo las salta el ``WHERE`` del adapter y las borra
+  ``_DELETE_INTRA_GROUP_RELATED``: se cuentan una sola vez, en el contador
+  intra-grupo.
 
-El script cuenta ambas poblaciones (read-only, por arista dirigida — un par
-bidireccional intra-grupo son 2 aristas, una arista unica con el origen
-ordenado mas alto tambien cuenta 1 — y sobre los grupos del plan que el apply
-procesara) y las imprime en el dry-run y en ``--json`` como ``MENTIONS a
-colapsar: N`` y ``RELATED intra-grupo a borrar: M``. Re-ejecutar es idempotente:
-la regla del audit ignora las entidades ya fusionadas.
+El script cuenta las tres poblaciones (read-only, sobre los grupos del plan que
+el apply procesara, con el conteo en Python puro) y las imprime en el dry-run y
+en ``--json`` como ``MENTIONS a colapsar: N``, ``RELATED intra-grupo a borrar:
+M`` y ``RELATED re-point a colapsar: K``. Re-ejecutar es idempotente: la regla
+del audit ignora las entidades ya fusionadas.
 
 Uso (desde la raiz del repo en el OrangePi, con el .env sourceado):
     uv run --no-sync python scripts-ops/resolve_intra_ns.py
@@ -157,14 +172,33 @@ WHERE a.id IN $member_ids AND b.id IN $member_ids
 RETURN a.id AS src, b.id AS dst
 """
 
-# Mentions de los miembros del plan: (chunk, entidad). El conteo de colapsos
-# vive en Python (``count_mentions_collapses``): un ``(chunk, duplicado)``
-# colapsa solo si el mismo chunk ya menciona al canonical de su grupo.
+# Mentions de los miembros del plan: (chunk, entidad), INCLUYENDO al canonical.
+# El conteo de colapsos vive en Python (``count_mentions_collapses``):
+# ``_REPOINT_MENTIONS_BATCH`` hace ``MERGE (chunk)-[:MENTIONS]->(canonical)``
+# por cada arista capturada, asi que por cada ``(chunk, grupo)`` que menciona a
+# cualquier miembro sobrevive UNA arista y la perdida es ``mencionados - 1``.
 # Read-only; ``elementId`` identifica al chunk dentro de UNA lectura.
 _MEMBER_MENTIONS_QUERY = """
 MATCH (c:Chunk)-[:MENTIONS]->(e:Entity)
 WHERE e.id IN $member_ids
 RETURN elementId(c) AS chunk_ref, e.id AS entity_id
+"""
+
+# Aristas RELATED incidentes a los miembros del plan: (src, dst, type) SIN
+# agrupacion y SIN orden de id, con OR en los dos extremos para ver TAMBIEN las
+# aristas propias del canonical (la mitad ``existing`` de la clave de colapso del
+# re-point: el adapter solo captura ``duplicate_ids``). El filtro "mismo grupo" y
+# el conteo de colapsos viven en Python (``count_related_repoint_collapses``),
+# donde son testeables: ``_REPOINT_RELATED_{OUT,IN}_BATCH`` MERGEa cada arista
+# capturada del miembro sobre la clave ``(direccion, otro extremo, type)`` y
+# despues borra la original, asi que la perdida por clave es
+# ``max(0, existing + incoming - 1)`` y las aristas con ambos extremos en el
+# grupo las posee ``_DELETE_INTRA_GROUP_RELATED`` (contador intra-grupo).
+# Read-only.
+_REPOINT_RELATED_ROWS_QUERY = """
+MATCH (a:Entity)-[r:RELATED]->(b:Entity)
+WHERE a.id IN $member_ids OR b.id IN $member_ids
+RETURN a.id AS src, b.id AS dst, r.type AS type
 """
 
 # Censo por namespace (o db-wide con $prefix = '') en UNA lectura: entidades
@@ -196,7 +230,10 @@ class Census:
 
 
 def predicted_census_delta(
-    plan: Sequence[PlannedMerge], collapses: int = 0, intra_group_edges: int = 0
+    plan: Sequence[PlannedMerge],
+    collapses: int = 0,
+    intra_group_edges: int = 0,
+    repoint_collapses: int = 0,
 ) -> Census:
     """Delta predicha = lo que el apply REALMENTE hara, no una asuncion.
 
@@ -207,11 +244,14 @@ def predicted_census_delta(
 
     Aristas: MENTIONS y RELATED NO son invariantes.
 
-    - ``total_mentions = -collapses``: cada ``(chunk, duplicado)`` cuyo chunk ya
-      menciona al canonical colapsa bajo ``MERGE`` + ``DELETE``
-      (``_REPOINT_MENTIONS_BATCH``).
-    - ``total_related = -intra_group_edges``: ``_DELETE_INTRA_GROUP_RELATED``
-      borra cada arista dirigida con sus dos extremos en el grupo fusionado.
+    - ``total_mentions = -collapses``: por cada ``(chunk, grupo)`` que menciona a
+      mas de un miembro del grupo solo sobrevive una arista despues del
+      ``MERGE`` + ``DELETE`` de ``_REPOINT_MENTIONS_BATCH``.
+    - ``total_related = -(intra_group_edges + repoint_collapses)``:
+      ``_DELETE_INTRA_GROUP_RELATED`` borra cada arista dirigida con sus dos
+      extremos en el grupo fusionado, y el re-point MERGEa las aristas de los
+      miembros sobre la clave ``(direccion, otro extremo, type)`` del canonical,
+      colapsando ``max(0, existing + incoming - 1)`` aristas por clave.
 
     Los conteos los miden los fetchers read-only del script sobre los grupos del
     plan (0 por defecto = sin deletes medidos, p. ej. en pruebas).
@@ -221,7 +261,7 @@ def predicted_census_delta(
         active_entities=-duplicates,
         merged_into_count=duplicates,
         total_mentions=-collapses,
-        total_related=-intra_group_edges,
+        total_related=-(intra_group_edges + repoint_collapses),
     )
 
 
@@ -232,6 +272,14 @@ def _group_index(plan: Sequence[PlannedMerge]) -> dict[str, int]:
         for entity_id in (merge.canonical_id, *merge.duplicate_ids):
             index[entity_id] = position
     return index
+
+
+def _members_by_group(plan: Sequence[PlannedMerge]) -> dict[int, frozenset[str]]:
+    """Mapa ``indice de grupo -> ids de TODOS sus miembros`` (canonical incluido)."""
+    return {
+        position: frozenset((merge.canonical_id, *merge.duplicate_ids))
+        for position, merge in enumerate(plan)
+    }
 
 
 def count_intra_group_related(
@@ -258,27 +306,80 @@ def count_mentions_collapses(
 ) -> int:
     """MENTIONS que ``_REPOINT_MENTIONS_BATCH`` colapsara (``MERGE`` + ``DELETE``).
 
-    Cada fila es ``(chunk_ref, entity_id)``. Un ``(chunk, duplicado)`` colapsa
-    cuando el MISMO chunk ya menciona al canonical de su grupo: el ``MERGE`` no
-    crea arista nueva y el ``DELETE`` de la del duplicado deja el total en -1.
-    Mencionar solo al duplicado crea la arista nueva primero: neto 0, no colapsa.
+    Cada fila es ``(chunk_ref, entity_id)`` — miembros o canonical. El batch hace
+    ``MERGE (chunk)-[:MENTIONS]->(canonical)`` por cada arista capturada y luego
+    ``DELETE`` la original, asi que por cada ``(chunk, grupo)`` que menciona a
+    cualquier miembro del grupo sobrevive UNA sola arista y la perdida es
+    ``mencionados - 1``:
+
+    - chunk solo con el canonical (1) o solo con UN duplicado (1): 0 de perdida
+      (en el segundo caso el MERGE crea la arista nueva: neto 0);
+    - chunk con canonical + duplicado, o con dos duplicados sin canonical, o con
+      los N miembros: ``N - 1``.
     """
     group_of = _group_index(plan)
-    canonical_by_group = {i: merge.canonical_id for i, merge in enumerate(plan)}
-    canonical_chunks: dict[int, set[str]] = {}
-    duplicate_chunks: dict[int, set[str]] = {}
+    per_group: dict[int, dict[str, set[str]]] = {}
     for chunk_ref, entity_id in mentions:
         group = group_of.get(entity_id)
         if group is None:
             continue
-        if entity_id == canonical_by_group[group]:
-            canonical_chunks.setdefault(group, set()).add(chunk_ref)
-        else:
-            duplicate_chunks.setdefault(group, set()).add(chunk_ref)
+        per_group.setdefault(group, {}).setdefault(chunk_ref, set()).add(entity_id)
     return sum(
-        len(chunks & canonical_chunks.get(group, set()))
-        for group, chunks in duplicate_chunks.items()
+        len(member_ids) - 1 for chunks in per_group.values() for member_ids in chunks.values()
     )
+
+
+def count_related_repoint_collapses(
+    plan: Sequence[PlannedMerge], edges: Sequence[tuple[str, str, str | None]]
+) -> int:
+    """Aristas RELATED que ``_REPOINT_RELATED_{OUT,IN}_BATCH`` colapsaran.
+
+    Cada fila es ``(src, dst, type)`` de una arista incidente a un miembro del
+    plan. El batch MERGEa cada arista capturada del miembro sobre
+    ``(canon)-[RELATED {type}]->(other)`` (o la simetrica) y despues borra la
+    original, asi que por cada clave ``(grupo, direccion, otro, type)``:
+
+    - ``existing`` = 1 si el canonical ya tenia esa arista pre-merge (el adapter
+      solo captura ``duplicate_ids``: las aristas propias del canonical son la
+      mitad existente),
+    - ``incoming`` = aristas de miembros del grupo que mapean a esa misma clave,
+    - sobreviven ``min(1, existing + incoming)`` → perdida
+      ``max(0, existing + incoming - 1)``.
+
+    Exclusiones (paridad con el adapter, sin doble conteo):
+
+    - aristas con ``type IS NULL``: ``WHERE r.type = inv.edge_properties.type``
+      nunca matchea NULL, asi que el adapter NO las re-apunta y no colapsan;
+    - aristas con ambos extremos en el mismo grupo: las salta el ``WHERE`` del
+      batch (``NOT other.id IN $dup_ids AND other.id <> $canonical_id``) y las
+      borra ``_DELETE_INTRA_GROUP_RELATED`` — las cuenta
+      ``count_intra_group_related``.
+    """
+    group_of = _group_index(plan)
+    canonical_by_group = {i: merge.canonical_id for i, merge in enumerate(plan)}
+    members_of = _members_by_group(plan)
+    existing: set[tuple[int, str, str, str]] = set()
+    incoming: dict[tuple[int, str, str, str], int] = {}
+    for src, dst, edge_type in edges:
+        if edge_type is None:
+            continue
+        src_group = group_of.get(src)
+        dst_group = group_of.get(dst)
+        # direccion 'out': src es el miembro, dst es el otro extremo de la clave.
+        if src_group is not None and dst not in members_of[src_group]:
+            key = (src_group, "out", dst, edge_type)
+            if src == canonical_by_group[src_group]:
+                existing.add(key)
+            else:
+                incoming[key] = incoming.get(key, 0) + 1
+        # direccion 'in': dst es el miembro, src es el otro extremo de la clave.
+        if dst_group is not None and src not in members_of[dst_group]:
+            key = (dst_group, "in", src, edge_type)
+            if dst == canonical_by_group[dst_group]:
+                existing.add(key)
+            else:
+                incoming[key] = incoming.get(key, 0) + 1
+    return sum(max(0, (1 if key in existing else 0) + count - 1) for key, count in incoming.items())
 
 
 def census_drift(before: Census, after: Census, predicted: Census) -> list[str]:
@@ -445,6 +546,25 @@ async def _member_mention_rows(
     return [(str(record[0]), str(record[1])) for record in records]
 
 
+async def _related_repoint_rows(
+    session: AsyncSession, member_ids: list[str]
+) -> list[tuple[str, str, str | None]]:
+    """Aristas RELATED incidentes a los miembros: ``(src, dst, type)`` (read-only).
+
+    El OR de los dos extremos es intencional: el conteo de colapsos del re-point
+    necesita las aristas del canonical (``existing``) ademas de las de los
+    miembros (``incoming``); el filtro "mismo grupo" vive en el contador.
+    """
+    if not member_ids:
+        return []
+    result = await session.run(_REPOINT_RELATED_ROWS_QUERY, member_ids=member_ids)
+    records = await result.values()
+    return [
+        (str(record[0]), str(record[1]), None if record[2] is None else str(record[2]))
+        for record in records
+    ]
+
+
 async def _read_census(session: AsyncSession, prefix: str) -> Census:
     record = await (await session.run(_CENSUS_QUERY, prefix=prefix)).single()
     if record is None:
@@ -497,6 +617,7 @@ def _plan_payload(
     fingerprint: str,
     intra_group: int,
     mentions_collapses: int,
+    repoint_collapses: int,
     census_before_ns: Census,
     census_before_db: Census,
     delta: Census,
@@ -523,6 +644,7 @@ def _plan_payload(
         },
         "intra_group_related": intra_group,
         "mentions_collapses": mentions_collapses,
+        "related_repoint_collapses": repoint_collapses,
         "census_before": {
             "namespace": asdict(census_before_ns),
             "db_wide": asdict(census_before_db),
@@ -540,6 +662,7 @@ def _print_plan(
     delta: Census,
     intra_group: int,
     mentions_collapses: int,
+    repoint_collapses: int,
     namespace: str,
 ) -> None:
     duplicates = [dup for merge in plan for dup in merge.duplicate_ids]
@@ -555,6 +678,7 @@ def _print_plan(
     print(f"  aristas a re-apuntar: MENTIONS {mentions} · RELATED {related}")
     print(f"  MENTIONS a colapsar: {mentions_collapses}")
     print(f"  RELATED intra-grupo a borrar: {intra_group}")
+    print(f"  RELATED re-point a colapsar: {repoint_collapses}")
     print(f"  grupos por tamano: {dict(sorted(sizes.items()))}")
     print(f"  tipos: {dict(sorted(kinds.items()))}")
     print(f"  fingerprint: {fingerprint}")
@@ -691,11 +815,13 @@ async def main(argv: list[str] | None = None) -> None:
             )
             related_rows = await _intra_group_related_rows(session, plan_member_ids)
             mention_rows = await _member_mention_rows(session, plan_member_ids)
+            repoint_rows = await _related_repoint_rows(session, plan_member_ids)
             intra_group = count_intra_group_related(plan, related_rows)
             collapses = count_mentions_collapses(plan, mention_rows)
+            repoint = count_related_repoint_collapses(plan, repoint_rows)
             census_before_ns = await _read_census(session, prefix)
             census_before_db = await _read_census(session, "")
-            delta = predicted_census_delta(plan, collapses, intra_group)
+            delta = predicted_census_delta(plan, collapses, intra_group, repoint)
             payload = _plan_payload(
                 mode=mode,
                 namespace=namespace,
@@ -704,6 +830,7 @@ async def main(argv: list[str] | None = None) -> None:
                 fingerprint=fingerprint,
                 intra_group=intra_group,
                 mentions_collapses=collapses,
+                repoint_collapses=repoint,
                 census_before_ns=census_before_ns,
                 census_before_db=census_before_db,
                 delta=delta,
@@ -722,6 +849,7 @@ async def main(argv: list[str] | None = None) -> None:
                         delta,
                         intra_group,
                         collapses,
+                        repoint,
                         namespace,
                     )
                     print("\n== DRY-RUN: nada mutado ==")
@@ -738,6 +866,7 @@ async def main(argv: list[str] | None = None) -> None:
                     delta,
                     intra_group,
                     collapses,
+                    repoint,
                     namespace,
                 )
             _validate_apply_gates(args)

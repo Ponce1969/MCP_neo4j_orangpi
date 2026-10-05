@@ -140,6 +140,7 @@ def _install_graph_fakes(
     census_reads: list[object],
     related_rows: list[tuple[str, str]] | None = None,
     mention_rows: list[tuple[str, str]] | None = None,
+    repoint_rows: list[tuple[str, str, str | None]] | None = None,
 ) -> list[list[PlannedMerge]]:
     """Stub every graph touch; return the recorder of ``_apply`` invocations.
 
@@ -161,6 +162,11 @@ def _install_graph_fakes(
 
     async def _mentions(_session: object, _member_ids: list[str]) -> list[tuple[str, str]]:
         return list(mention_rows or [])
+
+    async def _repoint(
+        _session: object, _member_ids: list[str]
+    ) -> list[tuple[str, str, str | None]]:
+        return list(repoint_rows or [])
 
     async def _read_census(_session: object, _prefix: str) -> object:
         value = census_reads[read_index["i"]]
@@ -187,6 +193,7 @@ def _install_graph_fakes(
     monkeypatch.setattr(script, "_edge_impact", _edge_impact)
     monkeypatch.setattr(script, "_intra_group_related_rows", _related)
     monkeypatch.setattr(script, "_member_mention_rows", _mentions)
+    monkeypatch.setattr(script, "_related_repoint_rows", _repoint)
     monkeypatch.setattr(script, "_read_census", _read_census)
     monkeypatch.setattr(script, "_apply", _apply)
     return applied
@@ -768,6 +775,273 @@ async def test_prediction_gate_still_fires_when_a_measurement_mismatches(
         ],
         related_rows=[(_CANON, _DUP)],
         mention_rows=[("chunk-1", _DUP), ("chunk-1", _CANON)],
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        await script.main(_apply_args(script, tmp_path, fingerprint=fingerprint))
+
+    out = capsys.readouterr().out
+    assert excinfo.value.code == 1
+    assert "DRIFT" in out
+    assert "RELATED" in out
+
+
+# ── Re-point collapses (defect: DRIFT fired on a CORRECT apply) ──────────────
+#
+# ``_REPOINT_RELATED_{OUT,IN}_BATCH`` re-point each captured member edge with
+# ``MERGE (canon)-[r2:RELATED {type: r.type}]->(other)`` (and the symmetric in
+# direction) BEFORE deleting the original, so for every
+# (group, direction, other, type) key the survivor is 1 when
+# ``existing + incoming >= 1`` and the loss is ``max(0, existing + incoming - 1)``.
+# ``existing`` is the canonical's own pre-merge edge (the adapter only captures
+# ``duplicate_ids``); ``incoming`` are the captured member edges on that same
+# key. Member edges whose other endpoint is inside the group are skipped by the
+# adapter's ``WHERE`` and deleted by ``_DELETE_INTRA_GROUP_RELATED`` — counted
+# by ``count_intra_group_related``, NEVER twice.
+
+_OUTSIDE = f"{_NS}:some-other-concept"
+_REFERS = "refers_to"
+_THIRD = f"{_NS}:llm-concept-also"
+_PLAN3 = [
+    PlannedMerge(name="llm", kind="concept", canonical_id=_CANON, duplicate_ids=(_DUP, _THIRD))
+]
+
+
+def test_related_repoint_collapses_follow_max_zero_existing_plus_incoming(
+    script: ModuleType,
+) -> None:
+    plan = _plan(script)
+
+    # canonical only, no member edge: nothing is captured, nothing collapses.
+    assert script.count_related_repoint_collapses(plan, [(_CANON, _OUTSIDE, _REFERS)]) == 0
+    # canonical already has the key and one member adds it: 1 + 1 - 1 = 1.
+    assert (
+        script.count_related_repoint_collapses(
+            plan, [(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, _REFERS)]
+        )
+        == 1
+    )
+    # the symmetric in direction collapses independently: 1 + 1 - 1 = 1.
+    assert (
+        script.count_related_repoint_collapses(
+            plan, [(_OUTSIDE, _CANON, _REFERS), (_OUTSIDE, _DUP, _REFERS)]
+        )
+        == 1
+    )
+    # out-exists + in-from-member are DIFFERENT keys: no collapse.
+    assert (
+        script.count_related_repoint_collapses(
+            plan, [(_CANON, _OUTSIDE, _REFERS), (_OUTSIDE, _DUP, _REFERS)]
+        )
+        == 0
+    )
+    # ``MERGE ... {type: r.type}``: a different type is a different key.
+    assert (
+        script.count_related_repoint_collapses(
+            plan, [(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, "related_to")]
+        )
+        == 0
+    )
+    # both endpoints in the group: skipped by the adapter WHERE and deleted by
+    # _DELETE_INTRA_GROUP_RELATED — the intra-group counter owns that population.
+    assert script.count_related_repoint_collapses(plan, [(_CANON, _DUP, _REFERS)]) == 0
+    # edges between entities outside the plan groups are irrelevant.
+    assert (
+        script.count_related_repoint_collapses(
+            plan, [("knowledge:other:x", "knowledge:other:y", _REFERS)]
+        )
+        == 0
+    )
+    # the adapter's ``WHERE r.type = inv.edge_properties.type`` never matches a
+    # NULL type: such an edge is NOT re-pointed, so it cannot collapse.
+    assert (
+        script.count_related_repoint_collapses(
+            plan, [(_CANON, _OUTSIDE, None), (_DUP, _OUTSIDE, None)]
+        )
+        == 0
+    )
+    assert (
+        script.count_related_repoint_collapses(
+            plan, [(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, None)]
+        )
+        == 0
+    )
+
+
+def test_two_members_sharing_one_key_collapse_to_a_single_survivor(
+    script: ModuleType,
+) -> None:
+    """``incoming = 2`` against a canonical with or without its own edge."""
+    # canonical has none: 0 + 2 - 1 = 1 survivor → loss 1.
+    assert (
+        script.count_related_repoint_collapses(
+            _PLAN3, [(_DUP, _OUTSIDE, _REFERS), (_THIRD, _OUTSIDE, _REFERS)]
+        )
+        == 1
+    )
+    # canonical already has it: 1 + 2 → loss 2 (all three collapse onto one).
+    assert (
+        script.count_related_repoint_collapses(
+            _PLAN3,
+            [
+                (_CANON, _OUTSIDE, _REFERS),
+                (_DUP, _OUTSIDE, _REFERS),
+                (_THIRD, _OUTSIDE, _REFERS),
+            ],
+        )
+        == 2
+    )
+
+
+def test_predicted_census_delta_subtracts_all_three_loss_components(
+    script: ModuleType,
+) -> None:
+    delta = script.predicted_census_delta(
+        _plan(script), collapses=3, intra_group_edges=2, repoint_collapses=4
+    )
+
+    assert delta.active_entities == -1
+    assert delta.merged_into_count == 1
+    assert delta.total_mentions == -3
+    assert delta.total_related == -6
+
+
+def test_mentions_collapse_counts_one_per_chunk_touching_the_group(
+    script: ModuleType,
+) -> None:
+    """Every chunk mentioning ANY member collapses onto one canonical edge."""
+    # a chunk mentioning BOTH members of a size-2 group: 2 → 1 survivor = 1.
+    assert (
+        script.count_mentions_collapses(_plan(script), [("chunk-1", _CANON), ("chunk-1", _DUP)])
+        == 1
+    )
+    # canonical only / single member only: no collapse.
+    assert script.count_mentions_collapses(_plan(script), [("chunk-2", _CANON)]) == 0
+    assert script.count_mentions_collapses(_plan(script), [("chunk-3", _DUP)]) == 0
+    # general case, size-3 group: chunk mentions the two members but NOT the
+    # canonical — the old counter (canonical-anchored) missed exactly this.
+    assert script.count_mentions_collapses(_PLAN3, [("chunk-4", _DUP), ("chunk-4", _THIRD)]) == 1
+    # chunk mentioning all three members: 3 → 1 survivor = 2.
+    assert (
+        script.count_mentions_collapses(
+            _PLAN3, [("chunk-5", _CANON), ("chunk-5", _DUP), ("chunk-5", _THIRD)]
+        )
+        == 2
+    )
+    # a chunk is counted per group it touches; entities outside the plan are ignored.
+    assert (
+        script.count_mentions_collapses(
+            _PLAN3, [("chunk-6", _DUP), ("chunk-6", _THIRD), ("chunk-6", _OUTSIDE)]
+        )
+        == 1
+    )
+
+
+async def test_dry_run_reports_the_repoint_collapse_component(
+    script: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_graph_fakes(
+        script,
+        monkeypatch,
+        census_reads=[
+            _census(script, 100, 10, 500, 700),
+            _census(script, 1000, 50, 5000, 7000),
+        ],
+        repoint_rows=[(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, _REFERS)],
+    )
+
+    await script.main([])
+
+    out = capsys.readouterr().out
+    assert "RELATED re-point a colapsar: 1" in out
+    assert "RELATED -1" in out
+
+
+async def test_json_carries_the_repoint_collapse_component(
+    script: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_graph_fakes(
+        script,
+        monkeypatch,
+        census_reads=[
+            _census(script, 100, 10, 500, 700),
+            _census(script, 1000, 50, 5000, 7000),
+        ],
+        related_rows=[],
+        repoint_rows=[(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, _REFERS)],
+    )
+
+    await script.main(["--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["related_repoint_collapses"] == 1
+    assert payload["intra_group_related"] == 0
+    assert payload["mentions_collapses"] == 0
+    assert payload["predicted_delta"]["total_related"] == -1
+
+
+async def test_apply_with_repoint_collapse_and_matching_measurement_exits_without_drift(
+    script: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """PRODUCTION CASE: a shared neighbour receives two parallel edges.
+
+    The canonical already had ``canon -> outside`` and the duplicate adds
+    ``dup -> outside``: the re-point MERGEs onto the existing edge and deletes
+    the member's, so RELATED really drops by 1 with ZERO intra-group edges.
+    Predicting invariance made the drift gate exit 1 on a CORRECT apply.
+    """
+    fingerprint = script.plan_fingerprint(_plan(script))
+    _install_graph_fakes(
+        script,
+        monkeypatch,
+        census_reads=[
+            _census(script, 100, 10, 500, 700),
+            _census(script, 1000, 50, 5000, 7000),
+            _census(script, 99, 11, 500, 699),
+            _census(script, 999, 51, 5000, 6999),
+        ],
+        related_rows=[],
+        repoint_rows=[(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, _REFERS)],
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        await script.main(_apply_args(script, tmp_path, fingerprint=fingerprint))
+
+    out = capsys.readouterr().out
+    assert excinfo.value.code == 0
+    assert "APPLY_OK" in out
+    assert "census drift: none" in out
+    assert "DRIFT" not in out
+    assert "RELATED -1" in out
+
+
+async def test_repoint_prediction_gate_still_fires_when_the_measurement_mismatches(
+    script: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Triangulation: modelling the collapses must NOT loosen the drift gate."""
+    fingerprint = script.plan_fingerprint(_plan(script))
+    _install_graph_fakes(
+        script,
+        monkeypatch,
+        census_reads=[
+            _census(script, 100, 10, 500, 700),
+            _census(script, 1000, 50, 5000, 7000),
+            # RELATED unchanged although the re-point collapse should have happened.
+            _census(script, 99, 11, 500, 700),
+            _census(script, 999, 51, 5000, 7000),
+        ],
+        related_rows=[],
+        repoint_rows=[(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, _REFERS)],
     )
 
     with pytest.raises(SystemExit) as excinfo:
