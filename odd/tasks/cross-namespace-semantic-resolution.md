@@ -248,6 +248,16 @@ maps and debt R1 corrupts exactly that population.
       `evidence-bundles/applied-cross-namespace-audit-consolidated-after2cb-20261004.json`,
       `evidence-bundles/cross-namespace-decisions-20261005.jsonl` (the 43-decision snapshot). Backup
       `bookgraph_backup_20261005T055151Z.json`.
+      **Batch 2C-C1 closed (2026-10-05)**: the tier `0.35 <= cosine < 0.40` holds **24 pairs** (not the ~11 estimated
+      before the queue moved), so it was split at `0.37`: this batch is the first 7. Rolled back **502**
+      `Recommendation` (a graph-database recommendation workload vs the system ability to suggest) with fingerprint
+      `d1c5e113…`: MENTIONS 1/1, RELATED 3/3, **0 mirrors** (no repoint), `merged_into` 902 -> 901, drift none. Kept
+      323 `LangChain`, 350 `APOC`, 382 `Branching`, 543 `Tools`, 544 `Traceability` and 431 `Evaluation` (same
+      framework/tool/concept at a higher cosine — six keeps, the opposite ratio of the low tiers). Seven decisions
+      recorded (registry now **50**: 30 separate / 20 keep). Verification: both entities alive, shared neighbours **0**,
+      ledger **987 / 29 compensating / chain OK**, global audit `passed` (R5a held at 456, R5b 64). Queue
+      **152 -> 145** (272 stratified). Evidence: `evidence-bundles/batch2cc1-decision-sheets-20261005.txt`,
+      `evidence-bundles/applied-cross-namespace-audit-consolidated-after2cc1-20261005.json`.
       **Branch deployed to the production host + 2B-B partial closed (2026-10-04)**: the host's dirty tree (33 files
       staged from an older feature snapshot + 1 modified + 7 untracked) was snapshotted into the throwaway branch
       `host-dirty-backup-20261004` (`bc1f358`, patches in `/tmp/host_staged_before.patch`), keeping the previously
@@ -438,3 +448,4 @@ maps and debt R1 corrupts exactly that population.
 | T8e 2C | (this commit) | 590/319 rolled back (fingerprint `6405aa70…`, 0 mirrors, no repoint) + 403/512 kept; decisions recorded via the new CLI; ledger 984 / chain OK; shared neighbours 0; scoped audits `passed`; R5a held at **456** by the separate decisions; queue **162 → 158** |
 | T9b | `82746d1` | intra-namespace duplicates grouped case-insensitively: `DUPLICATE_ENTITY_LOGICAL` **0 → 64** groups, R5a unchanged 456, warning total **520**, `expose-mcp` still `passed` (uniqueness counts only blocking); RED `assert 0 == 1` → GREEN; 808 unit + 26 integration |
 | T8e 2C-B | (this commit) | 371/415 rolled back (fingerprint `4e386d98…`, 0 mirrors) + 355/332/551/526 kept; six decisions recorded (registry 43); ledger 986 / chain OK; shared neighbours 0; audit `passed` (R5a held at 456, R5b 64); queue **158 → 152** |
+| T8e 2C-C1 | (this commit) | 502 rolled back (fingerprint `d1c5e113…`, 0 mirrors) + 323/350/382/543/544/431 kept; seven decisions recorded (registry **50**); ledger 987 / chain OK; shared neighbours 0; audit `passed` (R5a 456, R5b 64); queue **152 → 145**; tier `[0.35,0.40)` is 24 pairs, split at 0.37 |

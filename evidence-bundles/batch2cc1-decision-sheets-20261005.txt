@@ -1,0 +1,175 @@
+==================== seq 323 :: knowledge:graphrag-agentic:langchain-framework <- knowledge:essential-graphrag:langchain-framework ====================
+  seq — · band — · cross-namespace · sin registro · created —
+  label "langchain" | type framework | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  riesgo: ⚠ media (genérica)
+
+                             knowledge:graphrag-agentic            knowledge:essential-graphrag
+  entity id                  …graphrag-agentic:langchain-framework …ssential-graphrag:langchain-framework
+  name / type                LangChain / framework                 LangChain / framework
+  source page                595                                   175
+  aliases                    1                                     0
+  description                "Framework referenced in relation t…" "A framework for building LLM applic…"
+  mention context            "aces, each with its own responsibi…" ""
+  MENTIONS                   …graphrag, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         21                                    0
+
+  evidencia    description_overlap 0.143  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+               composite           0.048  (0.50 = high_context, umbral intra-namespace)
+  lectura      undecided · description_overlap 0.143 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 323 · 2026-09-26T20:21Z
+
+  decidir      identity (merge)  ·  label collision (separar)  ·  deferir
+==================== seq 382 :: knowledge:graphrag-agentic:branching-concept <- knowledge:agentic-architectural-patterns:branching-concept ====================
+  seq — · band — · cross-namespace · sin registro · created —
+  label "branching" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  riesgo: ⚠ media (genérica)
+
+                             knowledge:graphrag-agentic            …wledge:agentic-architectural-patterns
+  entity id                  …e:graphrag-agentic:branching-concept …hitectural-patterns:branching-concept
+  name / type                Branching / concept                   Branching / concept
+  source page                234                                   511
+  aliases                    1                                     1
+  description                "An operation supported by persiste…" "Splitting process execution into mu…"
+  mention context            "ffer. The data is unstructured, ep…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         3                                     0
+
+  evidencia    description_overlap 0.077  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+               composite           0.026  (0.50 = high_context, umbral intra-namespace)
+  lectura      no_shared_context · description_overlap 0.077 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 382 · 2026-09-26T22:16Z
+
+  decidir      identity (merge)  ·  label collision (separar)  ·  deferir
+==================== seq 350 :: knowledge:essential-graphrag:apoc-tool <- knowledge:graphrag-agentic:awesome-procedures-on-cypher-tool ====================
+  seq — · band — · cross-namespace · sin registro · created —
+  label "apoc" | type tool | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  riesgo: ⚠ media (genérica)
+
+                             knowledge:essential-graphrag          knowledge:graphrag-agentic
+  entity id                  …owledge:essential-graphrag:apoc-tool …tic:awesome-procedures-on-cypher-tool
+  name / type                APOC / tool                           APOC / tool
+  source page                153                                   595
+  aliases                    1                                     1
+  description                "Neo4j plugin that can be automatic…" "Awesome Procedures on Cypher, a set…"
+  mention context            "ta, so it’s common to sample the d…" ""
+  MENTIONS                   …graphrag, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         10                                    0
+
+  evidencia    description_overlap 0.048  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+               composite           0.016  (0.50 = high_context, umbral intra-namespace)
+  lectura      no_shared_context · description_overlap 0.048 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 350 · 2026-09-26T20:21Z
+
+  decidir      identity (merge)  ·  label collision (separar)  ·  deferir
+==================== seq 543 :: knowledge:essential-graphrag:tools-component <- knowledge:agentic-architectural-patterns:tools-component ====================
+  seq — · band — · cross-namespace · sin registro · created —
+  label "tools" | type component | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  riesgo: ⚠ alta (genérica · 3 nss)
+
+                             knowledge:essential-graphrag          …wledge:agentic-architectural-patterns
+  entity id                  …e:essential-graphrag:tools-component …rchitectural-patterns:tools-component
+  name / type                Tools / component                     Tools / component
+  source page                82                                    554
+  aliases                    3                                     2
+  description                "Dictionary mapping tool names to a…" "Components added to the architectur…"
+  mention context            "ol_calls: function_to_call = tools…" ""
+  MENTIONS                   …tterns, knowledge:essential-graphrag 0 chunks · 
+  RELATED neighbours         8                                     0
+
+  evidencia    description_overlap 0.077  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+               composite           0.026  (0.50 = high_context, umbral intra-namespace)
+  lectura      no_shared_context · description_overlap 0.077 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 543 · 2026-09-26T22:20Z
+
+  decidir      identity (merge)  ·  label collision (separar)  ·  deferir
+==================== seq 502 :: knowledge:graphrag-agentic:recommendation-concept <- knowledge:agentic-architectural-patterns:recommendation-concept ====================
+  seq — · band — · cross-namespace · sin registro · created —
+  label "recommendation" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  riesgo: ⚠ media (genérica)
+
+                             knowledge:graphrag-agentic            …wledge:agentic-architectural-patterns
+  entity id                  …phrag-agentic:recommendation-concept …tural-patterns:recommendation-concept
+  name / type                Recommendation / concept              Recommendation / concept
+  source page                128                                   41
+  aliases                    1                                     1
+  description                "A recommendation workload type tha…" "Ability to suggest relevant product…"
+  mention context            "rences (user modeling), and even i…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         4                                     0
+
+  evidencia    description_overlap 0.000  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+               composite           0.000  (0.50 = high_context, umbral intra-namespace)
+  lectura      no_shared_context · description_overlap 0.000 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 502 · 2026-09-26T22:19Z
+
+  decidir      identity (merge)  ·  label collision (separar)  ·  deferir
+==================== seq 544 :: knowledge:graphrag-agentic:traceability-concept <- knowledge:agentic-architectural-patterns:traceability-concept ====================
+  seq — · band — · cross-namespace · sin registro · created —
+  label "traceability" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  riesgo: ⚠ media (genérica)
+
+                             knowledge:graphrag-agentic            …wledge:agentic-architectural-patterns
+  entity id                  …raphrag-agentic:traceability-concept …ectural-patterns:traceability-concept
+  name / type                Traceability / concept                Traceability / concept
+  source page                595                                   543
+  aliases                    1                                     1
+  description                "Ability to trace results, an advan…" "Core component of responsible AI en…"
+  mention context            "elationships with connected resour…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         13                                    0
+
+  evidencia    description_overlap 0.062  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+               composite           0.021  (0.50 = high_context, umbral intra-namespace)
+  lectura      no_shared_context · description_overlap 0.062 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 544 · 2026-09-26T22:20Z
+
+  decidir      identity (merge)  ·  label collision (separar)  ·  deferir
+==================== seq 431 :: knowledge:graphrag-agentic:evaluation-concept <- knowledge:agentic-architectural-patterns:evaluation-concept ====================
+  seq — · band — · cross-namespace · sin registro · created —
+  label "evaluation" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  riesgo: ⚠ alta (genérica · 4 nss)
+
+                             knowledge:graphrag-agentic            …wledge:agentic-architectural-patterns
+  entity id                  …:graphrag-agentic:evaluation-concept …itectural-patterns:evaluation-concept
+  name / type                Evaluation / concept                  Evaluation / concept
+  source page                592                                   538
+  aliases                    1                                     1
+  description                "Discipline for assessing agent per…" "Customizable structural component i…"
+  mention context            "hema enforcement and constrained g…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         19                                    0
+
+  evidencia    description_overlap 0.156  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+               composite           0.052  (0.50 = high_context, umbral intra-namespace)
+  lectura      undecided · description_overlap 0.156 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 431 · 2026-09-26T22:17Z
+
+  decidir      identity (merge)  ·  label collision (separar)  ·  deferir
