@@ -18,11 +18,19 @@ inject before the grouping and leave every group single-namespace (reporting
 zero), so the scoped variant keeps the cross-namespace condition and then keeps
 the groups with at least one member inside ``$scope_prefix``.
 
+T9a (human-decision discount): the rule also excludes the entity ids whose
+latest ``separate`` decision says the pair is resolved (``$decided_separate_ids``,
+always passed; an empty list is a no-op), so a decided group stops warning
+while an undecided group keeps counting. The decisions source is supplied per
+test from ``tmp_path`` — never the repo's ``data/resolution``.
+
 These are testcontainers integration tests and never touch production.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -37,16 +45,25 @@ from book_graph_rag.domain.audit_models import (
     Severity,
     severity_for_category,
 )
+from book_graph_rag.domain.cross_namespace_decision_models import (
+    CrossNamespaceDecision,
+    DecisionKind,
+)
+from book_graph_rag.infrastructure.jsonl_cross_namespace_decisions import (
+    JSONLCrossNamespaceDecisions,
+)
 from book_graph_rag.infrastructure.neo4j_audit_adapter import (
     QUERY_PLAN,
     Neo4jAuditAdapter,
     _scope_predicate,
     _scoped_query,
 )
+from book_graph_rag.ports.cross_namespace_decision_port import CrossNamespaceDecisionPort
 
 _NS1 = "knowledge:alpha"
 _NS2 = "knowledge:beta"
 _NS3 = "knowledge:delta"  # unrelated namespace: must not see the pair
+_NS4 = "knowledge:omega"  # second, still-undecided cross-namespace group
 
 _CROSS_RULE = "DUPLICATE_ENTITY_CROSS_NAMESPACE"
 _SELF_LOOP_RULE = "ENDPOINT_SELF_LOOP_INVALID"
@@ -114,11 +131,31 @@ async def _seed_self_loop(driver: Any) -> None:
         )
 
 
+async def _seed_undecided_cross_group(driver: Any) -> None:
+    """A second cross-namespace group (delta/omega) that no decision touches.
+
+    T9a: it is the control group — it must keep counting after the alpha/beta
+    pair receives its ``separate`` decision.
+    """
+    async with driver.session() as session:
+        await session.run(
+            """
+            MERGE (c:Entity {id: $c_id})
+            SET c.name = 'Vector Store', c.type = 'concept', c.source_page = 5
+            MERGE (d:Entity {id: $d_id})
+            SET d.name = 'Vector Store', d.type = 'concept', d.source_page = 6
+            """,
+            c_id=f"{_NS3}:vector-store",
+            d_id=f"{_NS4}:vector-store-copy",
+        )
+
+
 async def _collect(
     settings: Settings,
     scope: AuditScope | None = None,
+    decisions: CrossNamespaceDecisionPort | None = None,
 ) -> AuditSnapshot:
-    adapter = Neo4jAuditAdapter(settings)
+    adapter = Neo4jAuditAdapter(settings, decisions=decisions)
     try:
         target = build_audit_target("bookgraph-neo4j", settings.neo4j_uri, "neo4j")
         return await adapter.collect_snapshot(target, sample_limit=10, scope=scope)
@@ -287,3 +324,45 @@ async def test_pre_existing_rule_totals_on_seeded_graph(
     assert _finding_total(snapshot, "PROVENANCE_ENTITY_MISSING") == 0
     assert tuple(sorted(RULE_CATALOG)) == RULE_CATALOG
     assert {_CROSS_RULE, _SELF_LOOP_RULE} <= set(RULE_CATALOG)
+
+
+@pytest.mark.neo4j_integration
+async def test_decided_separate_group_leaves_r5a_while_undecided_group_stays(
+    neo4j_settings: Settings,
+    neo4j_driver: Any,
+    tmp_path: Path,
+) -> None:
+    """T9a R5a: a ``separate`` decision drops the decided group (count from
+    the filtered query) while the undecided group keeps warning."""
+    await _seed_cross_namespace_graph(neo4j_driver)
+    await _seed_undecided_cross_group(neo4j_driver)
+    decisions = JSONLCrossNamespaceDecisions(tmp_path / "decisions.jsonl")
+
+    before = await _collect(neo4j_settings, decisions=decisions)
+
+    assert before.failure_state is None
+    assert _finding_total(before, _CROSS_RULE) == 2  # alpha/beta + delta/omega
+
+    # Record the human decision for the alpha/beta pair: different concepts.
+    decisions.append(
+        CrossNamespaceDecision(
+            seq=1,
+            candidate_id=f"{_NS2}:pattern-agent-alias",
+            canonical_id=f"{_NS1}:pattern-agent",
+            decision=DecisionKind.SEPARATE,
+            decided_by="human:tester",
+            decided_at=datetime.now(UTC),
+            reason="distinct concepts after rollback review",
+        )
+    )
+
+    after = await _collect(neo4j_settings, decisions=decisions)
+
+    assert after.failure_state is None
+    # `total` comes from the filtered query, so it is authoritative here.
+    assert _finding_total(after, _CROSS_RULE) == 1
+    finding = _finding(after, _CROSS_RULE)
+    assert len(finding.samples) == 1
+    kept_ids = _subject_ids(after, _CROSS_RULE)
+    assert {f"{_NS3}:vector-store", f"{_NS4}:vector-store-copy"} <= kept_ids
+    assert not {f"{_NS1}:pattern-agent", f"{_NS2}:pattern-agent-alias"} & kept_ids

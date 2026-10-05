@@ -313,7 +313,40 @@ maps and debt R1 corrupts exactly that population.
       applied / 15 compensated pairs / 322 pairs / 307 stratified / 180 suspicious — identical to the pre-change
       numbers. Independently verified; the verifier's counterexample (a count-only guard no longer catching a
       duplicate compensation) is closed by the reference check.
-- [ ] **T9** R5b: case-insensitive grouping in `duplicates_entity` via `normalize_key`, together with the cleanup of
+- [ ] **T9a** Human-decision discount for the cross-namespace noise (approved 2026-10-04).
+      **Why**: R5a (477 active groups) carries **21 groups whose members are ALL rollback-revived entities** — the human
+      already judged those pairs as different concepts — and the consolidated queue still lists the **8 pairs kept** in
+      2A/2B. `quarantine approve` cannot record a retroactive keep: it applies a merge (it would re-append the ledger
+      and break the 302 guard); `reject` records a decision but means "do not merge".
+      **Design** (no graph mutation):
+      - `domain/cross_namespace_decision_models.py`: `DecisionKind` (`keep`/`separate`) and a frozen
+        `CrossNamespaceDecision` (`seq`, `candidate_id`, `canonical_id`, `decision`, `decided_by`, `decided_at`,
+        `reason` required and non-empty for both kinds, `batch`), plus the pure read model (`latest_by_key`,
+        `separate_entity_ids`, `keep_pair_keys`, `decided_pair_keys`) where the LATEST record per
+        `(seq, candidate_id)` wins.
+      - `ports/cross_namespace_decision_port.py` + `infrastructure/jsonl_cross_namespace_decisions.py`: append-only
+        `data/resolution/cross_namespace_decisions.jsonl` (`Settings.cross_namespace_decisions_path`); appending the
+        same decision twice is a no-op; a different decision for the same key is allowed (the latest wins).
+      - CLI `book-graph-rag decisions record --seq N --candidate ID --decision keep|separate --reason TEXT
+        [--batch X] [--reviewer NAME]` — fail closed when `(seq, candidate)` is not a candidate of that ledger entry or
+        the canonical does not match; no graph mutation and no §7.2 gate (like `quarantine reject`) — and
+        `decisions list [--json]`.
+      - **R5a**: the cross-namespace rule's Cypher excludes the `separate` entity ids from the grouping
+        (`AND NOT n.id IN $decided_separate_ids`, always passed; an empty list is a no-op) so a group whose members
+        are all decided stops warning while a group with remaining namespaces keeps warning. Applies to the global and
+        the scoped variant.
+      - **Anti-drift**: `quarantine enqueue --cross-namespace` uses the same duplicated grouping expression, so it
+        gets the same exclusion (the commented invariant that both counts agree by construction must keep holding).
+      - **Consolidated queue**: `scripts-ops/audit_applied_cross_namespace.py` excludes the `keep` pairs from the
+        suspicious population and reports them as decided.
+      - **Seeding**: `separate` is derived from the ledger's compensating entries (each records the reverted subset);
+        the 8 `keep` pairs are authored from the batch evidence. A seeder validates every record against the ledger
+        before appending.
+      **Tests (TDD)**: domain read model (latest wins + aggregates); the JSONL adapter (append / no-op / invalid); the
+      CLI (fail closed on a non-candidate, no graph write); the audit rule's parameter plumbing and filtering (unit
+      with a fake session plus integration with testcontainers asserting R5a drops the decided group); the enqueue
+      anti-drift; and the consolidator's keep exclusion.
+- [ ] **T9b** R5b: case-insensitive grouping in `duplicates_entity` via `normalize_key`, together with the cleanup of
       the 64 case-only groups (approval-gated merge), and the confirmation of how the `uniqueness` gate dimension
       treats warnings.
 - [ ] **T10** Cleanup batch for the approved identity merges (apply, scoped + global audits, multi-book count check),

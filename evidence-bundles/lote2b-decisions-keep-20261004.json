@@ -1,0 +1,64 @@
+{
+  "schema": "cross-namespace-keep-decisions/1",
+  "decided_by": "human:maintainer",
+  "decided_at": "2026-10-04T00:00:00+00:00",
+  "source": "Review verdicts of batch 2A and batch 2B-A (evidence-bundles/lote2a-rollback-20261004.json decisions.keep; batch 2B-A recorded in odd/tasks/cross-namespace-semantic-resolution.md T8e). The seq / canonical_id / candidate_id triples match the decision sheets evidence-bundles/batch2a-decision-sheets-20261004.txt and evidence-bundles/batch2b-decision-sheets-20261004.txt.",
+  "decisions": [
+    {
+      "seq": 413,
+      "canonical_id": "knowledge:graphrag-agentic:databases-component",
+      "candidate_id": "knowledge:agentic-architectural-patterns:databases-component",
+      "reason": "same concept, different phrasing (characterisation vs definition)",
+      "batch": "2A"
+    },
+    {
+      "seq": 475,
+      "canonical_id": "knowledge:graphrag-agentic:microservices-concept",
+      "candidate_id": "knowledge:agentic-architectural-patterns:microservices-concept",
+      "reason": "same concept, different phrasing",
+      "batch": "2A"
+    },
+    {
+      "seq": 569,
+      "canonical_id": "knowledge:graphrag-agentic:graphrag-concept",
+      "candidate_id": "knowledge:essential-graphrag:graph-retrieval-augmented-generation-concept",
+      "reason": "definition of GraphRAG against the system description of the same concept",
+      "batch": "2B-A"
+    },
+    {
+      "seq": 572,
+      "canonical_id": "knowledge:graphrag-agentic:hallucination-risk",
+      "candidate_id": "knowledge:essential-graphrag:hallucination-risk",
+      "reason": "same concept, different phrasing",
+      "batch": "2B-A"
+    },
+    {
+      "seq": 351,
+      "canonical_id": "knowledge:graphrag-agentic:chatgpt-tool",
+      "candidate_id": "knowledge:essential-graphrag:chatgpt-tool",
+      "reason": "same concept, different phrasing",
+      "batch": "2B-A"
+    },
+    {
+      "seq": 494,
+      "canonical_id": "knowledge:graphrag-agentic:policy-concept",
+      "candidate_id": "knowledge:agentic-architectural-patterns:policy-concept",
+      "reason": "same concept, different phrasing",
+      "batch": "2B-A"
+    },
+    {
+      "seq": 573,
+      "canonical_id": "knowledge:graphrag-agentic:instructions-concept",
+      "candidate_id": "knowledge:essential-graphrag:instructions-concept",
+      "reason": "same concept, different phrasing",
+      "batch": "2B-A"
+    },
+    {
+      "seq": 565,
+      "canonical_id": "knowledge:graphrag-agentic:extract-entities-component",
+      "candidate_id": "knowledge:essential-graphrag:extract-entities-component",
+      "reason": "same concept, different phrasing",
+      "batch": "2B-A"
+    }
+  ]
+}

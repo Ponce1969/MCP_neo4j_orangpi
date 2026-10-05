@@ -57,6 +57,10 @@ from book_graph_rag.application.validate_graph_use_case import ValidateGraphUseC
 from book_graph_rag.config import Settings, validate_llm_provider_settings
 from book_graph_rag.domain.audit_models import AuditScope
 from book_graph_rag.domain.checkpoint_models import ReplayCommand
+from book_graph_rag.domain.cross_namespace_decision_models import (
+    CrossNamespaceDecision,
+    DecisionKind,
+)
 from book_graph_rag.domain.gate_models import GatePolicy, UnknownGateError
 from book_graph_rag.domain.models import (
     BatchEntityQuery,
@@ -97,6 +101,10 @@ from book_graph_rag.infrastructure.evaluation_dataset_loader import (
 )
 from book_graph_rag.infrastructure.gate_policy_loader import GatePolicyLoader, GatePolicyLoadError
 from book_graph_rag.infrastructure.json_evidence_adapter import JSONEvidenceAdapter
+from book_graph_rag.infrastructure.jsonl_cross_namespace_decisions import (
+    JSONLCrossNamespaceDecisions,
+)
+from book_graph_rag.infrastructure.jsonl_merge_ledger import JSONLMergeLedger
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.llm_claim_validator import LLMClaimValidator
 from book_graph_rag.infrastructure.llm_pairwise_judge import LLMPairwiseJudge
@@ -1731,6 +1739,120 @@ def _format_rollback_result(
     else:
         lines.append("  drift: none")
     return "\n".join(lines)
+
+
+# ── T9a: human cross-namespace decision registry ───────────────────────────
+
+
+def _decision_row(decision: CrossNamespaceDecision) -> dict[str, Any]:
+    """The five fields ``decisions list`` promises: key, decision, reviewer,
+    reason and batch — one shape for the text rows and the ``--json`` rows."""
+    return {
+        "key": f"{decision.seq}|{decision.candidate_id}",
+        "decision": decision.decision.value,
+        "reviewer": decision.decided_by,
+        "reason": decision.reason,
+        "batch": decision.batch,
+    }
+
+
+@cli.group("decisions")
+def decisions() -> None:
+    """Human cross-namespace decisions (T9a): append-only, no graph writes.
+
+    ``record`` validates against the merge ledger FIRST (unknown seq, a
+    candidate outside the entry and a compensating entry are refused with a
+    non-zero exit and nothing appended) and appends one decision line; the
+    canonical is taken from the ledger entry. No §7.2 gate and no graph
+    mutation — like ``quarantine reject``, recording a decision is free.
+    ``list`` prints the registry (``--json`` for machine-readable rows).
+    """
+
+
+@decisions.command("record")
+@click.option("--seq", type=int, required=True, help="Merge-ledger seq the decision reviews.")
+@click.option("--candidate", required=True, help="Candidate entity id of that ledger entry.")
+@click.option(
+    "--decision",
+    "decision_kind",
+    type=click.Choice([kind.value for kind in DecisionKind]),
+    required=True,
+    help="keep = merged identity stands; separate = distinct concepts, stop warning.",
+)
+@click.option("--reason", required=True, help="Mandatory non-empty reason (both kinds).")
+@click.option("--batch", default=None, help="Optional review-batch label (e.g. 2B).")
+@click.option("--reviewer", default=None, help="Reviewer id (default: human:<current user>).")
+def decisions_record(
+    seq: int,
+    candidate: str,
+    decision_kind: str,
+    reason: str,
+    batch: str | None,
+    reviewer: str | None,
+) -> None:
+    """Record one keep/separate decision for a merge-ledger candidate.
+
+    Fail closed: every ledger precondition is checked before anything is
+    appended, so a refusal leaves the decisions file untouched.
+    """
+    if not reason.strip():
+        raise click.UsageError("--reason is mandatory and must not be empty")
+    try:
+        settings = Settings.model_validate({})
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Configuration error: {exc}", err=True)
+        sys.exit(1)
+
+    entry = JSONLMergeLedger(settings.merge_ledger_path).read_by_seq(seq)
+    if entry is None:
+        sys.exit(f"decisions record refused: seq {seq} is not in the merge ledger")
+    if entry.rollback_of is not None:
+        sys.exit(
+            f"decisions record refused: seq {seq} is a compensating entry "
+            f"(rollback_of={entry.rollback_of}); decide against the original seq"
+        )
+    if candidate not in entry.candidate_ids:
+        sys.exit(
+            f"decisions record refused: {candidate} is not a candidate of seq {seq} "
+            f"(candidates: {', '.join(entry.candidate_ids)})"
+        )
+
+    decision = CrossNamespaceDecision(
+        seq=seq,
+        candidate_id=candidate,
+        canonical_id=entry.canonical_id,
+        decision=DecisionKind(decision_kind),
+        decided_by=reviewer or f"human:{getpass.getuser()}",
+        decided_at=datetime.now(UTC),
+        reason=reason,
+        batch=batch,
+    )
+    written = JSONLCrossNamespaceDecisions(settings.cross_namespace_decisions_path).append(decision)
+    status = "recorded" if written else "already recorded (no-op)"
+    click.echo(f"decision {status}: seq {seq} {candidate} -> {decision_kind}")
+
+
+@decisions.command("list")
+@click.option("--json", "json_output", is_flag=True, default=False, help="Emit rows as JSON.")
+def decisions_list(json_output: bool) -> None:
+    """Print every recorded decision (key, decision, reviewer, reason, batch)."""
+    try:
+        settings = Settings.model_validate({})
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Configuration error: {exc}", err=True)
+        sys.exit(1)
+
+    records = JSONLCrossNamespaceDecisions(settings.cross_namespace_decisions_path).read_all()
+    if json_output:
+        rows = [_decision_row(record) for record in records]
+        click.echo(json.dumps(rows, indent=2, ensure_ascii=False))
+        return
+    for record in records:
+        row = _decision_row(record)
+        parts = [row["key"], row["decision"], row["reviewer"], row["reason"]]
+        if row["batch"] is not None:
+            parts.append(f"batch {row['batch']}")
+        click.echo(" · ".join(str(part) for part in parts))
 
 
 def main() -> None:

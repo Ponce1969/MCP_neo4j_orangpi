@@ -13,6 +13,11 @@ Two protection layers over ``scripts-ops/audit_applied_cross_namespace.py``:
 2. **Pure stratification** — the matrix counts, the three lists' membership
    and ordering, and the ``lexically_silent`` boundary rule are exercised
    over synthetic pairs with no ledger and no graph.
+3. **T9a keep discount** — a pair the human decided to KEEP leaves the
+   suspicious population (``decided_keep`` per ``(seq, candidate_id)``), the
+   keep keys come from the shared domain read model (imported and called,
+   never re-implemented), a corrupt decisions registry fails loudly before
+   any graph query, and the console report exposes the decided-keep count.
 
 The graph/ledger integration itself is exercised only by the maintainer's
 production run (this machine has no local copy of the 958-entry ledger).
@@ -24,6 +29,7 @@ import ast
 import importlib.util
 import re
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
@@ -31,6 +37,7 @@ from types import ModuleType
 import pytest
 
 from book_graph_rag.domain.merge_ledger_models import MergeBand, MergeLedgerEntry
+from book_graph_rag.domain.models import Entity
 from book_graph_rag.domain.quarantine_review_models import (
     LanguageNote,
     LanguageRelation,
@@ -72,6 +79,13 @@ _REQUIRED_IMPORTS: dict[str, frozenset[str]] = {
         }
     ),
     "book_graph_rag.domain.merge_ledger_models": frozenset({"MergeLedgerEntry"}),
+    # T9a: the keep keys are read through the shared domain read model.
+    "book_graph_rag.domain.cross_namespace_decision_models": frozenset(
+        {"InvalidDecisionRecord", "keep_pair_keys"}
+    ),
+    "book_graph_rag.infrastructure.jsonl_cross_namespace_decisions": frozenset(
+        {"JSONLCrossNamespaceDecisions"}
+    ),
     "book_graph_rag.domain.s0_normalization": frozenset({"namespace_from_id"}),
     "book_graph_rag.domain.s3_context_scoring": frozenset(
         {"description_overlap", "mentions_jaccard", "related_jaccard"}
@@ -361,6 +375,7 @@ def test_build_pairs_flags_only_the_compensated_candidate() -> None:
         neighbors={},
         label_namespaces={},
         compensated_candidates={1: {"ns-b:src:node-component"}},
+        keep_pair_keys=set(),
         namespace_filter=None,
     )
     flags = {(pair.candidate_id, pair.rolled_back) for pair in pairs}
@@ -473,6 +488,172 @@ def test_stratifiable_pairs_keeps_the_siblings_of_a_partial_rollback() -> None:
         "the sibling of a partial rollback stays stratified; the reverted pair "
         "and the pairs with missing entities do not"
     )
+
+
+# ── T9a: decided-keep pairs leave the suspicious population ──────────────────
+
+
+def test_decided_keep_pair_is_flagged_and_the_undecided_sibling_stays() -> None:
+    """A human-kept pair is no longer a suspicious pair; its sibling is."""
+    module = _load_script()
+    entry = _two_candidate_crossing_entry(1)
+    entities = {
+        entity_id: Entity(
+            id=entity_id, name="Node", type="component", description="A node component."
+        )
+        for entity_id in (
+            "ns-a:src:node-component",
+            "ns-b:src:node-component",
+            "ns-c:src:node-component",
+        )
+    }
+    pairs, _, _ = module._build_pairs(
+        [entry],
+        entities=entities,
+        merged_into={},
+        mentions={},
+        neighbors={},
+        label_namespaces={},
+        compensated_candidates={},
+        keep_pair_keys={(1, "ns-b:src:node-component")},
+        namespace_filter=None,
+    )
+
+    flags = {(pair.candidate_id, pair.decided_keep) for pair in pairs}
+    assert flags == {
+        ("ns-b:src:node-component", True),
+        ("ns-c:src:node-component", False),
+    }, "decided_keep is per (seq, candidate_id) key, not per entry"
+
+    remaining = module._stratifiable_pairs(pairs)
+    assert [pair.candidate_id for pair in remaining] == ["ns-c:src:node-component"], (
+        "the kept pair leaves the stratum while the undecided sibling stays"
+    )
+
+
+def test_a_rolled_back_pair_keeps_its_behaviour_beside_a_kept_pair() -> None:
+    """The pre-T9a exclusions (rolled_back, missing entities) are unchanged."""
+    module = _load_script()
+
+    def _synthetic(seq: int, label: str, *, decided_keep: bool, rolled_back: bool) -> object:
+        return module.PairAudit(
+            seq=seq,
+            canonical_id=f"ns-a:src:{label}-concept",
+            candidate_id=f"ns-b:src:{label}-concept",
+            canonical_namespace="ns-a:src",
+            candidate_namespace="ns-b:src",
+            label=label,
+            description_overlap=0.1,
+            risk=RiskLevel.NONE,
+            lexically_silent=True,
+            decided_keep=decided_keep,
+            rolled_back=rolled_back,
+        )
+
+    kept = _synthetic(1, "alpha", decided_keep=True, rolled_back=False)
+    rolled = _synthetic(2, "beta", decided_keep=False, rolled_back=True)
+    plain = _synthetic(3, "gamma", decided_keep=False, rolled_back=False)
+
+    result = module._stratifiable_pairs([kept, rolled, plain])
+
+    assert [pair.seq for pair in result] == [3], (
+        "a rolled-back pair keeps its existing exclusion next to a kept pair"
+    )
+
+
+def test_the_keep_keys_come_from_the_shared_read_model() -> None:
+    """The script imports AND calls the shared read model — no re-implementation."""
+    imported = _imported_names(_TREE)
+    shared = imported.get("book_graph_rag.domain.cross_namespace_decision_models", set())
+    assert "keep_pair_keys" in shared, "the keep keys must come from the shared read model"
+    adapter = imported.get("book_graph_rag.infrastructure.jsonl_cross_namespace_decisions", set())
+    assert "JSONLCrossNamespaceDecisions" in adapter, "reads go through the shared adapter"
+    called = _called_names(_TREE)
+    assert "keep_pair_keys" in called, "importing is not enough: it must be called"
+    assert "InvalidDecisionRecord" in shared, "a corrupt registry must fail loudly, typed"
+
+
+def test_corrupt_decisions_registry_fails_loudly_and_a_missing_file_reads_empty(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Missing = no decisions (empty set); corrupt = non-zero exit, typed."""
+    module = _load_script()
+    assert module._load_keep_pair_keys(tmp_path / "absent.jsonl") == set()
+
+    corrupt = tmp_path / "decisions.jsonl"
+    corrupt.write_text('{"seq": "not-an-int"}\n', encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        module._load_keep_pair_keys(corrupt)
+
+    assert excinfo.value.code != 0
+    assert "decisions.jsonl" in capsys.readouterr().err
+
+
+def test_main_reads_the_decisions_before_opening_the_graph() -> None:
+    """The registry read (and its fail-loud path) runs BEFORE any driver call."""
+    main_node = next(
+        node
+        for node in _TREE.body
+        if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef) and node.name == "main"
+    )
+
+    def _first_line(matcher: Callable[[ast.AST], bool]) -> int:
+        lines = [
+            node.lineno
+            for node in ast.walk(main_node)
+            if isinstance(node, ast.stmt | ast.expr) and matcher(node)
+        ]
+        assert lines, "call not found in main"
+        return min(lines)
+
+    load_line = _first_line(
+        lambda node: (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_load_keep_pair_keys"
+        )
+    )
+    driver_line = _first_line(
+        lambda node: (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "driver"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "AsyncGraphDatabase"
+        )
+    )
+    assert load_line < driver_line, "a corrupt registry must fail before any graph query"
+
+
+def test_console_history_reports_the_decided_keep_counter(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The console line next to the rolled_back counters carries the count,
+    and the JSON payload exposes it as ``selection.decided_keep_pairs``."""
+    module = _load_script()
+    module._print_history(
+        entries_total=4,
+        selected=[],
+        compensating_count=0,
+        applied_count=0,
+        fully_compensated=0,
+        partially_compensated=0,
+        compensated_pair_count=1,
+        decided_keep_pairs=8,
+        pair_count=10,
+        skipped_entities=0,
+        missing_pairs=0,
+        fallback_pairs=0,
+    )
+
+    out = capsys.readouterr().out
+    assert "decididos keep: 8" in out
+    assert "pares revertidos por rollback: 1" in out, (
+        "the keep counter sits on the rolled_back counters line"
+    )
+    assert '"decided_keep_pairs"' in _SOURCE, "the JSON selection must expose the count too"
 
 
 # ── Pure stratification over synthetic pairs ─────────────────────────────────

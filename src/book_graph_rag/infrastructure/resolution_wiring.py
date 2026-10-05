@@ -30,6 +30,9 @@ from book_graph_rag.domain.s4_band_assignment import BandThresholds
 from book_graph_rag.infrastructure.brute_force_candidate_retrieval import (
     BruteForceCandidateRetrieval,
 )
+from book_graph_rag.infrastructure.jsonl_cross_namespace_decisions import (
+    JSONLCrossNamespaceDecisions,
+)
 from book_graph_rag.infrastructure.jsonl_merge_ledger import JSONLMergeLedger
 from book_graph_rag.infrastructure.jsonl_quarantine_writer import JSONLQuarantineWriter
 from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdapter
@@ -147,6 +150,7 @@ def build_review_quarantine_use_case(
     review = Neo4jQuarantineReviewAdapter(
         driver,
         JSONLMergeLedger(settings.merge_ledger_path),
+        JSONLCrossNamespaceDecisions(settings.cross_namespace_decisions_path),
     )
     quarantine = JSONLQuarantineWriter(settings.quarantine_path)
     use_case = ReviewQuarantineUseCase(quarantine=quarantine, review=review)
@@ -180,6 +184,7 @@ def build_enqueue_cross_namespace_use_case(
     review = Neo4jQuarantineReviewAdapter(
         driver,
         JSONLMergeLedger(settings.merge_ledger_path),
+        JSONLCrossNamespaceDecisions(settings.cross_namespace_decisions_path),
     )
     quarantine = JSONLQuarantineWriter(settings.quarantine_path)
     use_case = EnqueueCrossNamespaceQuarantineUseCase(

@@ -14,6 +14,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from book_graph_rag.domain.cross_namespace_decision_models import separate_entity_ids
 from book_graph_rag.domain.models import Entity
 from book_graph_rag.domain.quarantine_review_models import (
     CrossNamespaceCandidateGroup,
@@ -21,6 +22,8 @@ from book_graph_rag.domain.quarantine_review_models import (
     PairReviewFacts,
     PriorMergeFacts,
 )
+from book_graph_rag.infrastructure.neo4j_audit_adapter import CROSS_NAMESPACE_DECISION_EXCLUSION
+from book_graph_rag.ports.cross_namespace_decision_port import CrossNamespaceDecisionPort
 from book_graph_rag.ports.merge_ledger_port import MergeLedgerPort
 from book_graph_rag.ports.quarantine_review_port import QuarantineReviewPort
 
@@ -66,12 +69,19 @@ RETURN e.id AS id, coalesce(e.description, '') AS description
 # expression as the audit rule DUPLICATE_ENTITY_CROSS_NAMESPACE
 # (infrastructure/neo4j_audit_adapter.py) — toLower(trim(n.name)) + type over
 # active entities, keeping groups spanning ≥2 namespaces — so the enqueue
-# count and the audit count agree by construction. Coordination point for T9:
+# count and the audit count agree by construction. T9a: both also concatenate
+# the SAME decision exclusion (CROSS_NAMESPACE_DECISION_EXCLUSION, imported
+# from the audit adapter so this clause cannot drift) right after the shared
+# active-entity predicate and pass ``decided_separate_ids`` where the query
+# runs — an empty list keeps the pre-T9a behaviour. Coordination point for T9:
 # the audit's Cypher grouping is looser than the Python normalize_key
 # (NFKC + whitespace collapse); unify both when R5b lands.
-_QUERY_CROSS_NAMESPACE_GROUPS = """
+_QUERY_CROSS_NAMESPACE_GROUPS = (
+    """
 MATCH (n:Entity)
-WHERE (n.merged_into IS NULL OR n.merged_into = '') AND n.id IS NOT NULL
+WHERE (n.merged_into IS NULL OR n.merged_into = '') AND n.id IS NOT NULL """
+    + CROSS_NAMESPACE_DECISION_EXCLUSION
+    + """
 WITH n, split(n.id, ':') AS parts
 WHERE size(parts) >= 2
 WITH n, parts ORDER BY coalesce(n.id, '')
@@ -84,6 +94,7 @@ RETURN coalesce(name, '') AS group_key,
        namespaces AS namespaces
 ORDER BY group_key, entity_type
 """
+)
 
 # Batched corpus coverage for the T6c risk marker: one query per ``list`` /
 # ``render`` call for every label shown. Same active-entity predicate and
@@ -109,11 +120,23 @@ def _batched(items: list[str]) -> list[list[str]]:
 
 
 class Neo4jQuarantineReviewAdapter(QuarantineReviewPort):
-    """Read-only review facts from Neo4j plus the merge ledger file."""
+    """Read-only review facts from Neo4j plus the merge ledger file.
 
-    def __init__(self, driver: Any, ledger: MergeLedgerPort) -> None:
+    ``decisions`` is the T9a decision registry (supplied by the wiring from
+    ``Settings.cross_namespace_decisions_path``); when absent — legacy test
+    wiring — the detection query runs with an empty exclusion list, which is
+    a no-op.
+    """
+
+    def __init__(
+        self,
+        driver: Any,
+        ledger: MergeLedgerPort,
+        decisions: CrossNamespaceDecisionPort | None = None,
+    ) -> None:
         self._driver = driver
         self._ledger = ledger
+        self._decisions = decisions
 
     async def read_pair_facts(self, anchor_id: str, candidate_id: str) -> PairReviewFacts:
         ids = [anchor_id, candidate_id]
@@ -146,10 +169,19 @@ class Neo4jQuarantineReviewAdapter(QuarantineReviewPort):
     async def find_cross_namespace_candidate_groups(
         self,
     ) -> list[CrossNamespaceCandidateGroup]:
-        """Run the R5a detection query; read-only (MATCH only)."""
+        """Run the R5a detection query; read-only (MATCH only).
+
+        Passes ``decided_separate_ids`` (T9a) exactly like the audit rule, so
+        the enqueue count and the audit count keep agreeing by construction.
+        """
+        separate_ids = (
+            separate_entity_ids(self._decisions.read_all()) if self._decisions is not None else []
+        )
         groups: list[CrossNamespaceCandidateGroup] = []
         async with self._driver.session() as session:
-            result = await session.run(_QUERY_CROSS_NAMESPACE_GROUPS)
+            result = await session.run(
+                _QUERY_CROSS_NAMESPACE_GROUPS, decided_separate_ids=separate_ids
+            )
             async for record in result:
                 groups.append(
                     CrossNamespaceCandidateGroup(

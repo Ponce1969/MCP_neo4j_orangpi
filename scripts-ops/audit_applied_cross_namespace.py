@@ -83,6 +83,14 @@ reporta revertidos via ``rolled_back`` y el contador de compensatorias junto
 a la seleccion). Un rollback PARCIAL (T8f) saca solo los pares que si
 revirtio: los candidatos hermanos de la misma entrada siguen auditados.
 
+Decisiones humanas (T9a): un par cuyo ``keep`` el maintainer decidio
+documentar (registro ``Settings.cross_namespace_decisions_path``) TAMBIEN
+sale del estrato — mantenerlo fusionado es una decision humana, no un par
+sospechoso. Las claves se leen con el modelo compartido ``keep_pair_keys``
+(nunca reimplementado): archivo ausente = sin decisiones; archivo corrupto
+= exit 2 ANTES de tocar el grafo. La consola y el payload JSON reportan
+``decididos keep`` junto a los contadores de rollback.
+
 Garantia de solo lectura: unicamente se ejecutan consultas MATCH; el unico
 archivo que se escribe es ``--out``.
 
@@ -112,6 +120,10 @@ from neo4j import AsyncGraphDatabase, AsyncSession
 from pydantic import ValidationError
 
 from book_graph_rag.config import Settings
+from book_graph_rag.domain.cross_namespace_decision_models import (
+    InvalidDecisionRecord,
+    keep_pair_keys,
+)
 from book_graph_rag.domain.merge_ledger_models import MergeBand, MergeLedgerEntry
 from book_graph_rag.domain.models import Entity
 from book_graph_rag.domain.quarantine_review_models import (
@@ -136,6 +148,9 @@ from book_graph_rag.domain.s3_context_scoring import (
     related_jaccard,
 )
 from book_graph_rag.domain.s4_band_assignment import BandThresholds
+from book_graph_rag.infrastructure.jsonl_cross_namespace_decisions import (
+    JSONLCrossNamespaceDecisions,
+)
 from book_graph_rag.infrastructure.jsonl_merge_ledger import JSONLMergeLedger
 
 AUDIT_SCHEMA = "applied-cross-namespace-audit/2"
@@ -243,6 +258,9 @@ class PairAudit:
     stored_band: str = ""
     stored_evidence_s3_none: bool = False
     rolled_back: bool = False
+    #: True cuando el maintainer decidio KEEP para esta clave (seq, candidato)
+    #: — T9a: una decision humana, fuera del estrato sospechoso.
+    decided_keep: bool = False
     entity_type: str = ""
     mentions_jaccard: float = 0.0
     related_jaccard: float = 0.0
@@ -412,6 +430,13 @@ def _parse_args() -> argparse.Namespace:
         "(p. ej. knowledge:ai-engineering-huyen)",
     )
     parser.add_argument(
+        "--decisions",
+        type=Path,
+        default=None,
+        help="registro de decisiones cross-namespace (default: "
+        "cross_namespace_decisions_path de Settings)",
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=DEFAULT_OUT,
@@ -545,6 +570,28 @@ def _abort_ledger_drift(reason: str) -> NoReturn:
         file=sys.stderr,
     )
     raise SystemExit(2)
+
+
+def _load_keep_pair_keys(path: Path) -> set[tuple[int, str]]:
+    """Claves decididas ``keep`` via el modelo compartido T9a (nada propio).
+
+    Lee el registro con el adaptador JSONL compartido y deriva las claves con
+    ``keep_pair_keys`` (``domain/cross_namespace_decision_models``): la
+    ULTIMA decision por ``(seq, candidate_id)`` gana. Archivo ausente = sin
+    decisiones (conjunto vacio); archivo corrupto = fallo fuerte (exit 2)
+    ANTES de tocar el grafo — una decision ilegible no es "sin decision".
+    """
+    try:
+        records = JSONLCrossNamespaceDecisions(path).read_all()
+    except InvalidDecisionRecord as exc:
+        print(
+            f"ERROR: registro de decisiones corrupto ({exc}). Revisar antes "
+            "de confiar en este informe: no se consulto el grafo ni se "
+            "escribio salida.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from exc
+    return keep_pair_keys(records)
 
 
 def _assert_compensations_reference_originals(
@@ -713,6 +760,7 @@ def _build_pairs(
     neighbors: dict[str, set[str]],
     label_namespaces: dict[tuple[str, str], set[str]],
     compensated_candidates: Mapping[int, set[str]],
+    keep_pair_keys: set[tuple[int, str]],
     namespace_filter: str | None,
 ) -> tuple[list[PairAudit], int, int]:
     """Cruza ledger + grafo en pares auditados.
@@ -720,6 +768,8 @@ def _build_pairs(
     Devuelve ``(pares, pares_con_entidad_ausente, pares_con_fallback)``: el
     fallback cuenta los pares cuya etiqueta no esta entre las vivas (el
     namespace_count cae al piso honesto de 2 = el propio par).
+    ``keep_pair_keys`` (T9a, leido con el modelo compartido) marca los pares
+    que el maintainer decidio mantener fusionados (``decided_keep``).
     """
     pairs: list[PairAudit] = []
     missing = 0
@@ -776,6 +826,7 @@ def _build_pairs(
                     stored_band=entry.band.value,
                     stored_evidence_s3_none=all(ev.s3 is None for ev in entry.evidence),
                     rolled_back=(candidate_id in compensated_candidates.get(entry.seq, set())),
+                    decided_keep=(entry.seq, candidate_id) in keep_pair_keys,
                     entity_type=entity_type,
                     mentions_jaccard=mentions_j,
                     related_jaccard=related_j,
@@ -830,6 +881,7 @@ def _pair_payload(pair: PairAudit, thresholds: BandThresholds) -> dict[str, Any]
         "stored_band": pair.stored_band,
         "stored_evidence_s3_none": pair.stored_evidence_s3_none,
         "rolled_back": pair.rolled_back,
+        "decided_keep": pair.decided_keep,
         "canonical_id": pair.canonical_id,
         "candidate_id": pair.candidate_id,
         "canonical_namespace": pair.canonical_namespace,
@@ -876,8 +928,14 @@ def _stratifiable_pairs(pairs: Sequence[PairAudit]) -> list[PairAudit]:
     Un rollback parcial solo saca los pares que si revirtio; los candidatos
     hermanos de la misma entrada siguen en el estrato. Los pares con entidades
     ausentes del grafo tampoco se estratifican (el scoring no es comparable).
+    Y un par decidido ``keep`` (T9a) sale tambien: mantenerlo fusionado es una
+    decision humana documentada, no un par sospechoso.
     """
-    return [pair for pair in pairs if not pair.missing_entities and not pair.rolled_back]
+    return [
+        pair
+        for pair in pairs
+        if not pair.missing_entities and not pair.rolled_back and not pair.decided_keep
+    ]
 
 
 def _print_history(
@@ -888,6 +946,7 @@ def _print_history(
     fully_compensated: int,
     partially_compensated: int,
     compensated_pair_count: int,
+    decided_keep_pairs: int,
     pair_count: int,
     skipped_entities: int,
     missing_pairs: int,
@@ -918,7 +977,8 @@ def _print_history(
     print(
         f"  pares revertidos por rollback: {compensated_pair_count} · "
         f"entradas con rollback total: {fully_compensated} · "
-        f"con rollback parcial: {partially_compensated}"
+        f"con rollback parcial: {partially_compensated} · "
+        f"decididos keep: {decided_keep_pairs}"
     )
     print("\n-- EVIDENCIA RECOMPUTADA HOY (grafo, solo MATCH) --")
     if skipped_entities:
@@ -1000,6 +1060,13 @@ async def main() -> None:
     settings = Settings.model_validate({})
     thresholds = BandThresholds()
 
+    decisions_path = (
+        args.decisions if args.decisions is not None else settings.cross_namespace_decisions_path
+    )
+    # T9a: leer el registro de decisiones ANTES del ledger y del grafo — un
+    # archivo corrupto falla fuerte (exit 2) sin haber tocado nada.
+    keep_keys = _load_keep_pair_keys(decisions_path)
+
     ledger_path = args.ledger if args.ledger is not None else settings.merge_ledger_path
     entries = JSONLMergeLedger(ledger_path).read_all()
     selected = _select_crossing_entries(entries)
@@ -1064,14 +1131,17 @@ async def main() -> None:
         neighbors=neighbors,
         label_namespaces=label_namespaces,
         compensated_candidates=compensated,
+        keep_pair_keys=keep_keys,
         namespace_filter=args.namespace,
     )
     # La matriz y las tres listas describen la todavia aplicada: un par
     # revertido sale del estrato (su flag ``rolled_back`` sigue vivo en el
     # payload por par y en las filas historicas). Un rollback PARCIAL solo
-    # saca los pares que si revirtio; los hermanos siguen auditados.
+    # saca los pares que si revirtio; los hermanos siguen auditados. Un par
+    # decidido ``keep`` (T9a) sale tambien: es una decision humana.
     stratifiable = _stratifiable_pairs(pairs)
     strat = stratify(stratifiable, thresholds)
+    decided_keep_count = sum(1 for pair in pairs if pair.decided_keep)
 
     history_rows = [_history_row(entry, compensated.get(entry.seq, set())) for entry in selected]
     band_counts = Counter(entry.band.value for entry in selected)
@@ -1090,6 +1160,7 @@ async def main() -> None:
 
     print("== AUDITORIA RETRO-ACTIVA DE MERGES CROSS-NAMESPACE (SOLO LECTURA) ==")
     print(f"  ledger: {ledger_path} · esquema {AUDIT_SCHEMA}")
+    print(f"  decisiones humanas: {decisions_path} · claves keep: {len(keep_keys)}")
     print(
         f"  filtros: namespace={args.namespace or '(todos)'} limit={args.limit} "
         f"· salida: {args.out}"
@@ -1118,6 +1189,7 @@ async def main() -> None:
         fully_compensated=fully_compensated_entries,
         partially_compensated=partially_compensated_entries,
         compensated_pair_count=sum(1 for pair in pairs if pair.rolled_back),
+        decided_keep_pairs=decided_keep_count,
         pair_count=len(pairs),
         skipped_entities=skipped_entities,
         missing_pairs=missing_pairs,
@@ -1150,6 +1222,7 @@ async def main() -> None:
         "cosine_computed": False,
         "routing_policy": "cross-namespace pairs are always quarantine (R6.2)",
         "ledger_path": str(ledger_path),
+        "decisions_path": str(decisions_path),
         "namespace_filter": args.namespace,
         "limit_console": args.limit,
         "thresholds": {
@@ -1166,6 +1239,7 @@ async def main() -> None:
             "partially_compensated_entries": partially_compensated_entries,
             "expected_cross_namespace_entries": EXPECTED_CROSS_NAMESPACE_ENTRIES,
             "compensated_pairs": sum(1 for pair in pairs if pair.rolled_back),
+            "decided_keep_pairs": decided_keep_count,
             "pairs_total": len(pairs),
             "pairs_stratified": len(stratifiable),
             "skipped_entities": skipped_entities,
