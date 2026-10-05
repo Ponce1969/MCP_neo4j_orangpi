@@ -224,6 +224,18 @@ maps and debt R1 corrupts exactly that population.
       needs_reading 5, high risk 7. Evidence: `evidence-bundles/batch2b-decision-sheets-20261004.txt`,
       `evidence-bundles/applied-cross-namespace-audit-consolidated-after2b-20261004.json`,
       `evidence-bundles/lote2b-plan-20261004.json`.
+      **Batch 2C closed (2026-10-04)**: short tier `cosine < 0.32`, four pairs reviewed. Rolled back **590** `Question`
+      and **319** `Jupyter notebook` (fingerprint `6405aa70…`: MENTIONS 4/4, RELATED 5/5, **0 mirrors**, no repoint
+      needed, `merged_into` 906 -> 904, drift none); **kept** 403 `Controller` and 512 `Retry` (same concept — the
+      blackboard controller and the R⁵ model are confirmed by the canonical's neighbours). All four decisions were
+      recorded through the new `decisions record` CLI (which refused a candidate-id typo before appending — the
+      fail-closed guard working). Verification: shared neighbours **0**, ledger **984 / 26 compensating / chain OK**,
+      all scoped audits `passed`. **T9a demonstrated live**: the two rollbacks revived two duplicate pairs that would
+      have pushed R5a from 456 to 458, and the `separate` decisions held it at **456**; the queue went **162 -> 158**
+      with `decided_keep_pairs: 10`. Evidence: `evidence-bundles/batch2c-decision-sheets-20261004.txt`,
+      `evidence-bundles/cross-namespace-decisions-20261005.jsonl` (the registry snapshot: 37 decisions),
+      `evidence-bundles/applied-cross-namespace-audit-consolidated-after2c-20261004.json`. Backup
+      `bookgraph_backup_20261005T032656Z.json`.
       **Branch deployed to the production host + 2B-B partial closed (2026-10-04)**: the host's dirty tree (33 files
       staged from an older feature snapshot + 1 modified + 7 untracked) was snapshotted into the throwaway branch
       `host-dirty-backup-20261004` (`bc1f358`, patches in `/tmp/host_staged_before.patch`), keeping the previously
@@ -397,3 +409,4 @@ maps and debt R1 corrupts exactly that population.
 | T8f | `f7fb0ef` | `--candidate` partial rollback: plan-time overlap refusal + alias-value collision refusal + candidate-aware idempotence backstop; RED `DID NOT RAISE MergeNotReversible` → GREEN; 52 focused unit · 747 unit suite · 6 testcontainers integration; ruff/mypy/architecture green; independent verification confirmed partial-then-full can no longer mutate |
 | T8f.2 | (this commit) | candidate-aware retro-audit: `rolled_back` per candidate, guard on the ORIGINAL population + compensation reference check (unknown target / canonical mismatch / unknown candidate / duplicate all exit 2 pre-graph); RED 6 failed → GREEN 17 passed; 753 unit suite; ruff/mypy/architecture green; production read-only run unchanged 288 applied / 322 pairs / 307 stratified / 180 suspicious |
 | T9a | `0bdf694` | decision registry + `decisions record\|list` + R5a/enqueue exclusion through one shared clause + consolidator keep-exclusion + seeder; RED 14 failed → GREEN 32 + 7 unit and 8 integration; ruff/mypy (419 files)/architecture green; production: 33 decisions seeded (25 separate / 8 keep), re-run no-op, **R5a 477 → 456**, **queue 170 → 162** |
+| T8e 2C | (this commit) | 590/319 rolled back (fingerprint `6405aa70…`, 0 mirrors, no repoint) + 403/512 kept; decisions recorded via the new CLI; ledger 984 / chain OK; shared neighbours 0; scoped audits `passed`; R5a held at **456** by the separate decisions; queue **162 → 158** |
