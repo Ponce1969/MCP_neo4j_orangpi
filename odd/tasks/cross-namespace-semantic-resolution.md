@@ -376,9 +376,23 @@ maps and debt R1 corrupts exactly that population.
       CLI (fail closed on a non-candidate, no graph write); the audit rule's parameter plumbing and filtering (unit
       with a fake session plus integration with testcontainers asserting R5a drops the decided group); the enqueue
       anti-drift; and the consolidator's keep exclusion.
-- [ ] **T9b** R5b: case-insensitive grouping in `duplicates_entity` via `normalize_key`, together with the cleanup of
-      the 64 case-only groups (approval-gated merge), and the confirmation of how the `uniqueness` gate dimension
-      treats warnings.
+- [x] **T9b** R5b: case-insensitive grouping in `duplicates_entity` (commit `82746d1`).
+      **Measurement that drove the design (production, read-only, 2026-10-04)**: grouping active entities by exact
+      `n.name` finds **0** intra-namespace groups; `toLower(trim(n.name))` finds **64 groups over 128 entities**; the
+      Python `normalize_key` (NFKC + casefold + whitespace collapse) finds **the same 64 / 128**. So the Cypher
+      expression is a faithful equivalent on this corpus (NFKC cannot be expressed in Cypher; a corpus with NFKC or
+      internal-whitespace divergences would need a Python-side rule) — recorded in the adapter comment.
+      **Change**: `duplicates_entity` now groups on `toLower(trim(n.name))`, the same expression R5a uses, and the
+      comment's wrong claim that `total` counted entities was corrected (it counts GROUPS, as the integration test
+      proves: a 2-member group reports 1).
+      **Gate question answered empirically**: `DUPLICATE_ENTITY_LOGICAL` is a `duplicates` warning, and the
+      `uniqueness` dimension only counts findings at or above `max_severity` (`blocking` in `gates.yaml`), so
+      `expose-mcp` reports `passed: True` with `uniqueness: {finding_total: 0, satisfied: True}`.
+      **Production after the change**: `DUPLICATE_ENTITY_LOGICAL` **0 -> 64**, R5a unchanged at 456, global warning
+      total 456 -> **520**, audit `passed` 0 blocking. RED evidence: with the exact-name grouping the case-only pair
+      forms **0** groups (`assert 0 == 1`); tests: the static grouping contract plus a testcontainers case. 808 unit + 26
+      integration green.
+      **Remaining (T10)**: the 64 groups (128 entities) are now visible and need the approval-gated merge cleanup.
 - [ ] **T10** Cleanup batch for the approved identity merges (apply, scoped + global audits, multi-book count check),
       docs (spec 03 amendment, spec 04 rules, AGENTS.md §7.2 cross-ref) and close-out (commits, Engram, report).
 
@@ -410,3 +424,4 @@ maps and debt R1 corrupts exactly that population.
 | T8f.2 | (this commit) | candidate-aware retro-audit: `rolled_back` per candidate, guard on the ORIGINAL population + compensation reference check (unknown target / canonical mismatch / unknown candidate / duplicate all exit 2 pre-graph); RED 6 failed → GREEN 17 passed; 753 unit suite; ruff/mypy/architecture green; production read-only run unchanged 288 applied / 322 pairs / 307 stratified / 180 suspicious |
 | T9a | `0bdf694` | decision registry + `decisions record\|list` + R5a/enqueue exclusion through one shared clause + consolidator keep-exclusion + seeder; RED 14 failed → GREEN 32 + 7 unit and 8 integration; ruff/mypy (419 files)/architecture green; production: 33 decisions seeded (25 separate / 8 keep), re-run no-op, **R5a 477 → 456**, **queue 170 → 162** |
 | T8e 2C | (this commit) | 590/319 rolled back (fingerprint `6405aa70…`, 0 mirrors, no repoint) + 403/512 kept; decisions recorded via the new CLI; ledger 984 / chain OK; shared neighbours 0; scoped audits `passed`; R5a held at **456** by the separate decisions; queue **162 → 158** |
+| T9b | `82746d1` | intra-namespace duplicates grouped case-insensitively: `DUPLICATE_ENTITY_LOGICAL` **0 → 64** groups, R5a unchanged 456, warning total **520**, `expose-mcp` still `passed` (uniqueness counts only blocking); RED `assert 0 == 1` → GREEN; 808 unit + 26 integration |
