@@ -5,19 +5,24 @@ Four protections over the intra-namespace cleanup executor:
 1. **Grouping parity (T10-A)** — the intra-namespace group key expression lives
    in ONE constant exported by ``neo4j_audit_adapter`` (the T9a
    ``CROSS_NAMESPACE_DECISION_EXCLUSION`` pattern): the ``duplicates_entity``
-   rule, the script's grouping query and the intra-group self-loop query are all
-   *built from* it (AST-checked), and the literal never appears in the script
-   source, so plan and audit cannot drift apart after T9b's case-insensitive
-   grouping.
+   rule and the script's grouping query are *built from* it (AST-checked), and
+   the literal never appears in the script source, so plan and audit cannot
+   drift apart after T9b's case-insensitive grouping. The deletion counters key
+   on the PLAN built from that query (plan-scoped row fetches, no second
+   grouping copy), so their parity is inherited by construction.
 2. **Fingerprint (T10-C)** — ``plan_fingerprint`` is a deterministic sha256 over
    the ordered canonical plan (namespace, group name, kind, canonical_id,
    duplicate_ids): same plan, same hash; any changed field changes it.
    ``--apply`` REFUSES without ``--expect-fingerprint`` and on a mismatch, in
    both cases before any write (decision: refuse, not warn).
 3. **Census (T10-D)** — the predicted delta is one active entity fewer and one
-   ``merged_into`` more per duplicate folded, with MENTIONS/RELATED INVARIANT
-   (the merge re-points, never deletes); the post-apply drift report exits
-   non-zero on any mismatch (mirrors ``ledger rollback``).
+   ``merged_into`` more per duplicate folded, PLUS the deletions the apply really
+   performs: ``MENTIONS − collapses`` (a ``(chunk, duplicate)`` edge whose chunk
+   already mentions the canonical collapses under ``MERGE`` + ``DELETE``) and
+   ``RELATED − intra_group_edges`` (``_DELETE_INTRA_GROUP_RELATED`` deletes every
+   directed edge inside the merged group, counted per directed edge, no id
+   ordering); the post-apply drift report exits non-zero on any mismatch
+   (mirrors ``ledger rollback``).
 4. **§7.2 + fingerprint gate ordering** — the refusals happen before the first
    write, proven by a recorder that must stay empty.
 """
@@ -133,8 +138,15 @@ def _install_graph_fakes(
     monkeypatch: pytest.MonkeyPatch,
     *,
     census_reads: list[object],
+    related_rows: list[tuple[str, str]] | None = None,
+    mention_rows: list[tuple[str, str]] | None = None,
 ) -> list[list[PlannedMerge]]:
-    """Stub every graph touch; return the recorder of ``_apply`` invocations."""
+    """Stub every graph touch; return the recorder of ``_apply`` invocations.
+
+    ``related_rows`` / ``mention_rows`` feed the READ-ONLY row fetches; the
+    per-directed-edge counting itself runs the real pure functions, which is
+    exactly what the deletion-prediction tests exercise.
+    """
     applied: list[list[PlannedMerge]] = []
     read_index = {"i": 0}
 
@@ -144,8 +156,11 @@ def _install_graph_fakes(
     async def _edge_impact(_session: object, _ids: list[str]) -> dict[str, tuple[int, int]]:
         return dict(_SCORES)
 
-    async def _intra(_session: object, _prefix: str) -> int:
-        return 0
+    async def _related(_session: object, _member_ids: list[str]) -> list[tuple[str, str]]:
+        return list(related_rows or [])
+
+    async def _mentions(_session: object, _member_ids: list[str]) -> list[tuple[str, str]]:
+        return list(mention_rows or [])
 
     async def _read_census(_session: object, _prefix: str) -> object:
         value = census_reads[read_index["i"]]
@@ -170,7 +185,8 @@ def _install_graph_fakes(
     )
     monkeypatch.setattr(script, "_fetch_rows", _fetch_rows)
     monkeypatch.setattr(script, "_edge_impact", _edge_impact)
-    monkeypatch.setattr(script, "_intra_group_related", _intra)
+    monkeypatch.setattr(script, "_intra_group_related_rows", _related)
+    monkeypatch.setattr(script, "_member_mention_rows", _mentions)
     monkeypatch.setattr(script, "_read_census", _read_census)
     monkeypatch.setattr(script, "_apply", _apply)
     return applied
@@ -225,16 +241,18 @@ def test_both_queries_are_built_from_the_imported_constant(script: ModuleType) -
         "DUPLICATE_GROUP_KEY_EXPRESSION",
     )
     assert _references(_assign_node(_TREE, "_GROUPS_QUERY"), "DUPLICATE_GROUP_KEY_EXPRESSION")
-    # The self-loop measurement must key on the same grouping, or it would
-    # silently undercount the case-only pairs this cleanup is about.
-    assert _references(
-        _assign_node(_TREE, "_INTRA_GROUP_RELATED_QUERY"),
-        "DUPLICATE_GROUP_KEY_EXPRESSION",
-    )
+    # The deletion counters do NOT re-group: they fetch rows for the member ids of
+    # the PLAN built from _GROUPS_QUERY above (parity inherited by construction),
+    # with NO id-ordering filter so every directed intra-group edge is counted.
+    related_fetch = str(script._INTRA_GROUP_RELATED_QUERY)
+    assert "$member_ids" in related_fetch
+    assert "STARTS WITH" not in related_fetch
+    assert "a.id <" not in related_fetch
+    assert "< b.id" not in related_fetch
+    assert "$member_ids" in str(script._MEMBER_MENTIONS_QUERY)
     assert "DUPLICATE_GROUP_KEY_EXPRESSION" in _imported_from(
         _TREE, "book_graph_rag.infrastructure.neo4j_audit_adapter"
     )
-    assert _FRAGMENT in script._INTRA_GROUP_RELATED_QUERY
 
 
 def _rule_query_node(tree: ast.AST, rule: str) -> ast.AST:
@@ -574,3 +592,188 @@ def test_census_drift_names_every_mismatched_field(script: ModuleType) -> None:
     assert any("merged_into" in line for line in drift)
     assert any("MENTIONS" in line for line in drift)
     assert any("RELATED" in line for line in drift)
+
+
+# ── T10-D: predicted deletions (MENTIONS collapses + intra-group RELATED) ────
+
+
+def test_predicted_census_delta_subtracts_the_deletions_the_apply_performs(
+    script: ModuleType,
+) -> None:
+    """``MENTIONS − collapses`` and ``RELATED − intra_group_edges``, not invariance."""
+    plan = [
+        PlannedMerge(
+            name="a",
+            kind="concept",
+            canonical_id=f"{_NS}:a-concept",
+            duplicate_ids=(f"{_NS}:a2-concept",),
+        )
+    ]
+
+    delta = script.predicted_census_delta(plan, collapses=3, intra_group_edges=2)
+
+    assert delta.active_entities == -1
+    assert delta.merged_into_count == 1
+    assert delta.total_mentions == -3
+    assert delta.total_related == -2
+
+
+def test_intra_group_related_counts_per_directed_edge(script: ModuleType) -> None:
+    """Every edge with both endpoints in the plan group is deleted by the apply.
+
+    ``_DELETE_INTRA_GROUP_RELATED`` has NO ``id`` ordering filter, so neither may
+    the counter: a bidirectional pair is two directed edges (2) and a single edge
+    whose SOURCE id sorts HIGHER than its target still counts 1 — the old
+    ``a.id < b.id`` guard dropped exactly that edge.
+    """
+    plan = _plan(script)
+    outside = f"{_NS}:some-other-concept"
+
+    bidirectional = [(_CANON, _DUP), (_DUP, _CANON)]
+    assert script.count_intra_group_related(plan, bidirectional) == 2
+    # _CANON (llm-...) sorts higher than _DUP (large-...): the single-edge case
+    # the ordering filter used to drop.
+    assert script.count_intra_group_related(plan, [(_CANON, _DUP)]) == 1
+    assert script.count_intra_group_related(plan, [(_DUP, _CANON)]) == 1
+    # an edge touching an entity outside the plan group is re-pointed, not deleted.
+    assert script.count_intra_group_related(plan, [(_CANON, outside)]) == 0
+
+
+def test_mentions_collapse_count_covers_chunks_that_already_mention_the_canonical(
+    script: ModuleType,
+) -> None:
+    """A ``(chunk, duplicate)`` edge collapses only if the chunk mentions the canonical.
+
+    ``_REPOINT_MENTIONS_BATCH`` does ``MERGE`` (no new edge when one exists) then
+    ``DELETE`` the duplicate's edge: -1 total. A chunk that mentions only the
+    duplicate gets a NEW canonical edge first: net 0, no collapse.
+    """
+    plan = _plan(script)
+
+    assert script.count_mentions_collapses(plan, [("chunk-1", _DUP), ("chunk-1", _CANON)]) == 1
+    assert script.count_mentions_collapses(plan, [("chunk-2", _DUP)]) == 0
+    assert script.count_mentions_collapses(plan, [("chunk-3", _CANON)]) == 0
+    # a chunk mentioning a duplicate of another group is irrelevant here.
+    assert script.count_mentions_collapses(plan, [("chunk-4", f"{_NS}:other-concept")]) == 0
+
+
+async def test_dry_run_reports_the_predicted_deletions(
+    script: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_graph_fakes(
+        script,
+        monkeypatch,
+        census_reads=[
+            _census(script, 100, 10, 500, 700),
+            _census(script, 1000, 50, 5000, 7000),
+        ],
+        related_rows=[(_CANON, _DUP)],
+        mention_rows=[("chunk-1", _DUP), ("chunk-1", _CANON)],
+    )
+
+    await script.main([])
+
+    out = capsys.readouterr().out
+    assert "MENTIONS a colapsar: 1" in out
+    assert "RELATED intra-grupo a borrar: 1" in out
+    assert "MENTIONS -1" in out
+    assert "RELATED -1" in out
+    assert "invariante" not in out
+
+
+async def test_json_output_carries_the_predicted_deletions(
+    script: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_graph_fakes(
+        script,
+        monkeypatch,
+        census_reads=[
+            _census(script, 100, 10, 500, 700),
+            _census(script, 1000, 50, 5000, 7000),
+        ],
+        related_rows=[(_CANON, _DUP), (_DUP, _CANON)],
+        mention_rows=[("chunk-1", _DUP), ("chunk-1", _CANON)],
+    )
+
+    await script.main(["--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["mentions_collapses"] == 1
+    assert payload["intra_group_related"] == 2
+    assert payload["predicted_delta"]["total_mentions"] == -1
+    assert payload["predicted_delta"]["total_related"] == -2
+
+
+async def test_apply_with_intra_group_edge_and_collapse_exits_without_drift(
+    script: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A correct apply measuring its own deletions must NOT report DRIFT.
+
+    The census after the apply really drops by 1 MENTIONS (collapse) and 1
+    RELATED (intra-group edge): predicting invariance used to exit 1 with a DRIFT
+    line that an operator could misread as a failure.
+    """
+    fingerprint = script.plan_fingerprint(_plan(script))
+    _install_graph_fakes(
+        script,
+        monkeypatch,
+        census_reads=[
+            _census(script, 100, 10, 500, 700),
+            _census(script, 1000, 50, 5000, 7000),
+            _census(script, 99, 11, 499, 699),
+            _census(script, 999, 51, 4999, 6999),
+        ],
+        related_rows=[(_CANON, _DUP)],
+        mention_rows=[("chunk-1", _DUP), ("chunk-1", _CANON)],
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        await script.main(_apply_args(script, tmp_path, fingerprint=fingerprint))
+
+    out = capsys.readouterr().out
+    assert excinfo.value.code == 0
+    assert "APPLY_OK" in out
+    assert "census drift: none" in out
+    assert "DRIFT" not in out
+
+
+async def test_prediction_gate_still_fires_when_a_measurement_mismatches(
+    script: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Triangulation: predicting the deletions does NOT loosen the gate.
+
+    The prediction says RELATED drops by 1 (intra-group edge); if the
+    post-apply census shows it did not, the run must still exit 1 with DRIFT.
+    """
+    fingerprint = script.plan_fingerprint(_plan(script))
+    _install_graph_fakes(
+        script,
+        monkeypatch,
+        census_reads=[
+            _census(script, 100, 10, 500, 700),
+            _census(script, 1000, 50, 5000, 7000),
+            # RELATED unchanged although the intra-group edge should have gone.
+            _census(script, 99, 11, 499, 700),
+            _census(script, 999, 51, 4999, 7000),
+        ],
+        related_rows=[(_CANON, _DUP)],
+        mention_rows=[("chunk-1", _DUP), ("chunk-1", _CANON)],
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        await script.main(_apply_args(script, tmp_path, fingerprint=fingerprint))
+
+    out = capsys.readouterr().out
+    assert excinfo.value.code == 1
+    assert "DRIFT" in out
+    assert "RELATED" in out
