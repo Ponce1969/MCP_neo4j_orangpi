@@ -46,6 +46,14 @@ _CATEGORY = RULE_CATEGORY
 #: for this rule only and an empty list is a no-op.
 CROSS_NAMESPACE_DECISION_EXCLUSION = "AND NOT n.id IN $decided_separate_ids"
 
+#: T10 intra-namespace group key — one source for BOTH consumers: the
+#: ``duplicates_entity`` rule below and ``scripts-ops/resolve_intra_ns.py``,
+#: which imports this exact constant to build its grouping query (and the
+#: intra-group self-loop measurement), so the cleanup plan and the audit count
+#: agree by construction after T9b's case-insensitive flip. Same anti-drift
+#: pattern as :data:`CROSS_NAMESPACE_DECISION_EXCLUSION`.
+DUPLICATE_GROUP_KEY_EXPRESSION = "toLower(trim(n.name))"
+
 _QUERY_PLAN = (
     (
         "runtime_metadata",
@@ -129,7 +137,9 @@ _QUERY_PLAN = (
     ),
     (
         "duplicates_entity",
-        "MATCH (n:Entity) WHERE (n.merged_into IS NULL OR n.merged_into = '') AND n.id IS NOT NULL WITH n, split(n.id, ':') AS parts WHERE size(parts) >= 2 WITH n, parts ORDER BY coalesce(n.id, '') WITH n, parts[0] + ':' + parts[1] AS namespace, toLower(trim(n.name)) AS name, n.type AS kind WITH namespace, name, kind, collect(n) AS members WHERE size(members) > 1 WITH namespace, name, kind, members ORDER BY namespace, coalesce(name, ''), coalesce(kind, '') RETURN count(members) AS total, collect({key: namespace + '|' + coalesce(name, '') + '|' + coalesce(kind, ''), namespace: namespace, name: coalesce(name, ''), kind: coalesce(kind, ''), subject_ids: [x IN members | coalesce(x.id, '')], properties: properties(members[0])})[..$sample_limit] AS samples, $sample_limit AS sample_limit",
+        "MATCH (n:Entity) WHERE (n.merged_into IS NULL OR n.merged_into = '') AND n.id IS NOT NULL WITH n, split(n.id, ':') AS parts WHERE size(parts) >= 2 WITH n, parts ORDER BY coalesce(n.id, '') WITH n, parts[0] + ':' + parts[1] AS namespace, "
+        + DUPLICATE_GROUP_KEY_EXPRESSION
+        + " AS name, n.type AS kind WITH namespace, name, kind, collect(n) AS members WHERE size(members) > 1 WITH namespace, name, kind, members ORDER BY namespace, coalesce(name, ''), coalesce(kind, '') RETURN count(members) AS total, collect({key: namespace + '|' + coalesce(name, '') + '|' + coalesce(kind, ''), namespace: namespace, name: coalesce(name, ''), kind: coalesce(kind, ''), subject_ids: [x IN members | coalesce(x.id, '')], properties: properties(members[0])})[..$sample_limit] AS samples, $sample_limit AS sample_limit",
     ),
     # R5a and R5b (T9b) group on toLower(trim(n.name)) + type: R5a across namespaces,
     # R5b inside one. The Python normalize_key (domain/audit_models.py) is stricter
