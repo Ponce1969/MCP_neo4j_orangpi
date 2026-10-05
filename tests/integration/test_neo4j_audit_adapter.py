@@ -178,3 +178,56 @@ def test_entity_scanning_queries_filter_soft_deleted_entities() -> None:
     ):
         assert "merged_into" in queries[name], f"{name} must filter merged_into"
     assert "merged_into" not in queries["duplicates_relationship"]
+
+
+def test_duplicate_entity_rule_groups_case_insensitively() -> None:
+    """T9b: the intra-namespace rule groups on ``toLower(trim(name))``.
+
+    Before T9b it grouped on the exact ``n.name``, which made the 64 case-only
+    groups of the production corpus invisible (total 0). Grouping on the
+    trimmed lowercased name is the Cypher equivalent of ``normalize_key`` for
+    that corpus: measured on 2026-10-04, both strategies find the same 64
+    groups over 128 entities, while the exact name finds none.
+    """
+    query = dict(QUERY_PLAN)["duplicates_entity"]
+    assert "toLower(trim(n.name)) AS name" in query
+    assert "n.name AS name" not in query, "the exact-name grouping must be gone"
+
+
+@pytest.mark.neo4j_integration
+async def test_duplicate_entity_logical_groups_case_insensitively(
+    neo4j_settings: Settings,
+    neo4j_driver: Any,
+) -> None:
+    """T9b: two active entities differing only by case are ONE group."""
+    async with neo4j_driver.session() as session:
+        await session.run(
+            """
+            MERGE (a:Entity {id: $a_id})
+            SET a.name = 'Controller', a.type = 'concept', a.source_page = 1
+            """,
+            a_id="book:ch9:controller-upper",
+        )
+        await session.run(
+            """
+            MERGE (b:Entity {id: $b_id})
+            SET b.name = 'controller', b.type = 'concept', b.source_page = 2
+            """,
+            b_id="book:ch9:controller-lower",
+        )
+
+    adapter = Neo4jAuditAdapter(neo4j_settings)
+    try:
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
+        snapshot = await adapter.collect_snapshot(target, sample_limit=10)
+    finally:
+        await adapter.close()
+
+    assert snapshot.failure_state is None
+    assert _finding_total(snapshot, "DUPLICATE_ENTITY_LOGICAL") == 1, (
+        "the case-only pair must form exactly ONE group (total counts groups)"
+    )
+    assert _subject_ids(snapshot, "DUPLICATE_ENTITY_LOGICAL") >= {
+        "book:ch9:controller-upper",
+        "book:ch9:controller-lower",
+    }

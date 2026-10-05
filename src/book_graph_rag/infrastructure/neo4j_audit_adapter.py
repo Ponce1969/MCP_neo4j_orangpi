@@ -129,13 +129,17 @@ _QUERY_PLAN = (
     ),
     (
         "duplicates_entity",
-        "MATCH (n:Entity) WHERE (n.merged_into IS NULL OR n.merged_into = '') AND n.id IS NOT NULL WITH n, split(n.id, ':') AS parts WHERE size(parts) >= 2 WITH n, parts ORDER BY coalesce(n.id, '') WITH n, parts[0] + ':' + parts[1] AS namespace, n.name AS name, n.type AS kind WITH namespace, name, kind, collect(n) AS members WHERE size(members) > 1 WITH namespace, name, kind, members ORDER BY namespace, coalesce(name, ''), coalesce(kind, '') RETURN count(members) AS total, collect({key: namespace + '|' + coalesce(name, '') + '|' + coalesce(kind, ''), namespace: namespace, name: coalesce(name, ''), kind: coalesce(kind, ''), subject_ids: [x IN members | coalesce(x.id, '')], properties: properties(members[0])})[..$sample_limit] AS samples, $sample_limit AS sample_limit",
+        "MATCH (n:Entity) WHERE (n.merged_into IS NULL OR n.merged_into = '') AND n.id IS NOT NULL WITH n, split(n.id, ':') AS parts WHERE size(parts) >= 2 WITH n, parts ORDER BY coalesce(n.id, '') WITH n, parts[0] + ':' + parts[1] AS namespace, toLower(trim(n.name)) AS name, n.type AS kind WITH namespace, name, kind, collect(n) AS members WHERE size(members) > 1 WITH namespace, name, kind, members ORDER BY namespace, coalesce(name, ''), coalesce(kind, '') RETURN count(members) AS total, collect({key: namespace + '|' + coalesce(name, '') + '|' + coalesce(kind, ''), namespace: namespace, name: coalesce(name, ''), kind: coalesce(kind, ''), subject_ids: [x IN members | coalesce(x.id, '')], properties: properties(members[0])})[..$sample_limit] AS samples, $sample_limit AS sample_limit",
     ),
-    # R5a groups on toLower(trim(n.name)) + type across namespaces; the Python
-    # normalize_key (domain/audit_models.py) is stricter (NFKC + whitespace
-    # collapse), so this Cypher grouping is the coordination point to unify in T9.
-    # total counts entities (sum of group sizes), matching the 941-entities-over-
-    # 456-groups production convention; `namespaces` (member namespace list) is
+    # R5a and R5b (T9b) group on toLower(trim(n.name)) + type: R5a across namespaces,
+    # R5b inside one. The Python normalize_key (domain/audit_models.py) is stricter
+    # (NFKC + casefold + whitespace collapse) and cannot be expressed in Cypher, but
+    # on the 2026-10-04 production corpus both strategies find the SAME 64 groups
+    # over 128 entities, so the Cypher grouping is a faithful equivalent here (a
+    # corpus with NFKC or internal-whitespace divergences would need the Python rule).
+    # total counts GROUPS (one row per grouped name+type), not members: R5a reports
+    # 456 cross-namespace groups and R5b reports the 64 intra-namespace ones, and the
+    # audit summary sums those group counts; `namespaces` (member namespace list) is
     # folded into the redaction-safe properties map by _sample — Cypher has no
     # map + map merge, and safe_properties rejects keys containing `source`.
     # T9a: the decision exclusion sits right after the active-entity predicate
