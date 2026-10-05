@@ -313,7 +313,25 @@ maps and debt R1 corrupts exactly that population.
       applied / 15 compensated pairs / 322 pairs / 307 stratified / 180 suspicious — identical to the pre-change
       numbers. Independently verified; the verifier's counterexample (a count-only guard no longer catching a
       duplicate compensation) is closed by the reference check.
-- [ ] **T9a** Human-decision discount for the cross-namespace noise (approved 2026-10-04).
+- [x] **T9a** Human-decision discount for the cross-namespace noise (approved 2026-10-04).
+      **Delivered (commit `0bdf694`)**: `domain/cross_namespace_decision_models.py` (`DecisionKind keep|separate`, the
+      frozen decision and the pure read model where the latest record per `(seq, candidate_id)` wins and
+      `separate_entity_ids` resolves the latest record per ENTITY), `ports/cross_namespace_decision_port.py`,
+      `infrastructure/jsonl_cross_namespace_decisions.py` (append-only `data/resolution/cross_namespace_decisions.jsonl`,
+      semantic no-op), `Settings.cross_namespace_decisions_path`, the `decisions record|list` CLI (three refusals before
+      any append; canonical only from the ledger; no graph access), the shared exclusion clause
+      `AND NOT n.id IN $decided_separate_ids` in the R5a rule (global + scoped, passed only for that rule) reused
+      byte-identically by `quarantine enqueue --cross-namespace`, and `scripts-ops/seed_cross_namespace_decisions.py`.
+      **Production (2026-10-04)**: the seeder appended 33 of 33 decisions — **25 `separate`** derived from the ledger's
+      compensating entries (seq 480 contributes two) and **8 `keep`** from the authored evidence — and a second
+      `--apply` reported `no changes: all 33 decisions already recorded` (semantic no-op). Result: **R5a 477 -> 456**
+      (exactly the 21 groups whose members are all rollback-revived; the 3 mixed groups keep warning, as designed) and
+      the consolidated queue **170 -> 162 suspicious** with `decided_keep_pairs: 8` flagged (351/413/475/494/565/569/572/573),
+      289 stratified. Global audit `passed` (blocking 0). Evidence:
+      `evidence-bundles/lote2b-decisions-keep-20261004.json`,
+      `evidence-bundles/applied-cross-namespace-audit-consolidated-after-t9a-20261004.json`. Independently verified; the
+      verifier's gap (an exclusion keyed by entity but decisions by `(seq, candidate)`) is closed by the per-entity
+      latest-wins rule, re-proved with the exact counterexample.
       **Why**: R5a (477 active groups) carries **21 groups whose members are ALL rollback-revived entities** — the human
       already judged those pairs as different concepts — and the consolidated queue still lists the **8 pairs kept** in
       2A/2B. `quarantine approve` cannot record a retroactive keep: it applies a merge (it would re-append the ledger
@@ -378,3 +396,4 @@ maps and debt R1 corrupts exactly that population.
 | T8e | (in progress) | 2A: 375/489/503/480 rolled back, 413/475 kept. 2B-A: 9 rolled back (492/455/423/583/532/491/347/537/451), 6 kept, 1 accepted mirror; shared neighbours 0; global audit `passed` after repoint. 2B-B: branch deployed to the host (`host-dirty-backup-20261004`), **first partial rollback** (`508` candidate `agentic-patterns:retrieval-concept`, fingerprint `d84a8a48…`) with the non-selected sibling still merged and compensating entry `[subset]`; repoint closed 2 blockings; ledger 982 / 0 inconsistencies; candidate-aware audit `full 23 · partial 1 · suspicious 170` |
 | T8f | `f7fb0ef` | `--candidate` partial rollback: plan-time overlap refusal + alias-value collision refusal + candidate-aware idempotence backstop; RED `DID NOT RAISE MergeNotReversible` → GREEN; 52 focused unit · 747 unit suite · 6 testcontainers integration; ruff/mypy/architecture green; independent verification confirmed partial-then-full can no longer mutate |
 | T8f.2 | (this commit) | candidate-aware retro-audit: `rolled_back` per candidate, guard on the ORIGINAL population + compensation reference check (unknown target / canonical mismatch / unknown candidate / duplicate all exit 2 pre-graph); RED 6 failed → GREEN 17 passed; 753 unit suite; ruff/mypy/architecture green; production read-only run unchanged 288 applied / 322 pairs / 307 stratified / 180 suspicious |
+| T9a | `0bdf694` | decision registry + `decisions record\|list` + R5a/enqueue exclusion through one shared clause + consolidator keep-exclusion + seeder; RED 14 failed → GREEN 32 + 7 unit and 8 integration; ruff/mypy (419 files)/architecture green; production: 33 decisions seeded (25 separate / 8 keep), re-run no-op, **R5a 477 → 456**, **queue 170 → 162** |
