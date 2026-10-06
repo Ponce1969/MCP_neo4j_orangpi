@@ -152,3 +152,19 @@ destructiva:
   como descripción del unit vivo: ver §1 del runbook (`systemctl cat mcp-server`).
 - Reinicio **obligatorio** tras editar `catalog.yaml`: `CatalogScopeResolver` cachea
   el catálogo por la vida del proceso.
+
+### 7.6 Bindings de red — nunca `0.0.0.0`
+
+- **Neo4j (`bookgraph-neo4j`)**: los puertos `7474`/`7687` se publican SOLO en una
+  interfaz explícita. El host IP sale de `NEO4J_BIND_HOST` en `docker-compose.yml`
+  (default `127.0.0.1` en dev; en el OrangePi el `.env` fija la IP Tailscale
+  `100.106.85.109`). Si la IP no existe al arrancar, docker rechaza el bind:
+  fail-closed, nunca cae al wildcard.
+- **MCP SSE (`mcp-server.service`)**: ya usa `Environment=MCP_BIND_HOST=100.106.85.109`
+  (R7). Ver §7.5 y `docs/ops/mcp-service.md`.
+- Regla general: ningún servicio de este proyecto publica puertos en `0.0.0.0` ni
+  `[::]`; el camino de consumo remoto es el MCP sobre Tailscale, no el puerto crudo.
+- Guard: `tests/test_deploy_artifacts.py` falla si el compose vuelve a publicar
+  puertos sin host IP explícito.
+- Cualquier recreación de `bookgraph-neo4j` (`docker compose up -d`) o edición del
+  `.env` del host exige aprobación humana explícita (regla de oro de §7).

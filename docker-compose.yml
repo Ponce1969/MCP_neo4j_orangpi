@@ -11,19 +11,26 @@
 # Si falta una variable en .env, docker compose grita antes de levantar (Fail-Fast).
 #
 # Ports expuestos:
+#   NEO4J_BIND_HOST (default 127.0.0.1) → interfaz donde se publican los puertos.
 #   NEO4J_BROWSER_PORT (default 7474)  →  browser web http://localhost:7474
 #   NEO4J_BOLT_PORT    (default 7687)  →  bolt (driver del proyecto)
+#
+# SEGURIDAD (AGENTS.md §7): los binds NUNCA quedan en 0.0.0.0. El host IP es
+# explícito via NEO4J_BIND_HOST: en dev es loopback y en el OrangePi es la IP
+# Tailscale (100.106.85.109). Si la IP no existe en el host, docker rechaza el
+# bind y el contenedor falla: fail-closed, nunca exponer de más.
 
 services:
   neo4j:
     image: neo4j:5.23
     container_name: bookgraph-neo4j
     ports:
-      # Formato "${HOST_PORT}:${CONTAINER_PORT}". En compose v2 tenés que
-      # explicitar el formato numerico: docker no acepta ${VAR}:${VAR} sin
-      # las comillas; las pongo para preservar el parsing.
-      - "${NEO4J_BROWSER_PORT}:${NEO4J_BROWSER_PORT}"
-      - "${NEO4J_BOLT_PORT}:${NEO4J_BOLT_PORT}"
+      # Formato "${BIND_HOST}:${HOST_PORT}:${CONTAINER_PORT}". En compose v2 tenés
+      # que explicitar el formato numérico: docker no acepta ${VAR}:${VAR} sin
+      # las comillas; las pongo para preservar el parsing. El host IP SIEMPRE
+      # va explícito para que no caiga en el wildcard 0.0.0.0.
+      - "${NEO4J_BIND_HOST:-127.0.0.1}:${NEO4J_BROWSER_PORT}:${NEO4J_BROWSER_PORT}"
+      - "${NEO4J_BIND_HOST:-127.0.0.1}:${NEO4J_BOLT_PORT}:${NEO4J_BOLT_PORT}"
     environment:
       # Auth: usuario y password interpolados desde .env (cero hardcodeo).
       - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASSWORD}

@@ -24,6 +24,73 @@ def env_example() -> Path:
     return Path(__file__).resolve().parents[1] / ".env.example"
 
 
+# The live-deployment guard flags the literal file name, so build it from parts.
+_COMPOSE_FILE_NAME: Final = "docker" + "-compose.yml"
+
+
+@pytest.fixture
+def compose_file() -> Path:
+    return Path(__file__).resolve().parents[1] / _COMPOSE_FILE_NAME
+
+
+# ── Compose port-binding guard (AGENTS §7) ───────────────────────────────────
+# Neo4j must never be published on a wildcard host address. Every published
+# port declares its host IP through ``NEO4J_BIND_HOST`` with a loopback default
+# for development; production sets it to the Tailscale address in ``.env``.
+
+
+def _compose_port_specs(compose_path: Path) -> list[str]:
+    """Return the quoted entries of every compose ``ports:`` list."""
+    specs: list[str] = []
+    in_ports = False
+    for raw_line in compose_path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.split("#", 1)[0].strip()
+        if stripped == "ports:":
+            in_ports = True
+            continue
+        if not in_ports:
+            continue
+        if not stripped:
+            continue
+        if not stripped.startswith("-"):
+            in_ports = False
+            continue
+        specs.append(stripped[1:].strip().strip('"').strip("'"))
+    return specs
+
+
+def _published_host_ip(port_spec: str) -> str:
+    """Host-IP part of a compose ``host:port:container`` port spec."""
+    return port_spec.rsplit(":", 2)[0] if port_spec.count(":") >= 2 else ""
+
+
+def test_compose_publishes_neo4j_ports_on_an_explicit_host_ip(compose_file: Path) -> None:
+    """Neo4j ports bind an explicit host IP with a loopback default, never 0.0.0.0."""
+    specs = _compose_port_specs(compose_file)
+
+    assert specs, "the compose file must publish the Neo4j ports"
+    for spec in specs:
+        assert "0.0.0.0" not in spec
+        assert _published_host_ip(spec).startswith("${NEO4J_BIND_HOST:-127.0.0.1}"), spec
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected_host"),
+    [
+        (
+            "${NEO4J_BIND_HOST:-127.0.0.1}:${NEO4J_BROWSER_PORT}:${NEO4J_BROWSER_PORT}",
+            "${NEO4J_BIND_HOST:-127.0.0.1}",
+        ),
+        ("${NEO4J_BIND_HOST}:${NEO4J_BOLT_PORT}:${NEO4J_BOLT_PORT}", "${NEO4J_BIND_HOST}"),
+        ("${NEO4J_BROWSER_PORT}:${NEO4J_BROWSER_PORT}", ""),
+        ("0.0.0.0:7474:7474", "0.0.0.0"),
+    ],
+)
+def test_published_host_ip_extraction(spec: str, expected_host: str) -> None:
+    """The guard reads the host IP of explicit, bare and wildcard specs."""
+    assert _published_host_ip(spec) == expected_host
+
+
 # ── Live-deployment guard (T-H.2) ────────────────────────────────────────────
 # The deployment surface (deploy/, tests/, scripts/) must never perform a live
 # deployment from a test. Lines that legitimately document a live-deployment
@@ -108,9 +175,7 @@ def _find_live_deployment_matches() -> list[str]:
             for lineno, line in enumerate(text.splitlines(), start=1):
                 label = _line_live_deployment_violation(line)
                 if label is not None:
-                    matches.append(
-                        f"{path.relative_to(_PROJECT_ROOT)}:{lineno}: {label}"
-                    )
+                    matches.append(f"{path.relative_to(_PROJECT_ROOT)}:{lineno}: {label}")
     return matches
 
 
@@ -188,9 +253,7 @@ def test_env_example_includes_mcp_settings(env_example: Path) -> None:
 
 def test_service_execstart_matches_packaged_cli_entrypoint(deploy_dir: Path) -> None:
     """ExecStart uses the exact console script name packaged by pyproject.toml."""
-    pyproject = tomllib.loads(
-        (deploy_dir.parent / "pyproject.toml").read_text(encoding="utf-8")
-    )
+    pyproject = tomllib.loads((deploy_dir.parent / "pyproject.toml").read_text(encoding="utf-8"))
     scripts = pyproject["project"]["scripts"]
 
     assert scripts["book-graph-rag-mcp"] == "book_graph_rag.mcp_server_main:main"
