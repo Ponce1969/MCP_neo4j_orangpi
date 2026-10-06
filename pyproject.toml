@@ -56,6 +56,10 @@ packages = ["src/book_graph_rag"]
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
+# The vendored oranpi audit MCP (tools/mcp-oranpi) is a self-contained
+# subproject with its own pyproject/ruff config and its own lint debt; it must
+# not gate this repo. Gate it separately if it starts shipping changes.
+extend-exclude = ["tools/mcp-oranpi"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "PT", "RET", "SIM"]
@@ -77,6 +81,10 @@ disallow_any_unimported = true  # Any que escapa de libs sin stubs → flagged
 warn_unused_ignores = true      # 🔧 redundante con strict, pero explicit-doc-of-intent
 mypy_path = ["src"]             # src layout: mypy encuentra el paquete aquí
 packages = ["book_graph_rag"]
+# The vendored subproject ships its own `tests` package, which collides with
+# this repo's `tests` module under `mypy .` (and it imports untyped libs that
+# this repo's strict flags would reject). Excluded here; gate it on its own.
+exclude = [".*mcp-oranpi.*"]
 ignore_missing_imports = true
 
 # Relajación selectiva: libs que NO envían stubs ni py.typed serían fuente

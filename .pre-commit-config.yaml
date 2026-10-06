@@ -23,10 +23,12 @@ repos:
         always_run: true
 
       # Scope formatting to committed Python files; legacy files outside a commit
-      # should not block the commit until they are touched.
+      # should not block the commit until they are touched. --force-exclude keeps
+      # the exclude list effective for files passed explicitly on the command line
+      # (the vendored tools/mcp-oranpi subproject is gated on its own).
       - id: ruff-format-check
         name: Ruff format check
-        entry: uv run ruff format --check
+        entry: uv run ruff format --check --force-exclude
         language: system
         types: [python]
 
