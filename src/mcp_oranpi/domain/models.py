@@ -112,11 +112,18 @@ class BlockIO:
 
 @dataclass(slots=True)
 class OccupiedPort:
-    """A port in use on the remote host."""
+    """A port in use on the remote host.
+
+    ``local_address`` is the exact ``Local Address:Port`` string reported by
+    ``ss`` (for example ``100.106.85.109:8003`` or ``[::]:7474``). It is never
+    inferred or rewritten, so callers see the real OS socket binding.
+    """
 
     port: int
     protocol: str
+    local_address: str = ""
     process: str | None = None
+    pid: int | None = None
     container: str | None = None
 
 

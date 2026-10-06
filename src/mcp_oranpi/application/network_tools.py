@@ -118,6 +118,7 @@ class NetworkTools:
             {
                 "port": p.port,
                 "protocol": p.protocol,
+                "local_address": p.local_address,
                 "process": p.process,
                 "container": p.container,
             }
@@ -249,6 +250,10 @@ class NetworkTools:
     async def network_inspect_bindings(self) -> ToolResult:
         """Inspect all active network bindings on the remote host.
 
+        Each binding reports the exact ``Local Address:Port`` and pid observed
+        by ``ss``. The address is never rewritten to a wildcard: a listener
+        bound to the Tailscale or loopback interface is reported as such.
+
         Returns:
             ToolResult with list of NetworkBinding.
         """
@@ -279,11 +284,11 @@ class NetworkTools:
         for p in occupied_ports:
             bindings.append(
                 {
-                    "local_address": f"0.0.0.0:{p.port}" if not p.process else f"0.0.0.0:{p.port}",
+                    "local_address": p.local_address,
                     "port": p.port,
                     "protocol": p.protocol,
                     "process": p.process,
-                    "pid": None,  # ss doesn't always give PID in human-readable
+                    "pid": p.pid,
                     "container": p.container,
                 }
             )

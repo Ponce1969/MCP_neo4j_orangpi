@@ -189,6 +189,12 @@ class TestToolDefinitions:
         tool = next(t for t in TOOL_DEFINITIONS if t.name == "network_suggest_port")
         assert "preferred_port" in tool.inputSchema.get("required", [])
 
+    def test_logs_systemd_exposes_documented_until(self) -> None:
+        """Spec 005 declares an `until` bound; the schema must accept it."""
+        tool = next(t for t in TOOL_DEFINITIONS if t.name == "logs_systemd")
+        assert "until" in tool.inputSchema["properties"]
+        assert tool.inputSchema["properties"]["until"]["type"] == "string"
+
 
 # ── MCPHandler.call_tool Tests ─────────────────────────────────────────────────
 

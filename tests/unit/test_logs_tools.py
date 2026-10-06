@@ -123,6 +123,23 @@ class TestLogsSystemd:
         assert last_call is not None
         assert "priority" in last_call[1]
 
+    async def test_with_until(self, logs_tools: LogsTools) -> None:
+        stdout = "Jan 15 10:30:00 nginx[1234]: Error occurred"
+        logs_tools._runner.set_response(  # type: ignore
+            "journalctl",
+            CommandResult(exit_code=0, stdout=stdout, stderr=""),
+        )
+
+        result = await logs_tools.logs_systemd(
+            unit="nginx", since="2 hours ago", until="1 hour ago"
+        )
+
+        assert result.error is None
+        last_call = logs_tools._runner.last_call()  # type: ignore
+        assert last_call is not None
+        assert last_call[1]["since"] == "2 hours ago"
+        assert last_call[1]["until"] == "1 hour ago"
+
     async def test_unit_not_found(self, logs_tools: LogsTools) -> None:
         logs_tools._runner.set_response(  # type: ignore
             "journalctl",
@@ -137,6 +154,36 @@ class TestLogsSystemd:
 
         assert result.error is not None
         assert result.error.code == "LOG_UNIT_NOT_FOUND"
+
+    async def test_query_failure_is_surfaced(self, logs_tools: LogsTools) -> None:
+        # A rejected timestamp exits 1 with empty stdout and a stderr message;
+        # it must not be reported as an empty success.
+        logs_tools._runner.set_response(  # type: ignore
+            "journalctl",
+            CommandResult(
+                exit_code=1,
+                stdout="",
+                stderr="Failed to parse timestamp: '2",
+            ),
+        )
+
+        result = await logs_tools.logs_systemd(unit="mcp-server", since="2 hours ago")
+
+        assert result.error is not None
+        assert result.error.code == "LOG_QUERY_FAILED"
+        assert "Failed to parse timestamp" in result.error.message
+
+    async def test_no_entries_marker_is_still_a_success(self, logs_tools: LogsTools) -> None:
+        logs_tools._runner.set_response(  # type: ignore
+            "journalctl",
+            CommandResult(exit_code=1, stdout="-- No entries --\n", stderr=""),
+        )
+
+        result = await logs_tools.logs_systemd(unit="mcp-server")
+
+        assert result.error is None
+        assert result.data is not None
+        assert result.data["log_count"] == 0
 
 
 class TestLogsFile:

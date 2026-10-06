@@ -386,6 +386,7 @@ Output:
 OccupiedPort:
   port: int
   protocol: str
+  local_address: str         # Verbatim "Local Address:Port" from ss, e.g. "100.106.85.109:8003"
   process: str | None        # Process name, if available
   container: str | None      # Docker container name, if applicable
 ```
@@ -454,6 +455,14 @@ NetworkBinding:
   pid: int | None
   container: str | None        # Mapped to Docker container if applicable
 ```
+
+Truthfulness rule (normative): `local_address` is the exact `Local Address:Port`
+token reported by `ss -tulnp`, never inferred or rewritten. A listener bound to
+the Tailscale or loopback interface is reported as such (for example
+`100.106.85.109:8003`), and an IPv4 wildcard listener is reported as
+`0.0.0.0:<port>`, distinct from its IPv6 twin `[::]:<port>`. `pid` comes from the
+`users:(("name",pid=<n>,...))` column and is `null` only when the OS withholds
+it. Do not assume a wildcard bind when `ss` reports a specific address.
 
 Errors:
 - `CONN_FAILED`
@@ -653,6 +662,8 @@ Output:
 Errors:
 - `CONN_FAILED`
 - `LOG_UNIT_NOT_FOUND` — Specific service unit not found
+- `LOG_QUERY_FAILED` — journalctl rejected the query (exit non-zero with empty
+  stdout and a stderr message, e.g. an unparseable `since`/`until` timestamp)
 
 Output limit: Maximum 50KB per response.
 

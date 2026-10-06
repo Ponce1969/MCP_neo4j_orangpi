@@ -336,6 +336,26 @@ tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("docker-proxy",pid=1000,fd=6))""
         assert ports[0].port == 8080
         assert ports[0].container is None  # docker-proxy sets container to None
 
+    def test_preserves_real_local_address_and_pid(self) -> None:
+        stdout = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
+tcp   LISTEN 0      2048   100.106.85.109:8003    0.0.0.0:*    users:(("book-graph-rag-",pid=3085526,fd=6))
+	tcp   LISTEN 0      4096   [::]:7474              [::]:*       users:(("docker-proxy",pid=1234,fd=8))"""
+        ports = parse_ss_tulnp(stdout)
+
+        assert len(ports) == 2
+        assert ports[0].local_address == "100.106.85.109:8003"
+        assert ports[0].pid == 3085526
+        assert ports[1].local_address == "[::]:7474"
+        assert ports[1].pid == 1234
+
+    def test_ipv4_and_ipv6_wildcards_stay_distinguishable(self) -> None:
+        stdout = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
+tcp   LISTEN 0      4096   0.0.0.0:7474            0.0.0.0:*    users:(("docker-proxy",pid=1,fd=6))
+tcp   LISTEN 0      4096   [::]:7474               [::]:*       users:(("docker-proxy",pid=1,fd=6))"""
+        ports = parse_ss_tulnp(stdout)
+
+        assert [p.local_address for p in ports] == ["0.0.0.0:7474", "[::]:7474"]
+
     def test_empty_output(self) -> None:
         assert parse_ss_tulnp("") == []
 
@@ -713,6 +733,11 @@ class TestParseJournalctl:
         result = parse_journalctl("")
         assert result.log_count == 0
         assert result.logs == ""
+
+    def test_no_entries_marker_is_not_a_log_line(self) -> None:
+        result = parse_journalctl("-- No entries --\n")
+
+        assert result.log_count == 0
 
 
 class TestParseDockerLogs:

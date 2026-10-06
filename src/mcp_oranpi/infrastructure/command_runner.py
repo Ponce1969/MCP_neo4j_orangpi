@@ -103,7 +103,7 @@ _COMMAND_PARAMS: dict[str, list[str]] = {
     "systemctl_list": [],
     "hostname": [],
     "uptime": [],
-    "journalctl": ["unit", "lines", "priority", "since"],
+    "journalctl": ["unit", "lines", "priority", "since", "until"],
     "stat_size": ["path"],
     "readlink": ["path"],
     "tail_file": ["path", "lines"],
@@ -355,6 +355,8 @@ class CommandRunner:
                 parts.extend(["-p", shlex.quote(str(params["priority"]))])
             if "since" in params:
                 parts.extend(["--since", shlex.quote(str(params["since"]))])
+            if "until" in params:
+                parts.extend(["--until", shlex.quote(str(params["until"]))])
 
         elif command_key == "compose_logs":
             if "service" in params:

@@ -11,6 +11,8 @@ All tools follow the audit-first, human-in-the-loop philosophy:
 
 from __future__ import annotations
 
+from typing import Any
+
 import structlog
 
 from mcp_oranpi.application.parsers import (
@@ -26,6 +28,7 @@ from mcp_oranpi.domain.errors import (
     LOG_FILE_NOT_READABLE,
     LOG_FILE_OVERSIZED,
     LOG_PATH_FORBIDDEN,
+    LOG_QUERY_FAILED,
     ToolError,
     ToolResult,
 )
@@ -160,6 +163,7 @@ class LogsTools:
         priority: str = "info",
         tail: int = 100,
         since: str | None = None,
+        until: str | None = None,
     ) -> ToolResult:
         """Fetch logs from the systemd journal.
 
@@ -169,6 +173,7 @@ class LogsTools:
                      notice, info, debug). Default info.
             tail: Number of lines to fetch from the end.
             since: ISO timestamp or relative time (e.g., "1 hour ago").
+            until: ISO timestamp or relative time upper bound (e.g., "1 hour ago").
 
         Returns:
             ToolResult with SystemdLogResult.
@@ -199,22 +204,15 @@ class LogsTools:
             )
 
         try:
+            journal_params: dict[str, Any] = {"lines": tail, "priority": priority}
             if unit is not None:
-                if since is not None:
-                    result = await self._runner.run(
-                        "journalctl", unit=unit, lines=tail, priority=priority, since=since
-                    )
-                else:
-                    result = await self._runner.run(
-                        "journalctl", unit=unit, lines=tail, priority=priority
-                    )
-            else:
-                if since is not None:
-                    result = await self._runner.run(
-                        "journalctl", lines=tail, priority=priority, since=since
-                    )
-                else:
-                    result = await self._runner.run("journalctl", lines=tail, priority=priority)
+                journal_params["unit"] = unit
+            if since is not None:
+                journal_params["since"] = since
+            if until is not None:
+                journal_params["until"] = until
+
+            result = await self._runner.run("journalctl", **journal_params)
         except TimeoutError:
             return ToolResult(
                 error=ToolError(
@@ -239,6 +237,19 @@ class LogsTools:
                 error=ToolError(
                     code="LOG_UNIT_NOT_FOUND",
                     message=f"Journal unit not found or unavailable: {unit}",
+                    detail={"unit": unit},
+                    retryable=False,
+                )
+            )
+
+        # A non-zero exit with empty stdout and a non-empty stderr is a real
+        # journal query failure (for example a rejected timestamp argument).
+        # Reporting it as an empty success would silently mislead callers.
+        if result.exit_code != 0 and not result.stdout.strip() and result.stderr.strip():
+            return ToolResult(
+                error=ToolError(
+                    code=LOG_QUERY_FAILED,
+                    message=f"journalctl failed: {result.stderr.strip()[:200]}",
                     detail={"unit": unit},
                     retryable=False,
                 )

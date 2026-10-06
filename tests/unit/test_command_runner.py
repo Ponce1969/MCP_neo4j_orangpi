@@ -150,6 +150,22 @@ class TestBuildCommand:
         assert "-u docker" in cmd
         assert "-n 100" in cmd
 
+    def test_journalctl_with_since_and_until(self, runner: CommandRunner) -> None:
+        cmd = runner.build_command(
+            "journalctl",
+            unit="mcp-server",
+            lines=5,
+            priority="info",
+            since="2 hours ago",
+            until="1 hour ago",
+        )
+
+        assert "-u mcp-server" in cmd
+        assert "-n 5" in cmd
+        assert "-p info" in cmd
+        assert "--since '2 hours ago'" in cmd
+        assert "--until '1 hour ago'" in cmd
+
 
 # ── Run Tests ──────────────────────────────────────────────────────────────────
 

@@ -201,7 +201,9 @@ TOOL_DEFINITIONS: list[types.Tool] = [
     types.Tool(
         name="network_inspect_bindings",
         description="Inspect all active network bindings on the remote host. "
-        "Returns listening ports with protocol, process, and container information. "
+        "Returns each listening socket with its exact local_address (the real "
+        "OS bind, e.g. 100.106.85.109:8003 or [::]:7474, never an assumed "
+        "wildcard), port, protocol, process, pid, and container information. "
         "Errors: CONN_FAILED, CONN_TIMEOUT.",
         inputSchema={
             "type": "object",
@@ -321,6 +323,7 @@ TOOL_DEFINITIONS: list[types.Tool] = [
         description="Fetch logs from the systemd journal. Supports filtering by unit, "
         "priority level (emerg/debug), and time range. "
         "Errors: CONN_FAILED, CONN_TIMEOUT, LOG_UNIT_NOT_FOUND (unit unavailable), "
+        "LOG_QUERY_FAILED (journalctl rejected the query), "
         "VALID_PARAM_INVALID (invalid parameters).",
         inputSchema={
             "type": "object",
@@ -342,6 +345,10 @@ TOOL_DEFINITIONS: list[types.Tool] = [
                 "since": {
                     "type": "string",
                     "description": "ISO timestamp or relative time (e.g., '1 hour ago')",
+                },
+                "until": {
+                    "type": "string",
+                    "description": "ISO timestamp or relative time upper bound (e.g., '1 hour ago')",
                 },
             },
         },

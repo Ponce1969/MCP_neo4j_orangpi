@@ -37,6 +37,9 @@ from mcp_oranpi.domain.models import (
 
 log = structlog.get_logger()
 
+# journalctl prints this to stdout when a query matches no journal entries.
+_JOURNAL_NO_ENTRIES = "-- No entries --"
+
 
 # ── Helper Functions ───────────────────────────────────────────────────────────
 
@@ -493,6 +496,10 @@ def parse_ss_tulnp(stdout: str) -> list[OccupiedPort]:
 
     Header line: "Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process"
     Lines like: tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("nginx",pid=1234,fd=6))
+
+    The exact Local Address:Port token and the pid are preserved verbatim so
+    callers can tell a Tailscale/loopback bind from a wildcard one, and an
+    IPv4 listener from its IPv6 twin.
     """
     if not stdout or stdout.strip() == "":
         return []
@@ -528,11 +535,15 @@ def parse_ss_tulnp(stdout: str) -> list[OccupiedPort]:
         # Extract process info from the Process column (last column)
         # Format: users:(("name",pid=1234,fd=6))
         process_name = None
+        pid: int | None = None
         if len(parts) >= 6:
             process_part = " ".join(parts[5:])
             proc_match = re.search(r'users:\(\("([^"]+)"', process_part)
             if proc_match:
                 process_name = proc_match.group(1)
+            pid_match = re.search(r"pid=(\d+)", process_part)
+            if pid_match:
+                pid = int(pid_match.group(1))
 
         # If process contains "docker-proxy", set container to None
         # (detected via docker port mapping separately)
@@ -544,7 +555,9 @@ def parse_ss_tulnp(stdout: str) -> list[OccupiedPort]:
             OccupiedPort(
                 port=port,
                 protocol=netid,
+                local_address=local_addr,
                 process=process_name,
+                pid=pid,
                 container=container,
             )
         )
@@ -1051,14 +1064,17 @@ def parse_thermal_zones(stdout: str) -> list[SensorReading]:
 def parse_journalctl(stdout: str) -> SystemdLogResult:
     """Wrap raw journalctl output.
 
-    Counts newlines, returns SystemdLogResult.
+    Counts log lines (ignoring the trailing newline) and returns a
+    SystemdLogResult. The ``-- No entries --`` marker means the query matched
+    nothing, so it is reported as zero log lines instead of a misleading count.
     Unit comes from the tool call, not the output.
     """
-    if not stdout:
+    if not stdout or not stdout.strip():
         return SystemdLogResult(unit=None, log_count=0, logs="")
 
     logs = stdout
-    log_count = len(stdout.split("\n")) if stdout.strip() else 0
+    stripped = stdout.strip()
+    log_count = 0 if stripped == _JOURNAL_NO_ENTRIES else len(stripped.split("\n"))
 
     return SystemdLogResult(
         unit=None,  # Set by caller

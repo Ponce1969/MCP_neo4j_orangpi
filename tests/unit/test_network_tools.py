@@ -52,6 +52,10 @@ tcp LISTEN 0 128 127.0.0.1:3000 0.0.0.0:* users:(("node",pid=2000,fd=6))"""
         assert result.data is not None
         assert len(result.data["occupied_ports"]) == 3  # type: ignore
         assert result.data["host"] == "oranpi.local"
+        # The host IP is part of the OS socket truth, not an assumed wildcard.
+        addresses = [p["local_address"] for p in result.data["occupied_ports"]]  # type: ignore
+        assert "127.0.0.1:3000" in addresses
+        assert "0.0.0.0:8080" in addresses
 
     async def test_range_filter(self, network_tools: NetworkTools) -> None:
         ss_output = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
@@ -166,6 +170,25 @@ udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:* users:(("dnsmasq",pid=567,fd=5))"""
         assert result.data is not None
         # Only TCP LISTEN ports are returned (2), UDP UNCONN is filtered
         assert len(result.data["bindings"]) == 2  # type: ignore
+
+    async def test_reports_the_real_os_socket_address(self, network_tools: NetworkTools) -> None:
+        # Regression: a Tailscale-bound Uvicorn listener was reported as 0.0.0.0.
+        ss_output = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
+tcp   LISTEN 0      2048   100.106.85.109:8003    0.0.0.0:*    users:(("book-graph-rag-",pid=3085526,fd=6))
+	tcp   LISTEN 0      4096   [::]:7474              [::]:*       users:(("docker-proxy",pid=1234,fd=8))"""
+        network_tools._runner.set_response(  # type: ignore
+            "ss_tulnp",
+            CommandResult(exit_code=0, stdout=ss_output, stderr=""),
+        )
+
+        result = await network_tools.network_inspect_bindings()
+
+        assert result.error is None
+        assert result.data is not None
+        bindings: list[dict[str, object]] = result.data["bindings"]  # type: ignore[assignment]
+        assert bindings[0]["local_address"] == "100.106.85.109:8003"
+        assert bindings[0]["pid"] == 3085526
+        assert bindings[1]["local_address"] == "[::]:7474"
 
     async def test_empty(self, network_tools: NetworkTools) -> None:
         network_tools._runner.set_response(  # type: ignore
