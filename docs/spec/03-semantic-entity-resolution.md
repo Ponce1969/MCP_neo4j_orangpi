@@ -84,6 +84,17 @@ is normative and must default conservative: only `exact` and `high` auto-merge.
   chained-SHA-256 ledger (`infrastructure/jsonl_merge_ledger.py`); rollback appends a
   compensating entry (`rollback_of`), never edits history.
 
+  **Intra-namespace batch (T10, `scripts-ops/resolve_intra_ns.py`)** — the case-only and
+  name-variant duplicates the audit rule `DUPLICATE_ENTITY_LOGICAL` reports (64 groups over
+  128 entities, measured 2026-10-04) are merged in per-namespace batches: the plan derives
+  from the rule (one shared grouping expression, imported, never copied); the canonical is
+  chosen by **richness** (most mentions, then highest RELATED degree, then shortest id, then
+  lexicographic) because the surviving id is what consumers reference; `--apply` requires a
+  fresh backup, an approval file and `--expect-fingerprint` (the sha256 of the reviewed
+  plan); and the before/after census **simulates the plan order** to predict the edges the
+  adapter's re-point collapses and deletes, exiting non-zero on any drift. Applied
+  2026-10-05: 64 groups, 0 failures, R5b 64 -> 0.
+
 ### 2.4 Anti-overmerge safeguards `[IMPLEMENTED]`
 
 - Type is a hard boundary: entities of different types are never merged.

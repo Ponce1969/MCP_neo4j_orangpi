@@ -104,6 +104,14 @@ destructiva:
   rollback agrega entradas compensatorias, nunca edita historial.
 - La cuarentena (`data/resolution/quarantine.jsonl`) y el ledger viven en la máquina que
   ejecuta el merge; respaldarlos junto con el grafo.
+- **Lotes de merge intra-namespace (T10, `scripts-ops/resolve_intra_ns.py`)**: el plan se
+  deriva de la regla del audit con la **misma expresión de agrupamiento importada** (nunca
+  una copia, para que no quede ciego si la regla cambia), el canónico se elige por
+  **riqueza** (menciones → grado → id más corto → lexicográfico) y `--apply` exige backup
+  fresco + archivo con la palabra `approve` + `--expect-fingerprint` (sha256 del plan
+  revisado, validado antes de la primera escritura). El censo antes/después **simula el
+  orden del plan** para predecir las aristas que el re-point colapsa o borra, y sale ≠0
+  ante cualquier drift. Aplicado 2026-10-05: 64 grupos, 0 fallos, R5b 64 → 0.
 
 ### 7.3 Phase 4 — Scoped audit + readiness gates
 

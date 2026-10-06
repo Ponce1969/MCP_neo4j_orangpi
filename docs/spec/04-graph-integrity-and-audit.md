@@ -76,8 +76,15 @@ Keep all existing checks. Add, only where justified:
   namespace component derived from the entity id so cross-namespace same-names are not
   false positives.
 - `DUPLICATE_ENTITY_CROSS_NAMESPACE` (WARNING): active entities whose normalized name
-  + type appear in two or more namespaces; totals count entities (941 over 456 groups,
-  measured 2026-10-03) and samples carry the member ids plus the `namespaces` list.
+  + type appear in two or more namespaces; totals count GROUPS (456 measured 2026-10-04,
+  after the human-decision discount added in T9a) and samples carry the member ids plus the
+  `namespaces` list.
+- `DUPLICATE_ENTITY_LOGICAL` (WARNING): active entities grouped by `toLower(trim(name))`
+  + type inside ONE namespace. The grouping became **case-insensitive in T9b**: the exact
+  name found 0 groups while the trimmed lowercased name finds the 64 groups over 128
+  entities, the same count the Python `normalize_key` (NFKC + casefold + whitespace
+  collapse) produces on this corpus — NFKC cannot be expressed in Cypher, so the Cypher
+  grouping is a corpus-verified equivalent. Totals count GROUPS. Cleaned up by T10.
 - `ENDPOINT_SELF_LOOP_INVALID` (BLOCKING): `RELATED` edges whose two endpoints are the
   same node; zero in production today, kept as the regression guard for extraction noise.
 - **Provenance:** keep the 4 provenance rules; after 01, add "missing version

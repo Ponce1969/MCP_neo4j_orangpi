@@ -415,8 +415,28 @@ maps and debt R1 corrupts exactly that population.
       forms **0** groups (`assert 0 == 1`); tests: the static grouping contract plus a testcontainers case. 808 unit + 26
       integration green.
       **Remaining (T10)**: the 64 groups (128 entities) are now visible and need the approval-gated merge cleanup.
-- [ ] **T10** Cleanup batch for the approved identity merges (apply, scoped + global audits, multi-book count check),
-      docs (spec 03 amendment, spec 04 rules, AGENTS.md §7.2 cross-ref) and close-out (commits, Engram, report).
+- [x] **T10** Cleanup batch for the approved identity merges (commit `3d807e8` hardening, `5154506` sequential
+      census; **applied 2026-10-05**).
+      **Delivered**: `scripts-ops/resolve_intra_ns.py` hardened — the grouping is built from the shared
+      `DUPLICATE_GROUP_KEY_EXPRESSION` (imported, the rule's query byte-identical), so the executor can no longer go
+      blind after T9b; the canonical is chosen by **richness** (mentions → degree → shortest id → lexicographic,
+      which disagrees with the historical shortest-id rule on 20 of the 64 groups); `--apply` requires
+      `--expect-fingerprint` and REFUSES a missing or mismatched value before the first write; and the census predicts
+      every loss the adapter performs (MENTIONS collapses, intra-group deletions, re-point collapses) by
+      **simulating the plan order** over the pre-apply edge multiset (a replay proven confluent: the reversed plan
+      yields the same losses).
+      **Applied in three per-namespace batches**: `essential-graphrag` 7 groups (fingerprint `ed4ce4d0…`),
+      `ai-engineering-huyen` 28 (`861662ba…`) and `graphrag-agentic` 29 (`30aa5e39…`) — **64 groups, 0 failures**,
+      `merged_into` 901 -> **965**, active entities 20492 -> **20428**, ledger **1051** (64 new entries, all
+      `band=exact`, 47 with folded aliases) with the chain verified.
+      **Result: `DUPLICATE_ENTITY_LOGICAL` 64 -> 0**, R5a untouched at **456**, self-loops **0**, global warning total
+      520 -> **456**, `expose-mcp` still `passed`. The third batch reported **`census drift: none`** (predicted
+      RELATED -9, measured -9), validating the sequential simulation; the first two batches exposed the two
+      unmodelled losses it now covers.
+      **Docs**: spec 03 §2.3 (intra-namespace batch contract), spec 04 (the `DUPLICATE_ENTITY_LOGICAL` grouping and the
+      corrected `total` semantics), AGENTS.md §7.2 (the batch gate).
+      **Evidence**: `evidence-bundles/t10-lote1-plan-20261005.json`, `audit-after-t10-lote1-20261005.json`,
+      `audit-after-t10-complete-20261006.json`. Backups `…T154049Z`, `…T195449Z`, `…T000524Z`.
 
 ## Rules in force
 
@@ -449,3 +469,4 @@ maps and debt R1 corrupts exactly that population.
 | T9b | `82746d1` | intra-namespace duplicates grouped case-insensitively: `DUPLICATE_ENTITY_LOGICAL` **0 → 64** groups, R5a unchanged 456, warning total **520**, `expose-mcp` still `passed` (uniqueness counts only blocking); RED `assert 0 == 1` → GREEN; 808 unit + 26 integration |
 | T8e 2C-B | (this commit) | 371/415 rolled back (fingerprint `4e386d98…`, 0 mirrors) + 355/332/551/526 kept; six decisions recorded (registry 43); ledger 986 / chain OK; shared neighbours 0; audit `passed` (R5a held at 456, R5b 64); queue **158 → 152** |
 | T8e 2C-C1 | (this commit) | 502 rolled back (fingerprint `d1c5e113…`, 0 mirrors) + 323/350/382/543/544/431 kept; seven decisions recorded (registry **50**); ledger 987 / chain OK; shared neighbours 0; audit `passed` (R5a 456, R5b 64); queue **152 → 145**; tier `[0.35,0.40)` is 24 pairs, split at 0.37 |
+| T10 | `3d807e8` + `5154506` | intra-namespace batch: shared grouping constant, richness canonical, `--expect-fingerprint` refusal, order-simulating census; **64 groups merged in 3 per-namespace batches, 0 failures**, ledger **1051** / chain OK, **R5b 64 → 0**, R5a 456, self-loops 0, warning total 520 → 456, batch 3 `census drift: none`; 830 unit + 37 focused green |
