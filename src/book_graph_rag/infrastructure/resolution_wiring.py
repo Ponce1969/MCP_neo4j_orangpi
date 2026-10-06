@@ -12,12 +12,26 @@ from typing import Any
 from neo4j import AsyncGraphDatabase
 
 from book_graph_rag.application.apply_merge_use_case import ApplyMergeUseCase
+from book_graph_rag.application.approve_quarantine_use_case import ApproveQuarantineUseCase
+from book_graph_rag.application.enqueue_cross_namespace_quarantine_use_case import (
+    EnqueueCrossNamespaceQuarantineUseCase,
+)
+from book_graph_rag.application.plan_rollback_use_case import (
+    PlanRollbackUseCase,
+    planned_entry_ledger,
+)
 from book_graph_rag.application.resolve_entities_use_case import ResolveEntitiesUseCase
+from book_graph_rag.application.review_quarantine_use_case import ReviewQuarantineUseCase
+from book_graph_rag.application.rollback_merge_use_case import RollbackMergeUseCase
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.models import Entity
+from book_graph_rag.domain.rollback_plan_models import RollbackPlan
 from book_graph_rag.domain.s4_band_assignment import BandThresholds
 from book_graph_rag.infrastructure.brute_force_candidate_retrieval import (
     BruteForceCandidateRetrieval,
+)
+from book_graph_rag.infrastructure.jsonl_cross_namespace_decisions import (
+    JSONLCrossNamespaceDecisions,
 )
 from book_graph_rag.infrastructure.jsonl_merge_ledger import JSONLMergeLedger
 from book_graph_rag.infrastructure.jsonl_quarantine_writer import JSONLQuarantineWriter
@@ -25,6 +39,12 @@ from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdap
 from book_graph_rag.infrastructure.neo4j_graph_merge_adapter import Neo4jGraphMergeAdapter
 from book_graph_rag.infrastructure.neo4j_neighborhood_query_adapter import (
     Neo4jNeighborhoodQueryAdapter,
+)
+from book_graph_rag.infrastructure.neo4j_quarantine_review_adapter import (
+    Neo4jQuarantineReviewAdapter,
+)
+from book_graph_rag.infrastructure.neo4j_rollback_plan_adapter import (
+    Neo4jRollbackPlanAdapter,
 )
 from book_graph_rag.infrastructure.sentence_transformer_adapter import (
     SentenceTransformerAdapter,
@@ -78,9 +98,7 @@ async def build_resolve_entities_use_case(
         )
         for entity, vector in zip(entities, batch.vectors, strict=True):
             await retrieval.upsert_entity_embedding(entity.id, vector)
-            retrieval.upsert_entity_metadata(
-                entity.id, entity.type, _namespace_from_id(entity.id)
-            )
+            retrieval.upsert_entity_metadata(entity.id, entity.type, _namespace_from_id(entity.id))
 
     thresholds = BandThresholds(
         high_cosine=settings.band_high_cosine,
@@ -120,3 +138,88 @@ async def build_apply_merge_use_case(
     )
     return use_case, [entity_loader, graph_merge]
 
+
+def build_review_quarantine_use_case(
+    settings: Settings,
+) -> tuple[ReviewQuarantineUseCase, list[Any]]:
+    """Wire the read-only quarantine review surface (T6, ``quarantine list|render``).
+
+    Returns the use case plus its closable adapters; the caller must close them.
+    """
+    driver = _make_driver(settings)
+    review = Neo4jQuarantineReviewAdapter(
+        driver,
+        JSONLMergeLedger(settings.merge_ledger_path),
+        JSONLCrossNamespaceDecisions(settings.cross_namespace_decisions_path),
+    )
+    quarantine = JSONLQuarantineWriter(settings.quarantine_path)
+    use_case = ReviewQuarantineUseCase(quarantine=quarantine, review=review)
+    return use_case, [review]
+
+
+async def build_approve_quarantine_use_case(
+    settings: Settings,
+) -> tuple[ApproveQuarantineUseCase, list[Any]]:
+    """Wire the T6b decision surface (``quarantine approve``/``reject``).
+
+    ``reject`` only rewrites the JSONL file but shares the use case; the merge
+    applier (Neo4j driver + ledger) is created for ``approve`` and closed by
+    the caller after either command. Returns the use case plus its closable
+    adapters.
+    """
+    quarantine = JSONLQuarantineWriter(settings.quarantine_path)
+    apply, closables = await build_apply_merge_use_case(settings)
+    return ApproveQuarantineUseCase(quarantine=quarantine, apply=apply), closables
+
+
+def build_enqueue_cross_namespace_use_case(
+    settings: Settings,
+) -> tuple[EnqueueCrossNamespaceQuarantineUseCase, list[Any]]:
+    """Wire the T6b producer (``quarantine enqueue``): detection adapter + file.
+
+    Read-only against the graph (detection + pair facts) and JSONL-append on
+    the quarantine file; returns the use case plus its closable adapters.
+    """
+    driver = _make_driver(settings)
+    review = Neo4jQuarantineReviewAdapter(
+        driver,
+        JSONLMergeLedger(settings.merge_ledger_path),
+        JSONLCrossNamespaceDecisions(settings.cross_namespace_decisions_path),
+    )
+    quarantine = JSONLQuarantineWriter(settings.quarantine_path)
+    use_case = EnqueueCrossNamespaceQuarantineUseCase(
+        quarantine=quarantine,
+        review=review,
+    )
+    return use_case, [review]
+
+
+def build_plan_rollback_use_case(
+    settings: Settings,
+) -> tuple[PlanRollbackUseCase, list[Any]]:
+    """Wire the T8c read-only planner (``ledger rollback`` without ``--apply``).
+
+    Probes + census read the graph through ``Neo4jRollbackPlanAdapter``; the
+    ledger is the same JSONL file the applier reads. Nothing here writes.
+    """
+    driver = _make_driver(settings)
+    ledger = JSONLMergeLedger(settings.merge_ledger_path)
+    plan_port = Neo4jRollbackPlanAdapter(driver)
+    use_case = PlanRollbackUseCase(ledger=ledger, plan_port=plan_port)
+    return use_case, [plan_port]
+
+
+def build_rollback_apply_use_case(
+    settings: Settings,
+    plan: RollbackPlan,
+) -> tuple[RollbackMergeUseCase, list[Any]]:
+    """Wire the existing ``RollbackMergeUseCase`` to the reviewed plan.
+
+    The use case keeps its signature: it reads entries through a planned-ledger
+    view that serves each plan's inferred (direction-filled) entry copy, so the
+    rollback restores exactly what the reviewed plan said it would.
+    """
+    graph_merge = Neo4jGraphMergeAdapter(_make_driver(settings))
+    ledger = planned_entry_ledger(JSONLMergeLedger(settings.merge_ledger_path), plan)
+    use_case = RollbackMergeUseCase(ledger=ledger, graph_merge=graph_merge)
+    return use_case, [graph_merge]

@@ -1,0 +1,104 @@
+==================== seq 319 :: knowledge:essential-graphrag:jupyter-notebook-tool <- knowledge:agentic-architectural-patterns:jupyter-notebook-tool ====================
+  seq — · band — · cross-namespace · sin registro · created —
+  label "jupyter notebook" | type tool | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  riesgo: —
+
+                             knowledge:essential-graphrag          …wledge:agentic-architectural-patterns
+  entity id                  …ntial-graphrag:jupyter-notebook-tool …ctural-patterns:jupyter-notebook-tool
+  name / type                Jupyter notebook / tool               Jupyter notebook / tool
+  source page                110                                   555
+  aliases                    2                                     1
+  description                "The accompanying interactive noteb…" "Environment where a model running i…"
+  mention context            "18 CHAPTER 2 Vector similarity sea…" ""
+  MENTIONS                   …tterns, knowledge:essential-graphrag 0 chunks · 
+  RELATED neighbours         7                                     0
+
+  evidencia    description_overlap 0.000  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+               composite           0.000  (0.50 = high_context, umbral intra-namespace)
+  lectura      no_shared_context · description_overlap 0.000 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 319 · 2026-09-26T20:20Z
+
+  decidir      identity (merge)  ·  label collision (separar)  ·  deferir
+
+==================== seq 403 :: knowledge:graphrag-agentic:controller-component <- knowledge:agentic-architectural-patterns:controller-class-component ====================
+  seq — · band — · cross-namespace · sin registro · created —
+  label "controller" | type component | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  riesgo: ⚠ media (genérica)
+
+                             knowledge:graphrag-agentic            …wledge:agentic-architectural-patterns
+  entity id                  …raphrag-agentic:controller-component …l-patterns:controller-class-component
+  name / type                Controller / component                Controller / component
+  source page                543                                   175
+  aliases                    1                                     1
+  description                "RouteLLM controller initialized wi…" "Separate controller class that arbi…"
+  mention context            "obally consistent Solution The Bla…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         13                                    0
+
+  evidencia    description_overlap 0.069  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+               composite           0.023  (0.50 = high_context, umbral intra-namespace)
+  lectura      no_shared_context · description_overlap 0.069 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 403 · 2026-09-26T22:16Z
+
+  decidir      identity (merge)  ·  label collision (separar)  ·  deferir
+
+==================== seq 512 :: knowledge:graphrag-agentic:retry-concept <- knowledge:agentic-architectural-patterns:retry-concept ====================
+  seq — · band — · cross-namespace · sin registro · created —
+  label "retry" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  riesgo: ⚠ media (genérica)
+
+                             knowledge:graphrag-agentic            …wledge:agentic-architectural-patterns
+  entity id                  …ledge:graphrag-agentic:retry-concept …-architectural-patterns:retry-concept
+  name / type                Retry / concept                       Retry / concept
+  source page                488                                   438
+  aliases                    1                                     1
+  description                "The step where the agent attempts…"  "R⁵ principle for moving from blind…"
+  mention context            "d 3. Explain what the correct reas…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         14                                    0
+
+  evidencia    description_overlap 0.040  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+               composite           0.013  (0.50 = high_context, umbral intra-namespace)
+  lectura      no_shared_context · description_overlap 0.040 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 512 · 2026-09-26T22:20Z
+
+  decidir      identity (merge)  ·  label collision (separar)  ·  deferir
+
+==================== seq 590 :: knowledge:graphrag-agentic:question-concept <- knowledge:essential-graphrag:question-concept ====================
+  seq — · band — · cross-namespace · sin registro · created —
+  label "question" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  riesgo: ⚠ media (genérica)
+
+                             knowledge:graphrag-agentic            knowledge:essential-graphrag
+  entity id                  …ge:graphrag-agentic:question-concept …e:essential-graphrag:question-concept
+  name / type                Question / concept                    Question / concept
+  source page                56                                    139
+  aliases                    0                                     0
+  description                "The input query that drives the Ma…" "The input part of a test example us…"
+  mention context            "nity summaries: 1. Map Given a que…" ""
+  MENTIONS                   …graphrag, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         5                                     0
+
+  evidencia    description_overlap 0.125  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+               composite           0.042  (0.50 = high_context, umbral intra-namespace)
+  lectura      undecided · description_overlap 0.125 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 590 · 2026-09-26T22:22Z
+
+  decidir      identity (merge)  ·  label collision (separar)  ·  deferir
+

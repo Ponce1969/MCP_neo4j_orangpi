@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, TypeVar, cast, get_type_hints
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.domain.mcp_security import (
@@ -28,6 +30,7 @@ from book_graph_rag.domain.models import (
     redact_sensitive,
     redact_sensitive_metadata,
 )
+from book_graph_rag.domain.namespaces import Catalog, Source
 from book_graph_rag.domain.tool_tier_registry import tier_for
 from book_graph_rag.infrastructure.mcp_resource_budget_adapter import (
     InMemoryResourceBudgetAdapter,
@@ -91,6 +94,91 @@ def _error_code_for(exc: BaseException) -> str:
     return type(exc).__name__
 
 
+logger = logging.getLogger(__name__)
+
+_FnT = TypeVar("_FnT", bound=Callable[..., Any])
+
+
+def _source_language(file_name: str) -> str:
+    """Derive a source language from the ``(EN)``/``(ES)`` filename marker."""
+    upper_name = file_name.upper()
+    if "(ES)" in upper_name:
+        return "es"
+    if "(EN)" in upper_name:
+        return "en"
+    return "unknown"
+
+
+def _active_sources(catalog: Catalog) -> list[tuple[str, Source]]:
+    """Return ``(source_id, source)`` pairs for every active catalog source."""
+    return sorted(
+        (f"{corpus}:{slug}", source)
+        for corpus, corpus_model in catalog.corpora.items()
+        for slug, source in corpus_model.sources.items()
+        if source.status == "active"
+    )
+
+
+def _valid_values_hint(catalog: Catalog | None) -> str:
+    """Human-readable list of the valid ``corpus:source`` scope values."""
+    if catalog is None:
+        return ""
+    source_ids = ", ".join(source_id for source_id, _ in _active_sources(catalog))
+    return f" Valid source_id values (grammar corpus:source): {source_ids}."
+
+
+def _scope_contract(scope_param: str, valid_values: Sequence[str]) -> Callable[[_FnT], _FnT]:
+    """Decorator making ``scope_param`` required and enumerable in the schema.
+
+    When ``valid_values`` is empty (no catalog wired) this is a no-op and the
+    original optional signature is kept for legacy callers. Otherwise the
+    wrapper's signature is rebound so the parameter becomes a required
+    keyword-only ``str`` carrying a JSON-Schema ``enum`` of the active sources.
+    The runtime ``mcp_require_scope`` guard stays in place as defence in depth.
+    """
+
+    def decorate(fn: _FnT) -> _FnT:
+        if not valid_values:
+            return fn
+        hints = get_type_hints(fn)
+        signature = inspect.signature(fn)
+        params: list[inspect.Parameter] = []
+        target: inspect.Parameter | None = None
+        for param in signature.parameters.values():
+            if param.name == scope_param:
+                target = param
+                continue
+            params.append(param.replace(annotation=hints.get(param.name, param.annotation)))
+        if target is None:
+            raise RuntimeError(f"{fn.__name__} has no scope parameter {scope_param!r}")
+        enum_values = list(valid_values)
+        annotation = Annotated[
+            str,
+            Field(
+                description=(
+                    "Mandatory scope in the grammar corpus:source. "
+                    f"Valid values: {', '.join(enum_values)}."
+                ),
+                json_schema_extra={"enum": enum_values},
+            ),
+        ]
+        params.append(
+            target.replace(
+                kind=inspect.Parameter.KEYWORD_ONLY,
+                default=inspect.Parameter.empty,
+                annotation=annotation,
+            )
+        )
+        signature = signature.replace(
+            parameters=params,
+            return_annotation=hints.get("return", signature.return_annotation),
+        )
+        cast(Any, fn).__signature__ = signature
+        return fn
+
+    return decorate
+
+
 class McpServerAdapter:
     """Wraps a ``GraphQueryPort`` and a ``Text2CypherPort`` as MCP tools.
 
@@ -121,6 +209,8 @@ class McpServerAdapter:
         app_env: Literal["development", "production", "test"] = "production",
         raw_logging_enabled: bool = False,
         dev_raw_logger: logging.Logger | None = None,
+        catalog: Catalog | None = None,
+        catalog_stats_reader: Callable[[], Awaitable[dict[str, dict[str, int]]]] | None = None,
     ) -> None:
         self._graph_query_port = graph_query_port
         self._query_logger = query_logger
@@ -148,6 +238,37 @@ class McpServerAdapter:
             if dev_raw_logger is not None
             else logging.getLogger(_RAW_QUERY_LOGGER_NAME)
         )
+        # Self-description wiring (T6): the catalog drives instructions, the
+        # bookgraph://catalog resource, the honest scope schemas, and the
+        # valid-values hints inside scope errors. The optional stats reader
+        # performs ONE cheap graph read per resource read (counts as of read).
+        self._catalog = catalog
+        self._catalog_stats_reader = catalog_stats_reader
+
+    @property
+    def catalog(self) -> Catalog | None:
+        """Catalog driving the server's self-description, if wired."""
+        return self._catalog
+
+    @catalog.setter
+    def catalog(self, value: Catalog | None) -> None:
+        # Late-binding wiring point: composition roots that must keep a stable
+        # adapter constructor signature (mcp_server_main's test doubles) set
+        # this after construction and before run_sse/create_server.
+        self._catalog = value
+
+    @property
+    def catalog_stats_reader(
+        self,
+    ) -> Callable[[], Awaitable[dict[str, dict[str, int]]]] | None:
+        """Single-read size counts source for the catalog resource, if wired."""
+        return self._catalog_stats_reader
+
+    @catalog_stats_reader.setter
+    def catalog_stats_reader(
+        self, value: Callable[[], Awaitable[dict[str, dict[str, int]]]] | None
+    ) -> None:
+        self._catalog_stats_reader = value
 
     def _now(self) -> datetime:
         """Return the current UTC time (extracted for testability)."""
@@ -171,11 +292,15 @@ class McpServerAdapter:
         """
         if source_id is None:
             if self._require_scope:
-                raise MissingScopeError(f"scope source_id is required for tool {tool_name!r}")
+                raise MissingScopeError(
+                    f"scope source_id is required for tool {tool_name!r}."
+                    + _valid_values_hint(self._catalog)
+                )
             return None
         if self._scope_resolver is None:
             raise InvalidScopeError(
-                "Scope source_id provided but no ScopeResolverPort is configured",
+                "Scope source_id provided but no ScopeResolverPort is configured"
+                + _valid_values_hint(self._catalog),
                 scope_id=source_id,
             )
         return self._scope_resolver.resolve(
@@ -783,11 +908,93 @@ class McpServerAdapter:
             )
             raise
 
+    def _build_instructions(self) -> str:
+        """Build ``initialize.instructions`` text from the catalog (cannot drift)."""
+        active = _active_sources(self._catalog) if self._catalog is not None else []
+        source_lines = "\n".join(f"- {source_id} ({source.label})" for source_id, source in active)
+        return (
+            "book-graph-rag exposes read-only MCP tools over a Neo4j knowledge graph "
+            "built from a book corpus that is partly English and partly Spanish "
+            "(catalog filenames mark (EN)/(ES)).\n\n"
+            "Scope contract (mandatory): every scoped tool requires source_id in the "
+            "exact grammar corpus:source — one corpus slug, one colon, one source slug "
+            "(example: knowledge:graphrag-agentic). The filter parameters book_ids, "
+            "entity_types and relationship_types only NARROW results inside the chosen "
+            "source; they are never a substitute for the scope.\n\n"
+            "Active source_id values (label):\n"
+            f"{source_lines}\n\n"
+            "Two-id trap in traverse_relationships: source_id is the starting NODE (an "
+            "entity id such as corpus:source:slug-type) while scope_source_id is the "
+            "SCOPE (corpus:source); swapping them yields missing_scope or invalid_scope."
+            "\n\n"
+            "Failure modes: missing_scope — the fail-closed error when a tool is called "
+            "without a scope; invalid_scope — a malformed, unknown, or inactive "
+            "source_id, always answered with the list of valid values; HTTP 401 — a "
+            "missing or wrong 'Authorization: Bearer' token on any transport "
+            "(/sse, /messages/, /mcp).\n\n"
+            "Self-description: the resource bookgraph://catalog lists every active "
+            "source with its label, language, and chunk/entity size as of the read."
+        )
+
+    async def _catalog_payload(self) -> dict[str, Any]:
+        """Build the ``bookgraph://catalog`` resource payload.
+
+        Counts come from the injected stats reader — ONE cheap graph read per
+        resource read — and are stamped with ``counts_as_of`` so consumers know
+        the numbers are as of that read. Without a reader (or on a failed read)
+        the counts are ``null`` instead of being guessed.
+        """
+        if self._catalog is None:  # pragma: no cover - guarded by the caller
+            raise RuntimeError("catalog resource requires a Catalog")
+        stats: dict[str, dict[str, int]] | None = None
+        counts_as_of: str | None = None
+        if self._catalog_stats_reader is not None:
+            try:
+                stats = await self._catalog_stats_reader()
+                counts_as_of = datetime.now(tz=UTC).isoformat()
+            except Exception:  # noqa: BLE001 - degrade to null counts, never fail the read
+                logger.warning("catalog stats read failed; reporting null counts", exc_info=True)
+        sources: list[dict[str, Any]] = []
+        for source_id, source in _active_sources(self._catalog):
+            counts = stats.get(source_id) if stats is not None else None
+            sources.append(
+                {
+                    "source_id": source_id,
+                    "label": source.label,
+                    "language": _source_language(source.file),
+                    "file": source.file,
+                    "chunks": counts.get("chunks") if counts is not None else None,
+                    "entities": counts.get("entities") if counts is not None else None,
+                }
+            )
+        return {
+            "catalog_version": self._catalog.version,
+            "counts_as_of": counts_as_of,
+            "sources": sources,
+        }
+
     def create_server(self, host: str = "0.0.0.0", port: int = 8003) -> FastMCP:
-        """Return a configured FastMCP instance with the 8 tools registered."""
-        mcp = FastMCP("book-graph-rag", host=host, port=port)
+        """Return a configured FastMCP instance with the 8 tools registered.
+
+        When a ``catalog`` is wired, the server describes itself:
+        ``instructions`` are built from ``catalog.yaml``, the
+        ``bookgraph://catalog`` resource is registered, and every scope
+        parameter is declared required with an enum of the active sources.
+        """
+        scope_values: tuple[str, ...] = (
+            tuple(source_id for source_id, _ in _active_sources(self._catalog))
+            if self._catalog is not None
+            else ()
+        )
+        mcp = FastMCP(
+            "book-graph-rag",
+            instructions=self._build_instructions() if self._catalog is not None else None,
+            host=host,
+            port=port,
+        )
 
         @mcp.tool()
+        @_scope_contract("source_id", scope_values)
         async def find_entity(
             name: str,
             entity_type: EntityType | None = None,
@@ -806,6 +1013,7 @@ class McpServerAdapter:
             )
 
         @mcp.tool()
+        @_scope_contract("scope_source_id", scope_values)
         async def traverse_relationships(
             source_id: str,
             rel_type: RelationshipType | None = None,
@@ -826,6 +1034,7 @@ class McpServerAdapter:
             )
 
         @mcp.tool()
+        @_scope_contract("source_id", scope_values)
         async def search_chunks(
             query: str,
             limit: int = 10,
@@ -844,6 +1053,7 @@ class McpServerAdapter:
             )
 
         @mcp.tool()
+        @_scope_contract("source_id", scope_values)
         async def list_entities(
             cursor: int = 0,
             page_size: int = 50,
@@ -862,6 +1072,7 @@ class McpServerAdapter:
             )
 
         @mcp.tool()
+        @_scope_contract("source_id", scope_values)
         async def count_entities(
             entity_type: str | None = None,
             source_id: str | None = None,
@@ -878,6 +1089,7 @@ class McpServerAdapter:
             )
 
         @mcp.tool()
+        @_scope_contract("source_id", scope_values)
         async def search_rag(
             query: str,
             limit: int = 10,
@@ -898,6 +1110,7 @@ class McpServerAdapter:
             )
 
         @mcp.tool()
+        @_scope_contract("source_id", scope_values)
         async def query_cypher(
             question: str,
             source_id: str | None = None,
@@ -914,6 +1127,7 @@ class McpServerAdapter:
             )
 
         @mcp.tool()
+        @_scope_contract("source_id", scope_values)
         async def ask_global(
             question: str,
             detail_level: int = 1,
@@ -933,6 +1147,13 @@ class McpServerAdapter:
                 )
             )
 
+        if self._catalog is not None:
+
+            @mcp.resource("bookgraph://catalog")
+            async def catalog_resource() -> str:
+                """Active catalog sources with label, language, and size as of the read."""
+                return json.dumps(await self._catalog_payload(), indent=2, ensure_ascii=False)
+
         return mcp
 
     async def run_sse(
@@ -941,20 +1162,31 @@ class McpServerAdapter:
         port: int = 8003,
         access_token: SecretStr | None = None,
     ) -> None:
-        """Start the SSE server on the configured host and port.
+        """Serve BOTH MCP transports on one host/port.
 
-        When ``access_token`` is set, the Starlette SSE app is wrapped with
-        :class:`BearerTokenAuthMiddleware` so all clients must send
-        ``Authorization: Bearer <token>``.
+        Builds the SSE app (``/sse`` + ``/messages/``) and the streamable-HTTP
+        app (``/mcp``) from the same FastMCP server and routes them through
+        :class:`TransportDispatcher` (sub-app lifespans included). When
+        ``access_token`` is set, :class:`BearerTokenAuthMiddleware` wraps the
+        dispatcher so both transports share exactly one auth rule.
+
+        The method name is kept for compatibility with existing callers and
+        tests; it now serves streamable HTTP in addition to SSE.
         """
         import uvicorn
 
         from book_graph_rag.infrastructure.mcp.bearer_auth import (
             BearerTokenAuthMiddleware,
         )
+        from book_graph_rag.infrastructure.mcp.http_transport_dispatch import (
+            TransportDispatcher,
+        )
 
         server = self.create_server(host=host, port=port)
-        app: Any = server.sse_app()
+        app: Any = TransportDispatcher(
+            sse_app=server.sse_app(),
+            streamable_app=server.streamable_http_app(),
+        )
         if access_token is not None and access_token.get_secret_value():
             app = BearerTokenAuthMiddleware(app, access_token.get_secret_value())
         config = uvicorn.Config(app, host=host, port=port, log_level="info")

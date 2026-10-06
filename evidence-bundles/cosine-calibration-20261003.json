@@ -1,0 +1,415 @@
+{
+  "schema": "cosine-calibration/1",
+  "generated_at": "2026-10-04T04:16:23.733413+00:00",
+  "read_only": true,
+  "query_classes": [
+    "MATCH"
+  ],
+  "dry_run": false,
+  "seed": 20261003,
+  "per_stratum": 5,
+  "model_id": "paraphrase-multilingual-MiniLM-L12-v2",
+  "embedding_input": "entity.description (full, read from graph by id)",
+  "provider_calls": 40,
+  "planned_provider_calls": 40,
+  "input": {
+    "path": "/tmp/applied_audit_v2.json",
+    "schema": "applied-cross-namespace-audit/2",
+    "pairs_usable": 322,
+    "pairs_skipped_missing_entities": 0
+  },
+  "thresholds": {
+    "high_cosine": 0.9,
+    "medium_cosine": 0.8
+  },
+  "plan": [
+    {
+      "stratum": "strong",
+      "population": 0,
+      "sampled": 0
+    },
+    {
+      "stratum": "ambiguous",
+      "population": 143,
+      "sampled": 5
+    },
+    {
+      "stratum": "silent_cross_language",
+      "population": 0,
+      "sampled": 0
+    },
+    {
+      "stratum": "silent_same_language",
+      "population": 18,
+      "sampled": 5
+    },
+    {
+      "stratum": "silent_language_unknown",
+      "population": 5,
+      "sampled": 5
+    },
+    {
+      "stratum": "none_rest",
+      "population": 156,
+      "sampled": 5
+    }
+  ],
+  "matrix": {
+    "strong": {
+      "high_cosine": 0,
+      "medium_cosine": 0,
+      "low_cosine": 0,
+      "total": 0
+    },
+    "ambiguous": {
+      "high_cosine": 0,
+      "medium_cosine": 1,
+      "low_cosine": 4,
+      "total": 5
+    },
+    "silent_cross_language": {
+      "high_cosine": 0,
+      "medium_cosine": 0,
+      "low_cosine": 0,
+      "total": 0
+    },
+    "silent_same_language": {
+      "high_cosine": 0,
+      "medium_cosine": 0,
+      "low_cosine": 5,
+      "total": 5
+    },
+    "silent_language_unknown": {
+      "high_cosine": 0,
+      "medium_cosine": 0,
+      "low_cosine": 5,
+      "total": 5
+    },
+    "none_rest": {
+      "high_cosine": 0,
+      "medium_cosine": 0,
+      "low_cosine": 5,
+      "total": 5
+    }
+  },
+  "cosine_bands": [
+    "high_cosine",
+    "medium_cosine",
+    "low_cosine"
+  ],
+  "verdict_counts": {
+    "cosine rescues it": 0,
+    "cosine confirms the doubt": 19,
+    "agree": 1
+  },
+  "headline": {
+    "no_lexical_evidence_sampled": 15,
+    "cosine_rescued": 0
+  },
+  "skipped": {
+    "missing_entities": 0,
+    "no_description": 0
+  },
+  "pairs": [
+    {
+      "stratum": "ambiguous",
+      "seq": 305,
+      "canonical_id": "knowledge:graphrag-agentic:api-calls-tool",
+      "candidate_id": "knowledge:agentic-architectural-patterns:api-calls-tool",
+      "label": "API Calls",
+      "reading": "undecided",
+      "description_overlap": 0.16666666666666666,
+      "canonical_description": "Bash-equivalent execution mechanism for agents, used by the insurance claims agent.",
+      "candidate_description": "External invocations used by the smart home agent to control smart home devices such as lights and thermostats.",
+      "cosine": 0.2759831507164454,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "ambiguous",
+      "seq": 314,
+      "canonical_id": "knowledge:essential-graphrag:docker-tool",
+      "candidate_id": "knowledge:agentic-architectural-patterns:docker-tool",
+      "label": "Docker",
+      "reading": "undecided",
+      "description_overlap": 0.25,
+      "canonical_description": "Containerization platform used to deploy applications.",
+      "candidate_description": "Containerization platform used to package Agent A, Agent B, and Agent C into isolated runtime containers.",
+      "cosine": 0.7195853999324529,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "ambiguous",
+      "seq": 354,
+      "canonical_id": "knowledge:graphrag-agentic:external-tools-tool",
+      "candidate_id": "knowledge:essential-graphrag:external-tools-tool",
+      "label": "External Tools",
+      "reading": "undecided",
+      "description_overlap": 0.125,
+      "canonical_description": "External tools that the agent connects to for extended capabilities.",
+      "candidate_description": "Tools for data retrieval, transformation, and manipulation that LLMs can use; their quality and integration affect LLM effectiveness.",
+      "cosine": 0.3958454662200414,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "ambiguous",
+      "seq": 478,
+      "canonical_id": "knowledge:graphrag-agentic:model-component",
+      "candidate_id": "knowledge:agentic-architectural-patterns:model-component",
+      "label": "Model",
+      "reading": "undecided",
+      "description_overlap": 0.11538461538461539,
+      "canonical_description": "The AI model that uses location information; may receive no location or an incorrect location due to memory or retrieval issues.",
+      "candidate_description": "AI model that can be fine-tuned on specific ambiguous phrasings.",
+      "cosine": 0.48363620208947966,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "ambiguous",
+      "seq": 576,
+      "canonical_id": "knowledge:graphrag-agentic:knowledge-graph-concept",
+      "candidate_id": "knowledge:essential-graphrag:knowledge-graph-concept",
+      "label": "Knowledge Graph",
+      "reading": "undecided",
+      "description_overlap": 0.38095238095238093,
+      "canonical_description": "A structured representation of entities and their relationships, serving as the foundation for GraphRAG and agentic systems.",
+      "candidate_description": "A structured representation of entities and relationships used by GraphRAG to organize context.",
+      "cosine": 0.8819785463956898,
+      "cosine_band": "medium_cosine",
+      "verdict": "agree",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "silent_same_language",
+      "seq": 373,
+      "canonical_id": "knowledge:graphrag-agentic:approval-concept",
+      "candidate_id": "knowledge:agentic-architectural-patterns:approval-concept",
+      "label": "Approval",
+      "reading": "no_shared_context",
+      "description_overlap": 0.0,
+      "canonical_description": "User approval as part of the interaction; environmental problems may prevent it.",
+      "candidate_description": "Checkpoint where an agent must request permission before executing an action.",
+      "cosine": 0.41382970634347654,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "silent_same_language",
+      "seq": 413,
+      "canonical_id": "knowledge:graphrag-agentic:databases-component",
+      "candidate_id": "knowledge:agentic-architectural-patterns:databases-component",
+      "label": "Databases",
+      "reading": "no_shared_context",
+      "description_overlap": 0.0,
+      "canonical_description": "Excellent at storing and indexing information but do not reason.",
+      "candidate_description": "Structured data repositories that serve as context sources for AI agents.",
+      "cosine": 0.23868436496872253,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "silent_same_language",
+      "seq": 480,
+      "canonical_id": "knowledge:graphrag-agentic:node-component",
+      "candidate_id": "knowledge:agentic-architectural-patterns:node-component",
+      "label": "Node",
+      "reading": "no_shared_context",
+      "description_overlap": 0.0,
+      "canonical_description": "Knowledge graph node; append-only with TTL creates new versions rather than updating nodes in place.",
+      "candidate_description": "A LangGraph element representing each agent or function; can call multiple tools based on explicit state.",
+      "cosine": 0.24464832526431335,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "silent_same_language",
+      "seq": 583,
+      "canonical_id": "knowledge:graphrag-agentic:normalization-concept",
+      "candidate_id": "knowledge:essential-graphrag:normalization-concept",
+      "label": "Normalization",
+      "reading": "no_shared_context",
+      "description_overlap": 0.0,
+      "canonical_description": "Step of converting taxonomies and vocabularies to standard formats such as OWL.",
+      "candidate_description": "Score normalization that can make the top result score 1.0 in hybrid search results.",
+      "cosine": 0.29175539794974137,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "silent_same_language",
+      "seq": 596,
+      "canonical_id": "knowledge:graphrag-agentic:string-matching-concept",
+      "candidate_id": "knowledge:essential-graphrag:string-matching-concept",
+      "label": "String Matching",
+      "reading": "no_shared_context",
+      "description_overlap": 0.0,
+      "canonical_description": "Traditional approach based on string matching, which fails for agent development.",
+      "candidate_description": "A technique used in entity resolution that compares strings to detect duplicate entity references.",
+      "cosine": 0.385032401577589,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "silent_language_unknown",
+      "seq": 316,
+      "canonical_id": "knowledge:essential-graphrag:gemini-tool",
+      "candidate_id": "knowledge:agentic-architectural-patterns:google-gemini-tool",
+      "label": "Gemini",
+      "reading": "no_shared_context",
+      "description_overlap": 0.0,
+      "canonical_description": "Large proprietary LLM family cited as a stronger but slower baseline for text2cypher compared to smaller finetuned models.",
+      "candidate_description": "Google Gemini model (gemini-2.5-flash) used through ChatGoogleGenerativeAI.",
+      "cosine": 0.32014249123804905,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "silent_language_unknown",
+      "seq": 343,
+      "canonical_id": "knowledge:graphrag-agentic:agent-c-agent",
+      "candidate_id": "knowledge:agentic-architectural-patterns:summarization-agent-c-agent",
+      "label": "Agent C",
+      "reading": "no_shared_context",
+      "description_overlap": 0.0,
+      "canonical_description": "Example agent producing unrelated updates that may arrive later.",
+      "candidate_description": "One of the redundant summarization agents; responds slowly and times out on Task 3, lowering its trust score to 0.9.",
+      "cosine": 0.43318049185276436,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "silent_language_unknown",
+      "seq": 410,
+      "canonical_id": "knowledge:graphrag-agentic:data-structures-concept",
+      "candidate_id": "knowledge:agentic-architectural-patterns:data-structures-concept",
+      "label": "Data Structures",
+      "reading": "no_shared_context",
+      "description_overlap": 0.0,
+      "canonical_description": "Strictly formatted structures used by traditional software components.",
+      "candidate_description": "Sophisticated data organizations, including databases and knowledge graphs, that provide richer structured context.",
+      "cosine": 0.3103585416739586,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "silent_language_unknown",
+      "seq": 477,
+      "canonical_id": "knowledge:essential-graphrag:missing-information-risk",
+      "candidate_id": "knowledge:agentic-architectural-patterns:missing-information-risk",
+      "label": "Missing Information",
+      "reading": "no_shared_context",
+      "description_overlap": 0.0,
+      "canonical_description": "Risk that fields like end_date and total_amount remain None because the contract omits or does not specify them.",
+      "candidate_description": "Key automation challenge: identifying missing information during document validation.",
+      "cosine": 0.23130687710914577,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "silent_language_unknown",
+      "seq": 591,
+      "canonical_id": "knowledge:graphrag-agentic:relationship-concept",
+      "candidate_id": "knowledge:essential-graphrag:relationship-concept",
+      "label": "Relationship",
+      "reading": "no_shared_context",
+      "description_overlap": 0.0,
+      "canonical_description": "A graph edge connecting entities, optionally with temporal awareness.",
+      "candidate_description": "Typed, directed connection between nodes, such as ACTED_IN and DIRECTED, which link Person nodes to Movie nodes.",
+      "cosine": 0.45109412576651353,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "none_rest",
+      "seq": 318,
+      "canonical_id": "knowledge:graphrag-agentic:graph-database-tool",
+      "candidate_id": "knowledge:agentic-architectural-patterns:graph-database-tool",
+      "label": "Graph Database",
+      "reading": "no_shared_context",
+      "description_overlap": 0.09375,
+      "canonical_description": "A database that stores data as nodes and relationships; access can be restricted at node, relationship, and property levels.",
+      "candidate_description": "Dedicated database used to store and query dependency data efficiently for highly complex or frequently traversed graphs.",
+      "cosine": 0.5493218371557196,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "none_rest",
+      "seq": 348,
+      "canonical_id": "knowledge:graphrag-agentic:vector-search-tool",
+      "candidate_id": "knowledge:agentic-architectural-patterns:vector-search-tool",
+      "label": "Vector Search",
+      "reading": "no_shared_context",
+      "description_overlap": 0.06666666666666667,
+      "canonical_description": "A technique using vector embeddings for fuzzy matching and handling unstructured text, but limited in representing structured knowledge.",
+      "candidate_description": "Search technique combined with the knowledge graph to provide state-of-the-art domain expertise.",
+      "cosine": 0.36120256953941854,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "none_rest",
+      "seq": 459,
+      "canonical_id": "knowledge:graphrag-agentic:invocation-component",
+      "candidate_id": "knowledge:agentic-architectural-patterns:invocation-component",
+      "label": "Invocation",
+      "reading": "no_shared_context",
+      "description_overlap": 0.07142857142857142,
+      "canonical_description": "The final step in RAG-MCP where only selected tool descriptions are injected into the LLM prompt.",
+      "candidate_description": "Mechanism in which the registry returns matching service endpoints and the requesting agent invokes the service directly.",
+      "cosine": 0.37116121067492425,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "none_rest",
+      "seq": 523,
+      "canonical_id": "knowledge:graphrag-agentic:semantic-drift-risk",
+      "candidate_id": "knowledge:agentic-architectural-patterns:semantic-drift-risk",
+      "label": "semantic drift",
+      "reading": "no_shared_context",
+      "description_overlap": 0.07407407407407407,
+      "canonical_description": "A risk in which an agent loses ontological grounding and drifts away from reality.",
+      "candidate_description": "Risk that agents develop diverging interpretations or inconsistent knowledge, which the centralized shared memory prevents.",
+      "cosine": 0.6087789347185172,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    },
+    {
+      "stratum": "none_rest",
+      "seq": 549,
+      "canonical_id": "knowledge:graphrag-agentic:validation-concept",
+      "candidate_id": "knowledge:agentic-architectural-patterns:validation-concept",
+      "label": "Validation",
+      "reading": "no_shared_context",
+      "description_overlap": 0.08333333333333333,
+      "canonical_description": "Process of checking that data, rules, or agent behavior conform to expectations.",
+      "candidate_description": "Crucial layer of checking critical decisions before they are accepted, provided by the pattern.",
+      "cosine": 0.5039576373740904,
+      "cosine_band": "low_cosine",
+      "verdict": "cosine confirms the doubt",
+      "provider_calls": 2
+    }
+  ]
+}

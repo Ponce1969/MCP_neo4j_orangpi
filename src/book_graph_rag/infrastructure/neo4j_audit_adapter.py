@@ -27,11 +27,32 @@ from book_graph_rag.domain.audit_models import (
     normalize_key,
     severity_for_category,
 )
+from book_graph_rag.domain.cross_namespace_decision_models import separate_entity_ids
+from book_graph_rag.infrastructure.jsonl_cross_namespace_decisions import (
+    JSONLCrossNamespaceDecisions,
+)
+from book_graph_rag.ports.cross_namespace_decision_port import CrossNamespaceDecisionPort
 from book_graph_rag.ports.graph_audit_port import GraphIntegrityAuditPort
 
 _NODES = ("Book", "Chapter", "Section", "Chunk", "Entity")
 _RELS = ("CONTAINS", "HAS_SECTION", "HAS_SUBSECTION", "HAS_CHUNK", "MENTIONS", "RELATED")
 _CATEGORY = RULE_CATEGORY
+
+#: T9a R5a decision exclusion — one source for BOTH consumers: this rule and
+#: the enqueue detection query (``_QUERY_CROSS_NAMESPACE_GROUPS``) concatenate
+#: this exact clause after the shared active-entity predicate, so the audit
+#: count and the enqueue count agree by construction. Entities whose latest
+#: decision is ``separate`` leave the grouping; the parameter is always passed
+#: for this rule only and an empty list is a no-op.
+CROSS_NAMESPACE_DECISION_EXCLUSION = "AND NOT n.id IN $decided_separate_ids"
+
+#: T10 intra-namespace group key — one source for BOTH consumers: the
+#: ``duplicates_entity`` rule below and ``scripts-ops/resolve_intra_ns.py``,
+#: which imports this exact constant to build its grouping query (and the
+#: intra-group self-loop measurement), so the cleanup plan and the audit count
+#: agree by construction after T9b's case-insensitive flip. Same anti-drift
+#: pattern as :data:`CROSS_NAMESPACE_DECISION_EXCLUSION`.
+DUPLICATE_GROUP_KEY_EXPRESSION = "toLower(trim(n.name))"
 
 _QUERY_PLAN = (
     (
@@ -83,6 +104,10 @@ _QUERY_PLAN = (
         "MATCH (a:Entity)-[r:RELATED]->(b:Entity) WHERE ((a.merged_into IS NOT NULL AND a.merged_into <> '') OR (b.merged_into IS NOT NULL AND b.merged_into <> '')) WITH a,r,b ORDER BY coalesce(a.id,''),coalesce(r.type,''),coalesce(b.id,'') RETURN count(r) AS total, collect({key:coalesce(a.id,'')+'|'+coalesce(r.type,'')+'|'+coalesce(b.id,''),subject_ids:[coalesce(a.id,''),coalesce(b.id,'')],properties:properties(r)})[..$sample_limit] AS samples, $sample_limit AS sample_limit",
     ),
     (
+        "endpoints_self_loop",
+        "MATCH (a:Entity)-[r:RELATED]->(b:Entity) WHERE a = b WITH a,r,b ORDER BY coalesce(a.id,''),coalesce(r.type,'') RETURN count(r) AS total, collect({key:coalesce(a.id,'')+'|'+coalesce(r.type,'')+'|'+coalesce(b.id,''),subject_ids:[coalesce(a.id,''),coalesce(b.id,'')],properties:properties(r)})[..$sample_limit] AS samples, $sample_limit AS sample_limit",
+    ),
+    (
         "endpoints_hierarchy",
         "MATCH (a)-[r]->(b) WHERE type(r) IN ['CONTAINS','HAS_SECTION','HAS_SUBSECTION','HAS_CHUNK'] AND NOT ((type(r) = 'CONTAINS' AND a:Book AND a.id IS NOT NULL AND b:Chapter AND b.number IS NOT NULL AND b.title IS NOT NULL) OR (type(r) = 'HAS_SECTION' AND a:Chapter AND a.number IS NOT NULL AND a.title IS NOT NULL AND b:Section AND b.chapter_number IS NOT NULL AND b.title IS NOT NULL) OR (type(r) = 'HAS_SUBSECTION' AND a:Section AND a.chapter_number IS NOT NULL AND a.title IS NOT NULL AND b:Section AND b.chapter_number IS NOT NULL AND b.title IS NOT NULL) OR (type(r) = 'HAS_CHUNK' AND (a:Chapter AND a.number IS NOT NULL AND a.title IS NOT NULL OR a:Section AND a.chapter_number IS NOT NULL AND a.title IS NOT NULL) AND b:Chunk AND b.book_id IS NOT NULL AND b.chunk_index IS NOT NULL)) WITH a,r,b,CASE WHEN a:Book THEN coalesce(a.id,'') WHEN a:Chapter THEN coalesce(toString(a.number),'')+'|'+coalesce(a.title,'') WHEN a:Section THEN coalesce(toString(a.chapter_number),'')+'|'+coalesce(a.title,'') WHEN a:Chunk THEN coalesce(toString(a.book_id),'')+'|'+coalesce(toString(a.chunk_index),'') WHEN a:Entity THEN coalesce(a.id,'') ELSE '' END AS source_key,CASE WHEN b:Book THEN coalesce(b.id,'') WHEN b:Chapter THEN coalesce(toString(b.number),'')+'|'+coalesce(b.title,'') WHEN b:Section THEN coalesce(toString(b.chapter_number),'')+'|'+coalesce(b.title,'') WHEN b:Chunk THEN coalesce(toString(b.book_id),'')+'|'+coalesce(toString(b.chunk_index),'') WHEN b:Entity THEN coalesce(b.id,'') ELSE '' END AS target_key ORDER BY source_key,type(r),target_key RETURN count(r) AS total, collect({key:source_key+'|'+type(r)+'|'+target_key,subject_ids:[source_key,target_key],properties:properties(r)})[..$sample_limit] AS samples, $sample_limit AS sample_limit",
     ),
@@ -112,7 +137,29 @@ _QUERY_PLAN = (
     ),
     (
         "duplicates_entity",
-        "MATCH (n:Entity) WHERE (n.merged_into IS NULL OR n.merged_into = '') AND n.id IS NOT NULL WITH n, split(n.id, ':') AS parts WHERE size(parts) >= 2 WITH n, parts ORDER BY coalesce(n.id, '') WITH n, parts[0] + ':' + parts[1] AS namespace, n.name AS name, n.type AS kind WITH namespace, name, kind, collect(n) AS members WHERE size(members) > 1 WITH namespace, name, kind, members ORDER BY namespace, coalesce(name, ''), coalesce(kind, '') RETURN count(members) AS total, collect({key: namespace + '|' + coalesce(name, '') + '|' + coalesce(kind, ''), namespace: namespace, name: coalesce(name, ''), kind: coalesce(kind, ''), subject_ids: [x IN members | coalesce(x.id, '')], properties: properties(members[0])})[..$sample_limit] AS samples, $sample_limit AS sample_limit",
+        "MATCH (n:Entity) WHERE (n.merged_into IS NULL OR n.merged_into = '') AND n.id IS NOT NULL WITH n, split(n.id, ':') AS parts WHERE size(parts) >= 2 WITH n, parts ORDER BY coalesce(n.id, '') WITH n, parts[0] + ':' + parts[1] AS namespace, "
+        + DUPLICATE_GROUP_KEY_EXPRESSION
+        + " AS name, n.type AS kind WITH namespace, name, kind, collect(n) AS members WHERE size(members) > 1 WITH namespace, name, kind, members ORDER BY namespace, coalesce(name, ''), coalesce(kind, '') RETURN count(members) AS total, collect({key: namespace + '|' + coalesce(name, '') + '|' + coalesce(kind, ''), namespace: namespace, name: coalesce(name, ''), kind: coalesce(kind, ''), subject_ids: [x IN members | coalesce(x.id, '')], properties: properties(members[0])})[..$sample_limit] AS samples, $sample_limit AS sample_limit",
+    ),
+    # R5a and R5b (T9b) group on toLower(trim(n.name)) + type: R5a across namespaces,
+    # R5b inside one. The Python normalize_key (domain/audit_models.py) is stricter
+    # (NFKC + casefold + whitespace collapse) and cannot be expressed in Cypher, but
+    # on the 2026-10-04 production corpus both strategies find the SAME 64 groups
+    # over 128 entities, so the Cypher grouping is a faithful equivalent here (a
+    # corpus with NFKC or internal-whitespace divergences would need the Python rule).
+    # total counts GROUPS (one row per grouped name+type), not members: R5a reports
+    # 456 cross-namespace groups and R5b reports the 64 intra-namespace ones, and the
+    # audit summary sums those group counts; `namespaces` (member namespace list) is
+    # folded into the redaction-safe properties map by _sample — Cypher has no
+    # map + map merge, and safe_properties rejects keys containing `source`.
+    # T9a: the decision exclusion sits right after the active-entity predicate
+    # and `total` counts the FILTERED groups, so the reported number is
+    # authoritative once humans start deciding pairs.
+    (
+        "duplicates_entity_cross_namespace",
+        "MATCH (n:Entity) WHERE (n.merged_into IS NULL OR n.merged_into = '') AND n.id IS NOT NULL "
+        + CROSS_NAMESPACE_DECISION_EXCLUSION
+        + " WITH n, split(n.id, ':') AS parts WHERE size(parts) >= 2 WITH n, parts ORDER BY coalesce(n.id, '') WITH n, parts[0] + ':' + parts[1] AS namespace, toLower(trim(n.name)) AS name, n.type AS kind WITH name, kind, collect(DISTINCT namespace) AS namespaces, collect(n) AS members WHERE size(namespaces) > 1 WITH name, kind, namespaces, members ORDER BY coalesce(name, ''), coalesce(kind, '') RETURN count(*) AS total, collect({key: coalesce(name, '') + '|' + coalesce(kind, ''), namespace: reduce(acc = '', ns IN namespaces | CASE WHEN acc = '' THEN ns ELSE acc + '|' + ns END), name: coalesce(name, ''), kind: coalesce(kind, ''), subject_ids: [x IN members | coalesce(x.id, '')], namespaces: namespaces, properties: properties(members[0])})[..$sample_limit] AS samples, $sample_limit AS sample_limit",
     ),
     (
         "duplicates_relationship",
@@ -143,6 +190,7 @@ _RULE_NAME = {
     "ENDPOINT_MENTIONS_INVALID": "endpoints_mentions",
     "ENDPOINT_MENTIONS_MERGED_INVALID": "endpoints_mentions_merged",
     "ENDPOINT_RELATED_MERGED_INVALID": "endpoints_related_merged",
+    "ENDPOINT_SELF_LOOP_INVALID": "endpoints_self_loop",
     "ENDPOINT_HIERARCHY_INVALID": "endpoints_hierarchy",
     "ENTITY_UNMENTIONED": "entity_unmentioned",
     "ENTITY_ISOLATED_RELATED": "entity_isolated_related",
@@ -151,6 +199,7 @@ _RULE_NAME = {
     "PROVENANCE_MENTIONS_MISSING": "provenance_mentions",
     "PROVENANCE_CHUNK_MISSING": "provenance_chunk",
     "DUPLICATE_ENTITY_LOGICAL": "duplicates_entity",
+    "DUPLICATE_ENTITY_CROSS_NAMESPACE": "duplicates_entity_cross_namespace",
     "DUPLICATE_RELATIONSHIP_LOGICAL": "duplicates_relationship",
     "PAGE_CHUNK_INVALID_RANGE": "pages_chunk",
     "PAGE_CHAPTER_INVALID_START": "pages_chapter",
@@ -168,6 +217,7 @@ _ENTITY_RULES = {
 _RELATED_RULES = {
     "endpoints_related",
     "endpoints_related_merged",
+    "endpoints_self_loop",
     "provenance_relationship",
     "duplicates_relationship",
 }
@@ -251,6 +301,22 @@ def _scoped_inventory_relationships() -> str:
     )
 
 
+def _scoped_cross_namespace_duplicates(base_query: str) -> str:
+    """Scope R5a after its grouping instead of injecting the generic predicate.
+
+    The generic ``_inject_scope`` would land in the MATCH WHERE, before the
+    grouping, leaving every group single-namespace and reporting zero.  The
+    scoped variant keeps the cross-namespace condition and then keeps the
+    groups with at least one member inside ``$scope_prefix``.
+    """
+    anchor = "WHERE size(namespaces) > 1"
+    return base_query.replace(
+        anchor,
+        anchor + " AND size([m IN members WHERE m.id STARTS WITH $scope_prefix]) > 0",
+        1,
+    )
+
+
 def _scoped_query(query_name: str, base_query: str, scope: AuditScope) -> str:
     """Return a scope-bounded variant of a named query."""
     if query_name == "runtime_metadata":
@@ -259,6 +325,8 @@ def _scoped_query(query_name: str, base_query: str, scope: AuditScope) -> str:
         return _scoped_inventory_nodes()
     if query_name == "inventory_relationships":
         return _scoped_inventory_relationships()
+    if query_name == "duplicates_entity_cross_namespace":
+        return _scoped_cross_namespace_duplicates(base_query)
     predicate = _scope_predicate(query_name)
     if predicate is None:
         return base_query
@@ -266,12 +334,24 @@ def _scoped_query(query_name: str, base_query: str, scope: AuditScope) -> str:
 
 
 class Neo4jAuditAdapter(GraphIntegrityAuditPort):
-    """Collect a typed snapshot through one configured, read-only session."""
+    """Collect a typed snapshot through one configured, read-only session.
 
-    def __init__(self, settings: Settings) -> None:
+    The T9a decisions source defaults to ``Settings.cross_namespace_decisions_path``
+    (a missing file reads as an empty list, i.e. a no-op exclusion); tests
+    inject a ``tmp_path`` store through ``decisions``.
+    """
+
+    def __init__(
+        self, settings: Settings, decisions: CrossNamespaceDecisionPort | None = None
+    ) -> None:
         self._driver: Any = AsyncGraphDatabase.driver(
             settings.neo4j_uri,
             auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value()),
+        )
+        self._decisions: CrossNamespaceDecisionPort = (
+            decisions
+            if decisions is not None
+            else JSONLCrossNamespaceDecisions(settings.cross_namespace_decisions_path)
         )
 
     async def close(self) -> None:
@@ -301,6 +381,13 @@ class Neo4jAuditAdapter(GraphIntegrityAuditPort):
             key = f"{normalize_key(name)}|{normalize_key(kind)}"
             data["key"] = key
             data["group_id"] = duplicate_group_id(namespace, key)
+            # R5a emits the member namespace list at top level; fold it into the
+            # redaction-safe properties map (top-level sample keys are closed).
+            namespaces = data.pop("namespaces", None)
+            if namespaces is not None:
+                properties = dict(data.get("properties") or {})
+                properties["namespaces"] = namespaces
+                data["properties"] = properties
         elif namespace == "relationship":
             parts = tuple(data.pop(part, None) for part in ("source", "kind", "target"))
             key = "|".join(normalize_key(part) for part in parts)
@@ -318,6 +405,9 @@ class Neo4jAuditAdapter(GraphIntegrityAuditPort):
         if scope is not None:
             params["scope_prefix"] = scope.entity_prefix
             params["scope_source_id"] = scope.source_id
+        # T9a: read the human decisions ONCE; an unreadable registry fails the
+        # audit (fail closed) instead of silently running without the exclusion.
+        separate_ids = separate_entity_ids(self._decisions.read_all())
         rule_query = {
             name: (_scoped_query(name, query, scope) if scope is not None else query)
             for name, query in _QUERY_PLAN
@@ -359,12 +449,20 @@ class Neo4jAuditAdapter(GraphIntegrityAuditPort):
                         inventory.setdefault(key, InventoryMetric(value=0, state="evaluated"))
                     calls.append(AuditQueryExecution(name=name, state=QueryState.EVALUATED))
                 for rule, query_name, category in _RULES:
-                    rows = await self._read(session, rule_query[query_name], params)
+                    # T9a: ONLY the R5a rule carries the decision exclusion
+                    # (always passed; an empty list is a no-op). Every other
+                    # rule's parameters stay untouched.
+                    rule_params = (
+                        {**params, "decided_separate_ids": separate_ids}
+                        if query_name == "duplicates_entity_cross_namespace"
+                        else params
+                    )
+                    rows = await self._read(session, rule_query[query_name], rule_params)
                     row = rows[0] if rows else {"total": 0, "samples": []}
                     total = int(row.get("total", 0) or 0)
                     namespace = (
                         "entity"
-                        if rule == "DUPLICATE_ENTITY_LOGICAL"
+                        if rule in ("DUPLICATE_ENTITY_LOGICAL", "DUPLICATE_ENTITY_CROSS_NAMESPACE")
                         else "relationship"
                         if rule == "DUPLICATE_RELATIONSHIP_LOGICAL"
                         else None

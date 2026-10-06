@@ -1,0 +1,85 @@
+{
+  "schema": "cross-namespace-rollback-batch/1",
+  "generated_at": "2026-10-04T16:31:00Z",
+  "read_only": false,
+  "feature": "cross-namespace-semantic-resolution",
+  "branch": "feat/cross-namespace-semantic-resolution",
+  "batch": "2A",
+  "selection": {
+    "rule": "consolidated suspicious list joined with cosine-all-pairs, cosine < 0.25, seq 496 (Prompt) excluded by prior decision",
+    "entries_reviewed": 6,
+    "pairs_reviewed": 7
+  },
+  "decisions": {
+    "rollback": [
+      {"seq": 375, "label": "Automation", "cosine": 0.223, "canonical": "knowledge:graphrag-agentic:automation-concept", "candidate": "knowledge:agentic-architectural-patterns:automation-concept"},
+      {"seq": 489, "label": "Peer Review", "cosine": 0.238, "canonical": "knowledge:graphrag-agentic:peer-review-concept", "candidate": "knowledge:agentic-architectural-patterns:peer-review-concept"},
+      {"seq": 503, "label": "redundancy", "cosine": 0.225, "canonical": "knowledge:graphrag-agentic:redundancy-concept", "candidate": "knowledge:agentic-architectural-patterns:redundancy-concept"},
+      {"seq": 480, "label": "Node", "cosine": 0.245, "canonical": "knowledge:graphrag-agentic:node-component", "candidates": ["knowledge:essential-graphrag:node-component", "knowledge:agentic-architectural-patterns:node-component"], "note": "multi-candidate entry; the maintainer accepted the full rollback including the re-created cross-namespace duplicate"}
+    ],
+    "keep": [
+      {"seq": 413, "label": "Databases", "cosine": 0.239, "reason": "same concept, different phrasing (characterisation vs definition)"},
+      {"seq": 475, "label": "Microservices", "cosine": 0.236, "reason": "same concept, different phrasing"}
+    ]
+  },
+  "applies": [
+    {
+      "step": "clean subset",
+      "seqs": [375, 489, 503],
+      "fingerprint": "714dfd57985d057a1abf7073459156d42319d39b7329e1a064d388d861eb35fa",
+      "backup": "/home/gonzalo/backups_neo4j/bookgraph_backup_20261004T162259Z.json",
+      "mentions_restored": "7 (predicted 7)",
+      "related_restored": "9 (predicted 9)",
+      "mirrors_created": "0 (predicted 0)",
+      "merged_into": "921 -> 918",
+      "drift": "none"
+    },
+    {
+      "step": "multi-candidate entry",
+      "seqs": [480],
+      "fingerprint": "4b89c9613cdae68a908bc97b739d826486ea9e4cf81538e6c24c5dfe9c6124b9",
+      "backup": "/home/gonzalo/backups_neo4j/bookgraph_backup_20261004T162618Z.json",
+      "mentions_restored": "5 (predicted 5)",
+      "related_restored": "11 (predicted 11)",
+      "mirrors_created": "1 (predicted 1)",
+      "merged_into": "918 -> 916",
+      "drift": "none",
+      "accepted_side_effect": "unknown fallback: essential-graphrag:node-component -[composes]-> knowledge-graph-concept; the canonical edge was already gone, so the legacy both-ways restore recreated both directions (1 restore + 1 mirror, ci 27)"
+    }
+  ],
+  "verification": {
+    "revived_entities_alive": 9,
+    "shared_neighbours": "0 for every rolled-back pair (post-rollback)",
+    "edge_level_check": "for seq 375 the canonical kept its own edge (automation-concept -[enables]-> knowledge-graph-construction) and the loser recovered its 6 exact edges (contrasts_with x1, depends_on x2, requires x3), each once in its original direction",
+    "ledger_entries": 972,
+    "compensating_entries": 14,
+    "ledger_chain": "OK (0 hash inconsistencies)",
+    "repoint": {
+      "backup": "/home/gonzalo/backups_neo4j/bookgraph_backup_20261004T163031Z.json",
+      "bundle": "evidence-bundles/merged-endpoint-edges-20261004T163055Z.json",
+      "edges": 2,
+      "repoints": 2,
+      "collapses": 0,
+      "deletes": 0,
+      "anomalies": 0,
+      "post_apply": "RELATED to merged 0 (expected 0)"
+    }
+  },
+  "audits": {
+    "after_rollbacks_before_repoint": {"global": "violations exit 10 (blocking 2 / warning 469)", "essential-graphrag": "violations exit 10 (blocking 2 / warning 128)"},
+    "final": {"global": "passed exit 0 (blocking 0 / warning 469)", "graphrag-agentic": "passed (363 w)", "agentic-architectural-patterns": "passed (300 w)", "essential-graphrag": "passed (128 w)"}
+  },
+  "queue": {
+    "applied_cross_namespace_remaining": 288,
+    "suspicious_remaining": 180,
+    "needs_reading": 5,
+    "high_risk": 7,
+    "silent_same_language": 14,
+    "retained": [{"seq": 496, "label": "Prompt", "reason": "same domain, different aspect; 25 neighbours"}],
+    "consolidated_evidence": "evidence-bundles/applied-cross-namespace-audit-consolidated-after2a-20261004.json"
+  },
+  "findings": [
+    "A ledger entry can hold several candidates (seq 480 = 2 losers) and RollbackMergeUseCase.rollback(seq) reverses the whole entry: no partial rollback by candidate exists. 16 of the suspicious seqs hold 2 pairs, so this recurs in every remaining batch (tracked as T8f).",
+    "An 'unknown' fallback (the canonical edge already deleted) produces one mirror AND can put a restored edge on a merged endpoint, which the ENDPOINT_RELATED_MERGED_INVALID rule flags as blocking; repoint_merged_endpoint_edges closes it."
+  ]
+}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 
 class ResolutionError(Exception):
     """Base class for resolution-stage errors."""
@@ -38,3 +40,31 @@ class RollbackTargetInvalid(ResolutionError):  # noqa: N818
 
 class MergeNotReversible(ResolutionError):  # noqa: N818
     """Raised when a merge can no longer be rolled back."""
+
+
+class CrossNamespaceApprovalRequired(ResolutionError):  # noqa: N818
+    """Raised when a cross-namespace merge lacks a matching ``MergeApproval``.
+
+    Carries the canonical, the offending (crossing) candidates and an
+    explanation of what the supplied reference got wrong, so the message alone
+    tells the operator how to obtain a valid one: approve the quarantine
+    record first (spec 03 §2.4, policy R6.2, design D-A2).
+    """
+
+    def __init__(
+        self,
+        *,
+        canonical_id: str,
+        crossing_ids: Sequence[str],
+        detail: str,
+    ) -> None:
+        self.canonical_id = canonical_id
+        self.crossing_ids = tuple(crossing_ids)
+        self.detail = detail
+        message = (
+            f"Cross-namespace merge refused: canonical {canonical_id} and candidates "
+            f"{list(self.crossing_ids)} span namespaces; {detail}. "
+            "Provide a MergeApproval: approve the quarantine record first "
+            "(quarantine enqueue → render → approve)."
+        )
+        super().__init__(message)

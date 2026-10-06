@@ -76,11 +76,12 @@ Each item states what it is, the evidence that it exists, and the block it belon
 
 ## Merge adapter debts (from the 2026-10-02 cycle-break work)
 
-- **R1 `rollback_merge` rebuilds mirror directions.** The inverse map is undirected
-  (`(dup)-[r:RELATED]-(other)`) and rollback runs **both** restore statements for every RELATED entry, so it
-  recreates a direction that never existed (measured: 1 original edge → 2 after rollback). Fixing it needs a
-  direction field in `EdgeInverseMap`, which changes the tamper-evident ledger schema — check the chain hash
-  before touching the model. Until then, the regression test asserts presence, not cardinality.
+- **R1 `rollback_merge` rebuilt mirror directions.** **Resolved 2026-10-03**: the inverse map now captures the
+  RELATED orientation, apply re-points only it and rollback restores exactly it. The interesting constraint: the
+  ledger's chain digest is computed over the canonical dump of the parsed entry, so a plain defaulted field would
+  have changed all 958 existing entries and broken verification; the field is omitted when unknown, which kept every
+  old line hashing byte-identically (verified read-only: 958 entries, 0 mismatches, 0 broken links). Entries written
+  before the fix keep the legacy both-ways restore, documented and pinned by test.
 - **R2 The ledger does not record the canonical's prior marker.** `apply_merge` now clears the canonical's
   leftover `merged_into`/`merged_at` (it must, or round-robin merges create mutual pairs), but rollback cannot
   restore it. Declared limit (D9), pinned by test.

@@ -27,6 +27,11 @@ RETURN dup.id AS id, dup.aliases AS aliases
 """
 
 # Capture edge endpoints for every candidate *before* mutation.
+# ``direction`` records the RELATED orientation relative to the duplicate
+# (startNode(r) = dup -> 'out', else 'in') so apply/rollback can re-point and
+# restore exactly the captured orientation (debt R1). MENTIONS is always NULL:
+# its direction is fixed by the schema (Chunk -> Entity) and the restore
+# statement is single-directional.
 _CAPTURE_EDGES = """
 MATCH (c:Chunk)-[m:MENTIONS]->(dup:Entity) WHERE dup.id IN $ids
 RETURN dup.id AS id,
@@ -37,12 +42,14 @@ RETURN dup.id AS id,
            THEN c.source_id + ':chunk-' + toString(c.chunk_index)
          ELSE c.book_id + ':chunk-' + toString(c.chunk_index)
        END AS other_id,
+       NULL AS direction,
        properties(m) AS props
 UNION
 MATCH (dup:Entity)-[r:RELATED]-(other:Entity) WHERE dup.id IN $ids
 RETURN dup.id AS id,
        'RELATED' AS edge_kind,
        other.id AS other_id,
+       CASE WHEN startNode(r) = dup THEN 'out' ELSE 'in' END AS direction,
        properties(r) AS props
 """
 
@@ -144,12 +151,25 @@ WHERE (c.id = inv.original_other_endpoint_id)
 DELETE m
 """
 
+# Delete the canonical-side edges this merge created, one direction per entry.
+# ``direction`` is the orientation captured relative to the duplicate and
+# re-pointed onto the canonical (``out`` -> canon->other, ``in`` -> other->canon),
+# so a decided entry removes ONLY that direction and the canonical's own reverse
+# edge — which the merge never created — survives. ``direction IS NULL``
+# (pre-R1 ledger entries, or a direction the plan could not decide) keeps the
+# legacy BOTH-directions removal: one of the two live edges is the duplicate's
+# and there is no way to tell which.
 _ROLLBACK_REMOVE_CANON_RELATED = """
 UNWIND $related AS inv
 MATCH (canon:Entity {id: $canonical_id})-[r:RELATED]-(other:Entity {
     id: inv.original_other_endpoint_id
 })
 WHERE r.type = inv.edge_properties.type
+  AND (
+    inv.direction IS NULL
+    OR (inv.direction = 'out' AND startNode(r) = canon)
+    OR (inv.direction = 'in' AND endNode(r) = canon)
+  )
 DELETE r
 """
 
@@ -207,6 +227,7 @@ async def _build_inverse_mapping(aliases_result: Any, edges_result: Any) -> Inve
                 duplicate_entity_id=record["id"],
                 original_other_endpoint_id=other_id,
                 edge_properties=dict(record["props"] or {}),
+                direction=record["direction"],
             )
         )
 
@@ -249,6 +270,11 @@ class Neo4jGraphMergeAdapter(GraphMergePort):
         before the candidates point at it; the declared rollback limit is that
         ``rollback_merge`` never restores that prior canonical marker (the ledger
         does not record it).
+
+        RELATED edges are re-pointed only in their captured direction: an entry
+        with ``direction="out"`` runs only the out batch, ``"in"`` only the in
+        batch, and ``None`` (pre-R1 ledger entries) runs both, matching the
+        legacy behavior.
         """
         mentions = [e for e in inverse_mapping.edge_inverse_map if e.edge_kind == "MENTIONS"]
         related = [e for e in inverse_mapping.edge_inverse_map if e.edge_kind == "RELATED"]
@@ -273,22 +299,26 @@ class Neo4jGraphMergeAdapter(GraphMergePort):
                         },
                     )
                 if related:
-                    await tx.run(
-                        _REPOINT_RELATED_OUT_BATCH,
-                        {
-                            "canonical_id": canonical_id,
-                            "dup_ids": candidate_ids,
-                            "related": [e.model_dump(mode="json") for e in related],
-                        },
-                    )
-                    await tx.run(
-                        _REPOINT_RELATED_IN_BATCH,
-                        {
-                            "canonical_id": canonical_id,
-                            "dup_ids": candidate_ids,
-                            "related": [e.model_dump(mode="json") for e in related],
-                        },
-                    )
+                    related_out = [e for e in related if e.direction in ("out", None)]
+                    related_in = [e for e in related if e.direction in ("in", None)]
+                    if related_out:
+                        await tx.run(
+                            _REPOINT_RELATED_OUT_BATCH,
+                            {
+                                "canonical_id": canonical_id,
+                                "dup_ids": candidate_ids,
+                                "related": [e.model_dump(mode="json") for e in related_out],
+                            },
+                        )
+                    if related_in:
+                        await tx.run(
+                            _REPOINT_RELATED_IN_BATCH,
+                            {
+                                "canonical_id": canonical_id,
+                                "dup_ids": candidate_ids,
+                                "related": [e.model_dump(mode="json") for e in related_in],
+                            },
+                        )
                     await tx.run(
                         _DELETE_INTRA_GROUP_RELATED,
                         {"canonical_id": canonical_id, "dup_ids": candidate_ids},
@@ -307,7 +337,25 @@ class Neo4jGraphMergeAdapter(GraphMergePort):
                 raise ResolutionError(f"apply_merge failed for {canonical_id}: {exc}") from exc
 
     async def rollback_merge(self, entry: MergeLedgerEntry) -> None:
-        """Reverse a previously applied merge transaction."""
+        """Reverse a previously applied merge transaction.
+
+        Direction compatibility rule (debt R1): every RELATED inverse entry
+        carries the orientation captured at merge time. When ``direction`` is
+        known (``"out"`` / ``"in"``, relative to the duplicate) both steps are
+        direction-aware: the removal deletes only the re-pointed direction from
+        the canonical (``out`` -> canon->other, ``in`` -> other->canon), leaving
+        the canonical's own reverse edge untouched, and only that orientation is
+        restored, so a rollback rebuilds exactly the edges that existed before
+        the merge. When ``direction`` is ``None`` — entries written before
+        direction tracking landed (the historical ledger), or a direction the
+        plan could not decide — the legacy behavior is kept: the removal
+        deletes BOTH directions (one of the two live canonical edges is the
+        duplicate's and there is no way to tell which) and BOTH restore
+        statements run for that entry,
+        rebuilding a mirror direction that may never have existed. MENTIONS
+        entries always keep ``direction=None``, which is unambiguous because
+        the MENTIONS restore is single-directional by schema.
+        """
         mentions = [e for e in entry.edge_inverse_map if e.edge_kind == "MENTIONS"]
         related = [e for e in entry.edge_inverse_map if e.edge_kind == "RELATED"]
         alias_values = [a.alias_value for a in entry.aliases_folded]
@@ -345,14 +393,18 @@ class Neo4jGraphMergeAdapter(GraphMergePort):
                         {"mentions": [e.model_dump(mode="json") for e in mentions]},
                     )
                 if related:
-                    await tx.run(
-                        _ROLLBACK_RESTORE_RELATED_OUT,
-                        {"related": [e.model_dump(mode="json") for e in related]},
-                    )
-                    await tx.run(
-                        _ROLLBACK_RESTORE_RELATED_IN,
-                        {"related": [e.model_dump(mode="json") for e in related]},
-                    )
+                    related_out = [e for e in related if e.direction in ("out", None)]
+                    related_in = [e for e in related if e.direction in ("in", None)]
+                    if related_out:
+                        await tx.run(
+                            _ROLLBACK_RESTORE_RELATED_OUT,
+                            {"related": [e.model_dump(mode="json") for e in related_out]},
+                        )
+                    if related_in:
+                        await tx.run(
+                            _ROLLBACK_RESTORE_RELATED_IN,
+                            {"related": [e.model_dump(mode="json") for e in related_in]},
+                        )
                 await tx.run(
                     _ROLLBACK_REMOVE_MERGED,
                     {"dup_ids": entry.candidate_ids},

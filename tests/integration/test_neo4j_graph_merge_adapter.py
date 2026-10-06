@@ -14,6 +14,7 @@ import pytest
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.merge_ledger_models import (
+    EdgeInverseMap,
     FoldedAlias,
     MergeBand,
     MergeLedgerEntry,
@@ -224,6 +225,10 @@ async def test_capture_inverse_mapping_records_pre_merge_state(
 
         related = next(e for e in inverse.edge_inverse_map if e.edge_kind == "RELATED")
         assert related.original_other_endpoint_id == "book:ch1:concept-x"
+        # Direction capture (R1): RELATED records its orientation relative to the
+        # duplicate; MENTIONS stays None because Chunk->Entity fixes its direction.
+        assert related.direction == "out"
+        assert mentions.direction is None
     finally:
         await command.close()
 
@@ -418,6 +423,91 @@ async def test_rollback_merge_restores_pre_merge_state(
                 concept="book:ch1:concept-x",
             )
             assert (await related.single())["c"] == 1
+
+            # R1 fix: the captured direction was "out", so rollback must NOT
+            # rebuild the mirror direction (concept-x -> duplicate) that never
+            # existed pre-merge.
+            mirror = await session.run(
+                """
+                MATCH (x:Entity {id: $concept})-[r:RELATED]->(n:Entity {id: $id})
+                RETURN count(r) AS c
+                """,
+                id="book:ch1:duplicate",
+                concept="book:ch1:concept-x",
+            )
+            assert (await mirror.single())["c"] == 0, (
+                "rollback rebuilt a mirror RELATED edge that never existed (R1)"
+            )
+    finally:
+        await command.close()
+
+
+@pytest.mark.neo4j_integration
+async def test_rollback_legacy_entry_without_direction_restores_both_directions(
+    neo4j_settings: Settings,
+    neo4j_driver: Any,
+) -> None:
+    """Compat rule: a direction=None entry (pre-R1 ledger) restores BOTH directions.
+
+    The 958 production entries carry no direction. For those, rollback keeps the
+    legacy behavior of running both restore statements, mirror rebuild included.
+    """
+    command = Neo4jCommandAdapter(neo4j_settings)
+    merge_adapter = Neo4jGraphMergeAdapter(neo4j_driver)
+    try:
+        await _seed_with_edges(command, neo4j_driver)
+        inverse = await merge_adapter.capture_inverse_mapping(["book:ch1:duplicate"])
+        aliases_folded = [
+            FoldedAlias(from_entity_id="book:ch1:duplicate", alias_value="Dup"),
+        ]
+        await merge_adapter.apply_merge(
+            canonical_id="book:ch1:canonical",
+            candidate_ids=["book:ch1:duplicate"],
+            aliases_folded=aliases_folded,
+            inverse_mapping=inverse,
+        )
+
+        # Simulate a pre-R1 ledger entry: same data, direction stripped to None.
+        legacy_map = [
+            EdgeInverseMap(
+                edge_kind=e.edge_kind,
+                duplicate_entity_id=e.duplicate_entity_id,
+                original_other_endpoint_id=e.original_other_endpoint_id,
+                edge_properties=e.edge_properties,
+            )
+            for e in inverse.edge_inverse_map
+        ]
+        assert all(e.direction is None for e in legacy_map)
+        entry = MergeLedgerEntry(
+            seq=1,
+            candidate_ids=["book:ch1:duplicate"],
+            canonical_id="book:ch1:canonical",
+            band=MergeBand.HIGH,
+            evidence=[_dummy_evidence("book:ch1:canonical", "book:ch1:duplicate")],
+            aliases_folded=aliases_folded,
+            edge_inverse_map=legacy_map,
+            approver="test",
+            applied_at=datetime.now(UTC),
+        )
+
+        await merge_adapter.rollback_merge(entry)
+
+        async with neo4j_driver.session() as session:
+            for source, target in (
+                ("book:ch1:duplicate", "book:ch1:concept-x"),
+                ("book:ch1:concept-x", "book:ch1:duplicate"),
+            ):
+                restored = await session.run(
+                    """
+                    MATCH (a:Entity {id: $src})-[r:RELATED]->(b:Entity {id: $dst})
+                    RETURN count(r) AS c
+                    """,
+                    src=source,
+                    dst=target,
+                )
+                assert (await restored.single())["c"] == 1, (
+                    f"legacy direction=None entry must restore {source} -> {target}"
+                )
     finally:
         await command.close()
 
@@ -524,10 +614,12 @@ async def test_apply_merge_does_not_leave_intra_group_related_edges(
                 )
                 assert (await restored.single())["c"] == 1
 
-            # Out-of-group edges: the inverse map is undirected and rollback runs
-            # both restore statements for every RELATED entry, so it rebuilds a
-            # mirror direction that never existed (pre-existing defect, out of
-            # scope here). Presence is what this test can assert.
+            # Compat rule (R1): each RELATED entry restores exactly its captured
+            # direction. Both directions of the out-of-group pair were seeded, so
+            # both captures exist ("out" from the duplicate, "in" from concept-x)
+            # and both are restored once. Pre-R1 ledger entries (direction=None)
+            # keep the legacy both-directions restore, rebuild included — that
+            # path is pinned by test_rollback_legacy_entry_without_direction_... .
             for source, target in (
                 ("book:ch1:duplicate", "book:ch1:concept-x"),
                 ("book:ch1:concept-x", "book:ch1:duplicate"),
@@ -540,7 +632,24 @@ async def test_apply_merge_does_not_leave_intra_group_related_edges(
                     src=source,
                     dst=target,
                 )
-                assert (await restored.single())["c"] >= 1
+                assert (await restored.single())["c"] == 1
+
+            # No mirror may appear for edges that existed in a single direction only.
+            for source, target in (
+                ("book:ch1:canonical", "book:ch1:duplicate"),
+                ("book:ch1:duplicate-2", "book:ch1:duplicate"),
+            ):
+                mirror = await session.run(
+                    """
+                    MATCH (a:Entity {id: $src})-[r:RELATED]->(b:Entity {id: $dst})
+                    RETURN count(r) AS c
+                    """,
+                    src=source,
+                    dst=target,
+                )
+                assert (await mirror.single())["c"] == 0, (
+                    f"rollback rebuilt mirror {source} -> {target} that never existed (R1)"
+                )
     finally:
         await command.close()
 

@@ -12,14 +12,14 @@ The repository has a mature static audit subsystem. Preserve it; do not duplicat
   `strict=True`, `extra="forbid"`), secret-safe. `safe_properties` redacts secret keys/
   values, truncates deep/wide values. `AuditTarget` rejects userinfo/query/fragment/path
   in the URI. Reports have stable `canonical_json()` and deterministic ordering.
-- **21 static read-only rules** across categories:
+- **23 static read-only rules** across categories:
 
   | Category | Count | Rules |
   |----------|-------|-------|
   | hierarchy | 5 | chapter-book parent, section parent, chunk parent required, chunk multiple parent, level contradiction |
-  | endpoints | 3 | `RELATED`, `MENTIONS`, and hierarchy edge validity |
+  | endpoints | 6 | `RELATED`, `MENTIONS`, merged-endpoint validity, hierarchy edge validity, and self-loop validity |
   | pages | 3 | chunk range, chapter start, section start |
-  | duplicates | 2 | logical entity + relationship duplicates |
+  | duplicates | 3 | logical entity + relationship duplicates, cross-namespace duplicates |
   | provenance | 4 | entity / relationship / mentions / chunk missing provenance |
   | coverage | 2 | `ENTITY_UNMENTIONED`, `ENTITY_ISOLATED_RELATED` |
 
@@ -75,6 +75,18 @@ Keep all existing checks. Add, only where justified:
 - **Uniqueness:** keep logical duplicate rules; the duplicate key now includes the
   namespace component derived from the entity id so cross-namespace same-names are not
   false positives.
+- `DUPLICATE_ENTITY_CROSS_NAMESPACE` (WARNING): active entities whose normalized name
+  + type appear in two or more namespaces; totals count GROUPS (456 measured 2026-10-04,
+  after the human-decision discount added in T9a) and samples carry the member ids plus the
+  `namespaces` list.
+- `DUPLICATE_ENTITY_LOGICAL` (WARNING): active entities grouped by `toLower(trim(name))`
+  + type inside ONE namespace. The grouping became **case-insensitive in T9b**: the exact
+  name found 0 groups while the trimmed lowercased name finds the 64 groups over 128
+  entities, the same count the Python `normalize_key` (NFKC + casefold + whitespace
+  collapse) produces on this corpus — NFKC cannot be expressed in Cypher, so the Cypher
+  grouping is a corpus-verified equivalent. Totals count GROUPS. Cleaned up by T10.
+- `ENDPOINT_SELF_LOOP_INVALID` (BLOCKING): `RELATED` edges whose two endpoints are the
+  same node; zero in production today, kept as the regression guard for extraction noise.
 - **Provenance:** keep the 4 provenance rules; after 01, add "missing version
   dimensions" and "stale checkpoint" checks.
 - **Readiness gates** (see §5) are separate from RAG evaluation (06) and from the
@@ -126,7 +138,7 @@ purpose X" by combining audit results and (optionally) evaluation results (06).
 ## 9. Tests
 
 - **Unit:** severity mapping, scope bounding, gate policy evaluation, exit-code mapping.
-- **Integration (Neo4j):** run all 21 rules on a seeded graph with known violations;
+- **Integration (Neo4j):** run all 23 rules on a seeded graph with known violations;
   assert findings + severities + exit codes; run a scoped audit and assert scope
   enforcement.
 

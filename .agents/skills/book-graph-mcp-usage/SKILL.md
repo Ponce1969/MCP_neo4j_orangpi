@@ -5,9 +5,13 @@ description: "Trigger: calling the book-graph MCP tools (find_entity, traverse_r
 
 # Book Graph MCP Usage
 
-Rules for calling the `book-graph-rag` MCP server (SSE, port 8003). All eight
-tools are scope-bound and read-only. Follow the contracts below; they are
-fail-closed, not advisory.
+Rules for calling the `book-graph-rag` MCP server. All eight tools are
+scope-bound and read-only. It speaks **streamable HTTP at `/mcp`** (what pi and
+current clients use) and the legacy **SSE at `/sse`**; both expose the same eight
+tools and both require a bearer token. The server also describes itself, so read
+before guessing: `initialize.instructions`, the `bookgraph://catalog` resource,
+the `source_id` enum inside each tool schema, and the scope error, which lists the
+valid values. Follow the contracts below; they are fail-closed, not advisory.
 
 ## 1. Tool reference
 
@@ -45,6 +49,10 @@ fail-closed, not advisory.
 
 - Optional narrowing lists (`book_ids`, `entity_types`,
   `relationship_types`) refine a scope; they never replace `source_id`.
+- **Ask the server instead of guessing**: the schemas enumerate the valid
+  `source_id` values, `initialize.instructions` states the contract,
+  `bookgraph://catalog` lists every source with its language and size, and a
+  scope error answers with the valid values. Read those before inventing an id.
 
 ## 3. The two-id trap in `traverse_relationships`
 
@@ -118,8 +126,9 @@ traverse_relationships(source_id=..., scope_source_id=...)
 ## 9. Bearer token
 
 - Every HTTP path requires `Authorization: Bearer <MCP_ACCESS_TOKEN>` when the
-  token is configured. Get it from the environment (`set -a; . ./.env; set +a`);
-  never hardcode it.
+  token is configured, on both transports. The client takes it from its own
+  environment or MCP config (`headers`); inside this repo you can export it with
+  `set -a; . ./.env; set +a`. Never hardcode it.
 - HTTP `401` with `{"error":"unauthorized",...}` means auth is working and the
   token was not exported — export it and retry; it does not mean the service
   is broken.

@@ -181,6 +181,9 @@ class Settings(BaseSettings):
     resolution_baseline_report_path: Path = Path("tests/fixtures/resolution/baseline_report.json")
     quarantine_path: Path = Path("data/resolution/quarantine.jsonl")
     merge_ledger_path: Path = Path("data/resolution/merge_ledger.jsonl")
+    # T9a: append-only human decision registry consumed by the R5a audit rule
+    # and the cross-namespace enqueue detection (missing file = no decisions).
+    cross_namespace_decisions_path: Path = Path("data/resolution/cross_namespace_decisions.jsonl")
     merge_embedding_cache_path: Path = Path("data/resolution/entity_embeddings.jsonl")
     resolution_schema_version: str = "1.0.0"
     ledger_genesis_sha256: str = "0" * 64

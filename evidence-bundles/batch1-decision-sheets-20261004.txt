@@ -1,0 +1,150 @@
+
+--- HOJA 1/10 · seq 496 · cosine 0.085 · overlap 0.000 ---
+  label "prompt" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  entity id                  …edge:graphrag-agentic:prompt-concept …dge:essential-graphrag:prompt-concept
+  name / type                Prompt / concept                      Prompt / concept
+  description                "Prompt-based intervention."          "The LLM input assembled from retrie…"
+  mention context            "for in every subsequent chapter. T…" ""
+  MENTIONS                   …graphrag, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         25                                    0
+  evidencia    description_overlap 0.000  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+  lectura      no_shared_context · description_overlap 0.000 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 496 · 2026-09-26T22:19Z
+
+--- HOJA 2/10 · seq 536 · cosine 0.112 · overlap 0.053 ---
+  label "test" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  entity id                  …wledge:graphrag-agentic:test-concept …c-architectural-patterns:test-concept
+  name / type                Test / concept                        Test / concept
+  description                "A medical examination class, with…"  "Formal evaluation that the structur…"
+  mention context            "t and Oncologist; Disease into Can…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         3                                     0
+  evidencia    description_overlap 0.053  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+  lectura      no_shared_context · description_overlap 0.053 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 536 · 2026-09-26T22:20Z
+
+--- HOJA 3/10 · seq 391 · cosine 0.126 · overlap 0.000 ---
+  label "cleanup" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  entity id                  …dge:graphrag-agentic:cleanup-concept …rchitectural-patterns:cleanup-concept
+  name / type                Cleanup / concept                     Cleanup / concept
+  description                "Final step in the migration sequen…" "Graceful handling required when a t…"
+  mention context            "586 described earlier: migration f…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         3                                     0
+  evidencia    description_overlap 0.000  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+  lectura      no_shared_context · description_overlap 0.000 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 391 · 2026-09-26T22:16Z
+
+--- HOJA 4/10 · seq 496 · cosine 0.135 · overlap 0.071 ---
+  label "prompt" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  entity id                  …edge:graphrag-agentic:prompt-concept …architectural-patterns:prompt-concept
+  name / type                Prompt / concept                      Prompt / concept
+  description                "Prompt-based intervention."          "The specific prompt sent to the LLM…"
+  mention context            "for in every subsequent chapter. T…" ""
+  MENTIONS                   …graphrag, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         25                                    0
+  evidencia    description_overlap 0.071  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+  lectura      no_shared_context · description_overlap 0.071 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 496 · 2026-09-26T22:19Z
+
+--- HOJA 5/10 · seq 443 · cosine 0.136 · overlap 0.000 ---
+  label "generation" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  entity id                  …:graphrag-agentic:generation-concept …itectural-patterns:generation-concept
+  name / type                Generation / concept                  Generation / concept
+  description                "A node type for producing outputs…"  "First stage of the Self-Improvement…"
+  mention context            "back to the specific node that mad…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         6                                     0
+  evidencia    description_overlap 0.000  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+  lectura      no_shared_context · description_overlap 0.000 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 443 · 2026-09-26T22:17Z
+
+--- HOJA 6/10 · seq 307 · cosine 0.157 · overlap 0.100 ---
+  label "auditor" | type agent | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  entity id                  …ledge:graphrag-agentic:auditor-agent …-architectural-patterns:auditor-agent
+  name / type                Auditor / agent                       Auditor / agent
+  description                "Compliance reviewer who needs to d…" "Agent whose bar is constantly raise…"
+  mention context            "552 The practical advantage is spe…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         9                                     0
+  evidencia    description_overlap 0.100  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+  lectura      undecided · description_overlap 0.100 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 307 · 2026-09-26T20:20Z
+
+--- HOJA 7/10 · seq 360 · cosine 0.188 · overlap 0.062 ---
+  label "action" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  entity id                  …edge:graphrag-agentic:action-concept …architectural-patterns:action-concept
+  name / type                Action / concept                      Action / concept
+  description                "The capability to act on the digit…" "An operation requested by an agent…"
+  mention context            "31 What Is an Agent, Anyway? If yo…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         10                                    0
+  evidencia    description_overlap 0.062  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+  lectura      no_shared_context · description_overlap 0.062 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 360 · 2026-09-26T22:15Z
+
+--- HOJA 8/10 · seq 342 · cosine 0.209 · overlap 0.000 ---
+  label "agent b" | type agent | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  entity id                  …ledge:graphrag-agentic:agent-b-agent …-patterns:summarization-agent-b-agent
+  name / type                Agent B / agent                       Agent B / agent
+  description                "Example agent whose finding is a c…" "One of the redundant summarization…"
+  mention context            "d by more flexible layers for expl…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         27                                    0
+  evidencia    description_overlap 0.000  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+  lectura      no_shared_context · description_overlap 0.000 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 342 · 2026-09-26T20:21Z
+
+--- HOJA 9/10 · seq 584 · cosine 0.210 · overlap 0.033 ---
+  label "person" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  entity id                  …edge:graphrag-agentic:person-concept …dge:essential-graphrag:person-concept
+  name / type                Person / concept                      Person / concept
+  description                "Example domain-specific concept ma…" "Node label in the Neo4j movie graph…"
+  mention context            "ith the generated queries due to t…" ""
+  MENTIONS                   …graphrag, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         34                                    0
+  evidencia    description_overlap 0.033  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+  lectura      no_shared_context · description_overlap 0.033 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 584 · 2026-09-26T22:22Z
+
+--- HOJA 10/10 · seq 404 · cosine 0.220 · overlap 0.000 ---
+  label "convergence" | type concept | routing: SIEMPRE cuarentena (spec 03 §2.4 / R6.2) | cosine: no computado
+  entity id                  …graphrag-agentic:convergence-concept …tectural-patterns:convergence-concept
+  name / type                Convergence / concept                 Convergence / concept
+  description                "Convergence in competition, compar…" "The state reached when the range be…"
+  mention context            ": Agents write to blackboard for a…" ""
+  MENTIONS                   …patterns, knowledge:graphrag-agentic 0 chunks · 
+  RELATED neighbours         7                                     0
+  evidencia    description_overlap 0.000  <- primaria (mismo idioma)
+               mentions_jaccard    0.000  (estructural: sólo != 0 después de un merge)
+               related_jaccard     0.000  (estructural: sólo != 0 después de un merge)
+  lectura      no_shared_context · description_overlap 0.000 vs high_context 0.50 / conflict_floor 0.10 · evidencia, NO enrutamiento
+  vecinos compartidos (0)  (ninguno)
+  ledger                   seq 404 · 2026-09-26T22:16Z

@@ -144,7 +144,7 @@ async def test_merged_endpoint_rules_report_seeded_dangling_edges(
     snapshot = await _collect(neo4j_settings)
 
     assert snapshot.failure_state is None
-    assert len(snapshot.findings) == 21, "catalog must carry the two new rules"
+    assert len(snapshot.findings) == 23, "catalog must carry the two new rules"
     for rule_id in (_MENTIONS_RULE, _RELATED_RULE):
         finding = _finding(snapshot, rule_id)
         assert finding.category == "endpoints", rule_id

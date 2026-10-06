@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 from book_graph_rag.domain.resolution_models import ResolutionEvidence
 
@@ -38,7 +38,17 @@ class FoldedAlias(BaseModel):
 
 
 class EdgeInverseMap(BaseModel):
-    """Records the original endpoint of a re-pointed edge for rollback."""
+    """Records the original endpoint of a re-pointed edge for rollback.
+
+    ``direction`` is the RELATED orientation relative to
+    ``duplicate_entity_id`` (``"out"`` = dup -> other, ``"in"`` = other -> dup).
+    ``None`` means either "captured before direction tracking existed" (legacy
+    ledger entries, e.g. the entries written before this field landed) or the
+    edge kind is ``MENTIONS``, whose direction is fixed by the schema
+    (``Chunk -> Entity``). For ``RELATED`` entries with ``direction is None``,
+    ``rollback_merge`` keeps the legacy both-directions restore (compatibility
+    rule for the pre-existing ledger).
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -46,6 +56,7 @@ class EdgeInverseMap(BaseModel):
     duplicate_entity_id: str
     original_other_endpoint_id: str
     edge_properties: dict[str, Any]
+    direction: Literal["out", "in"] | None = None
 
 
 class MergeLedgerEntry(BaseModel):
@@ -73,6 +84,25 @@ class MergeLedgerEntry(BaseModel):
     entry_sha256: str = ""
     prev_seq_sha256: str = ""
 
+    @field_serializer("edge_inverse_map")
+    def _serialize_edge_inverse_map(self, value: list[EdgeInverseMap]) -> list[dict[str, Any]]:
+        """Drop ``direction`` from the dump when it is ``None``.
+
+        ``compute_entry_sha256`` hashes this dump and ``verify_chain``
+        recomputes it on every read, so entries written before ``direction``
+        existed must serialize byte-for-byte identically to the old model or
+        the stored ``entry_sha256`` of the existing ledger would break.
+        Omitting only the absent (``None``) direction keeps old lines stable
+        while still covering a known direction by the hash.
+        """
+        dumped: list[dict[str, Any]] = []
+        for item in value:
+            data = item.model_dump(mode="json")
+            if data.get("direction") is None:
+                data.pop("direction", None)
+            dumped.append(data)
+        return dumped
+
 
 def compute_entry_sha256(entry: MergeLedgerEntry) -> str:
     """SHA-256 of the entry content excluding the hash fields themselves."""
@@ -80,9 +110,7 @@ def compute_entry_sha256(entry: MergeLedgerEntry) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def chained_hash(
-    entry: MergeLedgerEntry, prev_entry_sha256: str
-) -> MergeLedgerEntry:
+def chained_hash(entry: MergeLedgerEntry, prev_entry_sha256: str) -> MergeLedgerEntry:
     """Return a new entry with ``prev_seq_sha256`` and ``entry_sha256`` set.
 
     The genesis previous hash is ``"0" * 64``.
