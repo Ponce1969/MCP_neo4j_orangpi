@@ -1,13 +1,13 @@
 """T10 contract of ``scripts-ops/resolve_intra_ns.py`` — no graph, every touch stubbed.
 
-Four protections over the intra-namespace cleanup executor:
+Five protections over the intra-namespace cleanup executor:
 
 1. **Grouping parity (T10-A)** — the intra-namespace group key expression lives
    in ONE constant exported by ``neo4j_audit_adapter`` (the T9a
    ``CROSS_NAMESPACE_DECISION_EXCLUSION`` pattern): the ``duplicates_entity``
    rule and the script's grouping query are *built from* it (AST-checked), and
    the literal never appears in the script source, so plan and audit cannot
-   drift apart after T9b's case-insensitive grouping. The deletion counters key
+   drift apart after T9b's case-insensitive grouping. The prediction fetchers key
    on the PLAN built from that query (plan-scoped row fetches, no second
    grouping copy), so their parity is inherited by construction.
 2. **Fingerprint (T10-C)** — ``plan_fingerprint`` is a deterministic sha256 over
@@ -16,15 +16,21 @@ Four protections over the intra-namespace cleanup executor:
    ``--apply`` REFUSES without ``--expect-fingerprint`` and on a mismatch, in
    both cases before any write (decision: refuse, not warn).
 3. **Census (T10-D)** — the predicted delta is one active entity fewer and one
-   ``merged_into`` more per duplicate folded, PLUS the deletions the apply really
-   performs: ``MENTIONS − collapses`` (a ``(chunk, duplicate)`` edge whose chunk
-   already mentions the canonical collapses under ``MERGE`` + ``DELETE``) and
-   ``RELATED − intra_group_edges`` (``_DELETE_INTRA_GROUP_RELATED`` deletes every
-   directed edge inside the merged group, counted per directed edge, no id
-   ordering); the post-apply drift report exits non-zero on any mismatch
-   (mirrors ``ledger rollback``).
+   ``merged_into`` more per duplicate folded, PLUS the losses the apply really
+   performs: ``MENTIONS − collapses``, ``RELATED − intra_group_edges`` and
+   ``RELATED − re-point collapses`` — all three counted by replaying
+   ``apply_merge`` over one pre-apply edge multiset (``simulate_plan``); the
+   post-apply drift report exits non-zero on any mismatch (mirrors
+   ``ledger rollback``).
 4. **§7.2 + fingerprint gate ordering** — the refusals happen before the first
    write, proven by a recorder that must stay empty.
+5. **Sequential simulation (batch defect)** — merges apply in PLAN order and an
+   earlier group's re-point can CREATE the key a later group collapses onto
+   (edges may join members of different groups), so the retired per-group
+   arithmetic under-predicted in batches (production: ``RELATED -7`` predicted
+   vs ``-9`` real on the 28-group huyen batch). The replay must match the
+   sequential totals — and totals are order-independent (confluent), so any
+   plan order predicts the same loss.
 """
 
 from __future__ import annotations
@@ -138,27 +144,26 @@ def _install_graph_fakes(
     monkeypatch: pytest.MonkeyPatch,
     *,
     census_reads: list[object],
-    related_rows: list[tuple[str, str]] | None = None,
+    rows: list[DuplicateMemberRow] | None = None,
+    scores: dict[str, tuple[int, int]] | None = None,
     mention_rows: list[tuple[str, str]] | None = None,
     repoint_rows: list[tuple[str, str, str | None]] | None = None,
 ) -> list[list[PlannedMerge]]:
     """Stub every graph touch; return the recorder of ``_apply`` invocations.
 
-    ``related_rows`` / ``mention_rows`` feed the READ-ONLY row fetches; the
-    per-directed-edge counting itself runs the real pure functions, which is
-    exactly what the deletion-prediction tests exercise.
+    ``rows`` / ``scores`` override the plan input (default: the single-group
+    fixture rows/scores, so multi-group tests can feed the REAL grouping +
+    richness path); ``mention_rows`` / ``repoint_rows`` feed the READ-ONLY row
+    fetches that the prediction replays over the plan.
     """
     applied: list[list[PlannedMerge]] = []
     read_index = {"i": 0}
 
     async def _fetch_rows(_session: object, _prefix: str) -> list[DuplicateMemberRow]:
-        return list(_ROWS)
+        return list(_ROWS if rows is None else rows)
 
     async def _edge_impact(_session: object, _ids: list[str]) -> dict[str, tuple[int, int]]:
-        return dict(_SCORES)
-
-    async def _related(_session: object, _member_ids: list[str]) -> list[tuple[str, str]]:
-        return list(related_rows or [])
+        return dict(_SCORES if scores is None else scores)
 
     async def _mentions(_session: object, _member_ids: list[str]) -> list[tuple[str, str]]:
         return list(mention_rows or [])
@@ -191,7 +196,6 @@ def _install_graph_fakes(
     )
     monkeypatch.setattr(script, "_fetch_rows", _fetch_rows)
     monkeypatch.setattr(script, "_edge_impact", _edge_impact)
-    monkeypatch.setattr(script, "_intra_group_related_rows", _related)
     monkeypatch.setattr(script, "_member_mention_rows", _mentions)
     monkeypatch.setattr(script, "_related_repoint_rows", _repoint)
     monkeypatch.setattr(script, "_read_census", _read_census)
@@ -248,10 +252,11 @@ def test_both_queries_are_built_from_the_imported_constant(script: ModuleType) -
         "DUPLICATE_GROUP_KEY_EXPRESSION",
     )
     assert _references(_assign_node(_TREE, "_GROUPS_QUERY"), "DUPLICATE_GROUP_KEY_EXPRESSION")
-    # The deletion counters do NOT re-group: they fetch rows for the member ids of
-    # the PLAN built from _GROUPS_QUERY above (parity inherited by construction),
-    # with NO id-ordering filter so every directed intra-group edge is counted.
-    related_fetch = str(script._INTRA_GROUP_RELATED_QUERY)
+    # The prediction fetchers do NOT re-group: they fetch rows for the member ids
+    # of the PLAN built from _GROUPS_QUERY above (parity inherited by
+    # construction), with NO id-ordering filter so every directed intra-group
+    # edge reaches the replay.
+    related_fetch = str(script._REPOINT_RELATED_ROWS_QUERY)
     assert "$member_ids" in related_fetch
     assert "STARTS WITH" not in related_fetch
     assert "a.id <" not in related_fetch
@@ -629,21 +634,21 @@ def test_intra_group_related_counts_per_directed_edge(script: ModuleType) -> Non
     """Every edge with both endpoints in the plan group is deleted by the apply.
 
     ``_DELETE_INTRA_GROUP_RELATED`` has NO ``id`` ordering filter, so neither may
-    the counter: a bidirectional pair is two directed edges (2) and a single edge
+    the replay: a bidirectional pair is two directed edges (2) and a single edge
     whose SOURCE id sorts HIGHER than its target still counts 1 — the old
     ``a.id < b.id`` guard dropped exactly that edge.
     """
     plan = _plan(script)
     outside = f"{_NS}:some-other-concept"
 
-    bidirectional = [(_CANON, _DUP), (_DUP, _CANON)]
-    assert script.count_intra_group_related(plan, bidirectional) == 2
+    bidirectional = [(_CANON, _DUP, _REFERS), (_DUP, _CANON, _REFERS)]
+    assert script.simulate_plan(plan, bidirectional, []).intra_group_related == 2
     # _CANON (llm-...) sorts higher than _DUP (large-...): the single-edge case
     # the ordering filter used to drop.
-    assert script.count_intra_group_related(plan, [(_CANON, _DUP)]) == 1
-    assert script.count_intra_group_related(plan, [(_DUP, _CANON)]) == 1
+    assert script.simulate_plan(plan, [(_CANON, _DUP, _REFERS)], []).intra_group_related == 1
+    assert script.simulate_plan(plan, [(_DUP, _CANON, _REFERS)], []).intra_group_related == 1
     # an edge touching an entity outside the plan group is re-pointed, not deleted.
-    assert script.count_intra_group_related(plan, [(_CANON, outside)]) == 0
+    assert script.simulate_plan(plan, [(_CANON, outside, _REFERS)], []).intra_group_related == 0
 
 
 def test_mentions_collapse_count_covers_chunks_that_already_mention_the_canonical(
@@ -657,11 +662,13 @@ def test_mentions_collapse_count_covers_chunks_that_already_mention_the_canonica
     """
     plan = _plan(script)
 
-    assert script.count_mentions_collapses(plan, [("chunk-1", _DUP), ("chunk-1", _CANON)]) == 1
-    assert script.count_mentions_collapses(plan, [("chunk-2", _DUP)]) == 0
-    assert script.count_mentions_collapses(plan, [("chunk-3", _CANON)]) == 0
+    both = script.simulate_plan(plan, [], [("chunk-1", _DUP), ("chunk-1", _CANON)])
+    assert both.mentions_collapses == 1
+    assert script.simulate_plan(plan, [], [("chunk-2", _DUP)]).mentions_collapses == 0
+    assert script.simulate_plan(plan, [], [("chunk-3", _CANON)]).mentions_collapses == 0
     # a chunk mentioning a duplicate of another group is irrelevant here.
-    assert script.count_mentions_collapses(plan, [("chunk-4", f"{_NS}:other-concept")]) == 0
+    other = script.simulate_plan(plan, [], [("chunk-4", f"{_NS}:other-concept")])
+    assert other.mentions_collapses == 0
 
 
 async def test_dry_run_reports_the_predicted_deletions(
@@ -676,7 +683,7 @@ async def test_dry_run_reports_the_predicted_deletions(
             _census(script, 100, 10, 500, 700),
             _census(script, 1000, 50, 5000, 7000),
         ],
-        related_rows=[(_CANON, _DUP)],
+        repoint_rows=[(_CANON, _DUP, _REFERS)],
         mention_rows=[("chunk-1", _DUP), ("chunk-1", _CANON)],
     )
 
@@ -702,7 +709,7 @@ async def test_json_output_carries_the_predicted_deletions(
             _census(script, 100, 10, 500, 700),
             _census(script, 1000, 50, 5000, 7000),
         ],
-        related_rows=[(_CANON, _DUP), (_DUP, _CANON)],
+        repoint_rows=[(_CANON, _DUP, _REFERS), (_DUP, _CANON, _REFERS)],
         mention_rows=[("chunk-1", _DUP), ("chunk-1", _CANON)],
     )
 
@@ -737,7 +744,7 @@ async def test_apply_with_intra_group_edge_and_collapse_exits_without_drift(
             _census(script, 99, 11, 499, 699),
             _census(script, 999, 51, 4999, 6999),
         ],
-        related_rows=[(_CANON, _DUP)],
+        repoint_rows=[(_CANON, _DUP, _REFERS)],
         mention_rows=[("chunk-1", _DUP), ("chunk-1", _CANON)],
     )
 
@@ -773,7 +780,7 @@ async def test_prediction_gate_still_fires_when_a_measurement_mismatches(
             _census(script, 99, 11, 499, 700),
             _census(script, 999, 51, 4999, 7000),
         ],
-        related_rows=[(_CANON, _DUP)],
+        repoint_rows=[(_CANON, _DUP, _REFERS)],
         mention_rows=[("chunk-1", _DUP), ("chunk-1", _CANON)],
     )
 
@@ -797,7 +804,9 @@ async def test_prediction_gate_still_fires_when_a_measurement_mismatches(
 # ``duplicate_ids``); ``incoming`` are the captured member edges on that same
 # key. Member edges whose other endpoint is inside the group are skipped by the
 # adapter's ``WHERE`` and deleted by ``_DELETE_INTRA_GROUP_RELATED`` — counted
-# by ``count_intra_group_related``, NEVER twice.
+# as intra-group by the replay, NEVER twice. The per-key formula is exact for
+# ONE group; on a BATCH an earlier group can CREATE that key first, which is why
+# the prediction replays the whole plan sequentially (see the last section).
 
 _OUTSIDE = f"{_NS}:some-other-concept"
 _REFERS = "refers_to"
@@ -813,84 +822,68 @@ def test_related_repoint_collapses_follow_max_zero_existing_plus_incoming(
     plan = _plan(script)
 
     # canonical only, no member edge: nothing is captured, nothing collapses.
-    assert script.count_related_repoint_collapses(plan, [(_CANON, _OUTSIDE, _REFERS)]) == 0
+    only_canon = script.simulate_plan(plan, [(_CANON, _OUTSIDE, _REFERS)], [])
+    assert only_canon.related_repoint_collapses == 0
     # canonical already has the key and one member adds it: 1 + 1 - 1 = 1.
-    assert (
-        script.count_related_repoint_collapses(
-            plan, [(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, _REFERS)]
-        )
-        == 1
+    shared = script.simulate_plan(
+        plan, [(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, _REFERS)], []
     )
+    assert shared.related_repoint_collapses == 1
     # the symmetric in direction collapses independently: 1 + 1 - 1 = 1.
-    assert (
-        script.count_related_repoint_collapses(
-            plan, [(_OUTSIDE, _CANON, _REFERS), (_OUTSIDE, _DUP, _REFERS)]
-        )
-        == 1
+    shared_in = script.simulate_plan(
+        plan, [(_OUTSIDE, _CANON, _REFERS), (_OUTSIDE, _DUP, _REFERS)], []
     )
+    assert shared_in.related_repoint_collapses == 1
     # out-exists + in-from-member are DIFFERENT keys: no collapse.
-    assert (
-        script.count_related_repoint_collapses(
-            plan, [(_CANON, _OUTSIDE, _REFERS), (_OUTSIDE, _DUP, _REFERS)]
-        )
-        == 0
+    distinct = script.simulate_plan(
+        plan, [(_CANON, _OUTSIDE, _REFERS), (_OUTSIDE, _DUP, _REFERS)], []
     )
+    assert distinct.related_repoint_collapses == 0
     # ``MERGE ... {type: r.type}``: a different type is a different key.
-    assert (
-        script.count_related_repoint_collapses(
-            plan, [(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, "related_to")]
-        )
-        == 0
+    other_type = script.simulate_plan(
+        plan, [(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, "related_to")], []
     )
+    assert other_type.related_repoint_collapses == 0
     # both endpoints in the group: skipped by the adapter WHERE and deleted by
-    # _DELETE_INTRA_GROUP_RELATED — the intra-group counter owns that population.
-    assert script.count_related_repoint_collapses(plan, [(_CANON, _DUP, _REFERS)]) == 0
+    # _DELETE_INTRA_GROUP_RELATED — the intra-group population owns that edge.
+    intra = script.simulate_plan(plan, [(_CANON, _DUP, _REFERS)], [])
+    assert intra.related_repoint_collapses == 0
+    assert intra.intra_group_related == 1
     # edges between entities outside the plan groups are irrelevant.
-    assert (
-        script.count_related_repoint_collapses(
-            plan, [("knowledge:other:x", "knowledge:other:y", _REFERS)]
-        )
-        == 0
+    outsiders = script.simulate_plan(
+        plan, [("knowledge:other:x", "knowledge:other:y", _REFERS)], []
     )
+    assert outsiders.related_repoint_collapses == 0
     # the adapter's ``WHERE r.type = inv.edge_properties.type`` never matches a
     # NULL type: such an edge is NOT re-pointed, so it cannot collapse.
-    assert (
-        script.count_related_repoint_collapses(
-            plan, [(_CANON, _OUTSIDE, None), (_DUP, _OUTSIDE, None)]
-        )
-        == 0
+    null_type = script.simulate_plan(plan, [(_CANON, _OUTSIDE, None), (_DUP, _OUTSIDE, None)], [])
+    assert null_type.related_repoint_collapses == 0
+    mixed_type = script.simulate_plan(
+        plan, [(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, None)], []
     )
-    assert (
-        script.count_related_repoint_collapses(
-            plan, [(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, None)]
-        )
-        == 0
-    )
+    assert mixed_type.related_repoint_collapses == 0
 
 
 def test_two_members_sharing_one_key_collapse_to_a_single_survivor(
     script: ModuleType,
 ) -> None:
-    """``incoming = 2`` against a canonical with or without its own edge."""
+    """Two member edges on one key: the survivor is always a single edge."""
     # canonical has none: 0 + 2 - 1 = 1 survivor → loss 1.
-    assert (
-        script.count_related_repoint_collapses(
-            _PLAN3, [(_DUP, _OUTSIDE, _REFERS), (_THIRD, _OUTSIDE, _REFERS)]
-        )
-        == 1
+    without_canon = script.simulate_plan(
+        _PLAN3, [(_DUP, _OUTSIDE, _REFERS), (_THIRD, _OUTSIDE, _REFERS)], []
     )
+    assert without_canon.related_repoint_collapses == 1
     # canonical already has it: 1 + 2 → loss 2 (all three collapse onto one).
-    assert (
-        script.count_related_repoint_collapses(
-            _PLAN3,
-            [
-                (_CANON, _OUTSIDE, _REFERS),
-                (_DUP, _OUTSIDE, _REFERS),
-                (_THIRD, _OUTSIDE, _REFERS),
-            ],
-        )
-        == 2
+    with_canon = script.simulate_plan(
+        _PLAN3,
+        [
+            (_CANON, _OUTSIDE, _REFERS),
+            (_DUP, _OUTSIDE, _REFERS),
+            (_THIRD, _OUTSIDE, _REFERS),
+        ],
+        [],
     )
+    assert with_canon.related_repoint_collapses == 2
 
 
 def test_predicted_census_delta_subtracts_all_three_loss_components(
@@ -910,31 +903,27 @@ def test_mentions_collapse_counts_one_per_chunk_touching_the_group(
     script: ModuleType,
 ) -> None:
     """Every chunk mentioning ANY member collapses onto one canonical edge."""
+    plan = _plan(script)
     # a chunk mentioning BOTH members of a size-2 group: 2 → 1 survivor = 1.
-    assert (
-        script.count_mentions_collapses(_plan(script), [("chunk-1", _CANON), ("chunk-1", _DUP)])
-        == 1
-    )
+    both = script.simulate_plan(plan, [], [("chunk-1", _CANON), ("chunk-1", _DUP)])
+    assert both.mentions_collapses == 1
     # canonical only / single member only: no collapse.
-    assert script.count_mentions_collapses(_plan(script), [("chunk-2", _CANON)]) == 0
-    assert script.count_mentions_collapses(_plan(script), [("chunk-3", _DUP)]) == 0
+    assert script.simulate_plan(plan, [], [("chunk-2", _CANON)]).mentions_collapses == 0
+    assert script.simulate_plan(plan, [], [("chunk-3", _DUP)]).mentions_collapses == 0
     # general case, size-3 group: chunk mentions the two members but NOT the
-    # canonical — the old counter (canonical-anchored) missed exactly this.
-    assert script.count_mentions_collapses(_PLAN3, [("chunk-4", _DUP), ("chunk-4", _THIRD)]) == 1
+    # canonical — a canonical-anchored counter missed exactly this.
+    two = script.simulate_plan(_PLAN3, [], [("chunk-4", _DUP), ("chunk-4", _THIRD)])
+    assert two.mentions_collapses == 1
     # chunk mentioning all three members: 3 → 1 survivor = 2.
-    assert (
-        script.count_mentions_collapses(
-            _PLAN3, [("chunk-5", _CANON), ("chunk-5", _DUP), ("chunk-5", _THIRD)]
-        )
-        == 2
+    three = script.simulate_plan(
+        _PLAN3, [], [("chunk-5", _CANON), ("chunk-5", _DUP), ("chunk-5", _THIRD)]
     )
+    assert three.mentions_collapses == 2
     # a chunk is counted per group it touches; entities outside the plan are ignored.
-    assert (
-        script.count_mentions_collapses(
-            _PLAN3, [("chunk-6", _DUP), ("chunk-6", _THIRD), ("chunk-6", _OUTSIDE)]
-        )
-        == 1
+    mixed = script.simulate_plan(
+        _PLAN3, [], [("chunk-6", _DUP), ("chunk-6", _THIRD), ("chunk-6", _OUTSIDE)]
     )
+    assert mixed.mentions_collapses == 1
 
 
 async def test_dry_run_reports_the_repoint_collapse_component(
@@ -971,7 +960,6 @@ async def test_json_carries_the_repoint_collapse_component(
             _census(script, 100, 10, 500, 700),
             _census(script, 1000, 50, 5000, 7000),
         ],
-        related_rows=[],
         repoint_rows=[(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, _REFERS)],
     )
 
@@ -1007,7 +995,6 @@ async def test_apply_with_repoint_collapse_and_matching_measurement_exits_withou
             _census(script, 99, 11, 500, 699),
             _census(script, 999, 51, 5000, 6999),
         ],
-        related_rows=[],
         repoint_rows=[(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, _REFERS)],
     )
 
@@ -1040,7 +1027,6 @@ async def test_repoint_prediction_gate_still_fires_when_the_measurement_mismatch
             _census(script, 99, 11, 500, 700),
             _census(script, 999, 51, 5000, 7000),
         ],
-        related_rows=[],
         repoint_rows=[(_CANON, _OUTSIDE, _REFERS), (_DUP, _OUTSIDE, _REFERS)],
     )
 
@@ -1051,3 +1037,233 @@ async def test_repoint_prediction_gate_still_fires_when_the_measurement_mismatch
     assert excinfo.value.code == 1
     assert "DRIFT" in out
     assert "RELATED" in out
+
+
+# ── Sequential simulation (defect: the per-group model under-predicts) ───────
+#
+# ``apply_merge`` runs SEQUENTIALLY per group: a group merged EARLIER changes
+# the keys a LATER group sees, and RELATED edges may connect members of
+# DIFFERENT groups. The retired per-group arithmetic evaluated every group
+# against the SAME frozen pre-apply snapshot with
+# ``max(0, existing + incoming - 1)`` and therefore missed collapses an earlier
+# group had just created — measured in production: the 28-group
+# ``knowledge:ai-engineering-huyen`` batch predicted ``RELATED -7`` while the
+# real drop was ``-9`` (on the 7-group batch the single-group model matched
+# exactly: it predicted the 2 lost edges). ``simulate_plan`` replays the
+# adapter's steps in PLAN ORDER over ONE in-memory edge multiset.
+
+_GROUP_A = f"{_NS}:alpha-concept"
+_GROUP_A_DUP = f"{_NS}:alpha-two-concept"
+_GROUP_B = f"{_NS}:beta-concept"
+_GROUP_B_DUP = f"{_NS}:beta-two-concept"
+#: Two groups; ``plan_intra_resolution`` sorts them alpha-before-beta (by name).
+_PLAN_AB = [
+    PlannedMerge(
+        name="alpha",
+        kind="concept",
+        canonical_id=_GROUP_A,
+        duplicate_ids=(_GROUP_A_DUP,),
+    ),
+    PlannedMerge(
+        name="beta",
+        kind="concept",
+        canonical_id=_GROUP_B,
+        duplicate_ids=(_GROUP_B_DUP,),
+    ),
+]
+_CROSS_ROWS = [
+    DuplicateMemberRow(name="alpha", kind="concept", entity_ids=(_GROUP_A, _GROUP_A_DUP)),
+    DuplicateMemberRow(name="beta", kind="concept", entity_ids=(_GROUP_B, _GROUP_B_DUP)),
+]
+_CROSS_SCORES = {
+    _GROUP_A: (7, 19),
+    _GROUP_A_DUP: (1, 4),
+    _GROUP_B: (7, 19),
+    _GROUP_B_DUP: (1, 4),
+}
+#: The production shape: ``(alpha-two) -> beta`` is re-pointed by alpha onto
+#: ``(alpha) -> beta``; ``(alpha) -> beta-two`` is then re-pointed by beta onto
+#: the SAME key and collapses. Against one frozen snapshot neither collapse is
+#: visible to the retired per-group model.
+_CROSS_REPOINT: list[tuple[str, str, str | None]] = [
+    (_GROUP_A_DUP, _GROUP_B, _REFERS),
+    (_GROUP_A, _GROUP_B_DUP, _REFERS),
+]
+#: Mixed topology covering every component: cross-group re-points, one FRESH
+#: cross-group key, two intra-group edges and two MENTIONS collapses.
+_MIXED_RELATED = [
+    (_GROUP_A, _GROUP_B, _REFERS),
+    (_GROUP_A_DUP, _GROUP_B_DUP, _REFERS),
+    (_GROUP_A_DUP, _OUTSIDE, _REFERS),
+    (_OUTSIDE, _GROUP_B_DUP, _REFERS),
+    (_GROUP_A, _GROUP_A_DUP, _REFERS),
+    (_GROUP_B, _GROUP_B_DUP, _REFERS),
+]
+_MIXED_MENTIONS = [
+    ("chunk-1", _GROUP_A_DUP),
+    ("chunk-1", _GROUP_A),
+    ("chunk-2", _GROUP_B_DUP),
+]
+
+
+def _legacy_per_group_repoint_collapses(
+    plan: list[PlannedMerge], edges: list[tuple[str, str, str | None]]
+) -> int:
+    """Frozen copy of the RETIRED per-group formula — the defect baseline.
+
+    Evaluates every group against the SAME pre-apply snapshot with
+    ``max(0, existing + incoming - 1)`` per ``(group, direction, other, type)``
+    key. Kept ONLY so tests can pin that the sequential simulation predicts
+    strictly MORE losses than this static model on batch shapes where an
+    earlier group creates the key a later group collapses onto.
+    """
+    group_of: dict[str, int] = {}
+    canonical_by_group: dict[int, str] = {}
+    members_of: dict[int, set[str]] = {}
+    for position, merge in enumerate(plan):
+        canonical_by_group[position] = merge.canonical_id
+        members_of[position] = {merge.canonical_id, *merge.duplicate_ids}
+        for entity_id in members_of[position]:
+            group_of[entity_id] = position
+    existing: set[tuple[int, str, str, str]] = set()
+    incoming: dict[tuple[int, str, str, str], int] = {}
+    for src, dst, edge_type in edges:
+        if edge_type is None:
+            continue
+        src_group = group_of.get(src)
+        dst_group = group_of.get(dst)
+        if src_group is not None and dst not in members_of[src_group]:
+            key = (src_group, "out", dst, edge_type)
+            if src == canonical_by_group[src_group]:
+                existing.add(key)
+            else:
+                incoming[key] = incoming.get(key, 0) + 1
+        if dst_group is not None and src not in members_of[dst_group]:
+            key = (dst_group, "in", src, edge_type)
+            if dst == canonical_by_group[dst_group]:
+                existing.add(key)
+            else:
+                incoming[key] = incoming.get(key, 0) + 1
+    return sum(max(0, (1 if key in existing else 0) + count - 1) for key, count in incoming.items())
+
+
+def test_sequential_simulation_catches_the_cross_group_collapse(script: ModuleType) -> None:
+    """alpha's merge CREATES the key beta's merge then collapses (production shape)."""
+    losses = script.simulate_plan(_PLAN_AB, _CROSS_REPOINT, [])
+
+    assert losses.related_repoint_collapses == 1
+    assert losses.intra_group_related == 0
+    assert losses.mentions_collapses == 0
+    # the retired per-group model sees NEITHER collapse: both edges look like
+    # fresh keys against the frozen snapshot (0 predicted vs 1 real = the defect).
+    assert _legacy_per_group_repoint_collapses(_PLAN_AB, _CROSS_REPOINT) == 0
+
+
+def test_simulation_totals_are_independent_of_plan_order(script: ModuleType) -> None:
+    """Property: the replay is confluent — any group order yields the SAME totals.
+
+    Every edge deterministically canonicalizes onto
+    ``(canon(src), canon(dst), type)`` (or dies as intra-group) no matter which
+    group runs first, so totals do not depend on the order; the order only
+    changes the intermediate state. The defect was never the order: it was
+    evaluating groups against a FROZEN snapshot instead of replaying them in
+    sequence.
+    """
+    expected_mixed = script.SimulatedLosses(
+        mentions_collapses=1, related_repoint_collapses=1, intra_group_related=2
+    )
+    assert script.simulate_plan(_PLAN_AB, _MIXED_RELATED, _MIXED_MENTIONS) == expected_mixed
+    assert (
+        script.simulate_plan(list(reversed(_PLAN_AB)), _MIXED_RELATED, _MIXED_MENTIONS)
+        == expected_mixed
+    )
+
+    expected_cross = script.SimulatedLosses(
+        mentions_collapses=0, related_repoint_collapses=1, intra_group_related=0
+    )
+    assert script.simulate_plan(_PLAN_AB, _CROSS_REPOINT, []) == expected_cross
+    assert script.simulate_plan(list(reversed(_PLAN_AB)), _CROSS_REPOINT, []) == expected_cross
+
+
+def _seven_group_plan() -> list[PlannedMerge]:
+    """The 7-group single-batch shape: two shared keys, no cross-key creation."""
+    return [
+        PlannedMerge(
+            name=f"g{index}",
+            kind="concept",
+            canonical_id=f"{_NS}:g{index}-concept",
+            duplicate_ids=(f"{_NS}:g{index}-alt-concept",),
+        )
+        for index in range(1, 8)
+    ]
+
+
+def test_seven_group_batch_still_predicts_its_two_collapses(script: ModuleType) -> None:
+    plan = _seven_group_plan()
+    canonical_1, dup_1 = plan[0].canonical_id, plan[0].duplicate_ids[0]
+    dup_2 = plan[1].duplicate_ids[0]
+    canonical_5, dup_5 = plan[4].canonical_id, plan[4].duplicate_ids[0]
+    rows: list[tuple[str, str, str | None]] = [
+        # g1: canonical + duplicate share the OUT key -> 1 collapse.
+        (canonical_1, f"{_NS}:shared-out-concept", _REFERS),
+        (dup_1, f"{_NS}:shared-out-concept", _REFERS),
+        # g5: canonical + duplicate share the IN key -> 1 collapse.
+        (f"{_NS}:shared-in-concept", canonical_5, _REFERS),
+        (f"{_NS}:shared-in-concept", dup_5, _REFERS),
+        # g2: duplicate edge WITHOUT a canonical twin -> no collapse.
+        (dup_2, f"{_NS}:lonely-concept", _REFERS),
+        # cross-group edge: re-pointed twice (g1 out, then g2 in) onto a FRESH
+        # key (canon1 -> canon2) -> no collapse.
+        (dup_1, dup_2, _REFERS),
+    ]
+
+    losses = script.simulate_plan(plan, rows, [])
+
+    assert losses.related_repoint_collapses == 2
+    assert losses.intra_group_related == 0
+    assert losses.mentions_collapses == 0
+    # parity with the retired single-group model on THIS shape (it matched
+    # production's 7-group batch, which predicted exactly its 2 lost edges).
+    assert _legacy_per_group_repoint_collapses(plan, rows) == 2
+
+
+def test_a_group_without_shared_keys_predicts_zero_losses(script: ModuleType) -> None:
+    plan = _plan(script)
+    rows = [
+        (_DUP, _OUTSIDE, _REFERS),  # fresh OUT key: re-pointed, no collapse
+        (_OUTSIDE, _DUP, "related_to"),  # fresh IN key (and a different type)
+        (_CANON, f"{_NS}:another-concept", _REFERS),  # canonical's own edge: never captured
+    ]
+
+    losses = script.simulate_plan(plan, rows, [("chunk-9", _DUP)])
+
+    assert losses == script.SimulatedLosses(
+        mentions_collapses=0, related_repoint_collapses=0, intra_group_related=0
+    )
+
+
+async def test_json_reports_the_sequential_cross_group_collapse(
+    script: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: the batch prediction in the payload comes from the replay."""
+    _install_graph_fakes(
+        script,
+        monkeypatch,
+        census_reads=[
+            _census(script, 100, 10, 500, 700),
+            _census(script, 1000, 50, 5000, 7000),
+        ],
+        rows=_CROSS_ROWS,
+        scores=_CROSS_SCORES,
+        repoint_rows=_CROSS_REPOINT,
+    )
+
+    await script.main(["--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["related_repoint_collapses"] == 1
+    assert payload["intra_group_related"] == 0
+    assert payload["mentions_collapses"] == 0
+    assert payload["predicted_delta"]["total_related"] == -1
