@@ -1,0 +1,97 @@
+{
+  "mode": "DRY-RUN",
+  "namespace": "knowledge:essential-graphrag",
+  "fingerprint": "ed4ce4d0deff92e492ec8ffb7d04a2765a095e3c62e7a71d76efc49eee3036df",
+  "groups": [
+    {
+      "namespace": "knowledge:essential-graphrag",
+      "name": "data tables",
+      "kind": "component",
+      "canonical_id": "knowledge:essential-graphrag:data-tables-component",
+      "duplicate_ids": [
+        "knowledge:essential-graphrag:context-data-component"
+      ]
+    },
+    {
+      "namespace": "knowledge:essential-graphrag",
+      "name": "few-shot examples",
+      "kind": "pattern",
+      "canonical_id": "knowledge:essential-graphrag:few-shot-examples-pattern",
+      "duplicate_ids": [
+        "knowledge:essential-graphrag:few-shot-prompting-pattern"
+      ]
+    },
+    {
+      "namespace": "knowledge:essential-graphrag",
+      "name": "finetuning",
+      "kind": "llmops",
+      "canonical_id": "knowledge:essential-graphrag:finetuning-llmops",
+      "duplicate_ids": [
+        "knowledge:essential-graphrag:fine-tuning-llmops"
+      ]
+    },
+    {
+      "namespace": "knowledge:essential-graphrag",
+      "name": "graph indexing",
+      "kind": "concept",
+      "canonical_id": "knowledge:essential-graphrag:graph-indexing-concept",
+      "duplicate_ids": [
+        "knowledge:essential-graphrag:graph-indexing-process-concept"
+      ]
+    },
+    {
+      "namespace": "knowledge:essential-graphrag",
+      "name": "movie knowledge graph",
+      "kind": "concept",
+      "canonical_id": "knowledge:essential-graphrag:movie-graph-dataset-concept",
+      "duplicate_ids": [
+        "knowledge:essential-graphrag:movie-knowledge-graph-concept"
+      ]
+    },
+    {
+      "namespace": "knowledge:essential-graphrag",
+      "name": "rag pipeline",
+      "kind": "concept",
+      "canonical_id": "knowledge:essential-graphrag:retrieval-augmented-generation-pipeline-concept",
+      "duplicate_ids": [
+        "knowledge:essential-graphrag:rag-pipeline-concept"
+      ]
+    },
+    {
+      "namespace": "knowledge:essential-graphrag",
+      "name": "step-back prompting",
+      "kind": "pattern",
+      "canonical_id": "knowledge:essential-graphrag:step-back-prompting-pattern",
+      "duplicate_ids": [
+        "knowledge:essential-graphrag:take-a-step-back-evoking-reasoning-via-abstraction-in-large-language-models-pattern"
+      ]
+    }
+  ],
+  "duplicates": 7,
+  "edge_impact": {
+    "mentions": 8,
+    "related": 16
+  },
+  "intra_group_related": 0,
+  "mentions_collapses": 0,
+  "census_before": {
+    "namespace": {
+      "active_entities": 1110,
+      "merged_into_count": 131,
+      "total_mentions": 3123,
+      "total_related": 3297
+    },
+    "db_wide": {
+      "active_entities": 20492,
+      "merged_into_count": 901,
+      "total_mentions": 42890,
+      "total_related": 42196
+    }
+  },
+  "predicted_delta": {
+    "active_entities": -7,
+    "merged_into_count": 7,
+    "total_mentions": 0,
+    "total_related": 0
+  }
+}

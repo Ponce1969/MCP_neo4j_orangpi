@@ -1,0 +1,2669 @@
+{
+  "report_schema_version": "1.0",
+  "audit_query_version": "p1-static-v1",
+  "target": {
+    "selector": "bookgraph-neo4j",
+    "database": "neo4j",
+    "scheme": "bolt",
+    "host": "localhost",
+    "port": 7687
+  },
+  "scope": null,
+  "state": "passed",
+  "inventory": {
+    "Book": {
+      "value": 4,
+      "state": "evaluated"
+    },
+    "Chapter": {
+      "value": 45,
+      "state": "evaluated"
+    },
+    "Section": {
+      "value": 637,
+      "state": "evaluated"
+    },
+    "Chunk": {
+      "value": 3468,
+      "state": "evaluated"
+    },
+    "Entity": {
+      "value": 21393,
+      "state": "evaluated"
+    },
+    "CONTAINS": {
+      "value": 45,
+      "state": "evaluated"
+    },
+    "HAS_SECTION": {
+      "value": 598,
+      "state": "evaluated"
+    },
+    "HAS_SUBSECTION": {
+      "value": 70,
+      "state": "evaluated"
+    },
+    "HAS_CHUNK": {
+      "value": 3468,
+      "state": "evaluated"
+    },
+    "MENTIONS": {
+      "value": 42890,
+      "state": "evaluated"
+    },
+    "RELATED": {
+      "value": 42194,
+      "state": "evaluated"
+    }
+  },
+  "findings": [
+    {
+      "rule_id": "DUPLICATE_ENTITY_CROSS_NAMESPACE",
+      "category": "duplicates",
+      "severity": "warning",
+      "total": 456,
+      "samples": [
+        {
+          "key": "abstraction|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:abstraction-concept",
+            "knowledge:graphrag-agentic:abstraction-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:abstraction-concept",
+            "description": "Powerful abstraction created by the pattern: a calling agent only needs to know what another agent does and what inputs it requires, not how it works internally.",
+            "name": "abstraction",
+            "type": "concept",
+            "aliases": [
+              "abstraction-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:d17989956e47b30d5f5df5da3e4699877336c7babe24c5bcd9abc51caa30b04b",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "access control|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:access-control-concept",
+            "knowledge:graphrag-agentic:access-control-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:access-control-concept",
+            "description": "Security mechanism restricting unauthorized access to models, serving infrastructure, and credentials; protects against theft and misuse.",
+            "name": "Access control",
+            "type": "concept",
+            "aliases": [
+              "access-control-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:e4c4d2a9ca005852865b44d540d4b059cd337dede2c2084a439e333282745170",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "accuracy|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:accuracy-concept",
+            "knowledge:graphrag-agentic:accuracy-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:accuracy-concept",
+            "description": "Ensuring model outputs are correct through grounding and context.",
+            "name": "Accuracy",
+            "type": "concept",
+            "aliases": [
+              "accuracy-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:eb40c74e480b320cf500efcf64097137dc21ddf3893cb3767e975e867a196c03",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "adaptation|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:adaptation-concept",
+            "knowledge:graphrag-agentic:adaptation-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:adaptation-concept",
+            "description": "The advanced capability that agentic AI must adopt, going beyond mere execution.",
+            "name": "adaptation",
+            "type": "concept",
+            "aliases": [
+              "adaptation-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:fe1fca68e4cfa13411221addc31147078c66c12c2cf1f3cb2bee99b54e903349",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "adapters|component",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:adapters-component",
+            "knowledge:ai-engineering-huyen:adapter-modules-component",
+            "knowledge:graphrag-agentic:adapters-component"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:adapters-component",
+            "description": "Components that adapt interfaces between systems.",
+            "name": "adapters",
+            "type": "component",
+            "aliases": [
+              "adapters-component"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:ai-engineering-huyen",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:4d4987a5de7b062a7afdb4cd35e4ae1c519625dface261bcdb79160edad48247",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:ai-engineering-huyen|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agent architecture|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agent-architecture-concept",
+            "knowledge:graphrag-agentic:agent-architecture-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agent-architecture-concept",
+            "description": "Surrounding architecture that transforms the model's passive potential into active, goal-directed behavior.",
+            "name": "agent architecture",
+            "type": "concept",
+            "aliases": [
+              "agent-architecture-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:d10e0af806175432e5d4ef73c7536a4170b3fc053e04e40fb0ddd828f1f3f04e",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agent code|component",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agent-code-component",
+            "knowledge:graphrag-agentic:agent-code-component"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agent-code-component",
+            "description": "Code within the agent that receives structured output, executes the selected function, and feeds the result back to the LLM.",
+            "name": "Agent code",
+            "type": "component",
+            "aliases": [
+              "agent-code-component"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:ccf5f49387dc7625f0663016ef976766543c8848527f86ba96e438cd2331c934",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agent failure|risk",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agent-failure-risk",
+            "knowledge:graphrag-agentic:agent-failure-risk"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agent-failure-risk",
+            "description": "Inevitable failure or stall of a single agent.",
+            "name": "Agent Failure",
+            "type": "risk",
+            "aliases": [
+              "agent-failure-risk"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:50bf2bc301877e773ddf78b96aac7d0cf0d8943b06fe9d7a20aa635d1d400f0c",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agent frameworks|framework",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agent-frameworks-framework",
+            "knowledge:ai-engineering-huyen:agent-frameworks-framework"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agent-frameworks-framework",
+            "description": "Frameworks used for practical implementation of AI agents.",
+            "name": "agent frameworks",
+            "type": "framework",
+            "aliases": [
+              "agent-frameworks-framework"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:ai-engineering-huyen"
+            ]
+          },
+          "group_id": "entity-duplicate:a7917f701001c1202bd6d8b5f78e92f42644c759c8151116bb4b8cb5590c6a6d",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "agent framework|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agent-framework-concept",
+            "knowledge:ai-engineering-huyen:agent-framework-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agent-framework-concept",
+            "description": "A framework for building multi-agent systems; no single best choice exists and selection depends on project complexity, team familiarity, and production requirements.",
+            "name": "agent framework",
+            "type": "concept",
+            "aliases": [
+              "agent frameworks",
+              "agent-framework-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:ai-engineering-huyen"
+            ]
+          },
+          "group_id": "entity-duplicate:d0ba39f412c51339b03cba924d79f93d206d0fb705f2c7daf5db99b4743db913",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "agent reasoning|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agent-reasoning-concept",
+            "knowledge:graphrag-agentic:agent-reasoning-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agent-reasoning-concept",
+            "description": "Reasoning process of an agent.",
+            "name": "agent reasoning",
+            "type": "concept",
+            "aliases": [
+              "agent-reasoning-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:c8add0086efc9de8f8e15d03736116723eaac951a56192d4ac960803e000d190",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agent reliability|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agent-reliability-concept",
+            "knowledge:graphrag-agentic:agent-reliability-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agent-reliability-concept",
+            "description": "Quantifiable property of an agent, determined by sampling multiple responses and measuring their stochastic consistency.",
+            "name": "Agent Reliability",
+            "type": "concept",
+            "aliases": [
+              "agent-reliability-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:c9821383b05351a1ad59ade775d20fe07be73b5ada57fbc3d530882ddd3b9773",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agent workflow|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agent-workflow-concept",
+            "knowledge:graphrag-agentic:agent-workflow-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agent-workflow-concept",
+            "description": "Interplay between the language model, tools, and agent that must be optimized alongside raw model speed.",
+            "name": "agent workflow",
+            "type": "concept",
+            "aliases": [
+              "agent-workflow-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:5d066d1cf9e0c110d85d295e6beda94b451171b1e6e614a1e7d9b6b290f7e524",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agentic rag|pattern",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agentic-retrieval-augmented-generation-pattern",
+            "knowledge:essential-graphrag:agentic-rag-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agentic-retrieval-augmented-generation-pattern",
+            "description": "Advanced RAG implementation for complex queries in which a dedicated agent refines queries, performs iterative searches, and synthesizes retrieved results.",
+            "name": "agentic RAG",
+            "canonical_name": "Agentic Retrieval-Augmented Generation",
+            "type": "pattern",
+            "aliases": [
+              "agentic-retrieval-augmented-generation-pattern"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:essential-graphrag"
+            ]
+          },
+          "group_id": "entity-duplicate:7cf4b95e7fca8a21f9f53cd75364c81cbad45e6aba1eae399da37fea6a7d1e96",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:essential-graphrag"
+        },
+        {
+          "key": "agentic systems|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agentic-systems-concept",
+            "knowledge:essential-graphrag:agentic-systems-concept",
+            "knowledge:graphrag-agentic:agentic-systems-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agentic-systems-concept",
+            "description": "Systems built around AI agents that perceive, reason, and act; the focus of the book.",
+            "name": "agentic systems",
+            "type": "concept",
+            "aliases": [
+              "agentic-systems-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:essential-graphrag",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:988ce3637b766865aa5bf91c189f1a0a5bd520b14ef1300a0a504ed57cb606a3",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:essential-graphrag|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agentic system|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agentic-system-concept",
+            "knowledge:graphrag-agentic:agentic-system-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agentic-system-concept",
+            "description": "Autonomous system in production; more than a clever algorithm, it requires a holistic strategy.",
+            "name": "agentic system",
+            "type": "concept",
+            "aliases": [
+              "autonomous systems",
+              "agentic-system-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:80d846d6de7a11b6eb0db881c810ec72138f2b6d0e2a98fd74e80aa817e62305",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agentic workflows|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agentic-workflows-concept",
+            "knowledge:graphrag-agentic:agentic-workflows-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agentic-workflows-concept",
+            "description": "Workflows in which agents loop, retry, or dynamically decide the next step based on the current state.",
+            "name": "Agentic workflows",
+            "type": "concept",
+            "aliases": [
+              "agentic-workflows-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:f926e605955975782cb033f5e2be0f7748783e0cb70cb39fc8439aa7605088b4",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agents|agent",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agents-agent",
+            "knowledge:graphrag-agentic:agents-agent"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agents-agent",
+            "description": "Autonomous entities in production that require operations management and guardrails.",
+            "name": "agents",
+            "type": "agent",
+            "aliases": [
+              "agents-agent"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:6037852083e01372b93b7701f80ca5e17de2e9f4f05273f34757b9e8a157444a",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agent|agent",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:agent-agent",
+            "knowledge:essential-graphrag:agent-agent",
+            "knowledge:graphrag-agentic:agent-agent"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:agent-agent",
+            "description": "Entidad que utiliza herramientas y planificación para realizar tareas en un entorno.",
+            "name": "Agent",
+            "type": "agent",
+            "aliases": [
+              "agente"
+            ],
+            "namespaces": [
+              "knowledge:ai-engineering-huyen",
+              "knowledge:essential-graphrag",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:f54cd6bc3d49fe76e4916f40fa98d04bc5aaf9d08e7529305e0be882a2c2967e",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen|knowledge:essential-graphrag|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agent|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:agent-concept",
+            "knowledge:graphrag-agentic:agent-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:agent-concept",
+            "description": "An autonomous entity with goals, reasoning, planning, action, and coordination capabilities.",
+            "name": "agent",
+            "type": "concept",
+            "aliases": [
+              "agent-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:ef0c0d7186a2d8608613469346d688e8a4f071074cb9ac0ee62510b8adab19fc",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "ai agents|agent",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:ai-agents-agent",
+            "knowledge:graphrag-agentic:ai-agents-agent"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:ai-agents-agent",
+            "description": "Intelligent agents that can be orchestrated to solve complex tasks, also referred to as autonomous agents when built with LangChain and LangGraph.",
+            "name": "AI agents",
+            "type": "agent",
+            "aliases": [
+              "autonomous agents",
+              "agents",
+              "ai-agents-agent"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:721ed1bb9aca734dfca8391cc3676bd92a511827e5b0db5faca0e79a0d37cb22",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "ai agent|agent",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:ai-agent-agent",
+            "knowledge:graphrag-agentic:ai-agent-agent"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:ai-agent-agent",
+            "description": "An AI-powered autonomous agent.",
+            "name": "AI agent",
+            "type": "agent",
+            "aliases": [
+              "ai-agent-agent"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:92f8ca431799c8463d62610db2f7f05352f5be7f541d41b44fe1b07582e0ff20",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "ai assistant|agent",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:ai-assistant-agent",
+            "knowledge:essential-graphrag:ai-assistant-agent"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:ai-assistant-agent",
+            "description": "AI assistant designed to help a mortgage underwriter evaluate loan applications and answer DTI questions.",
+            "name": "AI Assistant",
+            "type": "agent",
+            "aliases": [
+              "ai-assistant-agent"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:essential-graphrag"
+            ]
+          },
+          "group_id": "entity-duplicate:33baa0e283049add9833808dd5ac73527448926c66447110b97baf7e1594b4a5",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:essential-graphrag"
+        },
+        {
+          "key": "amnesia|risk",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:amnesia-risk",
+            "knowledge:graphrag-agentic:amnesia-risk"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:amnesia-risk",
+            "description": "Loss of knowledge that occurs when information is siloed within individual session histories rather than shared.",
+            "name": "amnesia",
+            "type": "risk",
+            "aliases": [
+              "knowledge amnesia",
+              "amnesia-risk"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:15af8ed5fd921453a9a66b17a51c54ac0019109452713111174f089e2054dee4",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "anthropic|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:anthropic-concept",
+            "knowledge:graphrag-agentic:anthropic-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:anthropic-concept",
+            "description": "Organización que propuso la técnica de recuperación contextual.",
+            "name": "Anthropic",
+            "type": "concept",
+            "aliases": [],
+            "namespaces": [
+              "knowledge:ai-engineering-huyen",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:f7cb816e906681c1b0cbce48d54cf173590a3704de7cc682c1eeaf9486b5e5a9",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "anyscale|framework",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:anyscale-framework",
+            "knowledge:graphrag-agentic:anyscale-framework"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:anyscale-framework",
+            "description": "Third-party API provider offering model APIs.",
+            "name": "Anyscale",
+            "type": "framework",
+            "aliases": [],
+            "namespaces": [
+              "knowledge:ai-engineering-huyen",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:7626f44200d2259bbd534f5eb7fc676e6fafdabfa879c81e6a09440b7a06bfcc",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "api calls|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:api-calls-concept",
+            "knowledge:graphrag-agentic:api-calls-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:api-calls-concept",
+            "description": "External LLM invocations that are logged and converted into dollar amounts in real time by the budget controller.",
+            "name": "API calls",
+            "type": "concept",
+            "aliases": [
+              "API call",
+              "api-calls-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:62879ba840dc5f670ffab8245bfbb1f0ec22c723cdafea050709223a71a3ecae",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "apis|component",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:apis-component",
+            "knowledge:graphrag-agentic:apis-component"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:apis-component",
+            "description": "Interfaces de programación de aplicaciones, utilizadas para integrar modelos y servicios.",
+            "name": "APIs",
+            "type": "component",
+            "aliases": [
+              "API"
+            ],
+            "namespaces": [
+              "knowledge:ai-engineering-huyen",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:46d1b255d14a1ffbf3f26a1ab895ad1d7b1113d0a11927de2854e22fbbe39249",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "api|component",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:api-component",
+            "knowledge:graphrag-agentic:application-programming-interface-component"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:api-component",
+            "description": "Interfaz de programación utilizada para acceder a servicios de IA y cuyos costos afectan a las empresas.",
+            "name": "API",
+            "type": "component",
+            "aliases": [
+              "APIs",
+              "interfaz de programación de aplicaciones"
+            ],
+            "namespaces": [
+              "knowledge:ai-engineering-huyen",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:b5791cf2b6587e51339edc57b6df2bff32a0d02dc1141d553186a88546a684ef",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "api|tool",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:application-programming-interface-tool",
+            "knowledge:ai-engineering-huyen:api-tool"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:application-programming-interface-tool",
+            "description": "Interface used by the Credit Check Agent to retrieve FICO and credit history.",
+            "name": "API",
+            "canonical_name": "Application Programming Interface",
+            "type": "tool",
+            "aliases": [
+              "application-programming-interface-tool"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:ai-engineering-huyen"
+            ]
+          },
+          "group_id": "entity-duplicate:f696646238892dd32049daa508f8f83271decfd52e1670f520b1422b289c5df9",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "architecture|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:core-architecture-concept",
+            "knowledge:graphrag-agentic:architecture-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:core-architecture-concept",
+            "description": "Core architecture laid out in the chapter; the essential prerequisite for designing and implementing agentic patterns.",
+            "name": "Architecture",
+            "canonical_name": "core architecture",
+            "type": "concept",
+            "aliases": [
+              "system architecture",
+              "core-architecture-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:242bd15af4b90d218b92afb2a47a23db4f3a082c0dd158380337887d3c0f91b4",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "attention is all you need|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:attention-is-all-you-need-concept",
+            "knowledge:essential-graphrag:attention-is-all-you-need-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:attention-is-all-you-need-concept",
+            "description": "Artículo de Vaswani et al. (2017) que introduce la arquitectura Transformer y populariza el mecanismo de atención.",
+            "name": "Attention Is All You Need",
+            "type": "concept",
+            "aliases": [
+              "Attention Is All You Need (Vaswani et al., 2017)"
+            ],
+            "namespaces": [
+              "knowledge:ai-engineering-huyen",
+              "knowledge:essential-graphrag"
+            ]
+          },
+          "group_id": "entity-duplicate:c3bcfd8b3d37ba21d56eb691f83b075cbb03f499e158f2520b2cc4b851cc4cea",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen|knowledge:essential-graphrag"
+        },
+        {
+          "key": "audit trail|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:audit-trail-concept",
+            "knowledge:graphrag-agentic:audit-trail-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:audit-trail-concept",
+            "description": "Record of decisions and actions used to support accountability in conflict resolution.",
+            "name": "audit trail",
+            "type": "concept",
+            "aliases": [
+              "audit-trail-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:3cc1d9399ca71c58e1bb2050ef48ba05182e42488c59fb0396cf64281c5cd6af",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "authentication|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:authentication-concept",
+            "knowledge:graphrag-agentic:authentication-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:authentication-concept",
+            "description": "Process of verifying identity; standardized by OpenID Connect.",
+            "name": "authentication",
+            "type": "concept",
+            "aliases": [
+              "authentication-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:5092f0538d67ac97ecca3590dba46718515c7be5f32935a7c70b66f8a2f29817",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "autonomous agent|agent",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:autonomous-agent-agent",
+            "knowledge:graphrag-agentic:autonomous-agent-agent"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:autonomous-agent-agent",
+            "description": "Agent whose autonomy is its greatest strength and greatest risk; operates with a higher level of agency and requires governance.",
+            "name": "autonomous agent",
+            "type": "agent",
+            "aliases": [
+              "agent",
+              "autonomous-agent-agent"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:0ddd68864eecc0accdc54575df2fe75e4024c3e817398b9c317c71a6b5bf7837",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "autonomy|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:autonomy-concept",
+            "knowledge:graphrag-agentic:autonomy-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:autonomy-concept",
+            "description": "Increasing autonomy as part of agentic system evolution.",
+            "name": "autonomy",
+            "type": "concept",
+            "aliases": [
+              "autonomy-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:2edbe1a361f9ed571459ab4886f47fb0b338a9699da3076270ae8ef4c27a8cb7",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "aws|tool",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:amazon-web-services-tool",
+            "knowledge:graphrag-agentic:aws-tool"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:amazon-web-services-tool",
+            "description": "Amazon Web Services, proveedor de servicios en la nube que aloja modelos de IA.",
+            "name": "AWS",
+            "canonical_name": "Amazon Web Services",
+            "type": "tool",
+            "aliases": [
+              "Amazon Web Services"
+            ],
+            "namespaces": [
+              "knowledge:ai-engineering-huyen",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:9521908cdba47326ecf1a11f29c7cc2fad30a297477d4d3b8c67dd07b280aaf4",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "base model|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:base-model-concept",
+            "knowledge:ai-engineering-huyen:base-model-concept",
+            "knowledge:essential-graphrag:base-model-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:base-model-concept",
+            "description": "The original pretrained model that may not have certain ethical guidelines or safety protocols ingrained and is kept mostly frozen in PEFT.",
+            "name": "Base Model",
+            "type": "concept",
+            "aliases": [
+              "base-model-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:ai-engineering-huyen",
+              "knowledge:essential-graphrag"
+            ]
+          },
+          "group_id": "entity-duplicate:e4d871a6e1892c292f1085f0278519ef264857cfedef45351f5c8a50dd196e58",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:ai-engineering-huyen|knowledge:essential-graphrag"
+        },
+        {
+          "key": "behaviors|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:behaviors-concept",
+            "knowledge:graphrag-agentic:behaviors-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:behaviors-concept",
+            "description": "Desired behaviors deeply ingrained into LLMs through adaptation, associated with fine-tuning.",
+            "name": "Behaviors",
+            "type": "concept",
+            "aliases": [
+              "behaviors-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:b381295d389d13f9325d12c5b9f174dc8f02794a062df036df629464959a1012",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "benchmark|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:benchmark-concept",
+            "knowledge:essential-graphrag:benchmark-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:benchmark-concept",
+            "description": "Prueba estandarizada para evaluar el rendimiento de componentes como traductores.",
+            "name": "Benchmark",
+            "type": "concept",
+            "aliases": [
+              "Benchmarks"
+            ],
+            "namespaces": [
+              "knowledge:ai-engineering-huyen",
+              "knowledge:essential-graphrag"
+            ]
+          },
+          "group_id": "entity-duplicate:6326a0d63c64282f88f67efd9b18d8969f42f68e50c15858cf15a357b6f4c657",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen|knowledge:essential-graphrag"
+        },
+        {
+          "key": "bertscore|tool",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:bertscore-tool",
+            "knowledge:ai-engineering-huyen:bertscore-tool"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:bertscore-tool",
+            "description": "Semantic similarity metric used to evaluate generated text quality.",
+            "name": "BERTScore",
+            "type": "tool",
+            "aliases": [
+              "bertscore-tool"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:ai-engineering-huyen"
+            ]
+          },
+          "group_id": "entity-duplicate:749c8dae970b4b7c88e03afa3907b62ac755a7cd34b9797b0f0fa7860fdab217",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "bleurt|tool",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:bleurt-tool",
+            "knowledge:ai-engineering-huyen:bleurt-tool"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:bleurt-tool",
+            "description": "Learned evaluation metric for text generation quality.",
+            "name": "BLEURT",
+            "type": "tool",
+            "aliases": [
+              "bleurt-tool"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:ai-engineering-huyen"
+            ]
+          },
+          "group_id": "entity-duplicate:81a4765a75f0797e6b0f15eb17a3613d915668e5ddd01047e3f0571279724639",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "bleu|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:bleu-concept",
+            "knowledge:ai-engineering-huyen:bleu-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:bleu-concept",
+            "description": "Traditional NLP metric based on word overlap; insufficient for agentic workflows.",
+            "name": "BLEU",
+            "type": "concept",
+            "aliases": [
+              "bleu-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:ai-engineering-huyen"
+            ]
+          },
+          "group_id": "entity-duplicate:cd982150afdcd9c36e415bc14cf70af939402396df1fbfed478b3ff8e558672d",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "bleu|tool",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:bilingual-evaluation-understudy-tool",
+            "knowledge:ai-engineering-huyen:bleu-tool"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:bilingual-evaluation-understudy-tool",
+            "description": "Traditional NLP metric that measures word overlap and is logic-blind.",
+            "name": "BLEU",
+            "canonical_name": "Bilingual Evaluation Understudy",
+            "type": "tool",
+            "aliases": [
+              "bilingual-evaluation-understudy-tool"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:ai-engineering-huyen"
+            ]
+          },
+          "group_id": "entity-duplicate:85550dd75357e9ddaa956c74ae34373d808fc2784a4c405022e6465569aff0a6",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "bug|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:bug-concept",
+            "knowledge:graphrag-agentic:bug-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:bug-concept",
+            "description": "Defect that can lead to runaway resource consumption and a massive, unexpected cloud bill.",
+            "name": "bug",
+            "type": "concept",
+            "aliases": [
+              "bug-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:ce2a76ffe1bece8232bdbfd7261502dccefc7c2271bf634206fd67f073be65ad",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "caching|pattern",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:caching-pattern",
+            "knowledge:ai-engineering-huyen:caching-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:caching-pattern",
+            "description": "Storing responses for frequently identical or very similar LLM queries to reduce redundant computations.",
+            "name": "Caching",
+            "type": "pattern",
+            "aliases": [
+              "caching-pattern"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:ai-engineering-huyen"
+            ]
+          },
+          "group_id": "entity-duplicate:773739ec9d53270a78411127f7e701c88c56a996d4688a70a011b736d78dbac1",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "canary testing|pattern",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:canary-deployment-pattern",
+            "knowledge:graphrag-agentic:canary-testing-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:canary-deployment-pattern",
+            "description": "Robustness pattern that runs a canary agent alongside a stable agent, evaluates its outputs in a comparison store, and promotes it to stable only after it proves reliable and performant.",
+            "name": "Canary Testing",
+            "canonical_name": "Canary Deployment",
+            "type": "pattern",
+            "aliases": [
+              "canary deployment",
+              "canary release",
+              "canary testing workflow",
+              "canary-deployment-pattern"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:7f548a91889d7db3e5f63132c1231f74ed3240f758ee22756e5580c33c2df15d",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "cascading failures|risk",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:cascading-failures-risk",
+            "knowledge:graphrag-agentic:cascading-failures-risk"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:cascading-failures-risk",
+            "description": "Risk of failures propagating through a multi-agent system, prevented by system-level patterns.",
+            "name": "cascading failures",
+            "type": "risk",
+            "aliases": [
+              "cascading-failures-risk"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:051c3b9bd6f5c4463623fd0d8b322f5517d566fd01359be98a1e719eefe3611f",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "catastrophic forgetting|risk",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:catastrophic-forgetting-risk",
+            "knowledge:graphrag-agentic:catastrophic-forgetting-risk"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:catastrophic-forgetting-risk",
+            "description": "The risk during fine-tuning that a model loses valuable general capabilities learned during initial pretraining; reduced by PEFT and carried by FFT.",
+            "name": "Catastrophic Forgetting",
+            "type": "risk",
+            "aliases": [
+              "catastrophic-forgetting-risk",
+              "Catastrophic Forgetting Across Cycles"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:a8cce0fe3c42742d5b00a80f01cc7688f780143c20f004268c57f0a406a41d92",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        },
+        {
+          "key": "centralized control|concept",
+          "subject_ids": [
+            "knowledge:agentic-architectural-patterns:centralized-control-concept",
+            "knowledge:graphrag-agentic:centralized-control-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:agentic-architectural-patterns:centralized-control-concept",
+            "description": "Approach based on commands from a central leader, contrasted with decentralized local coordination.",
+            "name": "Centralized Control",
+            "type": "concept",
+            "aliases": [
+              "central leader",
+              "centralized-control-concept"
+            ],
+            "namespaces": [
+              "knowledge:agentic-architectural-patterns",
+              "knowledge:graphrag-agentic"
+            ]
+          },
+          "group_id": "entity-duplicate:ccba4fa0535e2a24740846ca906f8a111d3d5791859068892ff7d0208b9b42c3",
+          "native_edge_count": null,
+          "namespace": "knowledge:agentic-architectural-patterns|knowledge:graphrag-agentic"
+        }
+      ],
+      "sample_limit": 50,
+      "sample_truncated": true,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "DUPLICATE_ENTITY_LOGICAL",
+      "category": "duplicates",
+      "severity": "warning",
+      "total": 57,
+      "samples": [
+        {
+          "key": "a-mem pattern|pattern",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:a-mem-pattern-evolving-knowledge-networks-pattern",
+            "knowledge:graphrag-agentic:a-mem-pattern-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:a-mem-pattern-evolving-knowledge-networks-pattern",
+            "description": "Evolving knowledge network pattern (Xu et al., 2025) focused on how new information changes existing knowledge, causing new facts to ripple through related beliefs.",
+            "name": "A-Mem Pattern",
+            "canonical_name": "A-Mem Pattern: Evolving Knowledge Networks",
+            "type": "pattern",
+            "aliases": [
+              "A-Mem",
+              "The A-Mem Pattern"
+            ]
+          },
+          "group_id": "entity-duplicate:3145b9ea50d51aac1d70cd7ab89f6249708715108a5205085e05179c56dce794",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agent architecture|pattern",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:agent-architecture-pattern",
+            "knowledge:graphrag-agentic:ai-agent-architecture-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:agent-architecture-pattern",
+            "description": "Architectural patterns for agent systems, including sources of failure.",
+            "name": "Agent Architecture",
+            "type": "pattern",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:c8cb2a73a5470667e3effddbadb51fdf91cead19f79f5d6dfdb7ee3d8cc0206c",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "agent knowledge graphs|concept",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:agent-knowledge-graph-concept",
+            "knowledge:graphrag-agentic:agent-knowledge-graphs-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:agent-knowledge-graph-concept",
+            "description": "Knowledge graphs used by agents for reasoning; entity resolution is foundational to avoid conflating or fragmenting entities.",
+            "name": "Agent Knowledge Graphs",
+            "canonical_name": "Agent Knowledge Graph",
+            "type": "concept",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:9d817b61c3fa4d61407ecbc167a2caba85f6b663a0d2db7cae6d3085485de796",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "ai systems|concept",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:ai-systems-concept",
+            "knowledge:graphrag-agentic:artificial-intelligence-systems-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:ai-systems-concept",
+            "description": "Systems that coordinate across domains, maintain local expertise and global coherence, and benefit from hierarchical organization and continuous learning.",
+            "name": "AI systems",
+            "type": "concept",
+            "aliases": [
+              "ai-systems-concept"
+            ]
+          },
+          "group_id": "entity-duplicate:fd772ea62e21d6175af1c735922f1c366fb2ef1c3b7dfc85873fd362126bb614",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "ajuste fino de preferencias|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:ajuste-fino-de-preferencias-concept",
+            "knowledge:ai-engineering-huyen:preference-fine-tuning-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:ajuste-fino-de-preferencias-concept",
+            "description": "Proceso de ajuste de un modelo para alinear sus salidas con preferencias humanas.",
+            "name": "Ajuste fino de preferencias",
+            "type": "concept",
+            "aliases": [
+              "Ajuste fino utilizando el modelo de recompensa"
+            ]
+          },
+          "group_id": "entity-duplicate:42f18b8ee474e42e989680b706f730a2026ee11011df619cc0d482caf39d08d5",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "ajuste fino supervisado|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:ajuste-fino-supervisado-concept",
+            "knowledge:ai-engineering-huyen:supervised-fine-tuning-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:ajuste-fino-supervisado-concept",
+            "description": "Técnica de post-entrenamiento que ajusta un modelo preentrenado con datos etiquetados.",
+            "name": "Ajuste fino supervisado",
+            "type": "concept",
+            "aliases": [
+              "Supervised Fine-Tuning",
+              "SFT"
+            ]
+          },
+          "group_id": "entity-duplicate:fcc7b17222cb0ecd9b54e6a068f9d5a2d42d40bc840f8adc40e71fd4d167ad42",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "alucinación|risk",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:alucinaci-n-risk",
+            "knowledge:ai-engineering-huyen:hallucination-risk"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:alucinaci-n-risk",
+            "description": "Riesgo de que un modelo de IA genere información falsa o inventada.",
+            "name": "Alucinación",
+            "type": "risk",
+            "aliases": [
+              "hallucination"
+            ]
+          },
+          "group_id": "entity-duplicate:a577a2256513d0ea4bdb12438e7480615979cd0b00e78a850352541c679aebf3",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "aprendizaje por refuerzo|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:aprendizaje-por-refuerzo-concept",
+            "knowledge:ai-engineering-huyen:aprendizaje-por-refuerzo-rl-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:aprendizaje-por-refuerzo-concept",
+            "description": "Reinforcement learning field that has sought to learn from natural language feedback since the late 2010s.",
+            "name": "Aprendizaje por refuerzo",
+            "type": "concept",
+            "aliases": [
+              "RL",
+              "Reinforcement learning"
+            ]
+          },
+          "group_id": "entity-duplicate:be07445d97415424ad12f5d501cf713c8c84a029b2e5fdc613e096afff3e32d0",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "consumo de energía|risk",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:consumo-de-energ-a-risk",
+            "knowledge:ai-engineering-huyen:energy-consumption-risk"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:consumo-de-energ-a-risk",
+            "description": "Uso energético de chips y sistemas de refrigeración que amenaza con un impacto ambiental significativo y presiona hacia centros de datos ecológicos.",
+            "name": "Consumo de energía",
+            "type": "risk",
+            "aliases": [
+              "consumo energético"
+            ]
+          },
+          "group_id": "entity-duplicate:ed4e8968720ff6d7a87b94d03366a2f81375bec6867d1c77f053466bb5321f12",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "context mixing|risk",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:context-mixing-risk",
+            "knowledge:graphrag-agentic:context-mixing-risk-risk"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:context-mixing-risk",
+            "description": "The risk of mixing context across environments, which the contextual boundary pattern prevents.",
+            "name": "Context Mixing",
+            "type": "risk",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:7c0213bde64835326ef157ceabb3e4ce6a560f7e0d264ca9705e46eee318b1ea",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "contextual boundary pattern|pattern",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:contextual-boundary-pattern-pattern",
+            "knowledge:graphrag-agentic:contextual-boundary-schema-pattern-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:contextual-boundary-pattern-pattern",
+            "description": "Pattern for defining contextual boundaries within organizations, addressing organizational disconnection in agentic AI.",
+            "name": "Contextual boundary pattern",
+            "canonical_name": "Contextual Boundary Pattern",
+            "type": "pattern",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:b27f0db788335ab89ba43e0b7fe71125963ed8470ace42d9476a1a8c06a4bb6a",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "cuantización de producto|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:cuantizaci-n-de-producto-concept",
+            "knowledge:ai-engineering-huyen:product-quantization-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:cuantizaci-n-de-producto-concept",
+            "description": "Método de compresión de embeddings que mejora la eficiencia en la recuperación.",
+            "name": "cuantización de producto",
+            "type": "concept",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:33990fb76c92735e8072ef0639c8517b01cc83aebdf255956f19ccc2f7b599d5",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "datos de entrenamiento|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:datos-de-entrenamiento-concept",
+            "knowledge:ai-engineering-huyen:training-data-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:datos-de-entrenamiento-concept",
+            "description": "Training data, the dataset used to train a model.",
+            "name": "datos de entrenamiento",
+            "type": "concept",
+            "aliases": [
+              "Training Data"
+            ]
+          },
+          "group_id": "entity-duplicate:cfdfc842fbaee099a6357146818c4a3efe82f9e5aa32cb863ad75723bbb0054f",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "decodificador|component",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:decoder-component",
+            "knowledge:ai-engineering-huyen:decodificador-component"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:decoder-component",
+            "description": "Componente de seq2seq que genera los tokens de salida de forma secuencial, condicionado al estado oculto final y al token generado anteriormente.",
+            "name": "decodificador",
+            "canonical_name": "Decoder",
+            "type": "component",
+            "aliases": [
+              "decoder"
+            ]
+          },
+          "group_id": "entity-duplicate:3aa01ef30cdb5d8b8e1f19e58602276028b1aac7d82832e614841d79538cca9d",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "diseño de retroalimentación|pattern",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:dise-o-de-retroalimentaci-n-pattern",
+            "knowledge:ai-engineering-huyen:feedback-design-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:dise-o-de-retroalimentaci-n-pattern",
+            "description": "Feedback design pattern for planning how and when to collect feedback.",
+            "name": "diseño de retroalimentación",
+            "type": "pattern",
+            "aliases": [
+              "feedback design"
+            ]
+          },
+          "group_id": "entity-duplicate:92b99f544575ef98a8531656a9769055d6b15e8caae1fcf6194affffab3a6c9b",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "ec2 instances|component",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:amazon-ec2-instances-component",
+            "knowledge:graphrag-agentic:elastic-compute-cloud-instances-component"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:amazon-ec2-instances-component",
+            "description": "Amazon Elastic Compute Cloud virtual servers used in production systems.",
+            "name": "EC2 instances",
+            "canonical_name": "Amazon EC2 instances",
+            "type": "component",
+            "aliases": [
+              "EC2"
+            ]
+          },
+          "group_id": "entity-duplicate:15ad1989b12845bca94a51c786a8c4471f728521c2fc1225b19091431430330d",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "entrenamiento|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:entrenamiento-concept",
+            "knowledge:ai-engineering-huyen:training-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:entrenamiento-concept",
+            "description": "Training, the process of teaching a model using data.",
+            "name": "entrenamiento",
+            "type": "concept",
+            "aliases": [
+              "Training"
+            ]
+          },
+          "group_id": "entity-duplicate:f64ca3f6e03d3bb67d5365fa941962f9112acf766ad533d2224c13535605f822",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "esg knowledge graph construction|concept",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:environmental-social-and-governance-esg-knowledge-graph-construction-concept",
+            "knowledge:graphrag-agentic:esg-knowledge-graph-construction-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:environmental-social-and-governance-esg-knowledge-graph-construction-concept",
+            "description": "Construction of environmental, social, and governance knowledge graphs for agent grounding.",
+            "name": "ESG knowledge graph construction",
+            "canonical_name": "Environmental, Social, and Governance (ESG) Knowledge Graph Construction",
+            "type": "concept",
+            "aliases": [
+              "ESG (environmental, social, and governance) knowledge graph construction"
+            ]
+          },
+          "group_id": "entity-duplicate:16bab69b940106c023cb37324343ff2f15ddd5582b521eac216ba8226519d39b",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "evaluación puntual|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:evaluaci-n-puntual-concept",
+            "knowledge:ai-engineering-huyen:pointwise-evaluation-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:evaluaci-n-puntual-concept",
+            "description": "Método de evaluación que puntúa respuestas de forma independiente.",
+            "name": "Evaluación puntual",
+            "type": "concept",
+            "aliases": [
+              "Pointwise evaluation"
+            ]
+          },
+          "group_id": "entity-duplicate:db627b771cde092beddd85edd57fd33a84ff190c6fc8579ce433b5365d4e480d",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "event-centric pattern|pattern",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:event-centric-pattern-pattern",
+            "knowledge:graphrag-agentic:event-centric-schema-pattern-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:event-centric-pattern-pattern",
+            "description": "Schema design pattern centered on events.",
+            "name": "Event-centric pattern",
+            "type": "pattern",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:044986a9dd66ccd9d90db5cd085cbbf2989c56ecfb4f23653c00ad4002498403",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "evolutionary loop|pattern",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:evolutionary-loop-pattern",
+            "knowledge:graphrag-agentic:the-full-evolutionary-loop-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:evolutionary-loop-pattern",
+            "description": "A continuous cycle that generates candidate improvements for the system, functioning as a data flywheel.",
+            "name": "Evolutionary loop",
+            "type": "pattern",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:459ee3384fda369b0ef4ea21ec17227bdffcf3cb770ec058a4284ac58cf08eb4",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "few-shot learning|pattern",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:aprendizaje-few-shot-pattern",
+            "knowledge:ai-engineering-huyen:few-shot-learning-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:aprendizaje-few-shot-pattern",
+            "description": "Aprendizaje en contexto con ejemplos (shots) en el prompt.",
+            "name": "Few-shot learning",
+            "canonical_name": "Aprendizaje few-shot",
+            "type": "pattern",
+            "aliases": [
+              "aprendizaje few-shot",
+              "few-shot",
+              "aprendizaje con pocos ejemplos"
+            ]
+          },
+          "group_id": "entity-duplicate:007742a8c058aa1b07948a0c0e58db020c22e863fd976b99c6cef1ee88140260",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "horizontal workflow graph|component",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:horizontal-workflow-graph-component",
+            "knowledge:graphrag-agentic:the-horizontal-workflow-graph-component"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:horizontal-workflow-graph-component",
+            "description": "The workflow graph built in Chapter 5 for the DevOps agent, containing node types with different computational demands.",
+            "name": "Horizontal workflow graph",
+            "canonical_name": "Horizontal Workflow Graph",
+            "type": "component",
+            "aliases": [
+              "workflow graph"
+            ]
+          },
+          "group_id": "entity-duplicate:2da0ddee972a0786a5be40d5a861dff3fc8c1ac300bf35e87fb9624725c33e56",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "ia generativa|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:generative-ai-concept",
+            "knowledge:ai-engineering-huyen:inteligencia-artificial-generativa-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:generative-ai-concept",
+            "description": "AI for generating open-ended outputs; became popular recently but generation tasks predate it.",
+            "name": "IA generativa",
+            "canonical_name": "Generative AI",
+            "type": "concept",
+            "aliases": [
+              "GenAI",
+              "generative AI"
+            ]
+          },
+          "group_id": "entity-duplicate:64c6c1f78be468161ec630244110b211ebca321c019c14a705172a6dab891c58",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "iam policies|component",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:aws-identity-and-access-management-policies-component",
+            "knowledge:graphrag-agentic:identity-and-access-management-policies-component"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:aws-identity-and-access-management-policies-component",
+            "description": "AWS Identity and Access Management policies that define permissions for cloud resources and identities.",
+            "name": "IAM Policies",
+            "canonical_name": "AWS Identity and Access Management Policies",
+            "type": "component",
+            "aliases": [
+              "IAM policies",
+              "Identity and Access Management Policies"
+            ]
+          },
+          "group_id": "entity-duplicate:3653645e08f3f2b31992b2a1b9534285c210c774d5d5188ed67bc56fbb683103",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "iam roles|component",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:iam-roles-component",
+            "knowledge:graphrag-agentic:identity-and-access-management-roles-component"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:iam-roles-component",
+            "description": "Access control resources modeling identities and permissions.",
+            "name": "IAM roles",
+            "type": "component",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:00ce8af9c66ef0d0cfc14faa9941b0590dec5d653453a8d1e6fdde540d6f7f57",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "inconsistencia|risk",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:inconsistencia-risk",
+            "knowledge:ai-engineering-huyen:inconsistency-risk"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:inconsistencia-risk",
+            "description": "Riesgo de que un modelo de IA produzca respuestas contradictorias o variables.",
+            "name": "Inconsistencia",
+            "type": "risk",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:8f64034a081e92c7907ccf39d3bf1db672e8a1517c2afb34c4b3f8428345fdde",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "inyección de prompts|risk",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:inyecci-n-de-prompts-risk",
+            "knowledge:ai-engineering-huyen:prompt-injection-risk"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:inyecci-n-de-prompts-risk",
+            "description": "Ataque que inserta instrucciones maliciosas en el prompt para alterar el comportamiento del modelo.",
+            "name": "inyección de prompts",
+            "type": "risk",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:3ca163eee1314a18bf2ba43a201c8b821f10bace0311989355196b882455bf0a",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "learned strategies|concept",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:learned-memory-strategies-concept",
+            "knowledge:graphrag-agentic:learned-strategies-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:learned-memory-strategies-concept",
+            "description": "Memory behaviors and strategies discovered through training rather than hand-engineered, allowing smaller models to outperform larger models with manual policies.",
+            "name": "Learned Strategies",
+            "canonical_name": "Learned Memory Strategies",
+            "type": "concept",
+            "aliases": [
+              "learned memory behavior",
+              "learned memory strategies"
+            ]
+          },
+          "group_id": "entity-duplicate:9b158b031a560f3bacfc20c96db9609bd88124aeadc6a4ed8c1f336f5504cb8b",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "llama|tool",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:large-language-model-meta-ai-tool",
+            "knowledge:ai-engineering-huyen:llama-tool"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:large-language-model-meta-ai-tool",
+            "description": "Modelo de lenguaje que, en el ejemplo, genera la Respuesta 2 a partir del prompt humano.",
+            "name": "LLaMA",
+            "canonical_name": "Large Language Model Meta AI",
+            "type": "tool",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:afbb0b2eefe0ec1ee01c999d75bf05a2ae1ae211be7b152748824addaf60c1ff",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "llm-based extraction|pattern",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:llm-based-extraction-from-unstructured-text-pattern",
+            "knowledge:graphrag-agentic:llm-based-extraction-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:llm-based-extraction-from-unstructured-text-pattern",
+            "description": "Pattern of using LLMs to extract structured knowledge from unstructured text.",
+            "name": "LLM-based Extraction",
+            "canonical_name": "LLM-Based Extraction from Unstructured Text",
+            "type": "pattern",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:5865770dbbfe54bc69505ed3b18989ad7e50c06711c1636c2a2a92970f803c96",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "locomo benchmark|tool",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:locomo-benchmark-tool",
+            "knowledge:graphrag-agentic:locomo-tool"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:locomo-benchmark-tool",
+            "description": "Benchmark used to evaluate memory systems; Mem0 reports a 66.9% score from LLM judges.",
+            "name": "LOCOMO Benchmark",
+            "type": "tool",
+            "aliases": [
+              "LOCOMO"
+            ]
+          },
+          "group_id": "entity-duplicate:6d8417cb25ff1479ddb5b21e5fb8ebcbb58e7b576550ee38667aa7fd38af23a3",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "mcp gateway|mcp",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:model-context-protocol-gateway-mcp",
+            "knowledge:graphrag-agentic:writer-s-mcp-gateway-mcp"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:model-context-protocol-gateway-mcp",
+            "description": "Model Context Protocol gateway used to scope each agent’s tool availability and enforce per-agent access control.",
+            "name": "MCP gateway",
+            "canonical_name": "Model Context Protocol gateway",
+            "type": "mcp",
+            "aliases": [
+              "MCP gateways"
+            ]
+          },
+          "group_id": "entity-duplicate:2d49101b67d9eea56dc10a1fb747501f95de815f87e2b9a08cf434ce8017c981",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "mcptoolset pattern|pattern",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:mcptoolset-pattern",
+            "knowledge:graphrag-agentic:mcptoolset-pattern-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:mcptoolset-pattern",
+            "description": "Pattern that lets you swap tool backends (e.g., GitHub for GitLab, PostgreSQL for DynamoDB) by reconfiguring the toolset without rewriting agent logic.",
+            "name": "McpToolset pattern",
+            "canonical_name": "McpToolset",
+            "type": "pattern",
+            "aliases": [
+              "McpToolset"
+            ]
+          },
+          "group_id": "entity-duplicate:05bd7c2170834fc01c062b1f28e72fe245bf0cbe6106ac5d2551c24e4890366a",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "modelos fundacionales|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:foundation-models-concept",
+            "knowledge:ai-engineering-huyen:modelos-fundacionales-fm-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:foundation-models-concept",
+            "description": "Modelos de propósito general entrenados a gran escala que pueden realizar una amplia gama de tareas y marcan la transición desde modelos específicos para una tarea.",
+            "name": "Modelos fundacionales",
+            "canonical_name": "Foundation Models",
+            "type": "concept",
+            "aliases": [
+              "foundation models",
+              "Modelos fundacionales de lenguaje",
+              "Foundation models",
+              "Modelos fundacionales de propósito general"
+            ]
+          },
+          "group_id": "entity-duplicate:c0ed398cdc118ffdff6707fe3e51754d355646b1879557540bada70778e3298a",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "multiperspective pattern|pattern",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:multiperspective-pattern-pattern",
+            "knowledge:graphrag-agentic:multiperspective-schema-pattern-pattern"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:multiperspective-pattern-pattern",
+            "description": "A pattern that incorporates multiple perspectives in agent reasoning.",
+            "name": "multiperspective pattern",
+            "type": "pattern",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:afd983f31e370ca27a74846656258cba1bd626c39da55fbaaa472214c8a4c00c",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "naturaleza probabilística de la ia|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:naturaleza-probabil-stica-de-la-ia-concept",
+            "knowledge:ai-engineering-huyen:probabilistic-nature-of-ai-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:naturaleza-probabil-stica-de-la-ia-concept",
+            "description": "Propiedad de los modelos de lenguaje de producir salidas no deterministas.",
+            "name": "Naturaleza probabilística de la IA",
+            "type": "concept",
+            "aliases": [
+              "IA probabilística"
+            ]
+          },
+          "group_id": "entity-duplicate:a67873aa65f3a6b2cfa75ef95ac735406fe2dbc7fcfbe7598b15c79c756f0845",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "parámetros entrenables|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:par-metros-entrenables-concept",
+            "knowledge:ai-engineering-huyen:par-metros-entrenables-de-la-red-neuronal-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:par-metros-entrenables-concept",
+            "description": "Trainable parameters, the adjustable weights in a neural network.",
+            "name": "parámetros entrenables",
+            "type": "concept",
+            "aliases": [
+              "Trainable Parameters"
+            ]
+          },
+          "group_id": "entity-duplicate:8de46419fe7e284c4bda3fd31facac683d8e6e60f5dfb61ce9b896ac30508bc6",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "posentrenamiento|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:posentrenamiento-concept",
+            "knowledge:ai-engineering-huyen:post-training-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:posentrenamiento-concept",
+            "description": "Fase posterior al preentrenamiento, con ejes de diversidad propios como tokens turnos y proporción humano-IA.",
+            "name": "Posentrenamiento",
+            "type": "concept",
+            "aliases": [
+              "post-training",
+              "post-entrenamiento"
+            ]
+          },
+          "group_id": "entity-duplicate:b7f60beb6bb537e7bc6241ce8b3f48547cb3710fc89ef0ea3b40202d5d2fa1b2",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "preentrenamiento|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:preentrenamiento-concept",
+            "knowledge:ai-engineering-huyen:pretraining-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:preentrenamiento-concept",
+            "description": "Fase de entrenamiento de un modelo que requiere datos diferentes a las fases de ajuste fino.",
+            "name": "Preentrenamiento",
+            "type": "concept",
+            "aliases": [
+              "Pre-training",
+              "Pretraining"
+            ]
+          },
+          "group_id": "entity-duplicate:44476357bea9fa96c58ade89937625b597bcc0372da5fd937884f1869817fb5a",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "prellenado|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:prefilling-concept",
+            "knowledge:ai-engineering-huyen:prellenado-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:prefilling-concept",
+            "description": "Técnica de procesar el prompt antes de generar la secuencia de salida.",
+            "name": "prellenado",
+            "canonical_name": "Prefilling",
+            "type": "concept",
+            "aliases": [
+              "prefilling"
+            ]
+          },
+          "group_id": "entity-duplicate:318c2b554d50e31d97da3710b43b8e984d859ae5f73f58c9759e68a67fc0e3ec",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "property graphs|concept",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:labelled-property-graphs-concept",
+            "knowledge:graphrag-agentic:property-graphs-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:labelled-property-graphs-concept",
+            "description": "A graph model offering flexibility and performance advantages but lacking formal logical semantics for sophisticated reasoning.",
+            "name": "Property Graphs",
+            "canonical_name": "Labelled Property Graphs",
+            "type": "concept",
+            "aliases": [
+              "LPGs",
+              "Labelled Property Graphs"
+            ]
+          },
+          "group_id": "entity-duplicate:887f1db93775fc227c7c5227e36f8635d2b43aad53d8a429be7ff9314a47f253",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "q-anchored pathway|concept",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:q-anchored-pathway-concept",
+            "knowledge:graphrag-agentic:question-anchored-pathway-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:q-anchored-pathway-concept",
+            "description": "Question-anchored retrieval/generation pathway strengthened when the knowledge graph provides a direct path from question entity to answer entity.",
+            "name": "Q-Anchored Pathway",
+            "type": "concept",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:c5de6bc7ec30d2fb7f41960c7b385d6917faa92e821dceabce551ab428cce865",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "reasoning engine|component",
+          "subject_ids": [
+            "knowledge:graphrag-agentic:chapter-5-reasoning-engine-component",
+            "knowledge:graphrag-agentic:reasoning-engine-component"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:graphrag-agentic:chapter-5-reasoning-engine-component",
+            "description": "The Chapter 5 reasoning engine applied to proactive scenarios, enabling the prediction node's inference.",
+            "name": "Reasoning Engine",
+            "canonical_name": "Chapter 5 Reasoning Engine",
+            "type": "component",
+            "aliases": [
+              "Chapter 5 Reasoning Engine"
+            ]
+          },
+          "group_id": "entity-duplicate:da6f9a7e6e1c0987dca76b20e991512a97f9f46256ba07c5eb1b8671b81bedb9",
+          "native_edge_count": null,
+          "namespace": "knowledge:graphrag-agentic"
+        },
+        {
+          "key": "recuperación de información|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:information-retrieval-concept",
+            "knowledge:ai-engineering-huyen:recuperaci-n-de-informaci-n-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:information-retrieval-concept",
+            "description": "Campo centenario y columna vertebral de motores de búsqueda, sistemas de recomendación y análisis de registros; también conocido como RI.",
+            "name": "Recuperación de Información",
+            "canonical_name": "Information Retrieval",
+            "type": "concept",
+            "aliases": [
+              "RI"
+            ]
+          },
+          "group_id": "entity-duplicate:4e23a68b5a985eb194f1d868162e83da03293db205caf6548e2247fa82ff052b",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "riesgo|risk",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:riesgo-risk",
+            "knowledge:ai-engineering-huyen:risk-risk"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:riesgo-risk",
+            "description": "Riesgos significativamente mayores a los que se expone un sistema al permitir acciones de escritura.",
+            "name": "riesgo",
+            "type": "risk",
+            "aliases": [
+              "Risk"
+            ]
+          },
+          "group_id": "entity-duplicate:a4b17450578f3c8a96b6dc08968a3368adac4d1ca642b8af13516850b66ad9b6",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "sesgo de posición|risk",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:position-bias-risk",
+            "knowledge:ai-engineering-huyen:sesgo-de-posici-n-risk"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:position-bias-risk",
+            "description": "Sesgo que favorece respuestas según su posición en la presentación, afectando evaluaciones.",
+            "name": "sesgo de posición",
+            "canonical_name": "Position Bias",
+            "type": "risk",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:09bff1af03d219b05158aa4923af1f1f8ee1fac338ca76e7c6c0021ec2132e2d",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "sesgo de preferencia|risk",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:preference-bias-risk",
+            "knowledge:ai-engineering-huyen:sesgo-de-preferencia-risk"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:preference-bias-risk",
+            "description": "Sesgo que favorece ciertas preferencias sobre otras en los datos de entrenamiento.",
+            "name": "sesgo de preferencia",
+            "canonical_name": "Preference Bias",
+            "type": "risk",
+            "aliases": []
+          },
+          "group_id": "entity-duplicate:619d63add5f0a3ffed1adddd3ae2b872f4dc2a250ee05457a6985f691a4166fb",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "tabla de clasificación|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:tabla-de-clasificaci-n-concept",
+            "knowledge:ai-engineering-huyen:tabla-de-clasificaci-n-de-modelos-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:tabla-de-clasificaci-n-concept",
+            "description": "Tabla de clasificación de modelos, pública o privada, utilizada para comparar rendimiento.",
+            "name": "tabla de clasificación",
+            "type": "concept",
+            "aliases": [
+              "leaderboard"
+            ]
+          },
+          "group_id": "entity-duplicate:bca9f3ef7f2e05b4ef1b317fb7c852bafd0fc8413605d1863a65d8a7c2214186",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        },
+        {
+          "key": "tokenización|concept",
+          "subject_ids": [
+            "knowledge:ai-engineering-huyen:tokenizaci-n-concept",
+            "knowledge:ai-engineering-huyen:tokenization-concept"
+          ],
+          "classification": null,
+          "properties": {
+            "id": "knowledge:ai-engineering-huyen:tokenizaci-n-concept",
+            "description": "Tokenization, the process of splitting text into tokens.",
+            "name": "tokenización",
+            "type": "concept",
+            "aliases": [
+              "Tokenization"
+            ]
+          },
+          "group_id": "entity-duplicate:aaa31adc3e7b0129da34f65ec7240570afa2cc244cd6c9189d726b2136d69044",
+          "native_edge_count": null,
+          "namespace": "knowledge:ai-engineering-huyen"
+        }
+      ],
+      "sample_limit": 50,
+      "sample_truncated": true,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "DUPLICATE_RELATIONSHIP_LOGICAL",
+      "category": "duplicates",
+      "severity": "warning",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENDPOINT_HIERARCHY_INVALID",
+      "category": "endpoints",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENDPOINT_MENTIONS_INVALID",
+      "category": "endpoints",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENDPOINT_MENTIONS_MERGED_INVALID",
+      "category": "endpoints",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENDPOINT_RELATED_INVALID",
+      "category": "endpoints",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENDPOINT_RELATED_MERGED_INVALID",
+      "category": "endpoints",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENDPOINT_SELF_LOOP_INVALID",
+      "category": "endpoints",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENTITY_ISOLATED_RELATED",
+      "category": "coverage",
+      "severity": "warning",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "ENTITY_UNMENTIONED",
+      "category": "coverage",
+      "severity": "warning",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "HIERARCHY_CHAPTER_BOOK_PARENT",
+      "category": "hierarchy",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "HIERARCHY_CHUNK_MULTIPLE_PARENT",
+      "category": "hierarchy",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "HIERARCHY_CHUNK_PARENT_REQUIRED",
+      "category": "hierarchy",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "HIERARCHY_LEVEL_CONTRADICTION",
+      "category": "hierarchy",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "HIERARCHY_SECTION_PARENT",
+      "category": "hierarchy",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PAGE_CHAPTER_INVALID_START",
+      "category": "pages",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PAGE_CHUNK_INVALID_RANGE",
+      "category": "pages",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PAGE_SECTION_INVALID_START",
+      "category": "pages",
+      "severity": "blocking",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PROVENANCE_CHUNK_MISSING",
+      "category": "provenance",
+      "severity": "incomplete",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PROVENANCE_ENTITY_MISSING",
+      "category": "provenance",
+      "severity": "incomplete",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PROVENANCE_MENTIONS_MISSING",
+      "category": "provenance",
+      "severity": "incomplete",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    },
+    {
+      "rule_id": "PROVENANCE_RELATIONSHIP_MISSING",
+      "category": "provenance",
+      "severity": "incomplete",
+      "total": 0,
+      "samples": [],
+      "sample_limit": 50,
+      "sample_truncated": false,
+      "query_state": "evaluated"
+    }
+  ],
+  "summary": {
+    "blocking_total": 0,
+    "warning_total": 513,
+    "incomplete_total": 0,
+    "evaluated_rule_count": 23
+  },
+  "runtime": {
+    "neo4j_version": "5.23.0",
+    "edition": "community",
+    "repository_revision": null
+  },
+  "executed_at": "2026-10-05T15:41:59.275152Z",
+  "execution": {
+    "state": "passed",
+    "exit_code": 0,
+    "queries": [
+      {
+        "name": "runtime_metadata",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "inventory_nodes",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "inventory_relationships",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "DUPLICATE_ENTITY_CROSS_NAMESPACE",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "DUPLICATE_ENTITY_LOGICAL",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "DUPLICATE_RELATIONSHIP_LOGICAL",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENDPOINT_HIERARCHY_INVALID",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENDPOINT_MENTIONS_INVALID",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENDPOINT_MENTIONS_MERGED_INVALID",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENDPOINT_RELATED_INVALID",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENDPOINT_RELATED_MERGED_INVALID",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENDPOINT_SELF_LOOP_INVALID",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENTITY_ISOLATED_RELATED",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "ENTITY_UNMENTIONED",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "HIERARCHY_CHAPTER_BOOK_PARENT",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "HIERARCHY_CHUNK_MULTIPLE_PARENT",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "HIERARCHY_CHUNK_PARENT_REQUIRED",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "HIERARCHY_LEVEL_CONTRADICTION",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "HIERARCHY_SECTION_PARENT",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PAGE_CHAPTER_INVALID_START",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PAGE_CHUNK_INVALID_RANGE",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PAGE_SECTION_INVALID_START",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PROVENANCE_CHUNK_MISSING",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PROVENANCE_ENTITY_MISSING",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PROVENANCE_MENTIONS_MISSING",
+        "state": "evaluated",
+        "error": null
+      },
+      {
+        "name": "PROVENANCE_RELATIONSHIP_MISSING",
+        "state": "evaluated",
+        "error": null
+      }
+    ]
+  }
+}

@@ -470,3 +470,13 @@ maps and debt R1 corrupts exactly that population.
 | T8e 2C-B | (this commit) | 371/415 rolled back (fingerprint `4e386d98…`, 0 mirrors) + 355/332/551/526 kept; six decisions recorded (registry 43); ledger 986 / chain OK; shared neighbours 0; audit `passed` (R5a held at 456, R5b 64); queue **158 → 152** |
 | T8e 2C-C1 | (this commit) | 502 rolled back (fingerprint `d1c5e113…`, 0 mirrors) + 323/350/382/543/544/431 kept; seven decisions recorded (registry **50**); ledger 987 / chain OK; shared neighbours 0; audit `passed` (R5a 456, R5b 64); queue **152 → 145**; tier `[0.35,0.40)` is 24 pairs, split at 0.37 |
 | T10 | `3d807e8` + `5154506` | intra-namespace batch: shared grouping constant, richness canonical, `--expect-fingerprint` refusal, order-simulating census; **64 groups merged in 3 per-namespace batches, 0 failures**, ledger **1051** / chain OK, **R5b 64 → 0**, R5a 456, self-loops 0, warning total 520 → 456, batch 3 `census drift: none`; 830 unit + 37 focused green |
+
+## Close-out
+
+The feature is closed. Consolidated report: `odd/reports/cross-namespace-semantic-resolution-closeout.md`
+(before/after metrics, what was built, how it was applied, known limits, evidence index).
+
+The 145 cross-namespace suspicious pairs that remain are a **deliberate stop**, not an open task: the tier sweep
+showed diminishing returns (median cosine 0.506; the last three tiers produced 11 keeps against 6 reverts) and the
+governance tooling is in place to intervene on demand. Remaining optional action: restart the MCP service so it
+serves this branch's code (the CLI already uses it through the editable install).
