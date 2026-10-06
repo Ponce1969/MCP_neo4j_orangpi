@@ -44,9 +44,29 @@ Rules:
   (`secure_gatekeeper.sh.bak-<timestamp>`).
 - No service restart is needed: the forced command runs the script on each new
   connection, so a change takes effect immediately.
-- Known debt: the argument guard is a character denylist. It must move to a
-  strict allowlist, and the reachable `journalctl`/`docker logs` options must be
-  narrowed.
+- The argument guard is a **strict allowlist**, not a metacharacter denylist. The
+  free-form argument branches accept only characters that cannot trigger expansion,
+  globbing, substitution, redirection or chaining, and only the options the MCP client
+  actually emits (`CommandRunner._construct_command` is the contract):
+
+  - `journalctl [-u UNIT] [-n LINES] [-p PRIORITY] [--since TIME] [--until TIME]` (at least one flag)
+  - `docker logs [--since TIME] [--until TIME] [--tail LINES] CONTAINER`
+  - `docker compose logs [SERVICE] [--tail LINES] [--since TIME] [--until TIME]` <!-- no-live-deployment-allow -->
+
+  `LINES` is an integer in 1..500. `TIME` accepts the client's date grammar (letters,
+  digits, `_:.,+-` and spaces, so `--since '2 hours ago'` is valid) but must contain at
+  least one non-space character. Everything else is rejected with `Acceso denegado`:
+  `--vacuum-*`, `--rotate`, `--flush`, `--sync`, `--root`, `--file`, `-D`, `-M`,
+  `-o/--output`, `--list-*`, `--follow`, `--timestamps`, the `--flag=value` form, globs,
+  `~`, `{}`, backticks, `$`, `;`, `|`, `<`, `>`, `()`, backslash and newlines.
+- Known client gaps: an argument-less `journalctl` and an argument-less
+  `docker compose logs` <!-- no-live-deployment-allow --> are rejected by the gate, so the
+  MCP client must always send `-n` and `--tail`. Change the client and the gate together:
+  extending this allowlist weakens the host boundary, so it needs the same review as any
+  other security change.
+- Run the contract tests before installing: `uv run pytest tests/test_gatekeeper_allowlist.py`
+  (they execute the real script with stubbed commands; the compose branch only runs where
+  `/home/gonzalo/Gonzalo_codigo` exists).
 
 ## Prerequisites
 

@@ -91,6 +91,105 @@ fi
 RX_CONTAINER='^[a-zA-Z0-9][a-zA-Z0-9_.-]*$'
 RX_SERVICE='^[a-zA-Z0-9_.-]+$'
 
+# ── Allowlist estricta para las ramas de argumentos libres ────────────────────
+# Una denylist de metacaracteres se esquiva por expansión y comillas: estas ramas
+# (journalctl, docker logs, docker compose logs) aceptan SOLO caracteres incapaces
+# de disparar expansión de palabras, globbing, expansión de llaves o de tilde,
+# sustitución de comandos, redirección o encadenamiento; y cada token debe tener
+# la forma que el cliente MCP realmente emite.
+RX_ARG_CHARS="^[A-Za-z0-9_.:/@,+' -]*$"
+RX_UNIT='^[A-Za-z0-9_.@:-]+$'
+RX_LINE_LIMIT='^[0-9]{1,3}$'
+RX_PRIORITY='^(emerg|alert|crit|err|warning|notice|info|debug|[0-7])$'
+RX_TIME='^ *[A-Za-z0-9_:.,+-]+( +[A-Za-z0-9_:.,+-]+)* *$'
+
+GATEKEEPER_ARGV=()
+
+deny() {
+    echo "Acceso denegado: Comando no autorizado."
+    exit 1
+}
+
+# Parte el string de argumentos en GATEKEEPER_ARGV (quote-aware).
+# El único eval es "set --": RX_ARG_CHARS ya excluyó toda construcción capaz de
+# expandir o ejecutar algo, y se exige una cantidad par de comillas, así que el
+# string no puede escapar del builtin.
+gatekeeper_split_args() {
+    local arg_string="$1" quotes
+    [[ "$arg_string" =~ $RX_ARG_CHARS ]] || return 1
+    # Cantidad de comillas simples: impar es sintaxis rota, se rechaza antes del eval.
+    quotes=$(printf '%s' "$arg_string" | tr -cd "'")
+    [ $(( ${#quotes} % 2 )) -eq 0 ] || return 1
+    eval "set -- $arg_string" || return 1
+    GATEKEEPER_ARGV=("$@")
+    return 0
+}
+
+# Un límite de líneas es un entero 1..500 (el mismo rango que valida el cliente).
+gatekeeper_is_line_limit() {
+    [[ "$1" =~ $RX_LINE_LIMIT ]] || return 1
+    [ "$1" -ge 1 ] && [ "$1" -le 500 ]
+}
+
+# journalctl: solo -u, -n, -p, --since y --until, en cualquier orden.
+# Un argumento vacío se rechaza: el cliente siempre manda -n y -p.
+gatekeeper_validate_journal_args() {
+    local -a argv
+    local flag
+    [ -n "$1" ] || return 1
+    gatekeeper_split_args "$1" || return 1
+    argv=("${GATEKEEPER_ARGV[@]}")
+    while [ "${#argv[@]}" -gt 0 ]; do
+        flag="${argv[0]}"
+        case "$flag" in
+            -u)
+                [ "${#argv[@]}" -ge 2 ] && [[ "${argv[1]}" =~ $RX_UNIT ]] || return 1
+                argv=("${argv[@]:2}") ;;
+            -n)
+                [ "${#argv[@]}" -ge 2 ] && gatekeeper_is_line_limit "${argv[1]}" || return 1
+                argv=("${argv[@]:2}") ;;
+            -p)
+                [ "${#argv[@]}" -ge 2 ] && [[ "${argv[1]}" =~ $RX_PRIORITY ]] || return 1
+                argv=("${argv[@]:2}") ;;
+            --since|--until)
+                [ "${#argv[@]}" -ge 2 ] && [[ "${argv[1]}" =~ $RX_TIME ]] || return 1
+                argv=("${argv[@]:2}") ;;
+            *)
+                return 1 ;;
+        esac
+    done
+    return 0
+}
+
+# docker logs / docker compose logs: solo --tail, --since, --until y entre $2 y $3
+# posicionales (nombre de contenedor o de servicio). Cualquier otro flag,
+# incluida la forma --flag=valor, se rechaza.
+gatekeeper_validate_log_args() {
+    local -a argv
+    local positionals=0 flag
+    [ -n "$1" ] || return 1
+    gatekeeper_split_args "$1" || return 1
+    argv=("${GATEKEEPER_ARGV[@]}")
+    while [ "${#argv[@]}" -gt 0 ]; do
+        flag="${argv[0]}"
+        case "$flag" in
+            --tail)
+                [ "${#argv[@]}" -ge 2 ] && gatekeeper_is_line_limit "${argv[1]}" || return 1
+                argv=("${argv[@]:2}") ;;
+            --since|--until)
+                [ "${#argv[@]}" -ge 2 ] && [[ "${argv[1]}" =~ $RX_TIME ]] || return 1
+                argv=("${argv[@]:2}") ;;
+            -*)
+                return 1 ;;
+            *)
+                [[ "$flag" =~ $RX_CONTAINER ]] || return 1
+                positionals=$((positionals + 1))
+                argv=("${argv[@]:1}") ;;
+        esac
+    done
+    [ "$positionals" -ge "$2" ] && [ "$positionals" -le "$3" ]
+}
+
 # Comandos con coincidencia exacta
 if [ "$CMD" = "docker ps --format json" ] || \
    [ "$CMD" = "docker ps -a --format json" ] || \
@@ -144,10 +243,8 @@ fi
 
 # docker logs
 if [[ "$CMD" =~ ^docker\ logs\ (.*)$ ]]; then
-    ARGS="${BASH_REMATCH[1]}"
-    # Rechaza separadores, redireccion, sustitucion, backslash y newlines.
-    if [[ "$ARGS" == *$'\n'* ]] || [[ "$ARGS" =~ [\;\|\&\>\<\$\(\)\`\\] ]]; then exit 1; fi
-    eval "docker logs $ARGS"
+    gatekeeper_validate_log_args "${BASH_REMATCH[1]}" 1 1 || deny
+    docker logs "${GATEKEEPER_ARGV[@]}"
     exit $?
 fi
 
@@ -162,10 +259,8 @@ fi
 
 # journalctl
 if [[ "$CMD" =~ ^journalctl\ (.*)$ ]]; then
-    ARGS="${BASH_REMATCH[1]}"
-    # Rechaza separadores, redireccion, sustitucion, backslash y newlines.
-    if [[ "$ARGS" == *$'\n'* ]] || [[ "$ARGS" =~ [\;\|\&\>\<\$\(\)\`\\] ]]; then exit 1; fi
-    eval "journalctl $ARGS"
+    gatekeeper_validate_journal_args "${BASH_REMATCH[1]}" || deny
+    journalctl "${GATEKEEPER_ARGV[@]}"
     exit $?
 fi
 
@@ -241,10 +336,8 @@ if [[ "$CMD" =~ $RX_COMPOSE ]]; then
         cd "$WS_PATH" && eval "$COMPOSE_CMD"
         exit $?
     elif [[ "$COMPOSE_CMD" =~ ^docker\ compose\ logs\ (.*)$ ]]; then
-        LOG_ARGS="${BASH_REMATCH[1]}"
-        # Rechaza separadores, redireccion, sustitucion, backslash y newlines.
-        if [[ "$LOG_ARGS" == *$'\n'* ]] || [[ "$LOG_ARGS" =~ [\;\|\&\>\<\$\(\)\`\\] ]]; then exit 1; fi
-        cd "$WS_PATH" && eval "docker compose logs $LOG_ARGS"
+        gatekeeper_validate_log_args "${BASH_REMATCH[1]}" 0 1 || deny
+        cd "$WS_PATH" && docker compose logs "${GATEKEEPER_ARGV[@]}"
         exit $?
     fi
 fi
