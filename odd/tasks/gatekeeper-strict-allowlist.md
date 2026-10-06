@@ -59,7 +59,7 @@ by the gate, so the MCP client must always send `-n`/`--tail`.
 | T2 | S1-S5 | implement `deploy/secure_gatekeeper.sh`: shared `gatekeeper_split_args` + per-branch token validators, `eval` removed from input handling | working tree (uncommitted) |
 | T3 | S6 | update `deploy/README.md` (debt → contract + client gaps) | working tree (uncommitted) |
 | T4 | S1-S5 | independent verification (`gentle-ai-verify`, read-only, own harness with canaries): S1/S2/S3/S5/S6 PASS, **S4 FAIL** — 3 client-emittable `--since/--until` values with repeated/edge spaces were rejected (the old gate accepted them). Bounded fix + re-verification: **all specs PASS**, one deliberate residual | done |
-| T5 | S1-S6 | deploy with human authorization: backup, `install -m 700`, CRLF check, `bash -n`, new-connection smoke | **pending (user decision)** |
+| T5 | S1-S6 | deploy authorized and executed: backup `secure_gatekeeper.sh.bak-20261006T204602`, pre-install checks (CR=0, `bash -n`), `install -m 700`, post-install verified (md5 `d295c4117c1ab1f3883cc518b6291b79`, CR=0, mode 700) | `2c39af0` (code) + evidence commit |
 
 ## Log
 
@@ -102,3 +102,32 @@ client-emittable and denied, exactly as before the diff. The untouched `tail -n`
 reads a file literally named `"/var/log/x; id"`: no escape, no change in behavior. The
 argument-less `docker logs`, `journalctl` and `docker compose logs` templates stay denied; the
 application layer always supplies defaults, so only the two documented gaps are real.
+
+**L8 (deploy, 2026-10-06, authorized by the maintainer).** Host before: md5
+`d2a41e6c5369d672b65d441e0cdc5cce`, 8875 bytes, mode `700`, CR=0. The repo copy was
+transferred with `scp` (binary) to `~/scripts/.gk.new` and verified **before** installing
+(md5, CR=0, `bash -n`), then installed with `install -m 700`. Host after: md5
+`d295c4117c1ab1f3883cc518b6291b79` (byte-identical to the committed repo copy), 12332
+bytes, mode `700`, CR=0, `bash -n` OK. Backup kept at
+`~/scripts/secure_gatekeeper.sh.bak-20261006T204602`. No restart was needed (the forced
+command runs per new connection); `mcp-server` stayed `active`, MainPID `3085521`,
+`NRestarts=0`.
+
+**L9 (post-deploy smoke through the real consumer, 2026-10-06).** Every row was recorded
+before and after the install, using the agent key (the MCP's own key, forced through the
+gatekeeper):
+
+| Command (agent key) | Before | After |
+|---|---|---|
+| `journalctl -u mcp-server -n 5 -p info` | allowed, `-- No entries --` | allowed, same output |
+| `journalctl -o json -n 1` | **allowed, returned journal JSON** | `Acceso denegado`, exit 1 |
+| `docker logs --tail 1 bookgraph-neo4j; id` | blocked | `Acceso denegado`, exit 1 |
+| `journalctl -n 100 -p info *` | allowed (glob-expands) | `Acceso denegado`, exit 1 |
+| `cd …/Blog_Profesional && docker compose logs --tail 2` | allowed | allowed, same output |
+
+MCP tools after the deploy returned the same data as the pre-deploy baseline:
+`logs_systemd`, `docker_container_logs`, `workspace_logs` (the compose branch the local
+suite skips) and `network_inspect_bindings`; `workspace_list` still reports 8 workspaces.
+The destructive `--vacuum-time=1s` string was deliberately **not** sent to the host: it is
+proven denied by the harness through the same `*) return 1` path as `-o json`, which is
+denied live.
