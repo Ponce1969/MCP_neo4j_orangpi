@@ -21,3 +21,5 @@ workspaces:
     path: /home/gonzalo/Gonzalo_codigo/bot_discord
   agente_hibrido:
     path: /home/gonzalo/Gonzalo_codigo/agente_hibrido
+  blog_profesional:
+    path: /home/gonzalo/Gonzalo_codigo/Blog_Profesional
