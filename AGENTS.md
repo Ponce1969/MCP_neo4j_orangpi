@@ -166,5 +166,10 @@ destructiva:
   `[::]`; el camino de consumo remoto es el MCP sobre Tailscale, no el puerto crudo.
 - Guard: `tests/test_deploy_artifacts.py` falla si el compose vuelve a publicar
   puertos sin host IP explícito.
+- **Gatekeeper del agente**: el script canónico vive versionado en
+  `deploy/secure_gatekeeper.sh`. Un `git pull` NO lo instala: hay que copiarlo a
+  `~/scripts/` con modo `700` (paso exacto en `deploy/README.md`) y nunca con
+  CRLF (una copia CRLF rechaza toda conexión con la llave del agente). El cambio
+  aplica por conexión nueva, sin reiniciar nada.
 - Cualquier recreación de `bookgraph-neo4j` (`docker compose up -d`) o edición del
   `.env` del host exige aprobación humana explícita (regla de oro de §7).

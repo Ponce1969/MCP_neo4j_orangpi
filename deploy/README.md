@@ -5,6 +5,7 @@ This folder contains the systemd unit file for running the Book Graph RAG MCP se
 ## Files
 
 - `mcp-server.service` — systemd unit that starts `book-graph-rag-mcp serve` on boot.
+- `secure_gatekeeper.sh` — host-side command whitelist for the agent key (see below).
 
 ## Network binding (R7)
 
@@ -17,6 +18,35 @@ can never accidentally expose the MCP boundary to the public network.
 
 When the Tailscale IP changes, update the `Environment=MCP_BIND_HOST=...` line in
 `deploy/mcp-server.service` and re-run `sudo systemctl daemon-reload` <!-- no-live-deployment-allow -->.
+
+## SSH agent gatekeeper (host-side)
+
+The audit MCP reaches this host through a forced command: the host's
+`authorized_keys` wraps the agent key with a gatekeeper script that whitelists
+which commands may run. The canonical copy lives in this repository at
+`deploy/secure_gatekeeper.sh`.
+
+**A `git pull` does not install it.** After changing the script, install the
+canonical copy on the host:
+
+```bash
+install -m 700 deploy/secure_gatekeeper.sh ~/scripts/secure_gatekeeper.sh
+bash -n ~/scripts/secure_gatekeeper.sh   # syntax check
+```
+
+Rules:
+
+- Keep LF line endings. A CRLF copy fails to parse and rejects every agent-key
+  connection until it is restored. Verify with
+  `python3 -c "print(open('secure_gatekeeper.sh','rb').read().count(b'\r'))"`;
+  it must print `0`.
+- Back up the installed revision before overwriting it
+  (`secure_gatekeeper.sh.bak-<timestamp>`).
+- No service restart is needed: the forced command runs the script on each new
+  connection, so a change takes effect immediately.
+- Known debt: the argument guard is a character denylist. It must move to a
+  strict allowlist, and the reachable `journalctl`/`docker logs` options must be
+  narrowed.
 
 ## Prerequisites
 

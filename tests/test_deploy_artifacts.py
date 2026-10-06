@@ -108,6 +108,13 @@ _LIVE_DEPLOY_SCAN_ROOTS: Final = (
 
 _LIVE_DEPLOY_ALLOW: Final = "no-live-deployment-allow"
 
+# The SSH agent gatekeeper is the host's own command whitelist, installed at
+# ~/scripts/secure_gatekeeper.sh. Authorizing that class of host commands is
+# its whole job, so it is exempt from the textual live-deployment guard by
+# exact path. Keep this set to a single named artifact: it must never grow
+# silently.
+_LIVE_DEPLOY_SCAN_EXCLUDES: Final = frozenset({"deploy/secure_gatekeeper.sh"})
+
 _PRODUCTION_HOST: Final = "100.106.85.109"  # no-external-endpoints-allow
 
 # Live-deployment action tokens. Bare ``docker`` is allowed so testcontainers
@@ -168,6 +175,8 @@ def _find_live_deployment_matches() -> list[str]:
     matches: list[str] = []
     for root in _LIVE_DEPLOY_SCAN_ROOTS:
         for path in _iter_scan_text_files(root):
+            if path.relative_to(_PROJECT_ROOT).as_posix() in _LIVE_DEPLOY_SCAN_EXCLUDES:
+                continue
             try:
                 text = path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
@@ -341,6 +350,12 @@ def test_env_example_mcp_values_parse_into_settings(
     assert settings.mcp_port == 8003
     assert settings.mcp_log_path == Path("logs/mcp_queries.jsonl")
     assert settings.mcp_log_retention_days == 7
+
+
+def test_live_deployment_scan_excludes_are_narrow() -> None:
+    """Only the vendored host gatekeeper is exempt from the live-deployment guard."""
+    assert frozenset({"deploy/secure_gatekeeper.sh"}) == _LIVE_DEPLOY_SCAN_EXCLUDES
+    assert (_PROJECT_ROOT / "deploy/secure_gatekeeper.sh").is_file()
 
 
 def test_no_live_deployment_in_deploy_tests_or_scripts() -> None:
