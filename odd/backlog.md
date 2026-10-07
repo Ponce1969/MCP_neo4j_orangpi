@@ -130,25 +130,39 @@ Deliberately out of scope, with comments in the code: `scripts/migrate_namespace
 
   Evidence, none of it taken from the tools' own word:
   - **Semantic equivalence against a frozen pre-image of the 189 touched files: 0 problems.** Every `.py` is
-    `ast.dump`-identical (docstring constants compared with CRLF normalised away, the only permitted delta), every
-    `.json` is `json.loads`-equal, every other file differs only in end-of-line bytes. This is what proves the
-    reflow — and the manual string splits below — changed no behaviour.
-  - **The gates caught four classes of collateral the formatter itself introduced, all fixed in the same commit:**
+    `ast.dump`-identical, every `.json` is `json.loads`-equal, every other file differs only in end-of-line bytes.
+    This is what proves the reflow — and the manual string splits below — changed no behaviour. An independent
+    verifier strengthened it: CPython normalises CRLF inside literals at tokenise time, so all 173 changed `.py`
+    files are `ast.dump`-identical with *no* normalisation applied at all.
+  - **The gates caught three classes of collateral the formatter itself introduced, fixed in the format commit.**
     5 `E501` (`ruff format` parenthesised nested `await`s, adding an indent level that pushed three Cypher string
     literals past 100 — split into implicit concatenations, which the parser folds into the same constant);
-    9 `# noqa: E501` left dead by the reflow; 4 mypy `unused-ignore` (the reflow separated `# type: ignore[union-attr]`
-    from the line mypy flags in `tests/test_run_full_pipeline.py`; the comments moved to the flagged line); and one
-    file left with **mixed** line endings because a byte-level edit stripped the `\r` along with the comment.
-    `RUF100` by `(file, rule)`: 40 findings before, 40 after, zero regressions.
+    9 `# noqa: E501` left dead by the reflow; and 4 mypy `unused-ignore` (the reflow separated
+    `# type: ignore[union-attr]` from the line mypy flags in `tests/test_run_full_pipeline.py`; the comments moved
+    to the flagged line). A fourth instance was self-inflicted while repairing those: one file kept **mixed** line
+    endings because a byte-level edit stripped the `\r` along with the comment.
+  - **An independent verifier then found 8 more dead `# noqa: E501`** (2 in `application/audit_graph_use_case.py`,
+    6 in `tests/test_audit_models.py`), left by the same reflow and fixed in a follow-up commit. My own `RUF100`
+    check missed them **because of method, not luck**: it compared findings as a *set* of `(file, rule)`, and those
+    two files already had dead `E501` directives on other lines, so the set was unchanged and the per-line
+    additions were invisible. Compared as a **multiset** at `7947e84` vs HEAD, the repo is identical at
+    **104 findings**. The 106 this entry first quoted was my own `wc -l` counting ruff's two summary lines.
+    Method note: aggregate lint findings by rule *and count*, never by set membership.
   - **`data/evaluation/MANIFEST.json` digests untouched:** all four sha256 payloads (`pairs.yaml` and the three
     `.jsonl`) are LF and still verify. None of them was CRLF, so normalising the EOL of the manifests and of
     `resolution_baseline.json` is safe — they *contain* hashes, they are not hashed themselves.
-  - **Docstrings:** 17 files had CRLF *inside* string literals; all 17 were docstrings, and the only consumer of any
-    of them is `description=__doc__` in `scripts-ops/cleanup_namespace.py` (no test asserts its `--help`).
+  - **Docstrings — the change is inert, and my first claim about it was wrong.** 17 files carried CRLF *inside*
+    string literals, all of them docstrings. I wrote that `scripts-ops/cleanup_namespace.py --help` would stop
+    printing carriage returns; the verifier disproved it: CPython applies universal-newline translation when it
+    tokenises source, so CRLF inside a source string literal never reaches the value, and `ast.get_docstring` of
+    that file hashes identically at `7947e84` and at HEAD. There is no observable change at all.
   - **Gates after, all green:** `ruff check .` 0 findings, `ruff format --check .` 0 functional files (only the
     untracked `scripts-ops/probe_cross_risk.py` loose tail is left alone), `mypy .` 423 files success, architecture
-    validator OK, fast suite (unit + property + root) 1913 passed / 3 skipped, `tools/mcp-oranpi` 502 passed
-    with its own three gates. The integration suite (153 tests, the slow directory) is the long pole.
+    validator OK, fast suite (unit + property + root) 1913 passed / 3 skipped, integration suite **153 passed** in
+    24:42, `tools/mcp-oranpi` 502 passed with its own three gates. Full suite: **2066 passed, 3 skipped**.
+    Caveat, recorded on purpose: the integration run overlapped the commits being built and the 8-directive fix, so
+    it attests the *semantics* — every one of those edits is `ast.dump`-identical to the pre-image — rather than one
+    frozen revision. The fast suite was re-run after the fix, against the frozen tree.
   - **Recurrence guard:** new `.gitattributes` with `* text=auto eol=lf`. This repo tracks no `.bat/.cmd/.ps1`, the
     only kinds that require CRLF. It changes what every clone materialises on its next checkout, the production
     clone included — that is the point, and it is why the change is a separate commit.

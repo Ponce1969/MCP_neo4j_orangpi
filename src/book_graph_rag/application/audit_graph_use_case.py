@@ -36,7 +36,7 @@ def build_audit_target(selector: str, uri: str, database: str) -> AuditTarget:
     return AuditTarget(  # noqa: E501
         selector="bookgraph-neo4j",
         database=database,
-        scheme=cast(Literal["bolt", "neo4j", "neo4j+s", "neo4j+ssc"], parsed.scheme),  # noqa: E501
+        scheme=cast(Literal["bolt", "neo4j", "neo4j+s", "neo4j+ssc"], parsed.scheme),
         host=parsed.hostname,
         port=port,
         uri=uri,
@@ -86,7 +86,7 @@ class AuditGraphUseCase:
             executed_at=snapshot.executed_at,
             execution=AuditExecution(
                 state=state, exit_code=exit_code(state), queries=snapshot.queries
-            ),  # noqa: E501
+            ),
         )
 
     @staticmethod

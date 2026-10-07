@@ -59,19 +59,19 @@ def test_samples_are_sorted_bounded_and_secret_safe() -> None:
         rule_id="DUPLICATE_ENTITY_LOGICAL",
         category="duplicates",
         severity=Severity.WARNING,
-        total=2,  # noqa: E501
+        total=2,
         sample_limit=1,
         samples=(
             FindingSample(key="z", properties={"password": "secret", "text": "body"}),
             FindingSample(key="a"),
-        ),  # noqa: E501
+        ),
     )
     report = AuditReport(
         target=target(),
         state=OverallState.PASSED,
         findings=(finding,),
         executed_at=datetime(2024, 1, 1, tzinfo=UTC),
-    )  # noqa: E501
+    )
     payload = report.canonical_json()
     assert "secret" not in payload
     assert '"text"' not in payload
@@ -92,11 +92,11 @@ def test_nested_properties_are_recursively_secret_safe() -> None:
                 ],
             }
         },
-    )  # noqa: E501
+    )
     assert all(
         secret not in sample.model_dump_json()
         for secret in ("nested-password", "nested-token", "bolt://user:password@db:7687")
-    )  # noqa: E501
+    )
 
 
 def test_nested_properties_are_bounded_at_each_level() -> None:
@@ -104,7 +104,7 @@ def test_nested_properties_are_bounded_at_each_level() -> None:
         "levels": [
             {f"entry-{index}": {"value": index} for index in range(1001)} for _ in range(1001)
         ]
-    }  # noqa: E501
+    }
     levels = FindingSample(key="large", properties=properties).properties["levels"]
     assert isinstance(levels, tuple)
     assert len(levels) <= 20
