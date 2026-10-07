@@ -244,6 +244,90 @@ tcp LISTEN 0 2048 100.106.85.109:8003 0.0.0.0:* users:(("book-graph-rag-",pid=30
         assert visibility["total"] == 1
         assert visibility["limited"] is False
 
+    async def test_maps_published_ports_to_their_container(
+        self, network_tools: NetworkTools
+    ) -> None:
+        """A published port belongs to docker-proxy, so map its host port via docker ps."""
+        ss_output = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
+tcp LISTEN 0 4096 127.0.0.1:7474 0.0.0.0:*
+tcp LISTEN 0 4096 127.0.0.1:7687 0.0.0.0:*
+tcp LISTEN 0 2048 100.106.85.109:8003 0.0.0.0:* users:(("book-graph-rag-",pid=3085526,fd=6))"""
+        docker_ps_output = (
+            '{"ID":"abc123","Names":"bookgraph-neo4j","Image":"neo4j:5","Status":"Up",'
+            '"CreatedAt":"2026-07-21",'
+            '"Ports":"127.0.0.1:7474->7474/tcp, 127.0.0.1:7687->7687/tcp"}'
+        )
+        network_tools._runner.set_response(  # type: ignore
+            "ss_tulnp",
+            CommandResult(exit_code=0, stdout=ss_output, stderr=""),
+        )
+        network_tools._runner.set_response(  # type: ignore
+            "docker_ps",
+            CommandResult(exit_code=0, stdout=docker_ps_output, stderr=""),
+        )
+
+        result = await network_tools.network_inspect_bindings()
+
+        assert result.error is None
+        assert result.data is not None
+        bindings = cast("list[dict[str, Any]]", result.data["bindings"])
+        by_port = {binding["port"]: binding for binding in bindings}
+        assert by_port[7474]["container"] == "bookgraph-neo4j"
+        assert by_port[7687]["container"] == "bookgraph-neo4j"
+        # A host service, not a container: it must stay null.
+        assert by_port[8003]["container"] is None
+        visibility = cast("dict[str, Any]", result.data["container_visibility"])
+        assert visibility["available"] is True
+        assert visibility["mapped"] == 2
+
+    async def test_container_mapping_failure_is_not_fatal(
+        self, network_tools: NetworkTools
+    ) -> None:
+        """A failed docker ps must not fail the inspection; report the mapping as unknown."""
+        ss_output = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
+tcp LISTEN 0 4096 127.0.0.1:7474 0.0.0.0:*"""
+        network_tools._runner.set_response(  # type: ignore
+            "ss_tulnp",
+            CommandResult(exit_code=0, stdout=ss_output, stderr=""),
+        )
+        network_tools._runner.set_response(  # type: ignore
+            "docker_ps",
+            CommandResult(exit_code=1, stdout="", stderr="Cannot connect to the Docker daemon"),
+        )
+
+        result = await network_tools.network_inspect_bindings()
+
+        assert result.error is None
+        assert result.data is not None
+        bindings = cast("list[dict[str, Any]]", result.data["bindings"])
+        assert bindings[0]["container"] is None
+        visibility = cast("dict[str, Any]", result.data["container_visibility"])
+        assert visibility["available"] is False
+        assert visibility["mapped"] == 0
+        assert "docker ps" in visibility["reason"]
+
+    async def test_container_mapping_connection_error_is_not_fatal(
+        self, network_tools: NetworkTools, mock_runner: MockCommandRunner
+    ) -> None:
+        """An SSH failure while mapping containers must not sink the inspection."""
+        ss_output = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
+tcp LISTEN 0 4096 127.0.0.1:7474 0.0.0.0:*"""
+
+        async def connection_error_on_docker_ps(*args: object, **kwargs: object) -> CommandResult:
+            if args[0] == "docker_ps":
+                raise ConnectionError("SSH connection failed")
+            return CommandResult(exit_code=0, stdout=ss_output, stderr="")
+
+        mock_runner.run = connection_error_on_docker_ps  # type: ignore
+
+        result = await network_tools.network_inspect_bindings()
+
+        assert result.error is None
+        assert result.data is not None
+        visibility = cast("dict[str, Any]", result.data["container_visibility"])
+        assert visibility["available"] is False
+        assert visibility["mapped"] == 0
+
     async def test_empty(self, network_tools: NetworkTools) -> None:
         network_tools._runner.set_response(  # type: ignore
             "ss_tulnp",

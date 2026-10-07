@@ -545,11 +545,9 @@ def parse_ss_tulnp(stdout: str) -> list[OccupiedPort]:
             if pid_match:
                 pid = int(pid_match.group(1))
 
-        # If process contains "docker-proxy", set container to None
-        # (detected via docker port mapping separately)
+        # ``ss`` never sees the container behind a published port; the port to
+        # container mapping is done separately (see NetworkTools).
         container: str | None = None
-        if process_name and "docker-proxy" in process_name.lower():
-            container = None
 
         ports.append(
             OccupiedPort(

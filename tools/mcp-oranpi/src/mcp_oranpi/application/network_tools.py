@@ -13,7 +13,11 @@ from __future__ import annotations
 
 import structlog
 
-from mcp_oranpi.application.parsers import parse_ss_tulnp, parse_tailscale_status
+from mcp_oranpi.application.parsers import (
+    parse_docker_ps,
+    parse_ss_tulnp,
+    parse_tailscale_status,
+)
 from mcp_oranpi.domain.contracts import CommandRunnerProtocol
 from mcp_oranpi.domain.errors import (
     CONN_FAILED,
@@ -34,6 +38,10 @@ log = structlog.get_logger()
 _PROCESS_VISIBILITY_REASON = (
     "ss resolves the owning process only for sockets owned by the SSH user; "
     "listeners owned by other users (root, docker-proxy) report process=null and pid=null"
+)
+
+_CONTAINER_MAPPING_UNAVAILABLE_REASON = (
+    "docker ps could not be queried, so published ports keep container=null"
 )
 
 
@@ -265,7 +273,10 @@ class NetworkTools:
         Only TCP ``LISTEN`` sockets are returned (``ss`` reports UDP sockets as
         ``UNCONN``). ``process``/``pid`` are resolved only for sockets owned by
         the SSH user, so ``process_visibility`` states how many bindings could
-        be attributed, the total, and why the remaining ones are null.
+        be attributed, the total, and why the remaining ones are null. A
+        published port belongs to ``docker-proxy``, which ``ss`` cannot
+        attribute, so ``container`` is filled by mapping the host port through
+        ``docker ps`` (see ``container_visibility``).
 
         Returns:
             ToolResult with list of NetworkBinding.
@@ -292,13 +303,18 @@ class NetworkTools:
             )
 
         occupied_ports = parse_ss_tulnp(result.stdout)
+        owners = await self._published_port_owners()
 
         bindings: list[dict[str, object]] = list()
         attributed = 0
+        mapped = 0
         for p in occupied_ports:
             process_attributed = p.process is not None or p.pid is not None
             if process_attributed:
                 attributed += 1
+            container = (owners or {}).get(p.port)
+            if container is not None:
+                mapped += 1
             bindings.append(
                 {
                     "local_address": p.local_address,
@@ -307,7 +323,7 @@ class NetworkTools:
                     "process": p.process,
                     "pid": p.pid,
                     "process_attributed": process_attributed,
-                    "container": p.container,
+                    "container": container,
                 }
             )
 
@@ -320,8 +336,33 @@ class NetworkTools:
                     "limited": attributed < len(bindings),
                     "reason": _PROCESS_VISIBILITY_REASON,
                 },
+                "container_visibility": {
+                    "source": "docker ps --format json",
+                    "available": owners is not None,
+                    "mapped": mapped,
+                    "reason": None if owners is not None else _CONTAINER_MAPPING_UNAVAILABLE_REASON,
+                },
             }
         )
+
+    async def _published_port_owners(self) -> dict[int, str] | None:
+        """Map each published host port to the container that publishes it.
+
+        Returns ``None`` when the mapping could not be queried, so callers can
+        tell "no container" (empty dict) from "unknown" (``None``).
+        """
+        try:
+            result = await self._runner.run("docker_ps")
+        except (TimeoutError, ConnectionError):
+            return None
+        if result.exit_code != 0:
+            return None
+
+        owners: dict[int, str] = {}
+        for container in parse_docker_ps(result.stdout):
+            for binding in container.ports:
+                owners.setdefault(binding.host_port, container.name)
+        return owners
 
     # ── Tailscale Status ──────────────────────────────────────────────────────
 

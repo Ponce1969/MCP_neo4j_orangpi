@@ -211,7 +211,7 @@ All tools are **read-only**. 22 tools across 5 categories:
 | Tool | Description |
 |------|-------------|
 | `network_scan_ports` | Scan ports via `ss -tulnp` |
-| `network_inspect_bindings` | All active network bindings |
+| `network_inspect_bindings` | Active TCP bindings + process/container attribution |
 | `network_tailscale_status` | Tailscale VPN status |
 | `network_suggest_port` | Suggest available ports near a preferred one |
 

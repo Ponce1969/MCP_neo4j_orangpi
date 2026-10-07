@@ -206,7 +206,9 @@ TOOL_DEFINITIONS: list[types.Tool] = [
         "wildcard), port, protocol, process and pid. ss resolves the owning process "
         "only for sockets owned by the SSH user, so process/pid are null for "
         "root/docker-proxy listeners: process_visibility reports how many bindings "
-        "were attributed, the total, and why the rest are null. "
+        "were attributed, the total, and why the rest are null. Published ports are "
+        "mapped to their container through docker ps, and container_visibility says "
+        "whether that mapping was available. "
         "Errors: CONN_FAILED, CONN_TIMEOUT.",
         inputSchema={
             "type": "object",
