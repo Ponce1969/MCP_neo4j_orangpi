@@ -53,11 +53,19 @@ class Neo4jCommunityAdapter(CommunityReadPort, CommunityWritePort):
             await result.consume()
 
     async def load_entity_graph(self) -> tuple[list[Entity], list[Relationship]]:
-        """Read all :Entity nodes and :RELATED edges from the base graph."""
+        """Read the live :Entity nodes and :RELATED edges from the base graph.
+
+        Soft-deleted (merged) entities are excluded, together with every edge
+        whose endpoints are not both live: the audit reports those as
+        ``ENDPOINT_*_MERGED_INVALID`` dangling edges, so clustering them would
+        only add noise. This is the same predicate form the audit and command
+        read paths use.
+        """
         async with self._driver.session() as session:
             entity_result = await session.run(
                 """
                 MATCH (e:Entity)
+                WHERE (e.merged_into IS NULL OR e.merged_into = '')
                 RETURN e.id AS id, e.name AS name, e.type AS type,
                        e.description AS description, e.source_page AS source_page
                 """,
@@ -78,6 +86,8 @@ class Neo4jCommunityAdapter(CommunityReadPort, CommunityWritePort):
             relationship_result = await session.run(
                 """
                 MATCH (src:Entity)-[r:RELATED]->(dst:Entity)
+                WHERE (src.merged_into IS NULL OR src.merged_into = '')
+                  AND (dst.merged_into IS NULL OR dst.merged_into = '')
                 RETURN r.type AS type, r.description AS description,
                        r.source_page AS source_page,
                        r.chunk_index AS chunk_index,
@@ -105,11 +115,15 @@ class Neo4jCommunityAdapter(CommunityReadPort, CommunityWritePort):
 
         Isolated entities are excluded by Leiden and only covered by the level-0
         global summary. Useful for spotting extraction noise vs. orphaned entities
-        that should have been related during ingestion.
+        that should have been related during ingestion. Merged (soft-deleted)
+        entities are excluded: a ghost with degree 0 is not extraction noise, it is
+        a merge that already happened.
         """
         async with self._driver.session() as session:
             result = await session.run(
-                "MATCH (e:Entity) WHERE NOT (e)-[:RELATED]-() "
+                "MATCH (e:Entity) "
+                "WHERE (e.merged_into IS NULL OR e.merged_into = '') "
+                "AND NOT (e)-[:RELATED]-() "
                 "RETURN e.name AS name, e.type AS type "
                 "LIMIT $limit",
                 {"limit": limit},

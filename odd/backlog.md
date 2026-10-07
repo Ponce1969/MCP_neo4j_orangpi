@@ -45,20 +45,73 @@ Each item states what it is, the evidence that it exists, and the block it belon
   verification on 2026-10-03: handshake `book-graph-rag 1.28.0`, `count_entities` for the four namespaces
   7111 / 1241 / 6078 / 6963 (identical to the pre-change baseline), 8 tools exposed.
 
-## Block A — next session: semantic resolution phase
+## Block A — closed 2026-10-06 (was: semantic resolution phase)
 
-- **A1 (R5a) Cross-namespace duplicates** (same concept in two books). Must go through quarantine
-  (AGENTS.md §7.2: fresh backup → dry-run → human approval → apply → scoped + global audit). The intra-namespace
-  tooling is generic and reusable: `scripts-ops/resolve_intra_ns.py` (namespace, limit, backup, approval) plus
-  `scripts-ops/gen_cross_groups.py` for the cross-namespace candidate set.
-- **A2 (R5b) No audit rule for self-loops.** `(:Entity)-[:RELATED]->(:Entity)` with the same node on both ends:
-  5 were deleted on 2026-10-01 with explicit approval, but the extractor recreates them (2 of the 5 came from LLM
-  extraction in a freshly re-indexed namespace, not from a merge) and nothing flags them today. The merge path no
-  longer creates them (verified after the adapter fix).
-- **A3 (R5c) `duplicates_entity` is case-sensitive.** It groups by exact `n.name`, so `alucinación` and
-  `Alucinación` (same concept) are never reported: "0 duplicates" means 0 *exact-name* duplicates. Belongs to the
-  semantic pass, which should key on normalized names (the `normalize_key` helper already exists in
-  `domain/audit_models.py`).
+Every item below is closed; the texts that used to live here, and §3 of
+`odd/specs/cross-namespace-semantic-resolution-design.md`, described the pre-T3/T6/T7 state and are kept
+only as history. Verified against the tree on 2026-10-06; an independent verifier re-checked every claim in
+this section. The production figures come from `odd/reports/cross-namespace-semantic-resolution-closeout.md`
+and were not re-measured here.
+
+- **A1 (R5a) Cross-namespace duplicates — closed.** The rule exists:
+  `DUPLICATE_ENTITY_CROSS_NAMESPACE` (warning, category `duplicates`, `domain/audit_models.py:44`, scoped
+  variant included); the closeout report recorded 456 warnings. Approved merges go through `quarantine
+  approve`, which is reachable in the product (`main.py:1272`).
+- **A2 (R5c) Self-loop audit rule — closed.** `ENDPOINT_SELF_LOOP_INVALID` (blocking, `endpoints` category) is
+  implemented and tested (`infrastructure/neo4j_audit_adapter.py:193`,
+  `tests/integration/test_audit_cross_namespace_and_self_loop.py`); the closeout report recorded zero
+  self-loops. The design draft's proposed name `ENTITY_SELF_LOOP_INVALID` was not used: living in the
+  `ENDPOINT_*` family is what gives the rule its blocking severity. This item was labelled A2/**R5b** before,
+  and the next one A3/**R5c**, i.e. the two letters were swapped relative to the design doc and
+  `docs/spec/03`; this text now follows the spec's labelling.
+- **A3 (R5b) `duplicates_entity` case sensitivity — closed.** The landed grouping key is the Cypher expression
+  `toLower(trim(n.name))` (`infrastructure/neo4j_audit_adapter.py:55`) — a faithful equivalent of the
+  `normalize_key` helper on this corpus, but not the helper itself: the adapter's own comment records that
+  NFKC and internal-whitespace cases would diverge. The 64 case-only intra-namespace groups were merged in
+  three batches on 2026-10-05 with 0 failures (R5b 64 → 0), see `docs/spec/03-semantic-entity-resolution.md:96`.
+- **The two "gaps before any new merge" — closed.** (1) The namespace guard lives in
+  `ApplyMergeUseCase._guard_cross_namespace` (`application/apply_merge_use_case.py:72,96`) and raises
+  `CrossNamespaceApprovalRequired`, so `scripts-ops/resolve_cross_namespace.py` is no longer a bypass (it is
+  disabled by design). (2) `ApproveQuarantineUseCase` is exposed by `quarantine approve` (`main.py:1272`),
+  which runs the §7.2 backup + approval gate before any write; `quarantine reject` (`main.py:1364`) is also
+  reachable but deliberately gate-free, because it does not touch the graph. The queue is no longer write-only.
+- **Adjacent defect — the community graph was built over merged entities — closed 2026-10-06.**
+  `Neo4jCommunityAdapter.load_entity_graph` now applies the same live predicate the audit and command
+  read paths use (`(n.merged_into IS NULL OR n.merged_into = '')`) to the entities **and** to both
+  endpoints of every `:RELATED` edge, and `get_isolated_entities` (the orphan report behind
+  `scripts/inspect_orphans.py`) got the same filter. Regression test `tests/integration/test_community_adapter_live_graph.py` (Neo4j testcontainer,
+  red before the fix); an independent verifier additionally reproduced the pre-fix leak and confirmed no leak
+  through merged-canonical chains. Only the `merged_into` half of the `_active_ids` workaround in
+  `scripts-ops/run_communities_scoped.py` is now redundant — its `STARTS WITH $prefix` namespace scoping is
+  still required, because the adapter reads the whole graph — and it stays until a community rebuild is
+  authorized, since a rebuild rewrites `data/communities` and needs the §7.2 gate.
+
+## Block C — soft-delete consistency in the read paths (found 2026-10-06, needs a decision)
+
+An independent verifier audited every `:Entity` read while closing Block A. The community adapter is fixed;
+several reads still return merged (soft-deleted) entities. Split by stakes:
+
+**Feeds a pipeline or a score (fix recommended):**
+- `infrastructure/neo4j_neighborhood_query_adapter.py:41-53` `related_neighbors` has no `merged_into` filter
+  and is consumed by `application/resolve_entities_use_case.py:233-234` to compute the S3 neighborhood
+  jaccard, so ghost neighbours can skew a resolution score.
+- `scripts/resolve_entities.py:299-312` `load_entities` reads every `:Entity` and feeds
+  `build_merge_plan`/`apply_merges`, so the legacy direct-merge path can plan a merge onto an already
+  merged ghost.
+
+**Visible through the MCP tools (contract change, needs an explicit decision):**
+- `infrastructure/neo4j_query_adapter.py`: `count_entities` (:596-619), `list_entities` (:633-665),
+  `traverse_relationships` (:432-441) and `find_path` (:495-499) do not filter `merged_into`, while the
+  `find_entity` tiers in the same file **do**. Consequence: the counts documented as baselines
+  (`7111 / 1241 / 6078 / 6963` in the runbook and in the MCP smoke) include ghosts, and `list_entities`
+  returns ghost records. Changing this moves numbers other documents and scripts assert, so it is a
+  separate, explicitly approved change; `list_entities` is also uncovered by tests.
+
+Deliberately out of scope, with comments in the code: `scripts/migrate_namespaces.py`,
+`scripts/backfill_resilience.py`, `scripts-ops/calibrate_cross_namespace_cosine.py`,
+`scripts-ops/audit_applied_cross_namespace.py` (by-id lookups that must see both sides of a pair),
+`scripts-ops/repoint_merged_endpoint_edges.py`, `neo4j_validation_adapter.py`,
+`neo4j_rollback_plan_adapter.py`, and the `scripts-ops/probe_*` / `cleanup_*` diagnostics.
 
 ## Block B — hardening
 

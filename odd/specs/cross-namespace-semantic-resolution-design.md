@@ -53,6 +53,28 @@ the ability to answer "what does *this author* mean by X".
    `merged_into`; and cross-namespace merges have the largest inverse maps, where debt **R1** (rollback rebuilds
    mirror directions) bites hardest.
 
+### 3.1 Status (2026-10-06): every gap above is closed
+
+The narrative in §3 is the design record of the state that motivated this change; it is no longer the state. An
+independent read-only verifier re-checked every row below on 2026-10-06 (its corrections are already folded
+in). Figures marked *report* come from `odd/reports/cross-namespace-semantic-resolution-closeout.md` and were
+not re-measured from here.
+
+| # | Gap as written above | Closed by | Evidence |
+|---|---|---|---|
+| 1 | Guard lives only in the policy | `ApplyMergeUseCase._guard_cross_namespace` raises `CrossNamespaceApprovalRequired` (T7); `ApproveQuarantineUseCase._require_reviewable_band` re-checks the band | `application/apply_merge_use_case.py:72,96,110-126`; `tests/unit/test_apply_merge_namespace_guard.py` (14) + `tests/property/cross_namespace_guard_test.py` |
+| 2 | Quarantine unreachable in the product | `quarantine approve` (T6b) runs the §7.2 backup + approval gate before any write, so the queue is no longer write-only. `quarantine reject` is reachable too but deliberately gate-free: it does not touch the graph | `main.py:1272` (approve), `main.py:1364` (reject); `tests/integration/test_quarantine_review_cli.py` (9) + `test_quarantine_lifecycle_cli.py` |
+| 3 | Class invisible to the audit | `DUPLICATE_ENTITY_CROSS_NAMESPACE` (warning, category `duplicates`) with its scoped variant (T3) | `domain/audit_models.py:44`; `tests/integration/test_audit_cross_namespace_and_self_loop.py`; *report*: 456 warnings |
+| 4 | 64 case-only groups invisible | The landed grouping key is the Cypher expression `toLower(trim(n.name))` (`infrastructure/neo4j_audit_adapter.py:55`) — a faithful equivalent of the `normalize_key` helper on this corpus, not the helper itself. The 64 groups were merged on 2026-10-05 in three batches with 0 failures (R5b 64 → 0) | `docs/spec/03-semantic-entity-resolution.md:96` |
+| 5a | Community graph built without filtering `merged_into` | `Neo4jCommunityAdapter.load_entity_graph` now filters the entities and both endpoints of every `:RELATED` edge; `get_isolated_entities` (orphan report) got the same filter | `infrastructure/community_adapter.py`; `tests/integration/test_community_adapter_live_graph.py` (red before the fix; the verifier also reproduced the pre-fix leak and found no leak through merged-canonical chains) |
+| 5b | Self-loop rule (R5c) | `ENDPOINT_SELF_LOOP_INVALID` (blocking); the landed id stays in the `ENDPOINT_*` family, which is what supplies the blocking severity. The draft's `ENTITY_SELF_LOOP_INVALID` name would have needed a manual `RULE_CATEGORY` entry | `infrastructure/neo4j_audit_adapter.py:193`; same integration test file |
+| 5c | Debt R1 (rollback rebuilds mirror directions) | fixed 2026-10-03 | `odd/backlog.md`, section "Merge adapter debts" (R1) |
+
+Section 9's sketch is complete except for what still needs a human decision before touching production: any
+further merge batch (the retro-audit of the 302 produced 50 recorded decisions — 30 `separate` / 20 `keep`,
+*report*; the live registry lives in `data/resolution/cross_namespace_decisions.jsonl` on the merge host, not in
+this checkout) and a community rebuild (it rewrites `data/communities` and needs the §7.2 gate).
+
 ## 4. The core decision: `EQUIVALENT_TO` versus merge with multi-provenance
 
 **Recommendation: neither as a universal rule — classify each candidate three ways.** The question is not
