@@ -39,12 +39,20 @@ class Neo4jNeighborhoodQueryAdapter(NeighborhoodQueryPort):
         return sources
 
     async def related_neighbors(self, entity_id: str) -> set[str]:
-        """Return the distinct entity ids related to ``entity_id``."""
+        """Return the distinct live entity ids related to ``entity_id``.
+
+        Merged (soft-deleted) entities are never returned: their edges are the
+        dangling ones the audit reports as ``ENDPOINT_RELATED_MERGED_INVALID``,
+        and the S3 neighborhood jaccard must not score ghosts. A merged
+        ``entity_id`` therefore yields an empty set.
+        """
         neighbors: set[str] = set()
         async with self._driver.session() as session:
             result = await session.run(
                 """
                 MATCH (e:Entity {id: $entity_id})-[:RELATED]-(other:Entity)
+                WHERE (e.merged_into IS NULL OR e.merged_into = '')
+                  AND (other.merged_into IS NULL OR other.merged_into = '')
                 RETURN DISTINCT other.id AS other_id
                 """,
                 {"entity_id": entity_id},

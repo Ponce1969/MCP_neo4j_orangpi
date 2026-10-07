@@ -297,9 +297,14 @@ def build_merge_plan(
 
 
 async def load_entities(driver: Any) -> list[Entity]:
-    """Read every :Entity node into domain models."""
+    """Read every live :Entity node into domain models.
+
+    Merged (soft-deleted) entities are skipped: this feed builds the legacy merge
+    plan, and planning a merge onto an already merged ghost is never intended.
+    """
     query = """
     MATCH (n:Entity)
+    WHERE (n.merged_into IS NULL OR n.merged_into = '')
     RETURN n.id AS id, n.name AS name, n.type AS type,
            n.description AS description, n.source_page AS source_page,
            n.aliases AS aliases, n.canonical_name AS canonical_name

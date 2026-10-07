@@ -86,20 +86,26 @@ and were not re-measured here.
   still required, because the adapter reads the whole graph — and it stays until a community rebuild is
   authorized, since a rebuild rewrites `data/communities` and needs the §7.2 gate.
 
-## Block C — soft-delete consistency in the read paths (found 2026-10-06, needs a decision)
+## Block C — soft-delete consistency in the read paths (found 2026-10-06)
 
-An independent verifier audited every `:Entity` read while closing Block A. The community adapter is fixed;
-several reads still return merged (soft-deleted) entities. Split by stakes:
+An independent verifier audited every `:Entity` read while closing Block A. The community adapter was fixed
+first; the two reads that feed a pipeline or a score are now fixed too, and the MCP-visible ones remain open
+by decision (they move documented baselines).
 
-**Feeds a pipeline or a score (fix recommended):**
-- `infrastructure/neo4j_neighborhood_query_adapter.py:41-53` `related_neighbors` has no `merged_into` filter
-  and is consumed by `application/resolve_entities_use_case.py:233-234` to compute the S3 neighborhood
-  jaccard, so ghost neighbours can skew a resolution score.
-- `scripts/resolve_entities.py:299-312` `load_entities` reads every `:Entity` and feeds
-  `build_merge_plan`/`apply_merges`, so the legacy direct-merge path can plan a merge onto an already
-  merged ghost.
+**Feeds a pipeline or a score — closed 2026-10-06:**
+- `infrastructure/neo4j_neighborhood_query_adapter.py::related_neighbors` now filters both endpoints, so it no
+  longer hands ghost neighbours to the S3 neighborhood jaccard in
+  `application/resolve_entities_use_case.py:233-234`. Both ids the only real consumer passes are already
+  live, so filtering is a no-op there and removes exactly the ghosts (verified).
+- `scripts/resolve_entities.py::load_entities` now filters, so the legacy `build_merge_plan`/`apply_merges`
+  path can no longer plan a merge onto an already merged ghost.
 
-**Visible through the MCP tools (contract change, needs an explicit decision):**
+  Evidence: `tests/integration/test_merged_entities_invisible_to_pipeline.py` (two testcontainer tests, both
+  red before the fix). An independent verifier reproduced the pre-fix leak from `git show HEAD:<path>`, traced
+  every caller of both reads, and confirmed no consumer needed the merged entities and no test asserted the
+  old behaviour.
+
+**Visible through the MCP tools — open, needs an explicit decision:**
 - `infrastructure/neo4j_query_adapter.py`: `count_entities` (:596-619), `list_entities` (:633-665),
   `traverse_relationships` (:432-441) and `find_path` (:495-499) do not filter `merged_into`, while the
   `find_entity` tiers in the same file **do**. Consequence: the counts documented as baselines
