@@ -2,6 +2,7 @@
 
 Safe to run at any time; never mutates the graph.
 """
+
 import json
 import os
 
@@ -35,9 +36,7 @@ with driver.session(database=db) as s:
             ns=NS,
         )
     ]
-    chunks_rec = s.run(
-        "MATCH (c:Chunk) WHERE c.book_id = $ns RETURN count(*) AS n", ns=NS
-    ).single()
+    chunks_rec = s.run("MATCH (c:Chunk) WHERE c.book_id = $ns RETURN count(*) AS n", ns=NS).single()
     assert chunks_rec is not None
     out["chunks_ns"] = chunks_rec["n"]
     entities_rec = s.run(
@@ -46,8 +45,7 @@ with driver.session(database=db) as s:
     assert entities_rec is not None
     out["entities_ns"] = entities_rec["n"]
     rels_rec = s.run(
-        "MATCH ()-[r:RELATED]->() WHERE r.source_id STARTS WITH $ns "
-        "RETURN count(*) AS n",
+        "MATCH ()-[r:RELATED]->() WHERE r.source_id STARTS WITH $ns RETURN count(*) AS n",
         ns=NS,
     ).single()
     assert rels_rec is not None

@@ -1,4 +1,5 @@
 """Tests for Neo4jValidationAdapter."""
+
 from __future__ import annotations
 
 import pytest
@@ -63,9 +64,7 @@ def test_map_finding_translates_audit_severity_to_rule_outcome() -> None:
 
 
 def test_map_finding_warning_is_not_mandatory() -> None:
-    finding = _blocking_finding().model_copy(
-        update={"severity": Severity.WARNING}
-    )
+    finding = _blocking_finding().model_copy(update={"severity": Severity.WARNING})
     rule = _map_finding(finding)
     assert rule.mandatory is False
     assert rule.outcome == AuditRuleOutcome.WARNING

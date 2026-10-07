@@ -245,9 +245,7 @@ async def test_force_reprocess_marks_processed_stale(
         assert state1[idx].versions == _V1
 
     # Re-run with a new pipeline_version and force_reprocess=True.
-    calls2, state2 = await _run_index(
-        neo4j_settings, source_id, _V2, 3, force_reprocess=True
-    )
+    calls2, state2 = await _run_index(neo4j_settings, source_id, _V2, 3, force_reprocess=True)
     assert sorted(calls2) == [0, 1, 2]
     for idx in range(3):
         assert state2[idx].status == CheckpointStatus.PROCESSED

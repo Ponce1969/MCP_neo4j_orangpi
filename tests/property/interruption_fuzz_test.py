@@ -238,17 +238,13 @@ async def test_interruption_fuzz_invariant_3_1(
 
     try:
         # No silent loss: every input chunk ends as PROCESSED.
-        final_state = await _fetch_checkpoint_state(
-            neo4j_settings, source_id, chunk_count
-        )
+        final_state = await _fetch_checkpoint_state(neo4j_settings, source_id, chunk_count)
         assert sorted(final_state.keys()) == list(range(chunk_count))
         for status in final_state.values():
             assert status == CheckpointStatus.PROCESSED
 
         # The graph is consistent with the full run.
-        chunks, entities, mentions = await _count_graph_rows_for_source(
-            neo4j_driver, source_id
-        )
+        chunks, entities, mentions = await _count_graph_rows_for_source(neo4j_driver, source_id)
         assert chunks == chunk_count
         assert entities == chunk_count
         assert mentions == chunk_count
@@ -258,4 +254,3 @@ async def test_interruption_fuzz_invariant_3_1(
         assert sorted(llm_port.calls) == expected_calls
     finally:
         await _wipe_graph(neo4j_driver)
-

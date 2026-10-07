@@ -152,8 +152,7 @@ class _FakeCypherGenerator(CypherGeneratorPort):
 
     def __init__(self, cyphers: list[str] | None = None) -> None:
         self._cyphers = list(
-            cyphers
-            or ["MATCH (c:Chunk) WHERE c.book_id = $book_id RETURN c LIMIT 100"]
+            cyphers or ["MATCH (c:Chunk) WHERE c.book_id = $book_id RETURN c LIMIT 100"]
         )
         self.calls: list[tuple[str, str, CypherFailureContext | None]] = []
 
@@ -174,9 +173,7 @@ class _FakeExecutor:
         self.explain_calls: list[tuple[str, dict[str, Any] | None]] = []
         self.execute_read_calls: list[tuple[str, dict[str, Any] | None]] = []
 
-    async def explain(
-        self, cypher: str, parameters: dict[str, Any] | None = None
-    ) -> None:
+    async def explain(self, cypher: str, parameters: dict[str, Any] | None = None) -> None:
         self.explain_calls.append((cypher, parameters))
         if self.explain_should_fail:
             raise self.explain_should_fail.pop(0)
@@ -233,13 +230,9 @@ async def test_text2cypher_happy_path_returns_rows_and_apoc_schema(
     settings: Settings,
 ) -> None:
     """APOC schema succeeds, cypher passes EXPLAIN, executes, returns rows."""
-    generator = _FakeCypherGenerator(
-        ["MATCH (e:Entity) WHERE e.id = $id RETURN e LIMIT 100"]
-    )
+    generator = _FakeCypherGenerator(["MATCH (e:Entity) WHERE e.id = $id RETURN e LIMIT 100"])
     executor = _FakeExecutor()
-    executor.apoc_result = [
-        {"label": "Entity", "relationships": ["RELATED"], "property": "name"}
-    ]
+    executor.apoc_result = [{"label": "Entity", "relationships": ["RELATED"], "property": "name"}]
     executor.rows = [{"e": {"name": "MCP"}}]
 
     adapter = Text2CypherAdapter(executor, generator, settings)
@@ -283,9 +276,7 @@ async def test_text2cypher_rejects_write_query_before_explain(
         await adapter.generate_and_run("delete everything")
 
     assert executor.explain_calls == []
-    assert "MATCH (n) DETACH DELETE n" not in [
-        c for c, _ in executor.execute_read_calls
-    ]
+    assert "MATCH (n) DETACH DELETE n" not in [c for c, _ in executor.execute_read_calls]
 
 
 async def test_text2cypher_rejects_call_dbms_before_explain(
@@ -301,9 +292,7 @@ async def test_text2cypher_rejects_call_dbms_before_explain(
         await adapter.generate_and_run("list users")
 
     assert executor.explain_calls == []
-    assert "CALL dbms.security.listUsers()" not in [
-        c for c, _ in executor.execute_read_calls
-    ]
+    assert "CALL dbms.security.listUsers()" not in [c for c, _ in executor.execute_read_calls]
 
 
 async def test_text2cypher_self_heals_on_explain_failure(
@@ -358,9 +347,7 @@ async def test_text2cypher_timeout_raises_domain_error(
     generator = _FakeCypherGenerator()
     executor = _FakeExecutor()
 
-    async def slow_explain(
-        cypher: str, parameters: dict[str, Any] | None = None
-    ) -> None:
+    async def slow_explain(cypher: str, parameters: dict[str, Any] | None = None) -> None:
         await asyncio.sleep(2)
 
     executor.explain = slow_explain  # type: ignore[method-assign]
@@ -417,9 +404,7 @@ async def test_text2cypher_rejects_missing_scope_proof(
         await adapter.generate_and_run("find chunks")
 
     assert executor.explain_calls == []
-    assert "MATCH (c:Chunk) RETURN c LIMIT 100" not in [
-        c for c, _ in executor.execute_read_calls
-    ]
+    assert "MATCH (c:Chunk) RETURN c LIMIT 100" not in [c for c, _ in executor.execute_read_calls]
 
 
 async def test_text2cypher_rejects_dynamic_label(
@@ -435,9 +420,7 @@ async def test_text2cypher_rejects_dynamic_label(
         await adapter.generate_and_run("find anything")
 
     assert executor.explain_calls == []
-    assert "MATCH (n:$label) RETURN n" not in [
-        c for c, _ in executor.execute_read_calls
-    ]
+    assert "MATCH (n:$label) RETURN n" not in [c for c, _ in executor.execute_read_calls]
 
 
 async def test_text2cypher_wires_validator_before_explain_and_execute(
@@ -529,9 +512,7 @@ def test_build_scope_parameter_map_in_falls_back_to_source_id() -> None:
         operator="IN",
     )
     scope = ScopeContext(source=SourceNamespace(corpus="book", source="default"))
-    assert _build_scope_parameter_map((proof,), scope) == {
-        "book_ids": ["book:default"]
-    }
+    assert _build_scope_parameter_map((proof,), scope) == {"book_ids": ["book:default"]}
 
 
 def test_build_scope_parameter_map_returns_empty_when_unscoped() -> None:

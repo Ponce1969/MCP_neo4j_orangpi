@@ -45,9 +45,7 @@ class CheckpointPort(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def fetch_state(
-        self, source_id: str, chunk_indices: list[int]
-    ) -> dict[int, Checkpoint]:
+    async def fetch_state(self, source_id: str, chunk_indices: list[int]) -> dict[int, Checkpoint]:
         """Return existing checkpoints keyed by chunk_index.
 
         Missing indices are omitted; callers treat them as PENDING.
@@ -55,9 +53,7 @@ class CheckpointPort(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def reclaim_stale_leases(
-        self, source_id: str, now: datetime, stale_seconds: int
-    ) -> int:
+    async def reclaim_stale_leases(self, source_id: str, now: datetime, stale_seconds: int) -> int:
         """Reset PROCESSING leases older than ``stale_seconds``.
 
         Returns the number of leases reclaimed.
@@ -73,6 +69,4 @@ class CheckpointPort(abc.ABC):
         implementation raises ``NotImplementedError``; concrete adapters may
         override it to write checkpoints without re-emitting graph writes.
         """
-        raise NotImplementedError(
-            "backfill_processed is not implemented by this CheckpointPort"
-        )
+        raise NotImplementedError("backfill_processed is not implemented by this CheckpointPort")

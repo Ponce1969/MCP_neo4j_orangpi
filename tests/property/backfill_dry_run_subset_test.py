@@ -152,4 +152,3 @@ async def test_backfill_dry_run_reports_exact_subset(
         assert await _count_checkpoints(neo4j_driver, source_id) == 0
     finally:
         await _cleanup_source(neo4j_driver, source_id)
-

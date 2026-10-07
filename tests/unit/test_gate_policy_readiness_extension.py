@@ -41,12 +41,8 @@ def test_gate_policy_unique_readiness_names() -> None:
             version="1.0.0",
             gates=[],
             readiness_gates=[
-                ReadinessGatePolicy(
-                    name="same", version="1.0.0", required_layers=[]
-                ),
-                ReadinessGatePolicy(
-                    name="same", version="1.0.1", required_layers=[]
-                ),
+                ReadinessGatePolicy(name="same", version="1.0.0", required_layers=[]),
+                ReadinessGatePolicy(name="same", version="1.0.1", required_layers=[]),
             ],
         )
 

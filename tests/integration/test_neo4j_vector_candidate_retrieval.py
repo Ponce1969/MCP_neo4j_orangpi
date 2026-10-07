@@ -79,9 +79,7 @@ async def test_vector_index_lifecycle_and_retrieval(
 
 
 @pytest.mark.neo4j_integration
-async def test_ensure_index_is_idempotent(
-    neo4j_driver: Any, neo4j_settings: Settings
-) -> None:
+async def test_ensure_index_is_idempotent(neo4j_driver: Any, neo4j_settings: Settings) -> None:
     """Calling ensure_index twice must not raise (IF NOT EXISTS semantics)."""
     settings = _make_settings(neo4j_settings)
     adapter = Neo4jVectorCandidateRetrieval(neo4j_driver, settings)
@@ -91,9 +89,7 @@ async def test_ensure_index_is_idempotent(
 
 
 @pytest.mark.neo4j_integration
-async def test_retrieval_respects_top_k(
-    neo4j_driver: Any, neo4j_settings: Settings
-) -> None:
+async def test_retrieval_respects_top_k(neo4j_driver: Any, neo4j_settings: Settings) -> None:
     """Only top_k candidates are returned when more than top_k are above min_sim."""
     settings = _make_settings(neo4j_settings)
     adapter = Neo4jVectorCandidateRetrieval(neo4j_driver, settings)

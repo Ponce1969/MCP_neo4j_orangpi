@@ -104,5 +104,3 @@ def test_main_resolve_entities_invokes_use_case(monkeypatch: pytest.MonkeyPatch)
     assert fake_use_case.analyze_calls == 1
     parsed = json.loads(result.output)
     assert parsed["strategy"] == "hybrid"
-
-

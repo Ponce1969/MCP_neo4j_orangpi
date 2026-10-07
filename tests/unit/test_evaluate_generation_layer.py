@@ -43,7 +43,11 @@ class _FakeRetrievalPort(GraphRetrievalPort):
         self._answers = answers or {}
 
     async def fetch_contexts(
-        self, *, question: str, qtype: str, detail_level: int,
+        self,
+        *,
+        question: str,
+        qtype: str,
+        detail_level: int,
     ) -> tuple[RetrievalContext, ...]:
         return (
             RetrievalContext(chunk_id=None, text="ctx1"),
@@ -51,7 +55,10 @@ class _FakeRetrievalPort(GraphRetrievalPort):
         )
 
     async def compose_answer(
-        self, *, question: str, contexts: tuple[RetrievalContext, ...],
+        self,
+        *,
+        question: str,
+        contexts: tuple[RetrievalContext, ...],
     ) -> str:
         return self._answers.get(question, "composed answer")
 
@@ -66,27 +73,37 @@ class _FakeClaimPort(ClaimValidatorPort):
         self._verdict = verdict
 
     async def extract_claims(
-        self, *, question_id: str, answer: str, contexts: tuple[str, ...],
+        self,
+        *,
+        question_id: str,
+        answer: str,
+        contexts: tuple[str, ...],
         extractor_model_id: str,
     ) -> tuple[AtomicClaim, ...]:
         return self._claims.get(question_id, ())
 
     async def verify_claims(
-        self, *, question_id: str, claims: tuple[AtomicClaim, ...],
-        contexts: tuple[str, ...], verifier_model_id: str,
+        self,
+        *,
+        question_id: str,
+        claims: tuple[AtomicClaim, ...],
+        contexts: tuple[str, ...],
+        verifier_model_id: str,
     ) -> tuple[AtomicClaim, ...]:
         if self._verdict is None:
             return claims
-        return tuple(
-            claim.model_copy(update={"verdict": self._verdict})
-            for claim in claims
-        )
+        return tuple(claim.model_copy(update={"verdict": self._verdict}) for claim in claims)
 
 
 class _FakePairwisePort(PairwiseJudgePort):
     async def compare(
-        self, *, question_id: str, question: str,
-        graph_answer: str, baseline_answer: str, contexts: tuple[str, ...],
+        self,
+        *,
+        question_id: str,
+        question: str,
+        graph_answer: str,
+        baseline_answer: str,
+        contexts: tuple[str, ...],
         judge_model_id: str,
     ) -> PairwiseJudgment:
         return PairwiseJudgment(
@@ -102,7 +119,9 @@ class _FakeRagasPort(RAGASRunnerPort):
         self._metrics = metrics
 
     async def run(
-        self, *, dataset_id: str,
+        self,
+        *,
+        dataset_id: str,
         generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
         previous_metrics: RAGASSecondaryMetrics | None = None,
     ) -> RAGASSecondaryMetrics:
@@ -118,11 +137,13 @@ class _FakeBaselinePort(EvaluationBaselinePort):
 
 
 def _settings() -> Settings:
-    return Settings.model_validate({
-        "neo4j_uri": "bolt://localhost:7687",
-        "neo4j_user": "neo4j",
-        "neo4j_password": "password",
-    })
+    return Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "password",
+        }
+    )
 
 
 def _make_use_case(
@@ -211,7 +232,9 @@ def test_generation_status_failed_when_faithfulness_regression() -> None:
         ),
     }
     uc = _make_use_case(
-        baseline=baseline, claims=low_claims, verdict="contradict",
+        baseline=baseline,
+        claims=low_claims,
+        verdict="contradict",
     )
     result = asyncio.run(uc.execute())
     assert result.status == LayerStatus.FAILED
@@ -246,7 +269,8 @@ def test_ragas_unavailable_yields_warning_not_block() -> None:
     uc = _make_use_case(
         baseline=baseline,
         ragas_metrics=RAGASSecondaryMetrics(
-            available=False, notes="import failed",
+            available=False,
+            notes="import failed",
         ),
     )
     result = asyncio.run(uc.execute())
@@ -314,58 +338,90 @@ def test_pipeline_orchestration_order() -> None:
 
     class TracedRetrieval(_FakeRetrievalPort):
         async def fetch_contexts(
-            self, *, question: str, qtype: str, detail_level: int,
+            self,
+            *,
+            question: str,
+            qtype: str,
+            detail_level: int,
         ) -> tuple[RetrievalContext, ...]:
             calls.append("fetch")
             return await super().fetch_contexts(
-                question=question, qtype=qtype, detail_level=detail_level,
+                question=question,
+                qtype=qtype,
+                detail_level=detail_level,
             )
 
         async def compose_answer(
-            self, *, question: str, contexts: tuple[RetrievalContext, ...],
+            self,
+            *,
+            question: str,
+            contexts: tuple[RetrievalContext, ...],
         ) -> str:
             calls.append("compose")
             return await super().compose_answer(
-                question=question, contexts=contexts,
+                question=question,
+                contexts=contexts,
             )
 
     class TracedClaim(_FakeClaimPort):
         async def extract_claims(
-            self, *, question_id: str, answer: str,
-            contexts: tuple[str, ...], extractor_model_id: str,
+            self,
+            *,
+            question_id: str,
+            answer: str,
+            contexts: tuple[str, ...],
+            extractor_model_id: str,
         ) -> tuple[AtomicClaim, ...]:
             calls.append("extract")
             return await super().extract_claims(
-                question_id=question_id, answer=answer, contexts=contexts,
+                question_id=question_id,
+                answer=answer,
+                contexts=contexts,
                 extractor_model_id=extractor_model_id,
             )
 
         async def verify_claims(
-            self, *, question_id: str, claims: tuple[AtomicClaim, ...],
-            contexts: tuple[str, ...], verifier_model_id: str,
+            self,
+            *,
+            question_id: str,
+            claims: tuple[AtomicClaim, ...],
+            contexts: tuple[str, ...],
+            verifier_model_id: str,
         ) -> tuple[AtomicClaim, ...]:
             calls.append("verify")
             return await super().verify_claims(
-                question_id=question_id, claims=claims, contexts=contexts,
+                question_id=question_id,
+                claims=claims,
+                contexts=contexts,
                 verifier_model_id=verifier_model_id,
             )
 
     class TracedPairwise(_FakePairwisePort):
         async def compare(
-            self, *, question_id: str, question: str,
-            graph_answer: str, baseline_answer: str,
-            contexts: tuple[str, ...], judge_model_id: str,
+            self,
+            *,
+            question_id: str,
+            question: str,
+            graph_answer: str,
+            baseline_answer: str,
+            contexts: tuple[str, ...],
+            judge_model_id: str,
         ) -> PairwiseJudgment:
             calls.append("pairwise")
             return await super().compare(
-                question_id=question_id, question=question,
-                graph_answer=graph_answer, baseline_answer=baseline_answer,
-                contexts=contexts, judge_model_id=judge_model_id,
+                question_id=question_id,
+                question=question,
+                graph_answer=graph_answer,
+                baseline_answer=baseline_answer,
+                contexts=contexts,
+                judge_model_id=judge_model_id,
             )
 
     class TracedRagas(_FakeRagasPort):
         async def run(
-            self, *, dataset_id: str,
+            self,
+            *,
+            dataset_id: str,
             generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
             previous_metrics: RAGASSecondaryMetrics | None = None,
         ) -> RAGASSecondaryMetrics:
@@ -385,22 +441,28 @@ def test_pipeline_orchestration_order() -> None:
         metrics={"faithfulness": 0.8},
     )
     traced_claim = TracedClaim(
-        {"q1": (AtomicClaim(
-            claim_id="c1",
-            text="MCP is a protocol.",
-            evidence_refs=("ctx1",),
-        ),)},
+        {
+            "q1": (
+                AtomicClaim(
+                    claim_id="c1",
+                    text="MCP is a protocol.",
+                    evidence_refs=("ctx1",),
+                ),
+            )
+        },
     )
     uc = EvaluateGenerationLayerUseCase(
-        dataset_port=_FakeDatasetPort((
-            {
-                "question_id": "q1",
-                "question": "what is MCP?",
-                "qtype": "global",
-                "reference_answer": "MCP is a protocol.",
-                "contexts_hint": ["ctx1"],
-            },
-        )),
+        dataset_port=_FakeDatasetPort(
+            (
+                {
+                    "question_id": "q1",
+                    "question": "what is MCP?",
+                    "qtype": "global",
+                    "reference_answer": "MCP is a protocol.",
+                    "contexts_hint": ["ctx1"],
+                },
+            )
+        ),
         retrieval_port=TracedRetrieval(),
         claim_port=traced_claim,
         pairwise_port=TracedPairwise(),

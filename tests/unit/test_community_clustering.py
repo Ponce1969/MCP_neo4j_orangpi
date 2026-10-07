@@ -47,9 +47,7 @@ def test_build_entity_graph_ignores_missing_endpoint(
     entities: list[Entity],
 ) -> None:
     """Relationships pointing to unknown entities are skipped."""
-    dangling = Relationship(
-        source_entity_id="a", target_entity_id="missing", type="requires"
-    )
+    dangling = Relationship(source_entity_id="a", target_entity_id="missing", type="requires")
 
     graph = build_entity_graph(entities, [dangling])
 
@@ -99,20 +97,12 @@ def test_run_leiden_with_graspologic_backend(monkeypatch: pytest.MonkeyPatch) ->
         [Relationship(source_entity_id="a", target_entity_id="b", type="requires")],
     )
 
-    def fake_leiden(
-        g: Any, *, resolution: float, random_seed: int | None = None
-    ) -> dict[str, int]:
+    def fake_leiden(g: Any, *, resolution: float, random_seed: int | None = None) -> dict[str, int]:
         return {"a": 0, "b": 1}
 
-    fake_partition_module: Any = type(
-        "partition", (), {"leiden": staticmethod(fake_leiden)}
-    )()
-    fake_graspologic_module: Any = type(
-        "graspologic", (), {"partition": fake_partition_module}
-    )()
-    monkeypatch.setitem(
-        pytest.importorskip("sys").modules, "graspologic", fake_graspologic_module
-    )
+    fake_partition_module: Any = type("partition", (), {"leiden": staticmethod(fake_leiden)})()
+    fake_graspologic_module: Any = type("graspologic", (), {"partition": fake_partition_module})()
+    monkeypatch.setitem(pytest.importorskip("sys").modules, "graspologic", fake_graspologic_module)
     monkeypatch.setitem(
         pytest.importorskip("sys").modules,
         "graspologic.partition",
@@ -141,9 +131,7 @@ def test_run_leiden_with_leidenalg_backend(monkeypatch: pytest.MonkeyPatch) -> N
         def __iter__(self) -> Any:
             return iter(self._membership)
 
-    def fake_find_partition(
-        g: Any, partition_type: Any, **kwargs: Any
-    ) -> FakePartition:
+    def fake_find_partition(g: Any, partition_type: Any, **kwargs: Any) -> FakePartition:
         return FakePartition(len(g.vs))
 
     fake_leidenalg: Any = type(
@@ -163,9 +151,7 @@ def test_run_leiden_with_leidenalg_backend(monkeypatch: pytest.MonkeyPatch) -> N
         (),
         {"Graph": type("Graph", (), {"from_networkx": staticmethod(_fake_from_networkx)})},
     )()
-    monkeypatch.setitem(
-        pytest.importorskip("sys").modules, "leidenalg", fake_leidenalg
-    )
+    monkeypatch.setitem(pytest.importorskip("sys").modules, "leidenalg", fake_leidenalg)
     monkeypatch.setitem(pytest.importorskip("sys").modules, "igraph", fake_igraph)
 
     result = run_leiden(graph, resolution=1.0, backend="leidenalg")

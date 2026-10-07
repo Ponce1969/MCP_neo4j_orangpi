@@ -81,9 +81,7 @@ def build_group(entry: dict[str, Any]) -> MergeGroup:
 
 def dry_run() -> int:
     groups = load_groups()
-    all_ids = [x["canonical"] for x in groups] + [
-        c for x in groups for c in x["candidates"]
-    ]
+    all_ids = [x["canonical"] for x in groups] + [c for x in groups for c in x["candidates"]]
     settings = Settings.model_validate({})
     driver = GraphDatabase.driver(
         settings.neo4j_uri,
@@ -113,9 +111,7 @@ def dry_run() -> int:
     inactive = [i for i in all_ids if found.get(i)]
     n_dups = sum(len(x["candidates"]) for x in groups)
 
-    print(
-        f"groups={len(groups)} canonical={len(groups)} duplicates={n_dups}"
-    )
+    print(f"groups={len(groups)} canonical={len(groups)} duplicates={n_dups}")
     print(f"entities_active_namespace={active_ns} -> after={active_ns - n_dups}")
     print(
         f"ids_checked={len(all_ids)} found={len(found)} "

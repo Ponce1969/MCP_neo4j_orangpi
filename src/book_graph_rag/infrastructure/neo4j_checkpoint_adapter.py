@@ -223,9 +223,7 @@ class Neo4jCheckpointAdapter(CheckpointPort):
             return 0
         return int(record["changed"])
 
-    async def fetch_state(
-        self, source_id: str, chunk_indices: list[int]
-    ) -> dict[int, Checkpoint]:
+    async def fetch_state(self, source_id: str, chunk_indices: list[int]) -> dict[int, Checkpoint]:
         """Return existing checkpoints keyed by chunk_index."""
         if not chunk_indices:
             return {}
@@ -244,9 +242,7 @@ class Neo4jCheckpointAdapter(CheckpointPort):
                 checkpoints[checkpoint.chunk_index] = checkpoint
             return checkpoints
 
-    async def reclaim_stale_leases(
-        self, source_id: str, now: datetime, stale_seconds: int
-    ) -> int:
+    async def reclaim_stale_leases(self, source_id: str, now: datetime, stale_seconds: int) -> int:
         """Reset PROCESSING leases older than stale_seconds."""
         threshold = now - timedelta(seconds=stale_seconds)
         async with self._driver.session() as session:

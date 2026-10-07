@@ -105,9 +105,7 @@ async def _run_scoped_audit(
 ) -> Any:
     adapter = Neo4jAuditAdapter(neo4j_settings)
     try:
-        target = build_audit_target(
-            "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-        )
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
         return await AuditGraphUseCase(adapter).execute(target, sample_limit=10, scope=scope)
     finally:
         await adapter.close()
@@ -153,9 +151,7 @@ async def test_warning_same_namespace_duplicate_passes_with_max_severity_blockin
     uniqueness = next(s for s in result.dimension_breakdown if s.dimension == "uniqueness")
     assert uniqueness.satisfied is True
     assert uniqueness.finding_total == 0
-    duplicate = next(
-        f for f in report.findings if f.rule_id == "DUPLICATE_ENTITY_LOGICAL"
-    )
+    duplicate = next(f for f in report.findings if f.rule_id == "DUPLICATE_ENTITY_LOGICAL")
     assert duplicate.severity == Severity.WARNING
     assert duplicate.total >= 1
 
@@ -180,9 +176,7 @@ async def test_coverage_warning_passes_with_max_severity_blocking(
     coverage = next(s for s in result.dimension_breakdown if s.dimension == "coverage")
     assert coverage.satisfied is True
     assert coverage.finding_total == 0
-    orphan = next(
-        f for f in report.findings if f.rule_id == "ENTITY_UNMENTIONED"
-    )
+    orphan = next(f for f in report.findings if f.rule_id == "ENTITY_UNMENTIONED")
     assert orphan.severity == Severity.WARNING
     assert orphan.total >= 1
 

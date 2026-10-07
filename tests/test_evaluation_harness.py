@@ -212,8 +212,7 @@ def _make_harness(
     variant: Literal["A", "B"] = "A",
 ) -> tuple[EvaluationHarness, _FakeEmbeddingProvider, BruteForceCandidateRetrieval]:
     pairs = [
-        LabeledPair.model_validate(item)
-        for item in yaml.safe_load(pairs_path.read_bytes()) or []
+        LabeledPair.model_validate(item) for item in yaml.safe_load(pairs_path.read_bytes()) or []
     ]
     mapping = _build_embedding_map(pairs, variant)
     embedding = _FakeEmbeddingProvider(mapping, dim=8)

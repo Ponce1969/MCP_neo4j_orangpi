@@ -103,13 +103,17 @@ async def test_collect_snapshot_accepts_scoped_value() -> None:
 
 
 def _target() -> AuditTarget:
-    return AuditTarget(selector="bookgraph-neo4j", database="neo4j", scheme="bolt", host="db", uri="bolt://db")
+    return AuditTarget(
+        selector="bookgraph-neo4j", database="neo4j", scheme="bolt", host="db", uri="bolt://db"
+    )
 
 
 def test_scoped_report_scope_field_is_set() -> None:
     from book_graph_rag.domain.audit_models import AuditReport
+
     report = AuditReport(
-        target=_target(), state=OverallState.PASSED,
+        target=_target(),
+        state=OverallState.PASSED,
         scope="knowledge:agentic-architectural-patterns",
     )
     assert report.scope == "knowledge:agentic-architectural-patterns"
@@ -117,12 +121,14 @@ def test_scoped_report_scope_field_is_set() -> None:
 
 def test_whole_graph_report_scope_is_none() -> None:
     from book_graph_rag.domain.audit_models import AuditReport
+
     report = AuditReport(target=_target(), state=OverallState.PASSED)
     assert report.scope is None
 
 
 def test_canonical_json_includes_scope_field_when_scoped() -> None:
     from book_graph_rag.domain.audit_models import AuditReport
+
     report = AuditReport(target=_target(), state=OverallState.PASSED, scope="knowledge")
     payload = report.canonical_json()
     assert '"scope":"knowledge"' in payload

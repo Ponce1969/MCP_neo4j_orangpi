@@ -67,9 +67,7 @@ class GraphQueryPort(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def find_path(
-        self, start_id: str, end_id: str, max_depth: int
-    ) -> list[GraphPath]:
+    async def find_path(self, start_id: str, end_id: str, max_depth: int) -> list[GraphPath]:
         """Return shortest paths between two entities within ``max_depth``."""
         ...
 

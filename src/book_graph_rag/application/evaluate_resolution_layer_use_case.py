@@ -34,9 +34,7 @@ class EvaluateResolutionLayerUseCase:
         self._run_id = run_id or uuid.uuid4().hex
         self._code_commit = code_commit
 
-    async def execute(
-        self, *, dataset_id: str = "resolution_dataset"
-    ) -> EvaluationLayerResult:
+    async def execute(self, *, dataset_id: str = "resolution_dataset") -> EvaluationLayerResult:
         """Evaluate layer 3 against the committed baseline."""
         try:
             self._dataset_port.load(dataset_id)
@@ -126,9 +124,7 @@ class EvaluateResolutionLayerUseCase:
             status=status,
             project_owned_metrics=metrics,
             source_dataset_id="resolution_dataset",
-            baseline_report_path="data/evaluation/resolution_baseline.json"
-            if baseline
-            else None,
+            baseline_report_path="data/evaluation/resolution_baseline.json" if baseline else None,
             rationale=rationale,
             run_metadata=LayerRunMetadata(
                 run_id=self._run_id,

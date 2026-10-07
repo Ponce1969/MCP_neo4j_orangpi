@@ -57,9 +57,7 @@ def _find_forbidden_matches() -> list[str]:
                     continue
                 for pattern in _FORBIDDEN_PATTERNS:
                     if pattern in line:
-                        matches.append(
-                            f"{path.relative_to(_PROJECT_ROOT)}:{lineno}: {pattern}"
-                        )
+                        matches.append(f"{path.relative_to(_PROJECT_ROOT)}:{lineno}: {pattern}")
     return matches
 
 

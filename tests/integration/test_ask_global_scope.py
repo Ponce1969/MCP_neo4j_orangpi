@@ -81,9 +81,7 @@ class _FakeLLMSummaryPort(LLMSummaryPort):
     ) -> str:
         return "summary"
 
-    async def generate_summary_from_children(
-        self, child_summaries: list[Any], level: int
-    ) -> str:
+    async def generate_summary_from_children(self, child_summaries: list[Any], level: int) -> str:
         return "summary"
 
     async def score_community(self, question: str, summary: Any) -> int:
@@ -95,9 +93,7 @@ class _FakeLLMSummaryPort(LLMSummaryPort):
 
 class _RecordingGlobalQueryUseCase(GlobalQueryUseCase):
     def __init__(self) -> None:
-        super().__init__(
-            read_port=_RecordingCommunityReadPort(), llm_port=_FakeLLMSummaryPort()
-        )
+        super().__init__(read_port=_RecordingCommunityReadPort(), llm_port=_FakeLLMSummaryPort())
         self.calls: list[tuple[str, int, ScopeContext | None]] = []
 
     async def ask(
@@ -245,14 +241,10 @@ async def _graph_snapshot(driver: Any) -> tuple[list[tuple[Any, ...]], list[tupl
                 )
             )
 
-        rels_result = await session.run(
-            "MATCH ()-[r]->() RETURN type(r) AS t, r.type AS prop"
-        )
+        rels_result = await session.run("MATCH ()-[r]->() RETURN type(r) AS t, r.type AS prop")
         rels: list[tuple[Any, ...]] = []
         async for record in rels_result:
-            rels.append(
-                (_snapshot_key_value(record["t"]), _snapshot_key_value(record["prop"]))
-            )
+            rels.append((_snapshot_key_value(record["t"]), _snapshot_key_value(record["prop"])))
 
     return (sorted(nodes), sorted(rels))
 
@@ -291,9 +283,7 @@ async def test_community_read_path_is_read_only(
             MERGE (c:CommunitySummary {id: $id})
             SET c.level = 0, c.summary = 'root', c.entity_ids = [$a], c.parent_id = null
             """,
-            id=hashlib.sha1(
-                f"0:{_NS_A}:alpha".encode()
-            ).hexdigest()[:16],
+            id=hashlib.sha1(f"0:{_NS_A}:alpha".encode()).hexdigest()[:16],
             a=f"{_NS_A}:alpha",
         )
 

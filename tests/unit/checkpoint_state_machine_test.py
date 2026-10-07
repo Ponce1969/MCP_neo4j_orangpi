@@ -51,9 +51,7 @@ _ALLOWED_SET = {
     (CheckpointStatus.STALE, CheckpointStatus.PENDING),
 }
 _DISALLOWED = [
-    (f, t)
-    for f, t in itertools.product([None, *_STATES], _STATES)
-    if (f, t) not in _ALLOWED_SET
+    (f, t) for f, t in itertools.product([None, *_STATES], _STATES) if (f, t) not in _ALLOWED_SET
 ]
 
 

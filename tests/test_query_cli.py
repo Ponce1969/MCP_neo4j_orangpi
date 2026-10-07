@@ -167,9 +167,7 @@ def test_query_builds_entity_query_object(fake_use_case: _FakeUseCase) -> None:
 def test_query_builds_relation_query_object(fake_use_case: _FakeUseCase) -> None:
     """The CLI parses the JSON and builds the correct RelationQuery."""
     runner = CliRunner()
-    runner.invoke(
-        cli, ["query", "--type", "relation", "--query", '{"source_id": "a", "depth": 2}']
-    )
+    runner.invoke(cli, ["query", "--type", "relation", "--query", '{"source_id": "a", "depth": 2}'])
 
     assert len(fake_use_case.executed) == 1
     query = fake_use_case.executed[0]
@@ -181,9 +179,7 @@ def test_query_builds_relation_query_object(fake_use_case: _FakeUseCase) -> None
 def test_query_builds_path_query_object(fake_use_case: _FakeUseCase) -> None:
     """The CLI parses the JSON and builds the correct PathQuery."""
     runner = CliRunner()
-    runner.invoke(
-        cli, ["query", "--type", "path", "--query", '{"start_id": "a", "end_id": "b"}']
-    )
+    runner.invoke(cli, ["query", "--type", "path", "--query", '{"start_id": "a", "end_id": "b"}'])
 
     assert len(fake_use_case.executed) == 1
     query = fake_use_case.executed[0]

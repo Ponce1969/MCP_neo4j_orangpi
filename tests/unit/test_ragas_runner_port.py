@@ -21,18 +21,22 @@ def test_ragas_runner_port_unavailable_returns_available_false() -> None:
 
     class FakeRunner(RAGASRunnerPort):
         async def run(
-            self, *, dataset_id: str,
+            self,
+            *,
+            dataset_id: str,
             generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
             previous_metrics: RAGASSecondaryMetrics | None = None,
         ) -> RAGASSecondaryMetrics:
             return RAGASSecondaryMetrics(available=False, notes="import failed")
 
     port = FakeRunner()
-    metrics = asyncio.run(port.run(
-        dataset_id="generation_dataset",
-        generation_results=(),
-        previous_metrics=None,
-    ))
+    metrics = asyncio.run(
+        port.run(
+            dataset_id="generation_dataset",
+            generation_results=(),
+            previous_metrics=None,
+        )
+    )
     assert metrics.available is False
     assert "import failed" in metrics.notes
 
@@ -42,7 +46,9 @@ def test_ragas_runner_port_drop_warning_flag() -> None:
 
     class FakeRunner(RAGASRunnerPort):
         async def run(
-            self, *, dataset_id: str,
+            self,
+            *,
+            dataset_id: str,
             generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
             previous_metrics: RAGASSecondaryMetrics | None = None,
         ) -> RAGASSecondaryMetrics:
@@ -55,10 +61,12 @@ def test_ragas_runner_port_drop_warning_flag() -> None:
 
     port = FakeRunner()
     previous = RAGASSecondaryMetrics(faithfulness=0.7, available=True)
-    metrics = asyncio.run(port.run(
-        dataset_id="generation_dataset",
-        generation_results=(),
-        previous_metrics=previous,
-    ))
+    metrics = asyncio.run(
+        port.run(
+            dataset_id="generation_dataset",
+            generation_results=(),
+            previous_metrics=previous,
+        )
+    )
     assert metrics.drop_warning is True
     assert metrics.available is True

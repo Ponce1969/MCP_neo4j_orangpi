@@ -71,9 +71,7 @@ async def test_checkpoint_port_lifecycle(
 
         # reclaim_stale_leases resets old PROCESSING leases to PENDING.
         stale_threshold = datetime.now(UTC) - timedelta(seconds=10)
-        reclaimed = await adapter.reclaim_stale_leases(
-            source_id, stale_threshold, stale_seconds=5
-        )
+        reclaimed = await adapter.reclaim_stale_leases(source_id, stale_threshold, stale_seconds=5)
         assert reclaimed == 0  # lease was just created
 
         # Manually age the lease by creating a fresh one with an old timestamp is

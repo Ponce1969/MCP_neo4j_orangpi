@@ -288,15 +288,11 @@ async def test_resolution_lifecycle_analyze_approve_idempotence_rollback(
         # 1. Dry-run analysis: exact → auto-merge, high/medium → quarantine.
         dry_result = await resolve_use_case.analyze(dry_run=True)
 
-        exact_groups = [
-            g for g in dry_result.auto_merge_groups if exact_dup_id in g.duplicate_ids
-        ]
+        exact_groups = [g for g in dry_result.auto_merge_groups if exact_dup_id in g.duplicate_ids]
         assert len(exact_groups) == 1, "EXACT pair must be staged for auto-merge"
         assert exact_groups[0].band == ConfidenceBand.EXACT
 
-        high_records = [
-            r for r in dry_result.quarantine_records if r.candidate_id == high_dup_id
-        ]
+        high_records = [r for r in dry_result.quarantine_records if r.candidate_id == high_dup_id]
         assert len(high_records) == 1, "HIGH pair must be quarantined"
         assert high_records[0].band == ConfidenceBand.HIGH
 
@@ -340,16 +336,14 @@ async def test_resolution_lifecycle_analyze_approve_idempotence_rollback(
 
         # 4. Re-run analysis: the merged high duplicate is invisible.
         rerun = await resolve_use_case.analyze(dry_run=True)
-        rerun_candidate_ids = {
-            cid for g in rerun.auto_merge_groups for cid in g.duplicate_ids
-        } | {r.candidate_id for r in rerun.quarantine_records}
+        rerun_candidate_ids = {cid for g in rerun.auto_merge_groups for cid in g.duplicate_ids} | {
+            r.candidate_id for r in rerun.quarantine_records
+        }
         assert high_dup_id not in rerun_candidate_ids, (
             "merged duplicate must not reappear in analysis"
         )
         assert any(g.band == ConfidenceBand.EXACT for g in rerun.auto_merge_groups)
-        assert any(
-            r.candidate_id == medium_dup_id for r in rerun.quarantine_records
-        )
+        assert any(r.candidate_id == medium_dup_id for r in rerun.quarantine_records)
 
         # 5. Rollback the applied merge.
         rollback_use_case = RollbackMergeUseCase(

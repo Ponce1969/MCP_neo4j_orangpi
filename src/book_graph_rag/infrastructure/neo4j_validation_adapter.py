@@ -1,4 +1,5 @@
 """Read-only Neo4j validation adapter."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -105,13 +106,9 @@ class Neo4jValidationAdapter(GraphValidationReadPort):
 
     async def collect_coverage(self, book_id: str) -> tuple[CoverageEvidence, ...]:
         evidence: list[CoverageEvidence] = []
-        async with self._driver.session(
-            database=self._settings.neo4j_database
-        ) as session:
+        async with self._driver.session(database=self._settings.neo4j_database) as session:
             for scope, query in _COVERAGE_QUERIES.items():
-                rows = await session.execute_read(
-                    self._read, query, {"book_id": book_id}
-                )
+                rows = await session.execute_read(self._read, query, {"book_id": book_id})
                 row = rows[0] if rows else {"valid": 0, "total": 0}
                 valid = int(row.get("valid", 0) or 0)
                 total = int(row.get("total", 0) or 0)

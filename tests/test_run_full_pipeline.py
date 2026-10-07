@@ -185,24 +185,16 @@ class _StatefulFakeSession(_FakeSession):
             if not m:
                 return None
             labels[var] = m.group(1)
-            keys[var] = {
-                k.strip().lstrip("$"): None
-                for k in m.group(2).split(",")
-                if k.strip()
-            }
+            keys[var] = {k.strip().lstrip("$"): None for k in m.group(2).split(",") if k.strip()}
         return rel_type, labels["a"], keys["a"], labels["b"], keys["b"]
 
-    async def run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _AsyncFakeResult:
+    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _AsyncFakeResult:
         self.calls.append((query, parameters))
 
         if "MATCH (n) WHERE n:" in query:
             return _AsyncFakeResult(
                 [
-                    _FakeRecord(
-                        {"labels": n["labels"], "properties": n["properties"]}
-                    )
+                    _FakeRecord({"labels": n["labels"], "properties": n["properties"]})
                     for n in self._nodes_source
                 ]
             )
@@ -227,9 +219,7 @@ class _StatefulFakeSession(_FakeSession):
             if parsed:
                 label, keys = parsed
                 params = parameters or {}
-                key_vals = tuple(
-                    sorted((k, params.get(f"${k}", params.get(k))) for k in keys)
-                )
+                key_vals = tuple(sorted((k, params.get(f"${k}", params.get(k))) for k in keys))
                 self._node_ids.add((label, frozenset(key_vals)))
             return _AsyncFakeResult()
         if "MERGE (a)-[r:" in query:
@@ -237,10 +227,12 @@ class _StatefulFakeSession(_FakeSession):
             if rel_parsed:
                 rel_type, start_label, start_keys, end_label, end_keys = rel_parsed
                 start_vals = frozenset(
-                    (k, parameters.get(f"${k}", parameters.get(k))) for k in start_keys  # type: ignore[union-attr]
+                    (k, parameters.get(f"${k}", parameters.get(k)))  # type: ignore[union-attr]
+                    for k in start_keys
                 )
                 end_vals = frozenset(
-                    (k, parameters.get(f"${k}", parameters.get(k))) for k in end_keys  # type: ignore[union-attr]
+                    (k, parameters.get(f"${k}", parameters.get(k)))  # type: ignore[union-attr]
+                    for k in end_keys
                 )
                 self._relationships.add(
                     (rel_type, frozenset(start_vals), frozenset(end_vals), end_label)
@@ -267,9 +259,7 @@ def fake_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[list[Any]
     monkeypatch.setattr(run_full_pipeline, "Settings", _make_fake_settings_class(calls))
     monkeypatch.setattr(run_full_pipeline, "PDFAdapter", _make_fake_pdf_adapter(calls))
     monkeypatch.setattr(run_full_pipeline, "LLMAdapter", _make_fake_llm_adapter(calls))
-    monkeypatch.setattr(
-        run_full_pipeline, "Neo4jCommandAdapter", _make_fake_neo4j_adapter(calls)
-    )
+    monkeypatch.setattr(run_full_pipeline, "Neo4jCommandAdapter", _make_fake_neo4j_adapter(calls))
     monkeypatch.setattr(run_full_pipeline, "IndexBookUseCase", _make_fake_use_case(calls))
 
     async def _fake_communities(fresh: bool = False) -> None:
@@ -378,9 +368,7 @@ def test_fresh_backup_failure_aborts_before_clear(
 # ── RED tests for --with-communities (task 3.10) ─────────────────────────────
 
 
-def test_with_communities_runs_communities_fresh(
-    fake_env: tuple[list[Any], Path]
-) -> None:
+def test_with_communities_runs_communities_fresh(fake_env: tuple[list[Any], Path]) -> None:
     """AC-IP.6: --with-communities triggers community regeneration with fresh=True."""
     calls, pdf = fake_env
     runner = CliRunner()
@@ -448,9 +436,7 @@ def test_entity_decrease_warning_emitted(fake_env: tuple[list[Any], Path]) -> No
 # ── RED test for stale-summary warning (task 3.13) ───────────────────────────
 
 
-def test_omitting_communities_warns_stale_summaries(
-    fake_env: tuple[list[Any], Path]
-) -> None:
+def test_omitting_communities_warns_stale_summaries(fake_env: tuple[list[Any], Path]) -> None:
     """AC-IP.6: omitting --with-communities warns that summaries may be stale."""
     calls, pdf = fake_env
     runner = CliRunner()
@@ -493,9 +479,7 @@ async def test_restore_replays_json_dump_idempotently(tmp_path: Path) -> None:
     """Restore replays a backup; second run keeps the same node/edge count."""
     backup = {
         "captured_at_utc": "2026-01-01T00:00:00Z",
-        "nodes": [
-            {"labels": ["Entity"], "properties": {"id": "e1", "name": "Agent"}}
-        ],
+        "nodes": [{"labels": ["Entity"], "properties": {"id": "e1", "name": "Agent"}}],
         "relationships": [
             {
                 "type": "MENTIONS",

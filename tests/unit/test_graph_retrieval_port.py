@@ -21,7 +21,11 @@ def test_graph_retrieval_port_fetch_contexts_returns_ordered() -> None:
 
     class FakeRetrieval(GraphRetrievalPort):
         async def fetch_contexts(
-            self, *, question: str, qtype: str, detail_level: int,
+            self,
+            *,
+            question: str,
+            qtype: str,
+            detail_level: int,
         ) -> tuple[RetrievalContext, ...]:
             return (
                 RetrievalContext(chunk_id=None, text="ctx1"),
@@ -29,16 +33,21 @@ def test_graph_retrieval_port_fetch_contexts_returns_ordered() -> None:
             )
 
         async def compose_answer(
-            self, *, question: str, contexts: tuple[RetrievalContext, ...],
+            self,
+            *,
+            question: str,
+            contexts: tuple[RetrievalContext, ...],
         ) -> str:
             return "answer"
 
     port = FakeRetrieval()
-    contexts = asyncio.run(port.fetch_contexts(
-        question="what is MCP?",
-        qtype="global",
-        detail_level=1,
-    ))
+    contexts = asyncio.run(
+        port.fetch_contexts(
+            question="what is MCP?",
+            qtype="global",
+            detail_level=1,
+        )
+    )
     assert contexts == (
         RetrievalContext(chunk_id=None, text="ctx1"),
         RetrievalContext(chunk_id=None, text="ctx2"),
@@ -50,18 +59,27 @@ def test_graph_retrieval_port_compose_answer_returns_str() -> None:
 
     class FakeRetrieval(GraphRetrievalPort):
         async def fetch_contexts(
-            self, *, question: str, qtype: str, detail_level: int,
+            self,
+            *,
+            question: str,
+            qtype: str,
+            detail_level: int,
         ) -> tuple[RetrievalContext, ...]:
             return ()
 
         async def compose_answer(
-            self, *, question: str, contexts: tuple[RetrievalContext, ...],
+            self,
+            *,
+            question: str,
+            contexts: tuple[RetrievalContext, ...],
         ) -> str:
             return "MCP is a protocol."
 
     port = FakeRetrieval()
-    answer = asyncio.run(port.compose_answer(
-        question="what is MCP?",
-        contexts=(RetrievalContext(chunk_id=None, text="ctx1"),),
-    ))
+    answer = asyncio.run(
+        port.compose_answer(
+            question="what is MCP?",
+            contexts=(RetrievalContext(chunk_id=None, text="ctx1"),),
+        )
+    )
     assert answer == "MCP is a protocol."

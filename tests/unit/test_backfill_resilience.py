@@ -44,9 +44,7 @@ class _FakeSession:
         self._record = record
         self.runs: list[str] = []
 
-    async def run(
-        self, cypher: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    async def run(self, cypher: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         self.runs.append(cypher.strip())
         record = self._record if self._record is not None else {"updated": self._updated_count}
         return _FakeResult(record)
@@ -164,23 +162,18 @@ class _MigrationSession(_FakeSession):
         self.existing_ids = existing_ids
         self.migrations: list[dict[str, Any]] = []
 
-    async def run(
-        self, cypher: str, parameters: dict[str, Any] | None = None
-    ) -> _MigrationResult:
+    async def run(self, cypher: str, parameters: dict[str, Any] | None = None) -> _MigrationResult:
         self.runs.append(cypher.strip())
         if cypher == _LEGACY_ENTITIES_CYPHER:
             legacy = [
-                record
-                for record in self.records
-                if record["id"] == _slugify(str(record["name"]))
+                record for record in self.records if record["id"] == _slugify(str(record["name"]))
             ]
             return _MigrationResult(records=legacy)
         if cypher == _ENTITY_ID_COLLISION_GUARD_CYPHER:
             assert parameters is not None
             occupied = {record["id"] for record in self.records} | self.existing_ids
             collision = (
-                parameters["new_id"] in occupied
-                and parameters["new_id"] != parameters["old_id"]
+                parameters["new_id"] in occupied and parameters["new_id"] != parameters["old_id"]
             )
             return _MigrationResult(collision=collision, is_guard=True)
         if cypher == _MIGRATE_ENTITY_CYPHER:

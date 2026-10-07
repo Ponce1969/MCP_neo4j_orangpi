@@ -173,9 +173,7 @@ class MigrationReport:
     dry_run: bool
 
 
-def map_entity_id(
-    namespace: SourceNamespace, old_id: str, entity_type: str
-) -> EntityIdMapping:
+def map_entity_id(namespace: SourceNamespace, old_id: str, entity_type: str) -> EntityIdMapping:
     """Map a persisted global entity id ``slug-type`` to its namespaced id.
 
     Already-namespaced ids are recognized (and left untouched) so re-running the
@@ -198,8 +196,7 @@ def map_entity_id(
             None,
             entity_type,
             "unresolved",
-            f"id is already namespaced under {parsed_ns.source_id!r}, "
-            f"not {namespace.source_id!r}",
+            f"id is already namespaced under {parsed_ns.source_id!r}, not {namespace.source_id!r}",
         )
 
     suffix = f"-{entity_type}"
@@ -567,9 +564,7 @@ async def apply_migrations(driver: Any, plan: MigrationPlan) -> None:
                 {"old_id": entity.old_id, "new_id": entity.new_id, "aliases": entity.aliases},
             )
         for book in plan.books:
-            await _apply_one(
-                session, _MIGRATE_BOOK, {"old_id": book.old_id, "new_id": book.new_id}
-            )
+            await _apply_one(session, _MIGRATE_BOOK, {"old_id": book.old_id, "new_id": book.new_id})
         for chunk in plan.chunks:
             await _apply_one(
                 session,
@@ -632,9 +627,7 @@ def _make_driver(settings: Settings) -> Any:
     )
 
 
-async def _run_main(
-    dry_run: bool, assume_yes: bool, corpus: str, source: str
-) -> MigrationReport:
+async def _run_main(dry_run: bool, assume_yes: bool, corpus: str, source: str) -> MigrationReport:
     """Single-entry coroutine so the event loop stays open for cleanup."""
     settings = Settings.model_validate({})
     namespace = CatalogLoader(settings.catalog_path).load().resolve_source(corpus, source)

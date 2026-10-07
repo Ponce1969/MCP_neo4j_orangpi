@@ -456,7 +456,8 @@ def test_read_query_log_skips_malformed_lines_and_counts_them(tmp_path: Path) ->
     path = tmp_path / "mcp_queries.jsonl"
     path.write_text(
         "not-json\n"
-        + _make_entry().model_dump_json() + "\n"
+        + _make_entry().model_dump_json()
+        + "\n"
         + "{invalid json\n"
         + "[]\n"
         + "\n",  # blank line is ignored silently

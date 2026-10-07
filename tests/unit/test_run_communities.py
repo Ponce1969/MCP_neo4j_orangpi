@@ -130,16 +130,12 @@ async def test_run_communities_clears_and_upserts(
         Entity(id="a", name="A", type="agent"),
         Entity(id="b", name="B", type="agent"),
     ]
-    relationships = [
-        Relationship(source_entity_id="a", target_entity_id="b", type="requires")
-    ]
+    relationships = [Relationship(source_entity_id="a", target_entity_id="b", type="requires")]
     read_port = _FakeReadPort(entities, relationships)
     write_port = _FakeWritePort()
     llm_port = _FakeLLMPort()
 
-    await run_communities._run_communities(
-        read_port, write_port, llm_port, settings, fresh=True
-    )
+    await run_communities._run_communities(read_port, write_port, llm_port, settings, fresh=True)
 
     assert write_port.cleared
     assert len(write_port.single_upserted) >= 1
@@ -167,9 +163,7 @@ async def test_run_communities_aborts_when_max_calls_exceeded(
     monkeypatch.setattr(run_communities, "run_leiden", fake_run_leiden)
 
     with pytest.raises(run_communities.CommunityDetectionError):
-        await run_communities._run_communities(
-            read_port, write_port, llm_port, settings
-        )
+        await run_communities._run_communities(read_port, write_port, llm_port, settings)
 
     assert not write_port.cleared
     assert not write_port.upserted
@@ -184,16 +178,12 @@ async def test_run_communities_llm_calls_respect_concurrency(
         Entity(id="a", name="A", type="agent"),
         Entity(id="b", name="B", type="agent"),
     ]
-    relationships = [
-        Relationship(source_entity_id="a", target_entity_id="b", type="requires")
-    ]
+    relationships = [Relationship(source_entity_id="a", target_entity_id="b", type="requires")]
     read_port = _FakeReadPort(entities, relationships)
     write_port = _FakeWritePort()
     llm_port = _FakeLLMPort()
 
-    await run_communities._run_communities(
-        read_port, write_port, llm_port, settings
-    )
+    await run_communities._run_communities(read_port, write_port, llm_port, settings)
 
     assert len(llm_port.calls) == len(write_port.single_upserted)
     assert all(call[0] in {0, 1, 2, 3} for call in llm_port.calls)
@@ -209,16 +199,12 @@ async def test_run_communities_logs_counts(
         Entity(id="a", name="A", type="agent"),
         Entity(id="b", name="B", type="agent"),
     ]
-    relationships = [
-        Relationship(source_entity_id="a", target_entity_id="b", type="requires")
-    ]
+    relationships = [Relationship(source_entity_id="a", target_entity_id="b", type="requires")]
     read_port = _FakeReadPort(entities, relationships)
     write_port = _FakeWritePort()
     llm_port = _FakeLLMPort()
 
-    await run_communities._run_communities(
-        read_port, write_port, llm_port, settings
-    )
+    await run_communities._run_communities(read_port, write_port, llm_port, settings)
 
     captured = capsys.readouterr()
     assert "entities" in captured.out
@@ -236,6 +222,7 @@ def test_cli_run_invokes_orchestration(
     monkeypatch.chdir(tmp_path)
     for var in ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD"):
         monkeypatch.delenv(var, raising=False)
+
     class _FakeSettingsType:
         @classmethod
         def model_validate(cls, data: object) -> Settings:
@@ -247,9 +234,7 @@ def test_cli_run_invokes_orchestration(
         Entity(id="a", name="A", type="agent"),
         Entity(id="b", name="B", type="agent"),
     ]
-    relationships = [
-        Relationship(source_entity_id="a", target_entity_id="b", type="requires")
-    ]
+    relationships = [Relationship(source_entity_id="a", target_entity_id="b", type="requires")]
 
     calls: list[str] = []
 

@@ -85,9 +85,7 @@ class FakeEvaluateCommandUseCase:
 @pytest.fixture
 def evaluate_use_case(monkeypatch: pytest.MonkeyPatch) -> FakeEvaluateCommandUseCase:
     fake = FakeEvaluateCommandUseCase()
-    monkeypatch.setattr(
-        "book_graph_rag.main._build_evaluate_command_use_case", lambda _: fake
-    )
+    monkeypatch.setattr("book_graph_rag.main._build_evaluate_command_use_case", lambda _: fake)
     return fake
 
 

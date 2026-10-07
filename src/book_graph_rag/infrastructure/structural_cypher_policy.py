@@ -25,9 +25,25 @@ from book_graph_rag.ports.mcp_security_port import (
 
 _APPROVED_FUNCTIONS = frozenset(
     {
-        "COUNT", "COLLECT", "SUM", "AVG", "MIN", "MAX", "SIZE", "HEAD", "LAST",
-        "LABELS", "TYPE", "KEYS", "PROPERTIES", "TOSTRING", "COALESCE", "ID",
-        "ELEMENTID", "NODES", "RELATIONSHIPS",
+        "COUNT",
+        "COLLECT",
+        "SUM",
+        "AVG",
+        "MIN",
+        "MAX",
+        "SIZE",
+        "HEAD",
+        "LAST",
+        "LABELS",
+        "TYPE",
+        "KEYS",
+        "PROPERTIES",
+        "TOSTRING",
+        "COALESCE",
+        "ID",
+        "ELEMENTID",
+        "NODES",
+        "RELATIONSHIPS",
     }
 )
 
@@ -265,8 +281,7 @@ class _Parser:
                 f"WHERE variable {variable!r} has no label; cannot prove a scope key"
             )
         allowed_labels = sorted(
-            label for label in labels
-            if prop in SCOPE_KEYS_BY_LABEL.get(label, frozenset())
+            label for label in labels if prop in SCOPE_KEYS_BY_LABEL.get(label, frozenset())
         )
         if not allowed_labels:
             raise StructuralPolicyViolationError(
@@ -438,9 +453,7 @@ class _Parser:
         if self._accept_ident("AS"):
             token = self.peek()
             if token.kind != "IDENT":
-                raise StructuralPolicyViolationError(
-                    f"expected an alias at position {token.pos}"
-                )
+                raise StructuralPolicyViolationError(f"expected an alias at position {token.pos}")
             self.advance()
 
     def _parse_expression(self) -> None:

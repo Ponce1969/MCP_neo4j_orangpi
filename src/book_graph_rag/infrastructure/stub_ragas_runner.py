@@ -37,9 +37,7 @@ class StubRAGASRunner(RAGASRunnerPort):
             )
 
         faithfulness = entry.get("faithfulness")
-        previous_faithfulness = (
-            previous_metrics.faithfulness if previous_metrics else None
-        )
+        previous_faithfulness = previous_metrics.faithfulness if previous_metrics else None
         drop_warning = False
         if (
             faithfulness is not None

@@ -40,9 +40,7 @@ class _FakeGraphMerge(GraphMergePort):
         """Mark candidates as currently merged before the first rollback."""
         self._merged.update(candidate_ids)
 
-    async def capture_inverse_mapping(
-        self, candidate_ids: list[str]
-    ) -> InverseMappingSnapshot:
+    async def capture_inverse_mapping(self, candidate_ids: list[str]) -> InverseMappingSnapshot:
         return InverseMappingSnapshot(
             aliases_before=dict.fromkeys(candidate_ids, ()),
             edge_inverse_map=[],
@@ -62,9 +60,7 @@ class _FakeGraphMerge(GraphMergePort):
         if not still_merged:
             from book_graph_rag.domain.resolution_errors import MergeNotReversible
 
-            raise MergeNotReversible(
-                f"candidates {entry.candidate_ids} are not currently merged"
-            )
+            raise MergeNotReversible(f"candidates {entry.candidate_ids} are not currently merged")
         self.rollbacks.append(entry)
         self._merged.difference_update(entry.candidate_ids)
 
@@ -131,9 +127,7 @@ def _rollback_scenario(
     aliases: list[FoldedAlias] = []
     for i in range(alias_count):
         dup = draw(st.sampled_from(candidate_ids))
-        aliases.append(
-            FoldedAlias(from_entity_id=dup, alias_value=f"alias-{i}")
-        )
+        aliases.append(FoldedAlias(from_entity_id=dup, alias_value=f"alias-{i}"))
 
     edge_kinds = ["MENTIONS", "RELATED"]
     edge_count = draw(st.integers(min_value=0, max_value=candidate_count * 2))
@@ -164,9 +158,7 @@ async def test_rollback_is_idempotent_and_preserves_verifiable_chain(
     original sequence, and the chain must still verify.
     """
     candidate_ids, aliases, edges = scenario
-    original = _build_entry(
-        seq=1, candidate_ids=candidate_ids, aliases=aliases, edges=edges
-    )
+    original = _build_entry(seq=1, candidate_ids=candidate_ids, aliases=aliases, edges=edges)
     ledger = _FakeMergeLedger()
     ledger.append(original)
     original = ledger.entries[0]

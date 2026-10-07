@@ -51,12 +51,8 @@ def test_resolution_baseline_matches_dataset_sha256() -> None:
     """resolution_baseline.json names the same dataset hash as the manifest."""
     manifest_text = Path("data/evaluation/MANIFEST.json").read_text(encoding="utf-8")
     manifest = json.loads(manifest_text)
-    resolution_record = next(
-        r for r in manifest["datasets"] if r["id"] == "resolution_dataset"
-    )
-    baseline_text = Path("data/evaluation/resolution_baseline.json").read_text(
-        encoding="utf-8"
-    )
+    resolution_record = next(r for r in manifest["datasets"] if r["id"] == "resolution_dataset")
+    baseline_text = Path("data/evaluation/resolution_baseline.json").read_text(encoding="utf-8")
     baseline = json.loads(baseline_text)
     assert baseline["dataset_id"] == "resolution_dataset"
     assert baseline["dataset_sha256"] == resolution_record["sha256"]

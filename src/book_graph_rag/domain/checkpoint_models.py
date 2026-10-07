@@ -153,9 +153,9 @@ def parse_replay_command(argv: list[str] | None = None) -> ReplayCommand:
 
     # Map the boolean resume flag into the mode namespace.
     if parsed.resume:
-        mode: Literal[
-            "resume", "no_resume", "replay_dead_letter", "backfill_checkpoints"
-        ] = (parsed.mode or "resume")
+        mode: Literal["resume", "no_resume", "replay_dead_letter", "backfill_checkpoints"] = (
+            parsed.mode or "resume"
+        )
     else:
         if parsed.mode is not None:
             raise ValueError(

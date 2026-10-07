@@ -84,9 +84,7 @@ async def _backup(driver: Any, path: Path | None = None) -> Path:
         )
         nodes: list[dict[str, Any]] = []
         async for record in node_result:
-            nodes.append(
-                {"labels": record["labels"], "properties": record["properties"]}
-            )
+            nodes.append({"labels": record["labels"], "properties": record["properties"]})
 
         rel_result = await session.run(
             "MATCH (a)-[r]->(b) WHERE type(r) IN $types "
@@ -156,9 +154,7 @@ async def _restore(driver: Any, path: Path) -> None:
             props = node["properties"]
             key = _node_key(label, props)
             key_clause = ", ".join(f"{k}: ${k}" for k in key)
-            set_clause = ", ".join(
-                f"n.{k} = ${k}" for k in props if k not in key
-            )
+            set_clause = ", ".join(f"n.{k} = ${k}" for k in props if k not in key)
             query = f"MERGE (n:{label} {{{key_clause}}})"
             if set_clause:
                 query += f" SET {set_clause}"
@@ -195,9 +191,7 @@ async def _run_communities(fresh: bool = False) -> None:
 async def _has_community_summaries(driver: Any) -> bool:
     """Return True if any :CommunitySummary nodes exist in the graph."""
     async with driver.session() as session:
-        result = await session.run(
-            "MATCH (c:CommunitySummary) RETURN count(c) AS count"
-        )
+        result = await session.run("MATCH (c:CommunitySummary) RETURN count(c) AS count")
         record = await result.single()
         if record is None:
             return False
@@ -280,9 +274,7 @@ async def _run_pipeline(
 
     if dry_run:
         section_titles = {c.section.title for c in chunks if c.section}
-        click.echo(
-            f"dry-run: pdf_chunks={expected_chunk_count} sections={len(section_titles)}"
-        )
+        click.echo(f"dry-run: pdf_chunks={expected_chunk_count} sections={len(section_titles)}")
         return
 
     pre_entity_count = await neo4j_adapter.count_entities()
@@ -313,9 +305,7 @@ async def _run_pipeline(
     merged_entities = 0
     if resolve_entities_flag:
         if os.environ.get("RESOLUTION_STRATEGY") == "hybrid":
-            resolve_use_case, resolve_closables = await build_resolve_entities_use_case(
-                settings
-            )
+            resolve_use_case, resolve_closables = await build_resolve_entities_use_case(settings)
             try:
                 hybrid_result = await resolve_use_case.analyze(dry_run=False)
             finally:
@@ -324,9 +314,7 @@ async def _run_pipeline(
                         await closable.close()
 
             if hybrid_result.auto_merge_groups:
-                apply_use_case, apply_closables = await build_apply_merge_use_case(
-                    settings
-                )
+                apply_use_case, apply_closables = await build_apply_merge_use_case(settings)
                 try:
                     for group in hybrid_result.auto_merge_groups:
                         await apply_use_case.apply(group, approver="pipeline")

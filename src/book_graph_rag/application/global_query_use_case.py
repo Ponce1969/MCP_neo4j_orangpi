@@ -48,13 +48,9 @@ class GlobalQueryUseCase:
             ValueError: If ``detail_level`` is outside ``[0, 3]``.
         """
         if not 0 <= detail_level <= 3:
-            raise ValueError(
-                f"detail_level must be between 0 and 3, got {detail_level}"
-            )
+            raise ValueError(f"detail_level must be between 0 and 3, got {detail_level}")
 
-        summaries = await self._read_port.get_summaries_by_level(
-            detail_level, scope=scope
-        )
+        summaries = await self._read_port.get_summaries_by_level(detail_level, scope=scope)
         if not summaries:
             return {
                 "answer": "Run scripts/run_communities.py first",

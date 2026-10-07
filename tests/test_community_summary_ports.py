@@ -30,9 +30,7 @@ def test_llm_summary_port_methods_are_async() -> None:
 def test_llm_summary_port_method_signature() -> None:
     """The port receives entities, relationships and level, returning a string."""
     signature = inspect.signature(LLMSummaryPort.generate_community_summary)
-    parameters = [
-        name for name in signature.parameters if name not in ("self", "cls")
-    ]
+    parameters = [name for name in signature.parameters if name not in ("self", "cls")]
     evaluated = typing.get_type_hints(LLMSummaryPort.generate_community_summary)
 
     assert parameters == ["entities", "relationships", "level"]
@@ -42,9 +40,7 @@ def test_llm_summary_port_method_signature() -> None:
 def test_llm_summary_port_score_community_signature() -> None:
     """The port receives a question and a summary, returning an integer score."""
     signature = inspect.signature(LLMSummaryPort.score_community)
-    parameters = [
-        name for name in signature.parameters if name not in ("self", "cls")
-    ]
+    parameters = [name for name in signature.parameters if name not in ("self", "cls")]
     evaluated = typing.get_type_hints(LLMSummaryPort.score_community)
 
     assert parameters == ["question", "summary"]
@@ -54,9 +50,7 @@ def test_llm_summary_port_score_community_signature() -> None:
 def test_llm_summary_port_compose_answer_signature() -> None:
     """The port receives a question and ranked summaries, returning an answer string."""
     signature = inspect.signature(LLMSummaryPort.compose_answer)
-    parameters = [
-        name for name in signature.parameters if name not in ("self", "cls")
-    ]
+    parameters = [name for name in signature.parameters if name not in ("self", "cls")]
     evaluated = typing.get_type_hints(LLMSummaryPort.compose_answer)
 
     assert parameters == ["question", "ranked"]
@@ -80,9 +74,7 @@ class _CompleteLLMSummaryPort(LLMSummaryPort):
     ) -> str:
         return "answer"
 
-    async def generate_summary_from_children(
-        self, child_summaries: list[str], level: int
-    ) -> str:
+    async def generate_summary_from_children(self, child_summaries: list[str], level: int) -> str:
         return "summary"
 
 
@@ -124,9 +116,7 @@ def test_community_read_port_methods_are_async() -> None:
 def test_community_read_port_load_entity_graph_signature() -> None:
     """The port loads the base entity graph and returns entities + relationships."""
     signature = inspect.signature(CommunityReadPort.load_entity_graph)
-    parameters = [
-        name for name in signature.parameters if name not in ("self", "cls")
-    ]
+    parameters = [name for name in signature.parameters if name not in ("self", "cls")]
     evaluated = typing.get_type_hints(CommunityReadPort.load_entity_graph)
 
     assert parameters == []
@@ -136,9 +126,7 @@ def test_community_read_port_load_entity_graph_signature() -> None:
 def test_community_read_port_get_summaries_by_level_signature() -> None:
     """The port receives a level and an optional scope, returning summary list."""
     signature = inspect.signature(CommunityReadPort.get_summaries_by_level)
-    parameters = [
-        name for name in signature.parameters if name not in ("self", "cls")
-    ]
+    parameters = [name for name in signature.parameters if name not in ("self", "cls")]
     evaluated = typing.get_type_hints(CommunityReadPort.get_summaries_by_level)
 
     assert parameters == ["level", "scope"]
@@ -151,9 +139,7 @@ def test_community_read_port_get_summaries_by_level_signature() -> None:
 def test_community_read_port_count_summaries_signature() -> None:
     """The port returns the total number of persisted summaries."""
     signature = inspect.signature(CommunityReadPort.count_summaries)
-    parameters = [
-        name for name in signature.parameters if name not in ("self", "cls")
-    ]
+    parameters = [name for name in signature.parameters if name not in ("self", "cls")]
     evaluated = typing.get_type_hints(CommunityReadPort.count_summaries)
 
     assert parameters == []
@@ -211,13 +197,9 @@ def test_community_write_port_method_signatures() -> None:
     upsert_hints = typing.get_type_hints(CommunityWritePort.upsert_summaries)
     clear_hints = typing.get_type_hints(CommunityWritePort.clear_summaries)
 
-    assert [
-        name for name in upsert_sig.parameters if name not in ("self", "cls")
-    ] == ["summaries"]
+    assert [name for name in upsert_sig.parameters if name not in ("self", "cls")] == ["summaries"]
     assert upsert_hints["return"] is type(None)
-    assert [
-        name for name in clear_sig.parameters if name not in ("self", "cls")
-    ] == []
+    assert [name for name in clear_sig.parameters if name not in ("self", "cls")] == []
     assert clear_hints["return"] is type(None)
 
 

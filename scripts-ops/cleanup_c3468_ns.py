@@ -78,13 +78,15 @@ async def main() -> None:
         )
 
         print("== Antes de borrar chapters: secciones con parent en los chapters del Alcaraz ==")
-        recs = await (await ses.run(
-            "MATCH (b:Book {id: $id})-[:CONTAINS]->(ch:Chapter)"
-            "-[:HAS_SECTION|HAS_SUBSECTION*1..]->(sc:Section) "
-            "RETURN ch.number AS cn, ch.title AS ct, sc.title AS st, "
-            "sc.page_start AS ps ORDER BY cn, ps",
-            id=BOOK_ID,
-        )).values()
+        recs = await (
+            await ses.run(
+                "MATCH (b:Book {id: $id})-[:CONTAINS]->(ch:Chapter)"
+                "-[:HAS_SECTION|HAS_SUBSECTION*1..]->(sc:Section) "
+                "RETURN ch.number AS cn, ch.title AS ct, sc.title AS st, "
+                "sc.page_start AS ps ORDER BY cn, ps",
+                id=BOOK_ID,
+            )
+        ).values()
         print(f"  total secciones alcanzables desde chapters del Alcaraz: {len(recs)}")
         for r in recs[:60]:
             print(f"    cn={r[0]} ch={str(r[1])[:45]!r} sec={r[2]!r} ps={r[3]}")
@@ -100,7 +102,8 @@ async def main() -> None:
         )
         await ses.run(
             "MATCH (k:Chunk) WHERE k.book_id = $bid OR k.source_id CONTAINS $p DETACH DELETE k",
-            bid=BOOK_ID, p=PREFIX,
+            bid=BOOK_ID,
+            p=PREFIX,
         )
         await ses.run("MATCH (e:Entity) WHERE e.id CONTAINS $p DETACH DELETE e", p=PREFIX)
         await ses.run(
@@ -112,17 +115,23 @@ async def main() -> None:
 
         # 5. Secciones huérfanas post-borrado = las del piloto no compartidas.
         #    (id no existe en secciones; se detectan por ausencia de parent.)
-        rec = await (await ses.run(
-            "MATCH (sc:Section) WHERE NOT EXISTS { MATCH ()-[:HAS_SECTION|HAS_SUBSECTION]->(sc) } "
-            "RETURN count(sc) AS c"
-        )).single()
+        rec = await (
+            await ses.run(
+                "MATCH (sc:Section) WHERE NOT EXISTS { "
+                "MATCH ()-[:HAS_SECTION|HAS_SUBSECTION]->(sc) } "
+                "RETURN count(sc) AS c"
+            )
+        ).single()
         assert rec is not None
         total_orphan = rec[0]
         print(f"  secciones sin parent tras borrado: {total_orphan}")
-        recs = await (await ses.run(
-            "MATCH (sc:Section) WHERE NOT EXISTS { MATCH ()-[:HAS_SECTION|HAS_SUBSECTION]->(sc) } "
-            "RETURN sc.title AS t, sc.chapter_number AS cn, sc.page_start AS ps ORDER BY cn, ps"
-        )).values()
+        recs = await (
+            await ses.run(
+                "MATCH (sc:Section) WHERE NOT EXISTS { "
+                "MATCH ()-[:HAS_SECTION|HAS_SUBSECTION]->(sc) } "
+                "RETURN sc.title AS t, sc.chapter_number AS cn, sc.page_start AS ps ORDER BY cn, ps"
+            )
+        ).values()
         for r in recs[:60]:
             print(f"    ORPHAN sec={r[0]!r} cn={r[1]} ps={r[2]}")
         await ses.run(

@@ -35,9 +35,7 @@ def test_no_identical_before_after_pair() -> None:
     for path in files:
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if digest in seen:
-            pytest.fail(
-                f"Benchmark files have identical content: {seen[digest]} and {path}"
-            )
+            pytest.fail(f"Benchmark files have identical content: {seen[digest]} and {path}")
         seen[digest] = path
 
 
@@ -47,9 +45,9 @@ def test_gr3_after_removed_or_distinct() -> None:
     baseline = BENCHMARK_DIR / "gr3_baseline.json"
 
     if after.exists() and baseline.exists():
-        assert (
-            after.read_bytes() != baseline.read_bytes()
-        ), "gr3_after.json is identical to gr3_baseline.json"
+        assert after.read_bytes() != baseline.read_bytes(), (
+            "gr3_after.json is identical to gr3_baseline.json"
+        )
 
     assert not after.exists(), (
         "docs/benchmarks/gr3_after.json is a misleading duplicate and must be removed"

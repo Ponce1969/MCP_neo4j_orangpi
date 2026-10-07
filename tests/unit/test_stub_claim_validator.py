@@ -25,12 +25,14 @@ def test_stub_claim_validator_returns_fixture_claims(
     validator: StubClaimValidator,
 ) -> None:
     """extract_claims returns the claims stored in the fixture keyed by question_id."""
-    claims = asyncio.run(validator.extract_claims(
-        question_id="q1",
-        answer="MCP is a protocol for context exchange. MCP stands for Model Context Protocol.",
-        contexts=("ctx1", "ctx2"),
-        extractor_model_id="stub-extractor",
-    ))
+    claims = asyncio.run(
+        validator.extract_claims(
+            question_id="q1",
+            answer="MCP is a protocol for context exchange. MCP stands for Model Context Protocol.",
+            contexts=("ctx1", "ctx2"),
+            extractor_model_id="stub-extractor",
+        )
+    )
     assert len(claims) == 2
     assert claims[0].claim_id == "q1-c1"
     assert claims[0].text == "MCP is a protocol for context exchange."
@@ -48,12 +50,14 @@ def test_stub_claim_validator_verify_populates_verdict(
             evidence_refs=("ctx1",),
         ),
     )
-    verified = asyncio.run(validator.verify_claims(
-        question_id="q1",
-        claims=extracted,
-        contexts=("ctx1",),
-        verifier_model_id="stub-verifier",
-    ))
+    verified = asyncio.run(
+        validator.verify_claims(
+            question_id="q1",
+            claims=extracted,
+            contexts=("ctx1",),
+            verifier_model_id="stub-verifier",
+        )
+    )
     assert len(verified) == 1
     assert verified[0].verdict == "support"
     assert verified[0].verdict_rationale == "Explicitly supported by ctx1."
@@ -64,20 +68,24 @@ def test_stub_claim_validator_unknown_question_returns_empty(
     validator: StubClaimValidator,
 ) -> None:
     """An unknown question_id yields no claims and no verdicts."""
-    claims = asyncio.run(validator.extract_claims(
-        question_id="unknown",
-        answer="...",
-        contexts=(),
-        extractor_model_id="stub-extractor",
-    ))
+    claims = asyncio.run(
+        validator.extract_claims(
+            question_id="unknown",
+            answer="...",
+            contexts=(),
+            extractor_model_id="stub-extractor",
+        )
+    )
     assert claims == ()
 
-    verified = asyncio.run(validator.verify_claims(
-        question_id="unknown",
-        claims=(),
-        contexts=(),
-        verifier_model_id="stub-verifier",
-    ))
+    verified = asyncio.run(
+        validator.verify_claims(
+            question_id="unknown",
+            claims=(),
+            contexts=(),
+            verifier_model_id="stub-verifier",
+        )
+    )
     assert verified == ()
 
 

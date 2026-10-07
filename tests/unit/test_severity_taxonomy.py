@@ -18,7 +18,9 @@ from book_graph_rag.domain.audit_models import (
 
 
 def _target() -> AuditTarget:
-    return AuditTarget(selector="bookgraph-neo4j", database="neo4j", scheme="bolt", host="db", uri="bolt://db")
+    return AuditTarget(
+        selector="bookgraph-neo4j", database="neo4j", scheme="bolt", host="db", uri="bolt://db"
+    )
 
 
 def test_entity_unmentioned_is_coverage_warning() -> None:
@@ -65,12 +67,16 @@ def test_severity_for_category_mapping_all_categories() -> None:
 def test_orphan_only_graph_classifies_violations_exit_10() -> None:
     findings = (
         AuditFinding(
-            rule_id="ENTITY_UNMENTIONED", category="coverage",
-            severity=Severity.WARNING, total=1,
+            rule_id="ENTITY_UNMENTIONED",
+            category="coverage",
+            severity=Severity.WARNING,
+            total=1,
         ),
         AuditFinding(
-            rule_id="ENTITY_ISOLATED_RELATED", category="coverage",
-            severity=Severity.WARNING, total=1,
+            rule_id="ENTITY_ISOLATED_RELATED",
+            category="coverage",
+            severity=Severity.WARNING,
+            total=1,
         ),
     )
     report = AuditReport(target=_target(), state=OverallState.VIOLATIONS, findings=findings)
@@ -81,8 +87,10 @@ def test_orphan_only_graph_classifies_violations_exit_10() -> None:
 def test_provenance_only_graph_remains_incomplete_exit_11() -> None:
     findings = (
         AuditFinding(
-            rule_id="PROVENANCE_ENTITY_MISSING", category="provenance",
-            severity=Severity.INCOMPLETE, total=1,
+            rule_id="PROVENANCE_ENTITY_MISSING",
+            category="provenance",
+            severity=Severity.INCOMPLETE,
+            total=1,
         ),
     )
     report = AuditReport(target=_target(), state=OverallState.INCOMPLETE, findings=findings)

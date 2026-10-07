@@ -62,9 +62,7 @@ class Neo4jRetrievalAdapter(GraphRetrievalPort):
         """Return ordered contexts for ``question``."""
         if qtype == "global":
             summaries = await self._community_adapter.get_summaries_by_level(detail_level)
-            return tuple(
-                RetrievalContext(chunk_id=None, text=s.summary) for s in summaries
-            )
+            return tuple(RetrievalContext(chunk_id=None, text=s.summary) for s in summaries)
 
         chunks, entities = await asyncio.gather(
             self._query_adapter.search_chunks(question, limit=10),

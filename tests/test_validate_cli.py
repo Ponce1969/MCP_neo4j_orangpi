@@ -1,4 +1,5 @@
 """Tests for the validate CLI command."""
+
 from __future__ import annotations
 
 import pytest
@@ -20,7 +21,5 @@ def test_validate_fails_closed_on_config_error(monkeypatch: pytest.MonkeyPatch) 
 
 def test_validate_rejects_negative_sample_limit() -> None:
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["validate", "--book-id", "book-1", "--sample-limit", "-1"]
-    )
+    result = runner.invoke(cli, ["validate", "--book-id", "book-1", "--sample-limit", "-1"])
     assert result.exit_code != 0

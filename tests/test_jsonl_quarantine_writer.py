@@ -167,9 +167,7 @@ def test_update_decision_is_atomic_when_replace_fails(
     )
 
     with pytest.raises(OSError, match="simulate crash"):
-        writer.update_decision(
-            1, QuarantineDecision.APPROVED, "alice", datetime.now(UTC)
-        )
+        writer.update_decision(1, QuarantineDecision.APPROVED, "alice", datetime.now(UTC))
 
     # Original file must be untouched.
     assert writer._path.read_text(encoding="utf-8") == original_content

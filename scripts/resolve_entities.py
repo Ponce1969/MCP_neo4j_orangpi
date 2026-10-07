@@ -162,9 +162,7 @@ def name_similarity(a: str, b: str) -> float:
     return 2 * len(shared) / (len(tokens_a) + len(tokens_b))
 
 
-def _cluster_by_similarity(
-    entities: list[Entity], threshold: float
-) -> list[list[Entity]]:
+def _cluster_by_similarity(entities: list[Entity], threshold: float) -> list[list[Entity]]:
     """Group entities transitively by name similarity (union-find).
 
     Compact forms and token sets are precomputed once per entity.  A token-
@@ -197,9 +195,8 @@ def _cluster_by_similarity(
             if compact[i] and compact[j] and compact[i] == compact[j]:
                 union(i, j)
                 continue
-            if (
-                2 * min(token_counts[i], token_counts[j])
-                < threshold * (token_counts[i] + token_counts[j])
+            if 2 * min(token_counts[i], token_counts[j]) < threshold * (
+                token_counts[i] + token_counts[j]
             ):
                 continue
             shared = token_sets[i] & token_sets[j]
@@ -227,9 +224,7 @@ def pick_canonical(group: list[Entity]) -> Entity:
     return min(group, key=key)
 
 
-def _merge_metadata(
-    group: list[Entity], canonical: Entity
-) -> tuple[list[str], str | None, str]:
+def _merge_metadata(group: list[Entity], canonical: Entity) -> tuple[list[str], str | None, str]:
     """Compute the merged aliases, canonical_name and description.
 
     Every member's name and aliases (except the canonical's own name) become
@@ -393,8 +388,7 @@ def _plan_lines(entities: list[Entity], groups: list[MergeGroup]) -> list[str]:
         duplicates = [by_id[dup_id] for dup_id in group.duplicate_ids]
         dup_names = ", ".join(dup.name for dup in duplicates)
         lines.append(
-            f"[{canonical.type}] {canonical.name}  <-  {dup_names} "
-            f"({len(duplicates)} dup)"
+            f"[{canonical.type}] {canonical.name}  <-  {dup_names} ({len(duplicates)} dup)"
         )
     return lines
 
@@ -447,8 +441,7 @@ async def _run_main(threshold: float, dry_run: bool) -> None:
     duplicate_count = sum(len(g.duplicate_ids) for g in groups)
     if dry_run:
         click.echo(
-            f"[dry-run] entities={len(entities)} "
-            f"duplicates={duplicate_count} groups={len(groups)}"
+            f"[dry-run] entities={len(entities)} duplicates={duplicate_count} groups={len(groups)}"
         )
         for line in _plan_lines(entities, groups):
             click.echo(f"  {line}")

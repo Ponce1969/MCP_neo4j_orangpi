@@ -21,8 +21,13 @@ def test_pairwise_judge_port_compare_returns_judgment() -> None:
 
     class FakeJudge(PairwiseJudgePort):
         async def compare(
-            self, *, question_id: str, question: str,
-            graph_answer: str, baseline_answer: str, contexts: tuple[str, ...],
+            self,
+            *,
+            question_id: str,
+            question: str,
+            graph_answer: str,
+            baseline_answer: str,
+            contexts: tuple[str, ...],
             judge_model_id: str,
         ) -> PairwiseJudgment:
             return PairwiseJudgment(
@@ -33,13 +38,15 @@ def test_pairwise_judge_port_compare_returns_judgment() -> None:
             )
 
     port = FakeJudge()
-    judgment = asyncio.run(port.compare(
-        question_id="q1",
-        question="what is MCP?",
-        graph_answer="MCP is a protocol.",
-        baseline_answer="MCP.",
-        contexts=("ctx1",),
-        judge_model_id="judge-x",
-    ))
+    judgment = asyncio.run(
+        port.compare(
+            question_id="q1",
+            question="what is MCP?",
+            graph_answer="MCP is a protocol.",
+            baseline_answer="MCP.",
+            contexts=("ctx1",),
+            judge_model_id="judge-x",
+        )
+    )
     assert judgment.verdict == "graph_wins"
     assert judgment.judge_model_id == "judge-x"

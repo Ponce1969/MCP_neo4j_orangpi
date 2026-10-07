@@ -154,9 +154,7 @@ class _FakeEmbedding(EmbeddingProviderPort):
     async def embed(self, request: EmbeddingRequest) -> EmbeddingBatch:
         return EmbeddingBatch(
             model_id=request.model_id,
-            vectors=[
-                EmbeddingVector(values=(0.0, 0.0), model_id=request.model_id)
-            ]
+            vectors=[EmbeddingVector(values=(0.0, 0.0), model_id=request.model_id)]
             * len(request.texts),
         )
 

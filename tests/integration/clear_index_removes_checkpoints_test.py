@@ -41,9 +41,7 @@ async def test_clear_index_removes_checkpoint_nodes(
         await adapter.clear_index()
 
         async with neo4j_driver.session() as session:
-            result = await session.run(
-                "MATCH (c:Checkpoint) RETURN count(c) AS remaining"
-            )
+            result = await session.run("MATCH (c:Checkpoint) RETURN count(c) AS remaining")
             record = await result.single()
     finally:
         await adapter.close()

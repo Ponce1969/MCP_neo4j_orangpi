@@ -54,4 +54,3 @@ async def neo4j_driver(neo4j_settings: Settings) -> AsyncGenerator[Any, None]:
     )
     yield driver
     await driver.close()
-

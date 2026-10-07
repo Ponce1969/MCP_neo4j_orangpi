@@ -65,13 +65,16 @@ def _report(
         scope=scope,
         findings=findings,
         summary=summary,
-        execution=AuditExecution(state=state, exit_code={
-            OverallState.PASSED: 0,
-            OverallState.VIOLATIONS: 10,
-            OverallState.INCOMPLETE: 11,
-            OverallState.UNREACHABLE: 12,
-            OverallState.FAILED: 13,
-        }[state]),
+        execution=AuditExecution(
+            state=state,
+            exit_code={
+                OverallState.PASSED: 0,
+                OverallState.VIOLATIONS: 10,
+                OverallState.INCOMPLETE: 11,
+                OverallState.UNREACHABLE: 12,
+                OverallState.FAILED: 13,
+            }[state],
+        ),
     )
 
 
@@ -116,11 +119,7 @@ def test_gate_fails_on_blocking_finding() -> None:
     policy = _policy()
     report = _report(
         OverallState.VIOLATIONS,
-        findings=(
-            _finding(
-                "HIERARCHY_CHUNK_PARENT_REQUIRED", "hierarchy", Severity.BLOCKING
-            ),
-        ),
+        findings=(_finding("HIERARCHY_CHUNK_PARENT_REQUIRED", "hierarchy", Severity.BLOCKING),),
     )
     use_case = GateEvaluatorUseCase(policy)
 
@@ -137,9 +136,7 @@ def test_warning_in_required_dimension_passes_with_max_severity_blocking() -> No
     policy = _policy()
     report = _report(
         OverallState.VIOLATIONS,
-        findings=(
-            _finding("DUPLICATE_ENTITY_LOGICAL", "duplicates", Severity.WARNING),
-        ),
+        findings=(_finding("DUPLICATE_ENTITY_LOGICAL", "duplicates", Severity.WARNING),),
     )
     use_case = GateEvaluatorUseCase(policy)
 
@@ -148,9 +145,7 @@ def test_warning_in_required_dimension_passes_with_max_severity_blocking() -> No
     assert result.passed is True
     assert result.exit_code == 0
     assert result.overall_state == OverallState.PASSED
-    uniqueness_status = next(
-        s for s in result.dimension_breakdown if s.dimension == "uniqueness"
-    )
+    uniqueness_status = next(s for s in result.dimension_breakdown if s.dimension == "uniqueness")
     assert uniqueness_status.finding_total == 0
     assert uniqueness_status.satisfied is True
 
@@ -169,9 +164,7 @@ def test_coverage_warning_passes_with_max_severity_blocking() -> None:
     assert result.passed is True
     assert result.exit_code == 0
     assert result.overall_state == OverallState.PASSED
-    coverage_status = next(
-        s for s in result.dimension_breakdown if s.dimension == "coverage"
-    )
+    coverage_status = next(s for s in result.dimension_breakdown if s.dimension == "coverage")
     assert coverage_status.finding_total == 0
     assert coverage_status.satisfied is True
 
@@ -189,9 +182,7 @@ def test_warning_counts_with_max_severity_warning() -> None:
 
     assert result.passed is False
     assert result.exit_code == 10
-    coverage_status = next(
-        s for s in result.dimension_breakdown if s.dimension == "coverage"
-    )
+    coverage_status = next(s for s in result.dimension_breakdown if s.dimension == "coverage")
     assert coverage_status.finding_total == 1
     assert coverage_status.satisfied is False
 
@@ -230,17 +221,13 @@ def test_incomplete_counts_with_max_severity_incomplete() -> None:
     )
 
     failing = GateEvaluatorUseCase(incomplete_policy).evaluate("needs-provenance", report)
-    provenance_status = next(
-        s for s in failing.dimension_breakdown if s.dimension == "provenance"
-    )
+    provenance_status = next(s for s in failing.dimension_breakdown if s.dimension == "provenance")
     assert provenance_status.finding_total == 1
     assert provenance_status.satisfied is False
     assert failing.passed is False
 
     passing = GateEvaluatorUseCase(blocking_policy).evaluate("needs-provenance", report)
-    provenance_status = next(
-        s for s in passing.dimension_breakdown if s.dimension == "provenance"
-    )
+    provenance_status = next(s for s in passing.dimension_breakdown if s.dimension == "provenance")
     assert provenance_status.finding_total == 0
     assert provenance_status.satisfied is True
     assert passing.passed is True
@@ -251,11 +238,7 @@ def test_blocking_still_fails_with_max_severity_blocking() -> None:
     policy = _policy()
     report = _report(
         OverallState.VIOLATIONS,
-        findings=(
-            _finding(
-                "HIERARCHY_CHUNK_PARENT_REQUIRED", "hierarchy", Severity.BLOCKING
-            ),
-        ),
+        findings=(_finding("HIERARCHY_CHUNK_PARENT_REQUIRED", "hierarchy", Severity.BLOCKING),),
     )
     use_case = GateEvaluatorUseCase(policy)
 
@@ -264,9 +247,7 @@ def test_blocking_still_fails_with_max_severity_blocking() -> None:
     assert result.passed is False
     assert result.exit_code == 10
     assert result.overall_state == OverallState.VIOLATIONS
-    hierarchy_status = next(
-        s for s in result.dimension_breakdown if s.dimension == "hierarchy"
-    )
+    hierarchy_status = next(s for s in result.dimension_breakdown if s.dimension == "hierarchy")
     assert hierarchy_status.finding_total == 1
     assert hierarchy_status.satisfied is False
 
@@ -280,11 +261,7 @@ def test_max_severity_none_ignores_all_findings() -> None:
     policy = _policy(max_severity="none")
     report = _report(
         OverallState.VIOLATIONS,
-        findings=(
-            _finding(
-                "HIERARCHY_CHUNK_PARENT_REQUIRED", "hierarchy", Severity.BLOCKING
-            ),
-        ),
+        findings=(_finding("HIERARCHY_CHUNK_PARENT_REQUIRED", "hierarchy", Severity.BLOCKING),),
     )
     use_case = GateEvaluatorUseCase(policy)
 
@@ -293,9 +270,7 @@ def test_max_severity_none_ignores_all_findings() -> None:
     assert result.passed is True
     assert result.exit_code == 0
     assert result.overall_state == OverallState.PASSED
-    hierarchy_status = next(
-        s for s in result.dimension_breakdown if s.dimension == "hierarchy"
-    )
+    hierarchy_status = next(s for s in result.dimension_breakdown if s.dimension == "hierarchy")
     assert hierarchy_status.finding_total == 0
     assert hierarchy_status.satisfied is True
     assert "HIERARCHY_CHUNK_PARENT_REQUIRED" in result.blocking_findings

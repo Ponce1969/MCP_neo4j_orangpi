@@ -140,14 +140,8 @@ def _policy(
             ReadinessGatePolicy(
                 name="expose-mcp-readiness",
                 version="1.0.0",
-                required_layers=[
-                    RequiredLayer(layer=layer, blocking=True)
-                    for layer in required
-                ],
-                optional_layers=[
-                    RequiredLayer(layer=layer, blocking=False)
-                    for layer in optional
-                ],
+                required_layers=[RequiredLayer(layer=layer, blocking=True) for layer in required],
+                optional_layers=[RequiredLayer(layer=layer, blocking=False) for layer in optional],
                 audit_gate_ref="expose-mcp",
             ),
         ],
@@ -163,18 +157,10 @@ def _make_use_case(
         ReadinessGateEvaluatorUseCase,
     )
 
-    resolution = layer_results.get("resolution") or _layer_result(
-        "resolution", LayerStatus.PASSED
-    )
-    generation = layer_results.get("generation") or _layer_result(
-        "generation", LayerStatus.PASSED
-    )
-    retrieval = layer_results.get("retrieval") or _layer_result(
-        "retrieval", LayerStatus.PASSED
-    )
-    extraction = layer_results.get("extraction") or _layer_result(
-        "extraction", LayerStatus.PENDING
-    )
+    resolution = layer_results.get("resolution") or _layer_result("resolution", LayerStatus.PASSED)
+    generation = layer_results.get("generation") or _layer_result("generation", LayerStatus.PASSED)
+    retrieval = layer_results.get("retrieval") or _layer_result("retrieval", LayerStatus.PASSED)
+    extraction = layer_results.get("extraction") or _layer_result("extraction", LayerStatus.PENDING)
     return ReadinessGateEvaluatorUseCase(
         gate_policy=policy,
         audit_evaluator=FakeAuditEvaluator(audit_result),

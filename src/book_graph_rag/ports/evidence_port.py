@@ -1,4 +1,5 @@
 """Evidence and manifest persistence ports for pre-reindex validation."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

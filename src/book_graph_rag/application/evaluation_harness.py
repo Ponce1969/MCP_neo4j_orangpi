@@ -79,14 +79,10 @@ class EvaluationHarness:
         return pairs, manifest
 
     def _load_baseline(self) -> BaselineReport:
-        return BaselineReport.model_validate_json(
-            self._baseline_path.read_text(encoding="utf-8")
-        )
+        return BaselineReport.model_validate_json(self._baseline_path.read_text(encoding="utf-8"))
 
     @staticmethod
-    def _entity_for(
-        pair: LabeledPair, side: Literal["a", "b"]
-    ) -> tuple[Entity, str]:
+    def _entity_for(pair: LabeledPair, side: Literal["a", "b"]) -> tuple[Entity, str]:
         """Build a synthetic graph entity and namespace from one side of a pair."""
         entity = pair.entity_a if side == "a" else pair.entity_b
         namespace = entity.namespace or "dataset:default"
@@ -137,9 +133,7 @@ class EvaluationHarness:
         if not texts:
             return entity_by_id, namespace_by_id
 
-        batch = await self._embedding.embed(
-            EmbeddingRequest(texts=tuple(texts), model_id=model_id)
-        )
+        batch = await self._embedding.embed(EmbeddingRequest(texts=tuple(texts), model_id=model_id))
         for entity_id, vector in zip(order, batch.vectors, strict=True):
             entity = entity_by_id[entity_id]
             namespace = namespace_by_id[entity_id]
@@ -147,9 +141,7 @@ class EvaluationHarness:
             # Brute-force eval adapters need type/namespace metadata injected
             # separately; production adapters read this from the graph.
             if hasattr(self._retrieval, "upsert_entity_metadata"):
-                self._retrieval.upsert_entity_metadata(
-                    entity_id, entity.type, namespace
-                )
+                self._retrieval.upsert_entity_metadata(entity_id, entity.type, namespace)
 
         return entity_by_id, namespace_by_id
 
@@ -161,9 +153,7 @@ class EvaluationHarness:
     ) -> EvaluationMetrics:
         """Run the hybrid pipeline over the dataset and produce metrics."""
         pairs, _manifest = self.load_dataset()
-        entity_by_id, namespace_by_id = await self._embed_entities(
-            pairs, input_variant, model_id
-        )
+        entity_by_id, namespace_by_id = await self._embed_entities(pairs, input_variant, model_id)
 
         retrieval_predictions: list[Literal["same", "different"]] = []
         auto_merge_predictions: list[Literal["same", "different"]] = []
@@ -235,21 +225,13 @@ class EvaluationHarness:
 
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = (
-            2 * precision * recall / (precision + recall)
-            if (precision + recall) > 0
-            else 0.0
-        )
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
 
         hard_over_merge_rate = hard_fp / hard_count if hard_count > 0 else 0.0
         multilingual_under_merge_rate = (
-            multilingual_fn / multilingual_same_count
-            if multilingual_same_count > 0
-            else 0.0
+            multilingual_fn / multilingual_same_count if multilingual_same_count > 0 else 0.0
         )
-        multilingual_f1 = self._subset_f1(
-            pairs, retrieval_predictions, lambda p: p.multilingual
-        )
+        multilingual_f1 = self._subset_f1(pairs, retrieval_predictions, lambda p: p.multilingual)
 
         metrics = EvaluationMetrics(
             model_id=model_id,
@@ -281,19 +263,20 @@ class EvaluationHarness:
         subset_pairs = [p for p in pairs if in_subset(p)]
         if not subset_pairs:
             return 0.0
-        subset_preds = [
-            pred for p, pred in zip(pairs, predictions, strict=True) if in_subset(p)
-        ]
+        subset_preds = [pred for p, pred in zip(pairs, predictions, strict=True) if in_subset(p)]
         tp = sum(
-            1 for p, pred in zip(subset_pairs, subset_preds, strict=True)
+            1
+            for p, pred in zip(subset_pairs, subset_preds, strict=True)
             if p.label == DatasetLabel.SAME and pred == "same"
         )
         fp = sum(
-            1 for p, pred in zip(subset_pairs, subset_preds, strict=True)
+            1
+            for p, pred in zip(subset_pairs, subset_preds, strict=True)
             if p.label == DatasetLabel.DIFFERENT and pred == "same"
         )
         fn = sum(
-            1 for p, pred in zip(subset_pairs, subset_preds, strict=True)
+            1
+            for p, pred in zip(subset_pairs, subset_preds, strict=True)
             if p.label == DatasetLabel.SAME and pred == "different"
         )
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
@@ -374,8 +357,7 @@ class EvaluationHarness:
         beats_baseline_f1 = metrics.retrieval_f1 > baseline.retrieval_f1
         hard_over_merge_zero = metrics.hard_over_merge_rate == 0.0
         multilingual_under_merge_ok = (
-            metrics.multilingual_under_merge_rate
-            <= baseline.multilingual_under_merge_rate + 1e-9
+            metrics.multilingual_under_merge_rate <= baseline.multilingual_under_merge_rate + 1e-9
         )
         passed = beats_baseline_f1 and hard_over_merge_zero and multilingual_under_merge_ok
         return EvaluationGate(

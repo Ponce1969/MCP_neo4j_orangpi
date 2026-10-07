@@ -33,9 +33,7 @@ class QueryKnowledgeGraphUseCase:
 
         match query.type:
             case "entity":
-                entities = await self._port.find_entity(
-                    query.name, query.entity_type
-                )
+                entities = await self._port.find_entity(query.name, query.entity_type)
                 return GraphQueryResult(
                     entities=entities,
                     metadata=QueryMetadata(

@@ -13,16 +13,19 @@ from book_graph_rag.infrastructure.neo4j_audit_adapter import QUERY_PLAN, Neo4jA
 class Result:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self.rows = rows
+
     def __aiter__(self) -> AsyncIterator[dict[str, Any]]:
         async def rows() -> AsyncIterator[dict[str, Any]]:
             for row in self.rows:
                 yield row
+
         return rows()
 
 
 class Transaction:
     def __init__(self, session: "Session") -> None:
         self.session = session
+
     async def run(self, query: str, params: dict[str, Any]) -> Result:
         self.session.queries.append((query, params))
         if query in self.session.rule_rows:
@@ -32,14 +35,37 @@ class Transaction:
         if "UNWIND ['BOOK'" in query.upper():
             return Result([{"label": "Entity", "total": 2}])
         if "collect(n)" in query and ":Entity" in query:
-            return Result([{"total": 2, "samples": [{
-                "name": " Cafe\u0301\u00a0 NAME ", "kind": " PERSON ", "subject_ids": ["e2", "e1"]
-            }]}])
+            return Result(
+                [
+                    {
+                        "total": 2,
+                        "samples": [
+                            {
+                                "name": " Cafe\u0301\u00a0 NAME ",
+                                "kind": " PERSON ",
+                                "subject_ids": ["e2", "e1"],
+                            }
+                        ],
+                    }
+                ]
+            )
         if "WITH coalesce(a.id" in query:
-            return Result([{"total": 1, "samples": [{
-                "source": " A ", "kind": " RELATED ", "target": " B ",
-                "subject_ids": ["A", "B"], "native_edge_count": 2
-            }]}])
+            return Result(
+                [
+                    {
+                        "total": 1,
+                        "samples": [
+                            {
+                                "source": " A ",
+                                "kind": " RELATED ",
+                                "target": " B ",
+                                "subject_ids": ["A", "B"],
+                                "native_edge_count": 2,
+                            }
+                        ],
+                    }
+                ]
+            )
         if "UNWIND ['CONTAINS'" in query.upper():
             return Result([{"rel_type": "RELATED", "total": 3}])
         return Result([{"total": 0, "samples": []}])
@@ -50,11 +76,14 @@ class Session:
         self.queries: list[tuple[str, dict[str, Any]]] = []
         self.read_transactions = 0
         self.rule_rows = rule_rows or {}
+
     async def execute_read(self, callback: Any, *args: Any) -> Any:
         self.read_transactions += 1
         return await callback(Transaction(self), *args)
+
     async def __aenter__(self) -> "Session":
         return self
+
     async def __aexit__(self, *args: object) -> None:
         pass
 
@@ -63,19 +92,24 @@ class Driver:
     def __init__(self, session: Session) -> None:
         self.session_value = session
         self.databases: list[str] = []
+
     def session(self, **kwargs: Any) -> Session:
         self.databases.append(kwargs["database"])
         return self.session_value
 
 
 def _target() -> AuditTarget:
-    return AuditTarget(selector="bookgraph-neo4j", database="neo4j", scheme="bolt", host="db", uri="bolt://db:7687")
+    return AuditTarget(
+        selector="bookgraph-neo4j", database="neo4j", scheme="bolt", host="db", uri="bolt://db:7687"
+    )
 
 
 def _settings() -> Settings:
     return Settings(
-        neo4j_uri="bolt://db:7687", neo4j_user="neo4j",
-        neo4j_password=SecretStr("secret"), neo4j_database="neo4j"
+        neo4j_uri="bolt://db:7687",
+        neo4j_user="neo4j",
+        neo4j_password=SecretStr("secret"),
+        neo4j_database="neo4j",
     )
 
 
@@ -99,14 +133,17 @@ async def test_adapter_uses_one_configured_read_session_and_static_queries(
     assert session.read_transactions == len(QUERY_PLAN)
     assert all(params["sample_limit"] == 3 for _, params in session.queries)
     write_keyword = re.compile(r"\b(?:MERGE|CREATE|DELETE|DROP|SET)\b")
-    assert all(
-        not write_keyword.search(query.upper())
-        for query, _ in session.queries
-    )
+    assert all(not write_keyword.search(query.upper()) for query, _ in session.queries)
     assert snapshot.runtime.neo4j_version == "5.23"
     duplicates = {f.rule_id: f for f in snapshot.findings if f.rule_id.startswith("DUPLICATE_")}
-    assert duplicates["DUPLICATE_ENTITY_LOGICAL"].samples[0].group_id == "entity-duplicate:edf9e3072308d1cb4ce9ffdab689bfaf3e826550037b11c1a9978b5d160a4c13"  # noqa: E501
-    assert duplicates["DUPLICATE_RELATIONSHIP_LOGICAL"].samples[0].group_id == "relationship-duplicate:5337757b07e3c2fd7255f4b7c4123718faf0a59d6e8836541d6afd8e00021da1"  # noqa: E501
+    assert (
+        duplicates["DUPLICATE_ENTITY_LOGICAL"].samples[0].group_id
+        == "entity-duplicate:edf9e3072308d1cb4ce9ffdab689bfaf3e826550037b11c1a9978b5d160a4c13"
+    )
+    assert (
+        duplicates["DUPLICATE_RELATIONSHIP_LOGICAL"].samples[0].group_id
+        == "relationship-duplicate:5337757b07e3c2fd7255f4b7c4123718faf0a59d6e8836541d6afd8e00021da1"
+    )
     assert duplicates["DUPLICATE_RELATIONSHIP_LOGICAL"].samples[0].native_edge_count == 2
 
 
@@ -114,8 +151,13 @@ def test_query_plan_is_named_and_does_not_accept_raw_cypher() -> None:
     names = [name for name, _ in QUERY_PLAN]
     assert names[0] == "runtime_metadata"
     assert {name for name, _ in QUERY_PLAN} >= {
-        "inventory_nodes", "inventory_relationships", "hierarchy_chunk_parent_required",
-        "endpoints_related", "provenance_relationship", "duplicates_entity", "pages_chunk",
+        "inventory_nodes",
+        "inventory_relationships",
+        "hierarchy_chunk_parent_required",
+        "endpoints_related",
+        "provenance_relationship",
+        "duplicates_entity",
+        "pages_chunk",
     }
     queries = dict(QUERY_PLAN)
     assert all("$sample_limit" in query for query in queries.values())
@@ -129,14 +171,9 @@ def test_query_plan_is_named_and_does_not_accept_raw_cypher() -> None:
     )
 
 
-
 def _rule_rows(**totals: int) -> dict[str, dict[str, Any]]:
     queries = dict(QUERY_PLAN)
-    return {
-        queries[name]: {"total": total, "samples": []}
-        for name, total in totals.items()
-    }
-
+    return {queries[name]: {"total": total, "samples": []} for name, total in totals.items()}
 
 
 def _finding_total(snapshot: Any, rule_id: str) -> int:
@@ -148,11 +185,13 @@ async def test_schema_identities_accept_valid_composite_editorial_rows(
     monkeypatch: Any,
 ) -> None:
     """Valid writer-shaped endpoints and chunk provenance produce no false findings."""
-    session = Session(rule_rows=_rule_rows(
-        endpoints_hierarchy=0,
-        endpoints_mentions=0,
-        provenance_chunk=0,
-    ))
+    session = Session(
+        rule_rows=_rule_rows(
+            endpoints_hierarchy=0,
+            endpoints_mentions=0,
+            provenance_chunk=0,
+        )
+    )
     _patch_driver(monkeypatch, Driver(session))
 
     snapshot = await Neo4jAuditAdapter(_settings()).collect_snapshot(_target(), 3)
@@ -171,11 +210,13 @@ async def test_schema_identity_gaps_are_reported_for_composites(
     monkeypatch: Any,
 ) -> None:
     """Missing chapter/chunk composite properties remain observable as findings."""
-    session = Session(rule_rows=_rule_rows(
-        endpoints_hierarchy=1,
-        endpoints_mentions=1,
-        provenance_chunk=1,
-    ))
+    session = Session(
+        rule_rows=_rule_rows(
+            endpoints_hierarchy=1,
+            endpoints_mentions=1,
+            provenance_chunk=1,
+        )
+    )
     _patch_driver(monkeypatch, Driver(session))
 
     snapshot = await Neo4jAuditAdapter(_settings()).collect_snapshot(_target(), 3)
@@ -190,11 +231,13 @@ async def test_valid_page_values_are_not_inventory_sized_false_positives(
     monkeypatch: Any,
 ) -> None:
     """Valid page rows, including rows without a matched Book, are accepted."""
-    session = Session(rule_rows=_rule_rows(
-        pages_chapter=0,
-        pages_section=0,
-        pages_chunk=0,
-    ))
+    session = Session(
+        rule_rows=_rule_rows(
+            pages_chapter=0,
+            pages_section=0,
+            pages_chunk=0,
+        )
+    )
     _patch_driver(monkeypatch, Driver(session))
 
     snapshot = await Neo4jAuditAdapter(_settings()).collect_snapshot(_target(), 3)
@@ -203,9 +246,10 @@ async def test_valid_page_values_are_not_inventory_sized_false_positives(
     assert _finding_total(snapshot, "PAGE_SECTION_INVALID_START") == 0
     assert _finding_total(snapshot, "PAGE_CHUNK_INVALID_RANGE") == 0
     queries = dict(QUERY_PLAN)
-    assert all("WITH n,b WHERE" in queries[name] for name in (
-        "pages_chapter", "pages_section", "pages_chunk"
-    ))
+    assert all(
+        "WITH n,b WHERE" in queries[name]
+        for name in ("pages_chapter", "pages_section", "pages_chunk")
+    )
 
 
 @pytest.mark.asyncio
@@ -213,11 +257,13 @@ async def test_invalid_page_values_are_still_reported(
     monkeypatch: Any,
 ) -> None:
     """Invalid and out-of-range page rows remain visible to the audit."""
-    session = Session(rule_rows=_rule_rows(
-        pages_chapter=1,
-        pages_section=1,
-        pages_chunk=1,
-    ))
+    session = Session(
+        rule_rows=_rule_rows(
+            pages_chapter=1,
+            pages_section=1,
+            pages_chunk=1,
+        )
+    )
     _patch_driver(monkeypatch, Driver(session))
 
     snapshot = await Neo4jAuditAdapter(_settings()).collect_snapshot(_target(), 3)
@@ -242,6 +288,7 @@ async def test_transport_failure_is_not_reported_as_zero(monkeypatch: Any) -> No
     class FailingSession(Session):
         async def execute_read(self, callback: Any, *args: Any) -> Any:
             raise ConnectionError("unreachable")
+
     driver = Driver(FailingSession())
     _patch_driver(monkeypatch, driver)
     snapshot = await Neo4jAuditAdapter(_settings()).collect_snapshot(_target(), 2)

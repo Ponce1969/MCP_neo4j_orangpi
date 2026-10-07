@@ -91,9 +91,7 @@ def _build_scope_parameter_map(
 class _CypherExecutor(Protocol):
     """Minimal surface the adapter needs from a Cypher runner."""
 
-    async def explain(
-        self, cypher: str, parameters: dict[str, Any] | None = None
-    ) -> None: ...
+    async def explain(self, cypher: str, parameters: dict[str, Any] | None = None) -> None: ...
     async def execute_read(
         self, cypher: str, parameters: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]: ...

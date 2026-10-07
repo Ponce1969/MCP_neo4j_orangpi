@@ -57,9 +57,7 @@ def test_registry_covers_exactly_the_8_mcp_tools() -> None:
     ("tool_name", "expected_tier"),
     sorted(EXPECTED_TIER_BY_TOOL.items()),
 )
-def test_tier_for_maps_each_tool(
-    tool_name: str, expected_tier: ToolRiskTier
-) -> None:
+def test_tier_for_maps_each_tool(tool_name: str, expected_tier: ToolRiskTier) -> None:
     """Each tool maps to its R6 risk tier."""
     assert tier_for(tool_name) is expected_tier
 
@@ -68,15 +66,13 @@ def test_tier_for_maps_each_tool(
     ("tool_name", "expected_tier"),
     sorted(EXPECTED_TIER_BY_TOOL.items()),
 )
-def test_policy_for_tool_equals_tier_default(
-    tool_name: str, expected_tier: ToolRiskTier
-) -> None:
+def test_policy_for_tool_equals_tier_default(tool_name: str, expected_tier: ToolRiskTier) -> None:
     """Each tool's policy is the secure default for its tier."""
     policy = policy_for_tool(tool_name)
     assert policy.tier is expected_tier
-    assert policy.to_canonical_json() == ResourcePolicy.default_for(
-        expected_tier
-    ).to_canonical_json()
+    assert (
+        policy.to_canonical_json() == ResourcePolicy.default_for(expected_tier).to_canonical_json()
+    )
 
 
 def test_unknown_tool_error_is_typed_security_error() -> None:

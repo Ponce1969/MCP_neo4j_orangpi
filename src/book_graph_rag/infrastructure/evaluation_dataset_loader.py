@@ -30,15 +30,11 @@ class JsonlManifestEvaluationDatasetLoader(EvaluationDatasetPort):
         try:
             text = self._manifest_path.read_text(encoding="utf-8")
         except OSError as exc:
-            raise DatasetLoadError(
-                f"cannot read manifest {self._manifest_path}: {exc}"
-            ) from exc
+            raise DatasetLoadError(f"cannot read manifest {self._manifest_path}: {exc}") from exc
         try:
             return EvaluationDatasetManifest.model_validate_json(text)
         except Exception as exc:
-            raise DatasetLoadError(
-                f"malformed manifest {self._manifest_path}: {exc}"
-            ) from exc
+            raise DatasetLoadError(f"malformed manifest {self._manifest_path}: {exc}") from exc
 
     def _find_record(self, manifest: EvaluationDatasetManifest, dataset_id: str) -> Any:
         for record in manifest.datasets:
@@ -93,9 +89,7 @@ class JsonlManifestEvaluationDatasetLoader(EvaluationDatasetPort):
         for item in records:
             key = self._record_key(item)
             if key in seen:
-                raise DatasetLoadError(
-                    f"dataset {dataset_id} contains duplicate record key: {key}"
-                )
+                raise DatasetLoadError(f"dataset {dataset_id} contains duplicate record key: {key}")
             seen.add(key)
         return EvaluationDataset(dataset_id=dataset_id, records=records)
 

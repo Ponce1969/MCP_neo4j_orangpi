@@ -84,9 +84,7 @@ def _target() -> AuditTarget:
     )
 
 
-def _report(
-    state: OverallState, findings: tuple[AuditFinding, ...] = ()
-) -> AuditReport:
+def _report(state: OverallState, findings: tuple[AuditFinding, ...] = ()) -> AuditReport:
     return AuditReport(
         target=_target(),
         state=state,
@@ -133,9 +131,7 @@ def _readiness_result(*, exit_code: int, overall_state: str) -> ReadinessGateRes
                 layer="generation",
                 status=LayerStatus.PASSED,
                 rationale="generation passed",
-                measured=(
-                    LayerMetricValue(name="faithfulness", value=0.8, threshold=0.7),
-                ),
+                measured=(LayerMetricValue(name="faithfulness", value=0.8, threshold=0.7),),
             ),
         ),
         run_metadata=LayerRunMetadata(run_id="run-1", code_commit="abc123"),
@@ -262,9 +258,7 @@ def test_gate_unknown_readiness_name_fails_with_exit_10(
 
     monkeypatch.setattr("book_graph_rag.main.AuditGraphUseCase", UseCase)
 
-    result = CliRunner().invoke(
-        cli, ["gate", "not-a-gate", "--target", "bookgraph-neo4j"]
-    )
+    result = CliRunner().invoke(cli, ["gate", "not-a-gate", "--target", "bookgraph-neo4j"])
     assert result.exit_code == 10
     assert "Unknown gate" in result.output
 
@@ -290,9 +284,7 @@ def test_gate_audit_only_path_unchanged(
 
     monkeypatch.setattr("book_graph_rag.main.AuditGraphUseCase", UseCase)
 
-    result = CliRunner().invoke(
-        cli, ["gate", "expose-mcp", "--target", "bookgraph-neo4j"]
-    )
+    result = CliRunner().invoke(cli, ["gate", "expose-mcp", "--target", "bookgraph-neo4j"])
     assert result.exit_code == 0
     parsed = json.loads(result.stdout)
     assert "layer_breakdown" not in parsed

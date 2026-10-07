@@ -30,9 +30,7 @@ class CommunityDetectionError(Exception):
         super().__init__(message)
 
 
-def build_entity_graph(
-    entities: list[Entity], relationships: list[Relationship]
-) -> nx.Graph:
+def build_entity_graph(entities: list[Entity], relationships: list[Relationship]) -> nx.Graph:
     """Build an undirected ``networkx`` graph from entities and relationships."""
     graph: nx.Graph = nx.Graph()
     valid_ids = {entity.id for entity in entities}
@@ -93,15 +91,12 @@ def run_leiden(graph: nx.Graph, resolution: float, backend: str) -> list[list[st
             resolution_parameter=resolution,
             seed=42,
         )
-        return [
-            [igraph_graph.vs[index]["name"] for index in community]
-            for community in partition
-        ]
+        return [[igraph_graph.vs[index]["name"] for index in community] for community in partition]
     raise CommunityDetectionError(f"Unknown Leiden backend: {backend}")
 
 
 def assign_parent_ids(
-    communities_by_level: dict[int, list[list[str]]]
+    communities_by_level: dict[int, list[list[str]]],
 ) -> dict[int, list[tuple[list[str], str | None]]]:
     """Assign parent ids to each community based on maximum overlap at level-1.
 
@@ -124,7 +119,5 @@ def assign_parent_ids(
                 parent_id = _community_summary_id(level - 1, best_parent)
             level_assignments.append((community, parent_id))
         result[level] = level_assignments
-        parent_ids[level] = [
-            _community_summary_id(level, community) for community in communities
-        ]
+        parent_ids[level] = [_community_summary_id(level, community) for community in communities]
     return result

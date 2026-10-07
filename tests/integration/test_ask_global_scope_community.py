@@ -94,8 +94,7 @@ async def test_scoped_community_read_does_not_leak_cross_namespace(
 
     ids = {s.entity_ids[0] for s in summaries}
     assert ids == {f"{_NS_A}:alpha"}, (
-        "scoped community read must return exactly the ns-a summary; "
-        f"got {sorted(ids)}"
+        f"scoped community read must return exactly the ns-a summary; got {sorted(ids)}"
     )
 
 

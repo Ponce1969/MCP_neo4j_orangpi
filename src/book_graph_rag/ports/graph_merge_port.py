@@ -32,9 +32,7 @@ class GraphMergePort(abc.ABC):
     """Atomic graph merge/rollback operations behind a hexagonal port."""
 
     @abc.abstractmethod
-    async def capture_inverse_mapping(
-        self, candidate_ids: list[str]
-    ) -> InverseMappingSnapshot:
+    async def capture_inverse_mapping(self, candidate_ids: list[str]) -> InverseMappingSnapshot:
         """Read the current aliases and edge endpoints for ``candidate_ids``.
 
         The returned snapshot MUST be captured before ``apply_merge`` mutates

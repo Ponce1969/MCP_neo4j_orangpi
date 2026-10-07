@@ -103,15 +103,11 @@ def _evidence_strategy(draw: st.DrawFn) -> ResolutionEvidence:
     description_overlap = draw(st.floats(min_value=0.0, max_value=1.0))
     mentions_union = draw(st.integers(min_value=0, max_value=50))
     mentions_shared = (
-        draw(st.integers(min_value=0, max_value=mentions_union))
-        if mentions_union > 0
-        else 0
+        draw(st.integers(min_value=0, max_value=mentions_union)) if mentions_union > 0 else 0
     )
     related_union = draw(st.integers(min_value=0, max_value=50))
     related_shared = (
-        draw(st.integers(min_value=0, max_value=related_union))
-        if related_union > 0
-        else 0
+        draw(st.integers(min_value=0, max_value=related_union)) if related_union > 0 else 0
     )
 
     return ResolutionEvidence(

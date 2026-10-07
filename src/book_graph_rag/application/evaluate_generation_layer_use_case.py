@@ -89,10 +89,7 @@ class EvaluateGenerationLayerUseCase:
 
         total_claims = sum(len(r.claims) for r in per_question_results)
         supported_claims = sum(
-            1
-            for r in per_question_results
-            for c in r.claims
-            if c.verdict == "support"
+            1 for r in per_question_results for c in r.claims if c.verdict == "support"
         )
         faithfulness = supported_claims / total_claims if total_claims > 0 else 0.0
 
@@ -180,9 +177,7 @@ class EvaluateGenerationLayerUseCase:
                 qtype=qtype,  # type: ignore[arg-type]
                 detail_level=detail_level,
             )
-            answer = await self._retrieval_port.compose_answer(
-                question=question, contexts=contexts
-            )
+            answer = await self._retrieval_port.compose_answer(question=question, contexts=contexts)
             # Claim/pairwise ports still consume plain text evidence; pass the
             # text payloads while preserving the structured contexts upstream.
             context_texts = tuple(ctx.text for ctx in contexts)
@@ -224,9 +219,7 @@ class EvaluateGenerationLayerUseCase:
     ) -> RAGASSecondaryMetrics:
         if not run_ragas:
             return RAGASSecondaryMetrics(available=False, notes="skipped")
-        generation_results = tuple(
-            (r.question_id, "", ()) for r in per_question_results
-        )
+        generation_results = tuple((r.question_id, "", ()) for r in per_question_results)
         previous = RAGASSecondaryMetrics(
             faithfulness=baseline.metrics.get("faithfulness"),
             answer_relevancy=baseline.metrics.get("answer_relevancy"),
@@ -265,13 +258,10 @@ class EvaluateGenerationLayerUseCase:
             ragas_secondary=ragas,
             warnings=warnings,
             rationale=(
-                f"{rationale} "
-                f"(claims={claim_count}, pairwise={pairwise_wins}/{pairwise_total})"
+                f"{rationale} (claims={claim_count}, pairwise={pairwise_wins}/{pairwise_total})"
             ),
             source_dataset_id=baseline.dataset_id if baseline else "generation_dataset",
-            baseline_report_path="data/evaluation/generation_baseline.json"
-            if baseline
-            else None,
+            baseline_report_path="data/evaluation/generation_baseline.json" if baseline else None,
             run_metadata=LayerRunMetadata(
                 run_id=self._run_id,
                 code_commit=self._code_commit or (baseline.code_commit if baseline else ""),

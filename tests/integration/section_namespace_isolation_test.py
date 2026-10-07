@@ -113,8 +113,7 @@ async def test_sections_are_isolated_per_book(
         # Exactly two Section nodes with this title+chapter exist, one per book.
         rec = await (
             await session.run(
-                "MATCH (s:Section {title: 'Summary', chapter_number: 4}) "
-                "RETURN count(s) AS c"
+                "MATCH (s:Section {title: 'Summary', chapter_number: 4}) RETURN count(s) AS c"
             )
         ).single()
         assert rec is not None

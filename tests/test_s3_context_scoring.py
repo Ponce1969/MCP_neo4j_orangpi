@@ -73,10 +73,9 @@ def test_description_overlap_empty_descriptions() -> None:
 
 
 def test_description_overlap_identical_descriptions() -> None:
-    assert (
-        description_overlap("LangGraph agent framework", "LangGraph agent framework")
-        == pytest.approx(1.0)
-    )
+    assert description_overlap(
+        "LangGraph agent framework", "LangGraph agent framework"
+    ) == pytest.approx(1.0)
 
 
 def test_description_overlap_order_does_not_matter() -> None:
@@ -121,7 +120,7 @@ def test_s3_context_score_composite_is_mean() -> None:
 @pytest.mark.parametrize(
     ("mentions_j", "related_j", "desc_o", "cosine", "expected_conflict"),
     [
-        (0.0, 0.0, 0.0, 0.85, True),   # composite 0.0 < 0.1, cosine >= 0.80
+        (0.0, 0.0, 0.0, 0.85, True),  # composite 0.0 < 0.1, cosine >= 0.80
         (0.05, 0.05, 0.05, 0.80, True),  # composite 0.05 < 0.1, cosine >= 0.80
         (0.0, 0.0, 0.0, 0.79, False),  # composite < 0.1 but cosine < 0.80
         (0.2, 0.2, 0.2, 0.85, False),  # composite >= 0.1

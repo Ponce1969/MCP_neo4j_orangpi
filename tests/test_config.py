@@ -525,6 +525,7 @@ def test_settings_community_max_calls_must_be_positive(
 
     assert "community_max_calls" in str(exc_info.value)
 
+
 # ── Phase 3: Semantic Entity Resolution settings validators ──────────────────
 
 
@@ -832,4 +833,3 @@ def test_settings_production_allows_private_bind_host(
     )
 
     assert settings.mcp_bind_host == "100.106.85.109"  # no-external-endpoints-allow
-

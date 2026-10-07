@@ -43,8 +43,7 @@ class InMemoryResourceBudgetAdapter(ResourceBudgetPort):
     ) -> None:
         resolved: dict[ToolRiskTier, ResourcePolicy] = dict(policies or {})
         self._policies: dict[ToolRiskTier, ResourcePolicy] = {
-            tier: resolved.get(tier, ResourcePolicy.default_for(tier))
-            for tier in ToolRiskTier
+            tier: resolved.get(tier, ResourcePolicy.default_for(tier)) for tier in ToolRiskTier
         }
         self._clock: MonotonicClock = clock if clock is not None else SystemMonotonicClock()
         self._active: dict[tuple[ToolRiskTier, str], set[int]] = {}

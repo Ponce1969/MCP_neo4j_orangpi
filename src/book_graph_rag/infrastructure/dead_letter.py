@@ -28,9 +28,7 @@ class JSONLDeadLetter(DeadLetterPort):
             **record,
             "timestamp": datetime.now(UTC).isoformat(),
         }
-        await asyncio.get_running_loop().run_in_executor(
-            None, self._sync_append, enriched
-        )
+        await asyncio.get_running_loop().run_in_executor(None, self._sync_append, enriched)
 
     async def write_failed_chunk(self, record: dict[str, Any]) -> None:
         """Append a re-addressable failed-chunk record to the chunks JSONL."""

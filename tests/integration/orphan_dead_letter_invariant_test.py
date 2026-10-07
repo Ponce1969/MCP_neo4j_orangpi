@@ -47,9 +47,7 @@ async def test_orphan_dead_letter_invariant(
     dead_letter_port = JSONLDeadLetter(orphan_path)
 
     # Configure the adapter to log orphans instead of failing loud.
-    settings = neo4j_settings.model_copy(
-        update={"relationship_orphan_policy": "log_orphan"}
-    )
+    settings = neo4j_settings.model_copy(update={"relationship_orphan_policy": "log_orphan"})
     adapter = Neo4jCommandAdapter(settings, dead_letter_port=dead_letter_port)
 
     book = Book(

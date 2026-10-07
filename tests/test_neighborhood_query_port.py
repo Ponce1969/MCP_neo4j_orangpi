@@ -17,10 +17,7 @@ def test_neighborhood_query_port_is_abstract() -> None:
 
 def test_neighborhood_query_port_declares_required_methods() -> None:
     methods = {
-        name
-        for name, _ in inspect.getmembers(
-            NeighborhoodQueryPort, predicate=inspect.isfunction
-        )
+        name for name, _ in inspect.getmembers(NeighborhoodQueryPort, predicate=inspect.isfunction)
     }
     assert "mention_sources" in methods
     assert "related_neighbors" in methods

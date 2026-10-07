@@ -236,9 +236,7 @@ class ResolveEntitiesUseCase:
             mentions_j, mentions_shared, mentions_union = mentions_jaccard(
                 anchor_mentions, cand_mentions
             )
-            related_j, related_shared, related_union = related_jaccard(
-                anchor_related, cand_related
-            )
+            related_j, related_shared, related_union = related_jaccard(anchor_related, cand_related)
             desc_o = description_overlap(anchor.description or "", candidate.description or "")
             s3 = s3_context_score(
                 mentions_j=mentions_j,

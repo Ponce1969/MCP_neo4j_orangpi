@@ -74,6 +74,7 @@ def test_cli_audit_unknown_scope_fails_fast_exit_2(monkeypatch: Any) -> None:
         catalog_path = Path("catalog.yaml")
 
     monkeypatch.setattr("book_graph_rag.main.Settings", Settings)
+
     def _fake_adapter(settings: object) -> object:
         adapter_calls.append(settings)
         return object()
@@ -103,6 +104,7 @@ def test_cli_audit_malformed_scope_fails_fast_exit_2(monkeypatch: Any) -> None:
         catalog_path = Path("catalog.yaml")
 
     monkeypatch.setattr("book_graph_rag.main.Settings", Settings)
+
     def _fake_adapter(settings: object) -> object:
         adapter_calls.append(settings)
         return object()

@@ -98,16 +98,12 @@ def _make_fake_use_case(calls: list[Any]) -> type:
 
 
 @pytest.fixture
-def fake_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[list[Any], Path]:
+def fake_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[list[Any], Path]:
     calls: list[Any] = []
     monkeypatch.setattr(run_indexer, "Settings", _make_fake_settings_class(calls))
     monkeypatch.setattr(run_indexer, "PDFAdapter", _make_fake_pdf_adapter(calls))
     monkeypatch.setattr(run_indexer, "LLMAdapter", _make_fake_llm_adapter(calls))
-    monkeypatch.setattr(
-        run_indexer, "Neo4jCommandAdapter", _make_fake_neo4j_adapter(calls)
-    )
+    monkeypatch.setattr(run_indexer, "Neo4jCommandAdapter", _make_fake_neo4j_adapter(calls))
     monkeypatch.setattr(run_indexer, "IndexBookUseCase", _make_fake_use_case(calls))
 
     pdf = tmp_path / "book.pdf"
@@ -147,7 +143,7 @@ def test_run_indexer_default_run_wires_use_case(fake_env: tuple[list[Any], Path]
 
 
 def test_run_indexer_dry_run_shows_counts_and_skips_execute(
-    fake_env: tuple[list[Any], Path]
+    fake_env: tuple[list[Any], Path],
 ) -> None:
     """AC-IP.3: --dry-run reports counts without writing or indexing."""
     calls, pdf = fake_env
@@ -166,7 +162,7 @@ def test_run_indexer_dry_run_shows_counts_and_skips_execute(
 
 
 def test_run_indexer_clear_calls_clear_index_and_skips_execute(
-    fake_env: tuple[list[Any], Path]
+    fake_env: tuple[list[Any], Path],
 ) -> None:
     """AC-IP.4: --clear clears the index and does not index."""
     calls, pdf = fake_env
@@ -178,9 +174,7 @@ def test_run_indexer_clear_calls_clear_index_and_skips_execute(
     assert ("execute", str(pdf)) not in calls
 
 
-def test_run_indexer_fresh_calls_clear_then_execute(
-    fake_env: tuple[list[Any], Path]
-) -> None:
+def test_run_indexer_fresh_calls_clear_then_execute(fake_env: tuple[list[Any], Path]) -> None:
     """AC-IP.4/5: --fresh clears before indexing in the correct order."""
     calls, pdf = fake_env
     runner = CliRunner()

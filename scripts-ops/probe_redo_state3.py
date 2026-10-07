@@ -1,4 +1,5 @@
 """Read-only probe #3: relationship model comparison essential vs GA namespace."""
+
 import json
 import os
 
@@ -50,16 +51,13 @@ with driver.session(database=env.get("NEO4J_DATABASE", "neo4j")) as s:
         ]
     # Any RELATED edge anywhere that mentions the GA namespace in any field.
     ga_related_rec = s.run(
-        "MATCH ()-[r:RELATED]->() WHERE toString(r.source_id) CONTAINS $ns "
-        "RETURN count(*) AS n",
+        "MATCH ()-[r:RELATED]->() WHERE toString(r.source_id) CONTAINS $ns RETURN count(*) AS n",
         ns="graphrag-agentic",
     ).single()
     assert ga_related_rec is not None
     out["ga_related_edges"] = ga_related_rec["n"]
     # How many RELATED edges exist globally (sanity: model uses RELATED at all).
-    global_related_rec = s.run(
-        "MATCH ()-[r:RELATED]->() RETURN count(*) AS n"
-    ).single()
+    global_related_rec = s.run("MATCH ()-[r:RELATED]->() RETURN count(*) AS n").single()
     assert global_related_rec is not None
     out["global_related_edges"] = global_related_rec["n"]
 driver.close()

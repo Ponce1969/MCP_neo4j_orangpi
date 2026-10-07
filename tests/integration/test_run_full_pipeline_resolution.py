@@ -173,4 +173,3 @@ def test_pipeline_keeps_legacy_resolution_when_strategy_is_default(
     assert result.exit_code == 0, result.output
     assert ("legacy_resolve", 0.9, False) in calls
     assert "Entity resolution: merged 2 duplicates into 1 groups." in result.output
-

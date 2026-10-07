@@ -19,8 +19,7 @@ from book_graph_rag.domain.mcp_security import ScopeProof, ToolRiskTier
 class MonotonicClock(Protocol):
     """Injectable monotonic time source for deterministic budget accounting."""
 
-    def monotonic(self) -> float:
-        ...
+    def monotonic(self) -> float: ...
 
 
 @dataclass(frozen=True)
@@ -53,9 +52,7 @@ class ResourceBudgetPort(abc.ABC):
         ...
 
     @asynccontextmanager
-    async def budget(
-        self, tier: ToolRiskTier, *, key: str = ""
-    ) -> AsyncIterator[BudgetLease]:
+    async def budget(self, tier: ToolRiskTier, *, key: str = "") -> AsyncIterator[BudgetLease]:
         """Acquire a slot and guarantee its release."""
         lease = await self.acquire(tier, key=key)
         try:

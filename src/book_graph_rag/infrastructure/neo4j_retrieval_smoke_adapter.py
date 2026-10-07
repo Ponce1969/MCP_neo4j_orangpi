@@ -1,4 +1,5 @@
 """Read-only retrieval smoke adapter over the existing graph query port."""
+
 from __future__ import annotations
 
 from book_graph_rag.domain.validation_models import (

@@ -1,4 +1,5 @@
 """Read-only retrieval smoke port for deterministic pre-reindex checks."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

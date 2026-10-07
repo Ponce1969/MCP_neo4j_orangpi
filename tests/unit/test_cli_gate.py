@@ -62,20 +62,21 @@ def _target() -> AuditTarget:
     )
 
 
-def _report(
-    state: OverallState, findings: tuple[AuditFinding, ...] = ()
-) -> AuditReport:
+def _report(state: OverallState, findings: tuple[AuditFinding, ...] = ()) -> AuditReport:
     return AuditReport(
         target=_target(),
         state=state,
         findings=findings,
-        execution=AuditExecution(state=state, exit_code={
-            OverallState.PASSED: 0,
-            OverallState.VIOLATIONS: 10,
-            OverallState.INCOMPLETE: 11,
-            OverallState.UNREACHABLE: 12,
-            OverallState.FAILED: 13,
-        }[state]),
+        execution=AuditExecution(
+            state=state,
+            exit_code={
+                OverallState.PASSED: 0,
+                OverallState.VIOLATIONS: 10,
+                OverallState.INCOMPLETE: 11,
+                OverallState.UNREACHABLE: 12,
+                OverallState.FAILED: 13,
+            }[state],
+        ),
     )
 
 
@@ -96,9 +97,7 @@ def test_cli_gate_passes_clean_report(monkeypatch: Any, tmp_path: Path) -> None:
 
     monkeypatch.setattr("book_graph_rag.main.AuditGraphUseCase", UseCase)
 
-    result = CliRunner().invoke(
-        cli, ["gate", "expose-mcp", "--target", "bookgraph-neo4j"]
-    )
+    result = CliRunner().invoke(cli, ["gate", "expose-mcp", "--target", "bookgraph-neo4j"])
     assert result.exit_code == 0
     parsed = json.loads(result.output)
     assert parsed["passed"] is True
@@ -128,9 +127,7 @@ def test_cli_gate_fails_blocking_audit_exit_10(monkeypatch: Any, tmp_path: Path)
 
     monkeypatch.setattr("book_graph_rag.main.AuditGraphUseCase", UseCase)
 
-    result = CliRunner().invoke(
-        cli, ["gate", "expose-mcp", "--target", "bookgraph-neo4j"]
-    )
+    result = CliRunner().invoke(cli, ["gate", "expose-mcp", "--target", "bookgraph-neo4j"])
     assert result.exit_code == 10
     parsed = json.loads(result.output)
     assert parsed["passed"] is False
@@ -154,9 +151,7 @@ def test_cli_gate_unknown_gate_exit_10(monkeypatch: Any, tmp_path: Path) -> None
 
     monkeypatch.setattr("book_graph_rag.main.AuditGraphUseCase", UseCase)
 
-    result = CliRunner().invoke(
-        cli, ["gate", "not-a-gate", "--target", "bookgraph-neo4j"]
-    )
+    result = CliRunner().invoke(cli, ["gate", "not-a-gate", "--target", "bookgraph-neo4j"])
     assert result.exit_code == 10
     assert "Unknown gate" in result.output
 
@@ -172,9 +167,7 @@ def test_cli_gate_policy_load_failure_exit_2(monkeypatch: Any, tmp_path: Path) -
 
     monkeypatch.setattr("book_graph_rag.main.Neo4jAuditAdapter", _fake_adapter)
 
-    result = CliRunner().invoke(
-        cli, ["gate", "expose-mcp", "--target", "bookgraph-neo4j"]
-    )
+    result = CliRunner().invoke(cli, ["gate", "expose-mcp", "--target", "bookgraph-neo4j"])
     assert result.exit_code == 2
     assert "Gate policy error" in result.output
     assert not adapter_calls

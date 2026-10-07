@@ -47,9 +47,7 @@ class CandidateRetrievalPort(abc.ABC):
         """Return up to ``top_k`` candidates above ``min_similarity``."""
 
     @abc.abstractmethod
-    async def upsert_entity_embedding(
-        self, entity_id: str, vector: EmbeddingVector
-    ) -> None:
+    async def upsert_entity_embedding(self, entity_id: str, vector: EmbeddingVector) -> None:
         """Store or update the embedding vector for ``entity_id``."""
 
     @abc.abstractmethod

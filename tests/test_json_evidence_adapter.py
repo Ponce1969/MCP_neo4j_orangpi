@@ -1,4 +1,5 @@
 """Tests for JSONEvidenceAdapter."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -35,9 +36,7 @@ def _context() -> ValidationContext:
         ),
         configuration_fingerprint="sha256:" + "b" * 64,
         audit_version="audit-1",
-        smoke_manifest=ManifestIdentity(
-            id="manifest-1", version="1.0.0", sha256="c" * 64
-        ),
+        smoke_manifest=ManifestIdentity(id="manifest-1", version="1.0.0", sha256="c" * 64),
         evidence_bundle_id="bundle-1",
         historical_evidence_references=(),
     )

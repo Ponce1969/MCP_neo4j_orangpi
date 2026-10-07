@@ -27,21 +27,21 @@ _POLICY = StructuralCypherPolicy()
 # Each query below is accepted by ``validate()``; the scoped ones (with a WHERE
 # scope predicate) are additionally accepted by ``validate(require_scope_proof=True)``.
 _ACCEPTED_QUERIES: tuple[str, ...] = (
-    "MATCH (n) RETURN n",                                       # bare node
-    "MATCH (n:Entity) RETURN n LIMIT 10",                       # label + LIMIT
-    "OPTIONAL MATCH (n)-[r:RELATED]->(m) RETURN n, m",          # OPTIONAL MATCH
+    "MATCH (n) RETURN n",  # bare node
+    "MATCH (n:Entity) RETURN n LIMIT 10",  # label + LIMIT
+    "OPTIONAL MATCH (n)-[r:RELATED]->(m) RETURN n, m",  # OPTIONAL MATCH
     "MATCH (a:Entity)-[:RELATED]->(b:Entity) "
-    "RETURN a, b ORDER BY a.name LIMIT 20",                     # rel + ORDER BY + LIMIT
-    "MATCH (n) WITH n.name AS name RETURN name",                # WITH projection
-    "MATCH (n:Entity {id: $id}) RETURN n",                      # bound property map
-    "MATCH (n:Entity:Pattern) RETURN n",                        # multiple labels
-    "MATCH (a:Entity)-[:RELATED*2]->(b) RETURN b",              # fixed depth
-    "MATCH (a:Entity)-[:RELATED*1..3]->(b:Entity) RETURN b",    # bounded depth
-    "MATCH (a:Entity)-[:RELATED*..3]->(b:Entity) RETURN b",     # upper-bound only
-    "MATCH (n:Entity) RETURN count(n) AS total",                # aggregate function
-    "MATCH (n) RETURN *",                                       # star projection
-    "MATCH (c:Chunk) WHERE c.book_id = $book_id RETURN c",      # WHERE scope =
-    "MATCH (e:Entity) WHERE e.id IN $scope_ids RETURN e",       # WHERE scope IN
+    "RETURN a, b ORDER BY a.name LIMIT 20",  # rel + ORDER BY + LIMIT
+    "MATCH (n) WITH n.name AS name RETURN name",  # WITH projection
+    "MATCH (n:Entity {id: $id}) RETURN n",  # bound property map
+    "MATCH (n:Entity:Pattern) RETURN n",  # multiple labels
+    "MATCH (a:Entity)-[:RELATED*2]->(b) RETURN b",  # fixed depth
+    "MATCH (a:Entity)-[:RELATED*1..3]->(b:Entity) RETURN b",  # bounded depth
+    "MATCH (a:Entity)-[:RELATED*..3]->(b:Entity) RETURN b",  # upper-bound only
+    "MATCH (n:Entity) RETURN count(n) AS total",  # aggregate function
+    "MATCH (n) RETURN *",  # star projection
+    "MATCH (c:Chunk) WHERE c.book_id = $book_id RETURN c",  # WHERE scope =
+    "MATCH (e:Entity) WHERE e.id IN $scope_ids RETURN e",  # WHERE scope IN
 )
 
 # Scoped accepted queries used to prove fail-closed scope stripping.
@@ -195,9 +195,7 @@ def test_mutation_is_rejected(
         _POLICY.validate(mutated)
 
 
-_WHERE_STRIP_RE = re.compile(
-    r"\s+WHERE\s+.+?(?=\s+(?:RETURN|WITH|LIMIT|ORDER)\b)", re.IGNORECASE
-)
+_WHERE_STRIP_RE = re.compile(r"\s+WHERE\s+.+?(?=\s+(?:RETURN|WITH|LIMIT|ORDER)\b)", re.IGNORECASE)
 
 
 def _strip_scope(query: str) -> str:

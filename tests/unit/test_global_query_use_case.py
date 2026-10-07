@@ -44,9 +44,7 @@ class _FakeLLMSummaryPort(LLMSummaryPort):
         self.compose_calls.append((question, ranked))
         return self.answer
 
-    async def generate_summary_from_children(
-        self, child_summaries: list[str], level: int
-    ) -> str:
+    async def generate_summary_from_children(self, child_summaries: list[str], level: int) -> str:
         return f"level {level} summary"
 
 
@@ -83,9 +81,7 @@ def read_port() -> _FakeCommunityReadPort:
 
 
 @pytest.fixture
-def use_case(
-    read_port: _FakeCommunityReadPort, llm_port: _FakeLLMSummaryPort
-) -> Any:
+def use_case(read_port: _FakeCommunityReadPort, llm_port: _FakeLLMSummaryPort) -> Any:
     # Imported lazily so the test can reference code that does not exist yet.
     from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 

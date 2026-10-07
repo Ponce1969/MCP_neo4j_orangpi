@@ -160,9 +160,7 @@ class FakeGraphMerge(GraphMergePort):
         self._merged: set[str] = set()
         self._should_raise_on_rollback: set[int] = set()
 
-    async def capture_inverse_mapping(
-        self, candidate_ids: list[str]
-    ) -> InverseMappingSnapshot:
+    async def capture_inverse_mapping(self, candidate_ids: list[str]) -> InverseMappingSnapshot:
         return InverseMappingSnapshot(
             aliases_before=dict.fromkeys(candidate_ids, ()),
             edge_inverse_map=[],
@@ -183,9 +181,7 @@ class FakeGraphMerge(GraphMergePort):
             raise MergeNotReversible(f"seq {entry.seq} is no longer reversible")
         still_merged = self._merged & set(entry.candidate_ids)
         if not still_merged:
-            raise MergeNotReversible(
-                f"candidates {entry.candidate_ids} are not currently merged"
-            )
+            raise MergeNotReversible(f"candidates {entry.candidate_ids} are not currently merged")
         self.rollbacks.append(entry)
         self._merged.difference_update(entry.candidate_ids)
 
@@ -266,9 +262,7 @@ async def test_resolve_routes_exact_to_auto_merge_and_medium_to_quarantine() -> 
     from book_graph_rag.application.resolve_entities_use_case import ResolveEntitiesUseCase
 
     anchor = _entity("book:ch1:lang-graph", "Lang Graph", "framework")
-    exact_dup = _entity(
-        "book:ch1:langgraph", "LangGraph", "framework", aliases=("Lang Graph",)
-    )
+    exact_dup = _entity("book:ch1:langgraph", "LangGraph", "framework", aliases=("Lang Graph",))
     medium_dup = _entity("book:ch1:lang-graph-tool", "Lang Graph Tool", "framework")
 
     loader = _fake_loader([anchor, exact_dup, medium_dup])
@@ -345,9 +339,7 @@ async def test_resolve_routes_all_six_matrix_rows() -> None:
     cross_type = _entity("book:ch1:cross-type", "Cross Type", "concept")
     cross_ns = _entity("other:ch1:cross-ns", "Cross Namespace", "framework")
 
-    loader = _fake_loader(
-        [anchor, exact_dup, high_dup, medium_dup, low_dup, cross_type, cross_ns]
-    )
+    loader = _fake_loader([anchor, exact_dup, high_dup, medium_dup, low_dup, cross_type, cross_ns])
 
     retrieval = FakeRetrieval(
         {

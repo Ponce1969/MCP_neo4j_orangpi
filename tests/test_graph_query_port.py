@@ -44,9 +44,7 @@ class _CompleteQueryAdapter(GraphQueryPort):
     ) -> tuple[list[EntityWithContext], list[Relationship]]:
         return [], []
 
-    async def find_path(
-        self, start_id: str, end_id: str, max_depth: int
-    ) -> list[GraphPath]:
+    async def find_path(self, start_id: str, end_id: str, max_depth: int) -> list[GraphPath]:
         return []
 
     async def search_chunks(
@@ -97,9 +95,7 @@ class _IncompleteQueryAdapter(GraphQueryPort):
     ) -> tuple[list[EntityWithContext], list[Relationship]]:
         return [], []
 
-    async def find_path(
-        self, start_id: str, end_id: str, max_depth: int
-    ) -> list[GraphPath]:
+    async def find_path(self, start_id: str, end_id: str, max_depth: int) -> list[GraphPath]:
         return []
 
     async def search_chunks(

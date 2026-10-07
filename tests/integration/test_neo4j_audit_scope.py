@@ -105,9 +105,7 @@ async def test_duplicate_entity_logical_groups_by_namespace_name_type(
     await _seed_two_namespace_duplicate_graph(neo4j_driver)
     adapter = Neo4jAuditAdapter(neo4j_settings)
     try:
-        target = build_audit_target(
-            "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-        )
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
         snapshot = await adapter.collect_snapshot(target, sample_limit=10)
     finally:
         await adapter.close()
@@ -127,9 +125,7 @@ async def test_cross_namespace_same_name_not_duplicate(
     await _seed_two_namespace_duplicate_graph(neo4j_driver)
     adapter = Neo4jAuditAdapter(neo4j_settings)
     try:
-        target = build_audit_target(
-            "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-        )
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
         snapshot = await adapter.collect_snapshot(target, sample_limit=10)
     finally:
         await adapter.close()
@@ -148,9 +144,7 @@ async def test_same_namespace_duplicates_still_detected(
     await _seed_two_namespace_duplicate_graph(neo4j_driver)
     adapter = Neo4jAuditAdapter(neo4j_settings)
     try:
-        target = build_audit_target(
-            "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-        )
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
         snapshot = await adapter.collect_snapshot(target, sample_limit=10)
     finally:
         await adapter.close()
@@ -181,9 +175,7 @@ async def test_relationship_duplicates_unchanged_key_on_full_ids(
         )
     adapter = Neo4jAuditAdapter(neo4j_settings)
     try:
-        target = build_audit_target(
-            "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-        )
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
         snapshot = await adapter.collect_snapshot(target, sample_limit=10)
     finally:
         await adapter.close()
@@ -252,13 +244,9 @@ async def test_merged_entity_excluded_from_scoped_audit(
     await _seed_merged_entity_graph(neo4j_driver)
     adapter = Neo4jAuditAdapter(neo4j_settings)
     try:
-        target = build_audit_target(
-            "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-        )
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
         scope = AuditScope(corpus="knowledge", source="agentic-architectural-patterns")
-        snapshot = await adapter.collect_snapshot(
-            target, sample_limit=10, scope=scope
-        )
+        snapshot = await adapter.collect_snapshot(target, sample_limit=10, scope=scope)
     finally:
         await adapter.close()
 
@@ -285,9 +273,7 @@ async def test_merged_entity_excluded_from_whole_graph_audit(
     await _seed_merged_entity_graph(neo4j_driver)
     adapter = Neo4jAuditAdapter(neo4j_settings)
     try:
-        target = build_audit_target(
-            "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-        )
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
         snapshot = await adapter.collect_snapshot(target, sample_limit=10)
     finally:
         await adapter.close()
@@ -315,13 +301,9 @@ async def test_scoped_audit_merged_and_active_both_correct(
     await _seed_merged_entity_graph(neo4j_driver)
     adapter = Neo4jAuditAdapter(neo4j_settings)
     try:
-        target = build_audit_target(
-            "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-        )
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
         scope = AuditScope(corpus="knowledge", source="agentic-architectural-patterns")
-        snapshot = await adapter.collect_snapshot(
-            target, sample_limit=10, scope=scope
-        )
+        snapshot = await adapter.collect_snapshot(target, sample_limit=10, scope=scope)
     finally:
         await adapter.close()
 
@@ -396,13 +378,9 @@ async def test_cross_namespace_related_edge_not_endpoint_violation_under_scope(
     await _seed_cross_namespace_edge_graph(neo4j_driver)
     adapter = Neo4jAuditAdapter(neo4j_settings)
     try:
-        target = build_audit_target(
-            "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-        )
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
         scope = AuditScope(corpus="knowledge", source="agentic-architectural-patterns")
-        snapshot = await adapter.collect_snapshot(
-            target, sample_limit=10, scope=scope
-        )
+        snapshot = await adapter.collect_snapshot(target, sample_limit=10, scope=scope)
     finally:
         await adapter.close()
 
@@ -450,13 +428,9 @@ async def test_in_scope_invalid_edge_still_reported(
     await _seed_invalid_in_scope_edge_graph(neo4j_driver)
     adapter = Neo4jAuditAdapter(neo4j_settings)
     try:
-        target = build_audit_target(
-            "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-        )
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
         scope = AuditScope(corpus="knowledge", source="agentic-architectural-patterns")
-        snapshot = await adapter.collect_snapshot(
-            target, sample_limit=10, scope=scope
-        )
+        snapshot = await adapter.collect_snapshot(target, sample_limit=10, scope=scope)
     finally:
         await adapter.close()
 
@@ -475,9 +449,7 @@ async def test_scoped_audit_counts_only_in_scope_nodes(
     await _seed_two_namespace_duplicate_graph(neo4j_driver)
     adapter = Neo4jAuditAdapter(neo4j_settings)
     use_case = AuditGraphUseCase(adapter)
-    target = build_audit_target(
-        "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-    )
+    target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
     scope = AuditScope(corpus="knowledge", source="agentic-architectural-patterns")
     try:
         scoped_report = await use_case.execute(target, sample_limit=10, scope=scope)
@@ -502,13 +474,9 @@ async def test_scoped_inventory_node_count_matches_active_set(
     await _seed_two_namespace_duplicate_graph(neo4j_driver)
     adapter = Neo4jAuditAdapter(neo4j_settings)
     try:
-        target = build_audit_target(
-            "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-        )
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
         scope = AuditScope(corpus="knowledge", source="agentic-architectural-patterns")
-        snapshot = await adapter.collect_snapshot(
-            target, sample_limit=10, scope=scope
-        )
+        snapshot = await adapter.collect_snapshot(target, sample_limit=10, scope=scope)
     finally:
         await adapter.close()
 
@@ -525,13 +493,9 @@ async def test_scoped_inventory_relationship_count_only_when_endpoint_in_scope(
     await _seed_cross_namespace_edge_graph(neo4j_driver)
     adapter = Neo4jAuditAdapter(neo4j_settings)
     try:
-        target = build_audit_target(
-            "bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j"
-        )
+        target = build_audit_target("bookgraph-neo4j", neo4j_settings.neo4j_uri, "neo4j")
         scope = AuditScope(corpus="knowledge", source="agentic-architectural-patterns")
-        snapshot = await adapter.collect_snapshot(
-            target, sample_limit=10, scope=scope
-        )
+        snapshot = await adapter.collect_snapshot(target, sample_limit=10, scope=scope)
     finally:
         await adapter.close()
 

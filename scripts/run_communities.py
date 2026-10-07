@@ -150,18 +150,12 @@ async def _run_communities(
         async with semaphore:
             if children:
                 # Parent: summarize from already-synthesized child summaries.
-                child_texts = [
-                    summaries_by_id[c].summary for c in children if c in summaries_by_id
-                ]
-                summary_text = await llm_port.generate_summary_from_children(
-                    child_texts, level
-                )
+                child_texts = [summaries_by_id[c].summary for c in children if c in summaries_by_id]
+                summary_text = await llm_port.generate_summary_from_children(child_texts, level)
             else:
                 # Leaf: summarize from raw entities/relationships of the community.
                 community_ids_set = set(community_ids)
-                community_entities = [
-                    entity_map[eid] for eid in community_ids if eid in entity_map
-                ]
+                community_entities = [entity_map[eid] for eid in community_ids if eid in entity_map]
                 community_relationships = [
                     relationship
                     for relationship in relationships
@@ -211,9 +205,7 @@ async def _run_communities(
                     err=True,
                 )
                 continue
-            level_tasks.append(
-                _summarize_node(cid, level, community_ids, parent_id, children)
-            )
+            level_tasks.append(_summarize_node(cid, level, community_ids, parent_id, children))
         results = await asyncio.gather(*level_tasks, return_exceptions=True)
         level_failed = 0
         for result in results:
@@ -225,8 +217,7 @@ async def _run_communities(
                 click.echo(f"ERROR: community summary failed: {result}", err=True)
         if level_failed:
             click.echo(
-                f"WARNING: level {level}: {level_failed}/{len(level_tasks)} "
-                f"communities failed",
+                f"WARNING: level {level}: {level_failed}/{len(level_tasks)} communities failed",
                 err=True,
             )
 

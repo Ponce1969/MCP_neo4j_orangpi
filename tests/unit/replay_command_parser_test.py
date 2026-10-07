@@ -65,8 +65,7 @@ def test_force_reprocess_can_be_set() -> None:
     """--force-reprocess is allowed in any mode."""
     assert parse_replay_command(["--force-reprocess"]).force_reprocess is True
     assert (
-        parse_replay_command(["--replay-dead-letter", "--force-reprocess"]).force_reprocess
-        is True
+        parse_replay_command(["--replay-dead-letter", "--force-reprocess"]).force_reprocess is True
     )
     assert (
         parse_replay_command(["--backfill-checkpoints", "--force-reprocess"]).force_reprocess

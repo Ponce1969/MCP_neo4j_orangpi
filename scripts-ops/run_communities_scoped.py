@@ -77,11 +77,7 @@ async def _load_scoped(settings: Settings) -> tuple[list[Entity], list[Relations
     finally:
         driver.close()
     entities = [e for e in all_entities if e.id in active]
-    rels = [
-        r
-        for r in all_rels
-        if r.source_entity_id in active and r.target_entity_id in active
-    ]
+    rels = [r for r in all_rels if r.source_entity_id in active and r.target_entity_id in active]
     return entities, rels
 
 
@@ -164,17 +160,11 @@ async def _run_scoped_communities(
         )
         async with semaphore:
             if children:
-                child_texts = [
-                    summaries_by_id[c].summary for c in children if c in summaries_by_id
-                ]
-                summary_text = await llm_port.generate_summary_from_children(
-                    child_texts, level
-                )
+                child_texts = [summaries_by_id[c].summary for c in children if c in summaries_by_id]
+                summary_text = await llm_port.generate_summary_from_children(child_texts, level)
             else:
                 community_ids_set = set(community_ids)
-                community_entities = [
-                    entity_map[eid] for eid in community_ids if eid in entity_map
-                ]
+                community_entities = [entity_map[eid] for eid in community_ids if eid in entity_map]
                 community_relationships = [
                     relationship
                     for relationship in relationships
@@ -220,9 +210,7 @@ async def _run_scoped_communities(
                     file=sys.stderr,
                 )
                 continue
-            level_tasks.append(
-                _summarize_node(cid, level, community_ids, parent_id, children)
-            )
+            level_tasks.append(_summarize_node(cid, level, community_ids, parent_id, children))
         results = await asyncio.gather(*level_tasks, return_exceptions=True)
         level_failed = 0
         for result in results:
@@ -234,8 +222,7 @@ async def _run_scoped_communities(
                 print(f"ERROR: community summary failed: {result}", file=sys.stderr)
         if level_failed:
             print(
-                f"WARNING: level {level}: {level_failed}/{len(level_tasks)} "
-                f"communities failed",
+                f"WARNING: level {level}: {level_failed}/{len(level_tasks)} communities failed",
                 file=sys.stderr,
             )
 
@@ -275,9 +262,7 @@ async def main() -> int:
     llm_port: LLMSummaryPort = LLMAdapter(settings)
     try:
         await adapter.ensure_indexes()
-        await _run_scoped_communities(
-            adapter, adapter, llm_port, settings, entities, relationships
-        )
+        await _run_scoped_communities(adapter, adapter, llm_port, settings, entities, relationships)
     finally:
         await adapter.close()
     return 0

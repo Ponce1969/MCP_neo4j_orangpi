@@ -362,9 +362,7 @@ async def test_apply_migrations_issues_all_rewrite_kinds() -> None:
     plan = migrate.MigrationPlan(
         entities=[],
         books=[
-            migrate.BookMigration(
-                old_id="slug", new_id="knowledge:agentic-architectural-patterns"
-            )
+            migrate.BookMigration(old_id="slug", new_id="knowledge:agentic-architectural-patterns")
         ],
         chunks=[
             migrate.ChunkMigration(
@@ -391,8 +389,7 @@ async def test_apply_migrations_issues_all_rewrite_kinds() -> None:
     queries = [q for q, _ in session.calls]
     assert any("MATCH (b:Book {id: $old_id})" in q for q in queries)
     assert any(
-        "MATCH (c:Chunk {chunk_index: $chunk_index, book_id: $old_book_id})" in q
-        for q in queries
+        "MATCH (c:Chunk {chunk_index: $chunk_index, book_id: $old_book_id})" in q for q in queries
     )
     assert any("MATCH (c:CommunitySummary {id: $old_id})" in q for q in queries)
 

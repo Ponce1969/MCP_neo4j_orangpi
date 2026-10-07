@@ -44,9 +44,7 @@ class SentenceTransformerAdapter(EmbeddingProviderPort):
     ) -> None:
         self._settings = settings
         self._models: dict[str, Any] = {}
-        self._encode_sync = (
-            encode_sync if encode_sync is not None else self._default_encode_sync
-        )
+        self._encode_sync = encode_sync if encode_sync is not None else self._default_encode_sync
         self._model_loader = (
             model_loader if model_loader is not None else self._default_model_loader
         )
@@ -57,9 +55,7 @@ class SentenceTransformerAdapter(EmbeddingProviderPort):
         vectors = await asyncio.to_thread(self._encode_sync, model, request.texts)
         return EmbeddingBatch(
             model_id=request.model_id,
-            vectors=[
-                EmbeddingVector(values=tuple(v), model_id=request.model_id) for v in vectors
-            ],
+            vectors=[EmbeddingVector(values=tuple(v), model_id=request.model_id) for v in vectors],
         )
 
     def model_dim(self, model_id: str) -> int:

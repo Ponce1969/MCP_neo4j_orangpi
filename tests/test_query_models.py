@@ -133,9 +133,7 @@ def test_entity_with_context_optional_fields_default_to_none() -> None:
 def test_entity_with_context_can_set_fase_08_fields() -> None:
     """EntityWithContext preserves Fase 08 fields when provided."""
     entity = Entity(id="e1", name="Agent", type="agent")
-    wrapper = EntityWithContext(
-        entity=entity, status="confirmed", confidence=0.95, source="llm"
-    )
+    wrapper = EntityWithContext(entity=entity, status="confirmed", confidence=0.95, source="llm")
 
     assert wrapper.status == "confirmed"
     assert wrapper.confidence == 0.95
@@ -155,9 +153,7 @@ def test_query_metadata_timed_out_defaults_to_false() -> None:
 
 def test_query_metadata_full_fields() -> None:
     """QueryMetadata accepts all optional fields."""
-    metadata = QueryMetadata(
-        total_count=42, query_ms=12.3, depth=2, cursor=10, timed_out=True
-    )
+    metadata = QueryMetadata(total_count=42, query_ms=12.3, depth=2, cursor=10, timed_out=True)
 
     assert metadata.total_count == 42
     assert metadata.query_ms == 12.3
@@ -340,9 +336,7 @@ def test_query_log_entry_error_code_is_optional() -> None:
         ("limit", "limit"),
     ],
 )
-def test_redact_sensitive_detects_secret_shaped_values(
-    value: str, expected: str
-) -> None:
+def test_redact_sensitive_detects_secret_shaped_values(value: str, expected: str) -> None:
     """Secret-shaped values are replaced with a fixed placeholder (R5)."""
     assert redact_sensitive(value) == expected
 
@@ -376,7 +370,6 @@ def test_redact_sensitive_metadata_redacts_sensitive_entries() -> None:
         "api_key": REDACTED_PLACEHOLDER,
         "query_set": True,
     }
-
 
 
 # ── Logging privacy: schema version + v1→v2 migration (R5, T-G.3) ──────────

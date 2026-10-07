@@ -98,9 +98,11 @@ class LLMPairwiseJudge(PairwiseJudgePort):
             ],
             temperature=0,
         )
-        verdict = response.verdict if response.verdict in {
-            "graph_wins", "tie", "baseline_wins"
-        } else "tie"
+        verdict = (
+            response.verdict
+            if response.verdict in {"graph_wins", "tie", "baseline_wins"}
+            else "tie"
+        )
         return PairwiseJudgment(
             question_id=question_id,
             verdict=verdict,  # type: ignore[arg-type]

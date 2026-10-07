@@ -22,20 +22,20 @@ NS = "knowledge:essential-graphrag"
 
 # (canonical_slug, [dup_slugs]) — generado desde el audit el 2026-09-23
 GROUPS: list[tuple[str, list[str]]] = [
-    ("apoc-awesome-procedures-on-cypher-plugin-tool", ['awesome-procedures-on-cypher-plugin-tool']),
-    ("loading-via-cypher-pattern", ['loading-via-cypher-pattern-pattern']),
-    ("graphrag-local-search-pattern", ['local-search-pattern']),
-    ("merge-clause-component", ['merge-component']),
-    ("merge-clause-concept", ['merge-concept']),
-    ("neo4j-database-tool", ['neo4j-tool']),
-    ("neo4j-framework", ['neo4j-graph-database-framework']),
-    ("neo4j-aura-tool", ['neo4j-auradb-tool']),
-    ("neo4j-browser-concept", ['neo4j-browser-configuration-concept']),
-    ("neo4j-desktop-concept", ['neo4j-desktop-installation-concept']),
-    ("neo4j-docker-concept", ['neo4j-docker-installation-concept']),
-    ("on-create-set-clause-component", ['on-create-set-component']),
-    ("produced-concept", ['produced-relationship-concept']),
-    ("parent-document-retriever-pattern", ['parent-document-retriever-strategy-pattern']),
+    ("apoc-awesome-procedures-on-cypher-plugin-tool", ["awesome-procedures-on-cypher-plugin-tool"]),
+    ("loading-via-cypher-pattern", ["loading-via-cypher-pattern-pattern"]),
+    ("graphrag-local-search-pattern", ["local-search-pattern"]),
+    ("merge-clause-component", ["merge-component"]),
+    ("merge-clause-concept", ["merge-concept"]),
+    ("neo4j-database-tool", ["neo4j-tool"]),
+    ("neo4j-framework", ["neo4j-graph-database-framework"]),
+    ("neo4j-aura-tool", ["neo4j-auradb-tool"]),
+    ("neo4j-browser-concept", ["neo4j-browser-configuration-concept"]),
+    ("neo4j-desktop-concept", ["neo4j-desktop-installation-concept"]),
+    ("neo4j-docker-concept", ["neo4j-docker-installation-concept"]),
+    ("on-create-set-clause-component", ["on-create-set-component"]),
+    ("produced-concept", ["produced-relationship-concept"]),
+    ("parent-document-retriever-pattern", ["parent-document-retriever-strategy-pattern"]),
 ]
 
 

@@ -1,4 +1,5 @@
 """Read-only probe #4: real schema of entity relationships + counts per ns."""
+
 import json
 import os
 

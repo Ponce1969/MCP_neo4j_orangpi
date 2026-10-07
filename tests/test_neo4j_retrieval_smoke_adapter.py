@@ -1,4 +1,5 @@
 """Tests for Neo4jRetrievalSmokeAdapter."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -125,9 +126,7 @@ async def test_two_hop_path_maps_paths() -> None:
     )
     result = await adapter.run_case(case)
     assert result.status == SmokeOutcome.PASS
-    assert result.matched_paths == (
-        (("a", "requires", "b"), ("b", "alternative_to", "c")),
-    )
+    assert result.matched_paths == ((("a", "requires", "b"), ("b", "alternative_to", "c")),)
 
 
 @pytest.mark.asyncio

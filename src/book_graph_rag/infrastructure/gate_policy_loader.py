@@ -35,18 +35,12 @@ class GatePolicyLoader:
         try:
             data = yaml.safe_load(text)
         except yaml.YAMLError as exc:
-            raise GatePolicyLoadError(
-                f"Invalid YAML in {self._policy_path}: {exc}"
-            ) from exc
+            raise GatePolicyLoadError(f"Invalid YAML in {self._policy_path}: {exc}") from exc
 
         if not isinstance(data, dict):
-            raise GatePolicyLoadError(
-                f"Gate policy {self._policy_path} must be a YAML mapping"
-            )
+            raise GatePolicyLoadError(f"Gate policy {self._policy_path} must be a YAML mapping")
 
         try:
             return GatePolicy.model_validate(data)
         except ValidationError as exc:
-            raise GatePolicyLoadError(
-                f"Malformed gate policy {self._policy_path}: {exc}"
-            ) from exc
+            raise GatePolicyLoadError(f"Malformed gate policy {self._policy_path}: {exc}") from exc

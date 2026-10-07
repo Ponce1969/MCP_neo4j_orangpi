@@ -174,7 +174,7 @@ def test_cli_index_unknown_namespace_fails_fast(
         "version: 1\n"
         "corpora:\n"
         "  knowledge:\n"
-        "    label: \"Knowledge Library\"\n"
+        '    label: "Knowledge Library"\n'
         "    sources:\n"
         "      known-source:\n"
         "        label: Known\n"

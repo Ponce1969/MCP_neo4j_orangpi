@@ -153,9 +153,7 @@ class LLMClaimValidator(ClaimValidatorPort):
     ) -> tuple[AtomicClaim, ...]:
         """Use the query LLM to verify each claim against ``contexts``."""
         context_text = "\n---\n".join(contexts)
-        claims_text = "\n".join(
-            f"- {c.claim_id}: {c.text}" for c in claims
-        )
+        claims_text = "\n".join(f"- {c.claim_id}: {c.text}" for c in claims)
         user_prompt = (
             f"Question ID: {question_id}\n\n"
             f"Claims:\n{claims_text}\n\n"
@@ -171,10 +169,7 @@ class LLMClaimValidator(ClaimValidatorPort):
             ],
             temperature=0,
         )
-        verdict_map = {
-            v.claim_id: (v.verdict, v.verdict_rationale)
-            for v in response.claims
-        }
+        verdict_map = {v.claim_id: (v.verdict, v.verdict_rationale) for v in response.claims}
         result: list[AtomicClaim] = []
         for claim in claims:
             raw_verdict, rationale = verdict_map.get(

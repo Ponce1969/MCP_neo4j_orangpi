@@ -46,9 +46,7 @@ class BruteForceCandidateRetrieval(CandidateRetrievalPort):
         self._vectors: dict[str, EmbeddingVector] = {}
         self._metadata: dict[str, tuple[EntityType, str]] = {}
 
-    async def upsert_entity_embedding(
-        self, entity_id: str, vector: EmbeddingVector
-    ) -> None:
+    async def upsert_entity_embedding(self, entity_id: str, vector: EmbeddingVector) -> None:
         """Store or update the embedding vector for ``entity_id``."""
         self._vectors[entity_id] = vector
 

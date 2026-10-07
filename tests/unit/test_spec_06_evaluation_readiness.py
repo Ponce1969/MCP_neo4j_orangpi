@@ -54,9 +54,7 @@ def test_section_11_contains_resolved_phase5_markers(section_11_text: str) -> No
 def test_section_11_has_no_stale_open_marker(section_11_text: str) -> None:
     """No [OPEN] decision marker may remain in section 11."""
     open_markers = re.findall(r"\[OPEN\]", section_11_text)
-    assert not open_markers, (
-        f"Found {len(open_markers)} stale [OPEN] marker(s) in section 11"
-    )
+    assert not open_markers, f"Found {len(open_markers)} stale [OPEN] marker(s) in section 11"
 
 
 def test_w1_boundary_paragraph_is_present(spec_text: str) -> None:

@@ -30,9 +30,7 @@ class LLMSummaryPort(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def generate_summary_from_children(
-        self, child_summaries: list[str], level: int
-    ) -> str:
+    async def generate_summary_from_children(self, child_summaries: list[str], level: int) -> str:
         """Return a summary for a PARENT community from its children's summaries.
 
         Implements the bottom-up map-reduce: a coarse community is summarized from

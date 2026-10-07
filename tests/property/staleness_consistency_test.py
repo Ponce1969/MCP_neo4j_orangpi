@@ -103,4 +103,3 @@ def test_equal_dimensions_are_never_stale(base: VersionDimensions) -> None:
     )
 
     assert is_stale(checkpoint, base) is False
-

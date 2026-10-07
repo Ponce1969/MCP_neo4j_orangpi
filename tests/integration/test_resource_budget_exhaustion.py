@@ -39,9 +39,7 @@ corpora:
 _VALID_SOURCE = "knowledge:agentic-architectural-patterns"
 
 
-def _policy(
-    *, tier: ToolRiskTier, concurrency_limit: int, rate_limit_calls: int
-) -> ResourcePolicy:
+def _policy(*, tier: ToolRiskTier, concurrency_limit: int, rate_limit_calls: int) -> ResourcePolicy:
     return ResourcePolicy(
         tier=tier,
         timeout_ms=1000,

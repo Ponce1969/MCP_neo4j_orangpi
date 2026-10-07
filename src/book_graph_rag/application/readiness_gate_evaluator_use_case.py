@@ -171,13 +171,10 @@ class ReadinessGateEvaluatorUseCase:
         # by ``audit_result.overall_state`` below, so we exclude it from the
         # layer failure/incomplete checks to preserve audit semantics.
         non_structure_required = [
-            r for r in layer_results
-            if r.layer in required_layers and r.layer != "structure"
+            r for r in layer_results if r.layer in required_layers and r.layer != "structure"
         ]
 
-        baseline_incomplete = any(
-            self._is_baseline_incomplete(r) for r in non_structure_required
-        )
+        baseline_incomplete = any(self._is_baseline_incomplete(r) for r in non_structure_required)
         any_failed = any(r.status == LayerStatus.FAILED for r in non_structure_required)
         any_incomplete = any(
             r.status
@@ -255,13 +252,9 @@ class ReadinessGateEvaluatorUseCase:
 
         layer_results: list[EvaluationLayerResult] = []
         for req in gate.required_layers:
-            layer_results.append(
-                await self._run_layer(req.layer, gate, audit_result=audit_result)
-            )
+            layer_results.append(await self._run_layer(req.layer, gate, audit_result=audit_result))
         for opt in gate.optional_layers:
-            layer_results.append(
-                await self._run_layer(opt.layer, gate, audit_result=audit_result)
-            )
+            layer_results.append(await self._run_layer(opt.layer, gate, audit_result=audit_result))
 
         overall_state, exit_code = self._derive_state(
             audit_result, tuple(layer_results), required_names
@@ -286,9 +279,7 @@ class ReadinessGateEvaluatorUseCase:
             rationale=self._rationale(overall_state, tuple(layer_results), required_names),
             audit_gate_status=audit_result.overall_state.value,
             evaluation_status=evaluation_status,
-            layer_breakdown=tuple(
-                self._to_readiness_layer(r) for r in layer_results
-            ),
+            layer_breakdown=tuple(self._to_readiness_layer(r) for r in layer_results),
             run_metadata=LayerRunMetadata(
                 run_id=self._run_id,
                 code_commit=self._code_commit,
@@ -306,11 +297,13 @@ class ReadinessGateEvaluatorUseCase:
         if overall_state == "passed":
             return "readiness gate passed; all required layers satisfied"
         failed = [
-            r.layer for r in layer_results
+            r.layer
+            for r in layer_results
             if r.layer in required_names and r.status == LayerStatus.FAILED
         ]
         incomplete = [
-            r.layer for r in layer_results
+            r.layer
+            for r in layer_results
             if r.layer in required_names
             and r.status
             in {

@@ -52,8 +52,11 @@ def build_group(canonical_slug: str, dup_slugs: list[str]) -> MergeGroup:
     def _s0(entity_id: str) -> S0NormalizedForm:
         raw = entity_id.rsplit(":", 1)[-1].replace("-", " ")
         return S0NormalizedForm(
-            original=raw, nfkc=raw, casefold=raw.lower(),
-            compact="".join(raw.lower().split()), tokens=tuple(raw.lower().split()),
+            original=raw,
+            nfkc=raw,
+            casefold=raw.lower(),
+            compact="".join(raw.lower().split()),
+            tokens=tuple(raw.lower().split()),
         )
 
     evidence = [

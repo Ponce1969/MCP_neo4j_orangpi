@@ -44,10 +44,7 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
         text = path.read_text(encoding="utf-8")
         raw = json.loads(text)
         metrics = raw.get("metrics") or {}
-        mapped: dict[str, Any] = {
-            self._map_metric_name(k): v
-            for k, v in metrics.items()
-        }
+        mapped: dict[str, Any] = {self._map_metric_name(k): v for k, v in metrics.items()}
         return RAGASSecondaryMetrics(
             faithfulness=mapped.get("faithfulness"),
             answer_relevancy=mapped.get("answer_relevancy"),
@@ -63,13 +60,15 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
         tmp = Path(tempfile.mkstemp(suffix=".jsonl")[1])
         rows: list[dict[str, Any]] = []
         for question_id, answer, contexts in generation_results:
-            rows.append({
-                "question_id": question_id,
-                "question": question_id,
-                "type": "local",
-                "answer": answer,
-                "contexts": list(contexts),
-            })
+            rows.append(
+                {
+                    "question_id": question_id,
+                    "question": question_id,
+                    "type": "local",
+                    "answer": answer,
+                    "contexts": list(contexts),
+                }
+            )
         with tmp.open("w", encoding="utf-8") as f:
             for row in rows:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -132,9 +131,7 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
         metrics: RAGASSecondaryMetrics,
         previous_metrics: RAGASSecondaryMetrics | None,
     ) -> RAGASSecondaryMetrics:
-        previous_faithfulness = (
-            previous_metrics.faithfulness if previous_metrics else None
-        )
+        previous_faithfulness = previous_metrics.faithfulness if previous_metrics else None
         drop_warning = False
         if (
             metrics.faithfulness is not None

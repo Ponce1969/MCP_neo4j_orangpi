@@ -45,6 +45,7 @@ class _FakeHarness:
     def compare_to_baseline(self, metrics: EvaluationMetrics) -> Any:
         class Gate:
             passed = True
+
         return Gate()
 
 

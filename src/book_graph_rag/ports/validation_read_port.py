@@ -1,4 +1,5 @@
 """Read-only port for pre-reindex graph validation evidence."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

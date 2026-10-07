@@ -105,22 +105,14 @@ class BackfillCheckpointsUseCase:
     def _validate_approval(self, approval_path: Path | None) -> None:
         """Ensure a human-signed approval artifact is present before applying."""
         if approval_path is None:
-            raise ValueError(
-                "Backfill apply requires an approval file (pass approval_path)"
-            )
+            raise ValueError("Backfill apply requires an approval file (pass approval_path)")
         if not approval_path.exists():
-            raise ValueError(
-                f"Approval file not found: {approval_path}"
-            )
+            raise ValueError(f"Approval file not found: {approval_path}")
         content = approval_path.read_text(encoding="utf-8").strip().lower()
         if "approve" not in content:
-            raise ValueError(
-                f"Approval file {approval_path} must contain the word 'approve'"
-            )
+            raise ValueError(f"Approval file {approval_path} must contain the word 'approve'")
 
-    def _write_evidence_bundle(
-        self, source_id: str, candidate_chunk_indices: list[int]
-    ) -> Path:
+    def _write_evidence_bundle(self, source_id: str, candidate_chunk_indices: list[int]) -> Path:
         """Persist an auditable evidence bundle for the backfill operation."""
         self._evidence_dir.mkdir(parents=True, exist_ok=True)
         evidence_path = self._evidence_dir / f"backfill-{self._run_id}.json"

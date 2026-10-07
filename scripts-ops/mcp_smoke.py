@@ -22,8 +22,10 @@ async def main() -> None:
     print(f"Conectando a {MCP_URL} ...")
     async with sse_client(MCP_URL) as (read, write), ClientSession(read, write) as session:
         init = await session.initialize()
-        print(f"Handshake OK: {init.serverInfo.name} {init.serverInfo.version} "
-              f"protocol={init.protocolVersion}")
+        print(
+            f"Handshake OK: {init.serverInfo.name} {init.serverInfo.version} "
+            f"protocol={init.protocolVersion}"
+        )
 
         tools = await session.list_tools()
         print(f"Tools ({len(tools.tools)}):")
@@ -31,9 +33,7 @@ async def main() -> None:
             print(f"  - {t.name}")
 
         # 1. count_entities scoped al libro nuevo
-        res = await session.call_tool(
-            "count_entities", {"source_id": SCOPE}
-        )
+        res = await session.call_tool("count_entities", {"source_id": SCOPE})
         print(f"\n[count_entities] source_id={SCOPE}")
         for c in res.content:
             if isinstance(c, TextContent):

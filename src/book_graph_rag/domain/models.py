@@ -145,8 +145,13 @@ class GraphQuery(BaseModel):
 
     model_config = ConfigDict()
     type: Literal[
-        "entity", "relation", "path", "similarity", "batch_entity",
-        "community", "text2cypher",
+        "entity",
+        "relation",
+        "path",
+        "similarity",
+        "batch_entity",
+        "community",
+        "text2cypher",
     ]
 
 
@@ -218,8 +223,13 @@ class Text2CypherQuery(GraphQuery):
 
 
 GraphQueryUnion = Annotated[
-    EntityQuery | RelationQuery | PathQuery | SimilarityQuery | BatchEntityQuery
-    | CommunityQuery | Text2CypherQuery,
+    EntityQuery
+    | RelationQuery
+    | PathQuery
+    | SimilarityQuery
+    | BatchEntityQuery
+    | CommunityQuery
+    | Text2CypherQuery,
     Field(discriminator="type"),
 ]
 
@@ -340,10 +350,7 @@ def redact_sensitive_metadata(
     anyway so it cannot be bypassed by a future caller or scalar that carries a
     secret-looking value.
     """
-    return {
-        key: redact_sensitive(value, key=key)
-        for key, value in metadata.items()
-    }
+    return {key: redact_sensitive(value, key=key) for key, value in metadata.items()}
 
 
 #: A bare exception class name (``TimeoutError``) — the only legacy ``error``
@@ -452,9 +459,7 @@ class CommunitySummary(BaseModel):
                 computed = _community_summary_id(level, entity_ids)
                 provided_id = data.get("id")
                 if provided_id and provided_id != computed:
-                    raise ValueError(
-                        "id must be the stable hash of level and sorted entity_ids"
-                    )
+                    raise ValueError("id must be the stable hash of level and sorted entity_ids")
                 data["id"] = computed
         return data
 

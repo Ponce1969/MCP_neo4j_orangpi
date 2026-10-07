@@ -1,4 +1,5 @@
 """JSON evidence and manifest adapter."""
+
 from __future__ import annotations
 
 import json

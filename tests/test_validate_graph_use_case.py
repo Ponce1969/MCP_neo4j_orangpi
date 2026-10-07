@@ -1,4 +1,5 @@
 """Tests for ValidateGraphUseCase orchestration."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -110,9 +111,7 @@ def _manifest() -> SmokeManifest:
         assertion={"expected_entity_ids": ["entity-1"]},
         required_provenance=True,
     )
-    return SmokeManifest(
-        manifest_id="manifest-1", version="1.0.0", book_id="book-1", cases=(case,)
-    )
+    return SmokeManifest(manifest_id="manifest-1", version="1.0.0", book_id="book-1", cases=(case,))
 
 
 def _pass_smoke_result(case: SmokeCase) -> SmokeResult:
@@ -163,9 +162,7 @@ async def _run(
 
 async def test_clean_evidence_recommends_reindex() -> None:
     case = _manifest().cases[0]
-    bundle, policy, writer = await _run(
-        (_pass_rule(),), _full_coverage(), _pass_smoke_result(case)
-    )
+    bundle, policy, writer = await _run((_pass_rule(),), _full_coverage(), _pass_smoke_result(case))
     assert policy == PolicyResult(
         status=ValidationStatus.PASSED,
         decision=ValidationDecision.REINDEX,

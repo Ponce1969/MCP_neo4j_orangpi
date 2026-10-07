@@ -205,9 +205,7 @@ class _FakeTransaction:
         self.committed = False
         self.rolled_back = False
 
-    async def run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         self._session.calls.append((query, parameters))
         return _FakeResult([])
 
@@ -224,9 +222,7 @@ class _FakeSession:
         self.transactions: list[_FakeTransaction] = []
         self._records = records or []
 
-    async def run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         self.calls.append((query, parameters))
         return _FakeResult(list(self._records))
 
@@ -443,9 +439,7 @@ def test_resolve_entities_runs_after_index_before_communities(
     pdf.write_text("fake pdf")
 
     runner = CliRunner()
-    result = runner.invoke(
-        rfp.cli, [str(pdf), "--resolve-entities", "--with-communities"]
-    )
+    result = runner.invoke(rfp.cli, [str(pdf), "--resolve-entities", "--with-communities"])
 
     assert result.exit_code == 0, result.output
     exe_idx = calls.index(("execute", str(pdf)))

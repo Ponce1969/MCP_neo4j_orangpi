@@ -32,9 +32,7 @@ class _FakeTx:
     def __init__(self, session: _FakeSession) -> None:
         self._session = session
 
-    async def run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         return await self._session.run(query, parameters)
 
 
@@ -44,9 +42,7 @@ class _FakeSession:
     def __init__(self) -> None:
         self.queries: list[tuple[str, dict[str, Any]]] = []
 
-    async def run(
-        self, query: str, parameters: dict[str, Any] | None = None
-    ) -> _FakeResult:
+    async def run(self, query: str, parameters: dict[str, Any] | None = None) -> _FakeResult:
         self.queries.append((query, parameters or {}))
         return _FakeResult()
 
@@ -215,5 +211,3 @@ async def test_scope_parameters_are_bound_not_concatenated(
         assert value not in query
     assert params["scope_entity_types"] == ["agent", "concept"]
     assert params["scope_book_ids"] == ["book-1", "book-2"]
-
-

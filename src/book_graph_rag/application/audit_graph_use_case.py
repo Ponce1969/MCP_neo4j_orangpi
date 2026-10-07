@@ -1,15 +1,26 @@
 """Pure target validation and report orchestration."""
+
 from __future__ import annotations  # noqa: I001
 import re
 from typing import Literal, cast
 from urllib.parse import urlsplit
 from book_graph_rag.domain.audit_models import (  # noqa: E501
-    AuditExecution, AuditQueryExecution, AuditReport, AuditScope, AuditSnapshot, AuditTarget,
-    OverallState, QueryState, exit_code,
+    AuditExecution,
+    AuditQueryExecution,
+    AuditReport,
+    AuditScope,
+    AuditSnapshot,
+    AuditTarget,
+    OverallState,
+    QueryState,
+    exit_code,
 )
 from book_graph_rag.ports.graph_audit_port import GraphIntegrityAuditPort
+
 _SAFE_DB = re.compile(r"[A-Za-z0-9_.-]+\Z")
 _SCHEMES = {"bolt", "neo4j", "neo4j+s", "neo4j+ssc"}
+
+
 def build_audit_target(selector: str, uri: str, database: str) -> AuditTarget:
     if selector != "bookgraph-neo4j" or not _SAFE_DB.fullmatch(database):
         raise ValueError("audit target or database is not allowed")
@@ -23,23 +34,37 @@ def build_audit_target(selector: str, uri: str, database: str) -> AuditTarget:
     except ValueError as exc:
         raise ValueError("configured URI has an invalid port") from exc
     return AuditTarget(  # noqa: E501
-        selector="bookgraph-neo4j", database=database, scheme=cast(Literal["bolt", "neo4j", "neo4j+s", "neo4j+ssc"], parsed.scheme),  # noqa: E501
-        host=parsed.hostname, port=port, uri=uri,
+        selector="bookgraph-neo4j",
+        database=database,
+        scheme=cast(Literal["bolt", "neo4j", "neo4j+s", "neo4j+ssc"], parsed.scheme),  # noqa: E501
+        host=parsed.hostname,
+        port=port,
+        uri=uri,
     )
+
+
 def _failure_snapshot(error: Exception) -> AuditSnapshot:
     name = type(error).__name__.lower()
-    state = OverallState.UNREACHABLE if any(  # noqa: E501
-        x in name for x in ("connection", "timeout", "auth", "network", "unavailable")
-    ) else OverallState.FAILED
+    state = (
+        OverallState.UNREACHABLE
+        if any(  # noqa: E501
+            x in name for x in ("connection", "timeout", "auth", "network", "unavailable")
+        )
+        else OverallState.FAILED
+    )
     query_state = QueryState.UNREACHABLE if state == OverallState.UNREACHABLE else QueryState.FAILED
     return AuditSnapshot(  # noqa: E501
         queries=(AuditQueryExecution(name="audit", state=query_state, error="redacted"),),
         failure_state=state,
     )
+
+
 class AuditGraphUseCase:
     """Assemble a report from a typed port without importing infrastructure."""
+
     def __init__(self, port: GraphIntegrityAuditPort) -> None:
         self._port = port
+
     async def execute(
         self, target: AuditTarget, sample_limit: int = 50, scope: AuditScope | None = None
     ) -> AuditReport:
@@ -52,11 +77,18 @@ class AuditGraphUseCase:
             snapshot = _failure_snapshot(error)
         state = self._classify(snapshot)
         return AuditReport(  # noqa: E501
-            target=target, state=state, scope=scope.display if scope is not None else None,
-            inventory=snapshot.inventory, findings=snapshot.findings,
-            runtime=snapshot.runtime, executed_at=snapshot.executed_at,
-            execution=AuditExecution(state=state, exit_code=exit_code(state), queries=snapshot.queries),  # noqa: E501
+            target=target,
+            state=state,
+            scope=scope.display if scope is not None else None,
+            inventory=snapshot.inventory,
+            findings=snapshot.findings,
+            runtime=snapshot.runtime,
+            executed_at=snapshot.executed_at,
+            execution=AuditExecution(
+                state=state, exit_code=exit_code(state), queries=snapshot.queries
+            ),  # noqa: E501
         )
+
     @staticmethod
     def _validate_target(target: AuditTarget) -> None:
         parsed = urlsplit(target.uri)
@@ -68,6 +100,7 @@ class AuditGraphUseCase:
             or any((parsed.username, parsed.password, parsed.query, parsed.fragment, parsed.path))
         ):
             raise ValueError("audit target is not allowed")
+
     @staticmethod
     def _classify(snapshot: AuditSnapshot) -> OverallState:
         if snapshot.failure_state in (OverallState.UNREACHABLE, OverallState.FAILED):

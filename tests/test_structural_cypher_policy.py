@@ -29,9 +29,7 @@ def _validate(query: str) -> None:
 def _validate_result(
     query: str, *, require_scope_proof: bool = False
 ) -> StructuralValidationResult:
-    return StructuralCypherPolicy().validate(
-        query, require_scope_proof=require_scope_proof
-    )
+    return StructuralCypherPolicy().validate(query, require_scope_proof=require_scope_proof)
 
 
 def test_structural_policy_error_is_unsupported_query_subtype() -> None:

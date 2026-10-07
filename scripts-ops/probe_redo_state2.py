@@ -1,4 +1,5 @@
 """Read-only probe #2: relationship types + hierarchy for the GA namespace."""
+
 import json
 import os
 
@@ -73,8 +74,7 @@ with driver.session(database=env.get("NEO4J_DATABASE", "neo4j")) as s:
     out["sample_entity"] = [
         dict(r)
         for r in s.run(
-            "MATCH (e:Entity) WHERE e.id STARTS WITH $ns "
-            "RETURN e.id AS id, e.name AS name LIMIT 3",
+            "MATCH (e:Entity) WHERE e.id STARTS WITH $ns RETURN e.id AS id, e.name AS name LIMIT 3",
             ns=NS,
         )
     ]

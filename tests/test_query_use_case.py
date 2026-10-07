@@ -105,9 +105,7 @@ class _FakeGraphQueryPort(GraphQueryPort):
             raise self.traverse_raises
         return self.traverse_result
 
-    async def find_path(
-        self, start_id: str, end_id: str, max_depth: int
-    ) -> list[GraphPath]:
+    async def find_path(self, start_id: str, end_id: str, max_depth: int) -> list[GraphPath]:
         self.calls.append(
             {"method": "find_path", "start_id": start_id, "end_id": end_id, "max_depth": max_depth}
         )
@@ -171,9 +169,7 @@ async def test_entity_query_dispatches_to_find_entity(
     assert isinstance(result, GraphQueryResult)
     assert result.entities == fake_port.find_entity_result
     assert result.metadata.total_count == 1
-    assert fake_port.calls == [
-        {"method": "find_entity", "name": "MCP", "entity_type": None}
-    ]
+    assert fake_port.calls == [{"method": "find_entity", "name": "MCP", "entity_type": None}]
 
 
 async def test_entity_query_with_type_filter_passes_entity_type(
@@ -182,9 +178,7 @@ async def test_entity_query_with_type_filter_passes_entity_type(
     """EntityQuery with entity_type forwards the filter to the port."""
     await use_case.execute(EntityQuery(name="Agent", entity_type="agent"))
 
-    assert fake_port.calls == [
-        {"method": "find_entity", "name": "Agent", "entity_type": "agent"}
-    ]
+    assert fake_port.calls == [{"method": "find_entity", "name": "Agent", "entity_type": "agent"}]
 
 
 async def test_relation_query_dispatches_to_traverse(
@@ -251,9 +245,7 @@ async def test_batch_entity_query_dispatches_to_find_entities_batch(
 
     assert result.entities == fake_port.find_entities_batch_result
     assert result.metadata.total_count == 1
-    assert fake_port.calls == [
-        {"method": "find_entities_batch", "ids": ["e1", "e2"]}
-    ]
+    assert fake_port.calls == [{"method": "find_entities_batch", "ids": ["e1", "e2"]}]
 
 
 async def test_batch_size_exceeded_raises_before_calling_port(
@@ -274,6 +266,7 @@ async def test_unknown_query_type_raises_domain_error(
     fake_port: _FakeGraphQueryPort, use_case: QueryKnowledgeGraphUseCase
 ) -> None:
     """AC-06.16: unknown dispatch type raises UnsupportedQueryTypeError, not ValueError."""
+
     class UnknownQuery:
         type = "unknown_type"
 

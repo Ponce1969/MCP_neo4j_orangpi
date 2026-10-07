@@ -180,15 +180,11 @@ class _StubCheckpointPort(CheckpointPort):
         self.mark_stale_calls.append((source_id, expected_versions))
         return 0
 
-    async def fetch_state(
-        self, source_id: str, chunk_indices: list[int]
-    ) -> dict[int, Checkpoint]:
+    async def fetch_state(self, source_id: str, chunk_indices: list[int]) -> dict[int, Checkpoint]:
         self.fetch_calls.append((source_id, list(chunk_indices)))
         return {idx: cp for idx, cp in self._state.items() if idx in chunk_indices}
 
-    async def reclaim_stale_leases(
-        self, source_id: str, now: datetime, stale_seconds: int
-    ) -> int:
+    async def reclaim_stale_leases(self, source_id: str, now: datetime, stale_seconds: int) -> int:
         self.reclaim_calls.append((source_id, now, stale_seconds))
         return 0
 
@@ -365,9 +361,7 @@ async def test_no_resume_skips_checkpoint_checks() -> None:
     llm = _StubLLMPort()
     graph = _StubGraphDBPort()
     checkpoint = _StubCheckpointPort(state)
-    use_case = _use_case(
-        chunks=chunks, llm=llm, graph=graph, checkpoint=checkpoint, resume=False
-    )
+    use_case = _use_case(chunks=chunks, llm=llm, graph=graph, checkpoint=checkpoint, resume=False)
 
     await use_case.execute("dummy.pdf")
 

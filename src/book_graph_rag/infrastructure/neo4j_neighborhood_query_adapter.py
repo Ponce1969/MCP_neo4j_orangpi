@@ -66,4 +66,3 @@ class Neo4jNeighborhoodQueryAdapter(NeighborhoodQueryPort):
     async def close(self) -> None:
         """Close the underlying Neo4j driver."""
         await self._driver.close()
-
