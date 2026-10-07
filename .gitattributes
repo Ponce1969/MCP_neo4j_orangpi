@@ -1,0 +1,5 @@
+# Every text file is stored as LF in the repository and checked out as LF.
+# This repo tracks no .bat/.cmd/.ps1 files, the only kind that requires CRLF.
+# Without this, an editor that writes CRLF commits CRLF blobs, and the next
+# reformat of that file becomes an unreviewable whole-file diff.
+* text=auto eol=lf

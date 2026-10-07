@@ -121,11 +121,37 @@ Deliberately out of scope, with comments in the code: `scripts/migrate_namespace
 
 ## Block B — hardening
 
-- **B1 (R4) Crash/formatting debt: 16 of 381 tracked Python files carry CRLF and fail `ruff format --check`.**
-  Any edit to one of them is uncommittable under the pre-commit format gate without a normalization commit, which
-  pollutes the review diff (it already happened twice: `neo4j_graph_merge_adapter.py`, and
-  `audit_models.py` + `neo4j_audit_adapter.py`, where reformatting `RULE_CATALOG` also orphaned its
-  `# noqa: E501,SIM905`). Normalize them in one dedicated commit, then keep the gate honest.
+- **B1 (R4) Formatting + line-ending debt — closed 2026-10-06.** The figures this entry used to carry ("16 of
+  381 tracked Python files carry CRLF") were wrong; measured before the fix: **151** tracked `.py` files failed
+  `ruff format --check` (all Python, 0 Markdown, `ruff 0.15.18`), and **48** tracked files carried CRLF *in the
+  index* (33 `.py` + 8 `.md` + 7 `.json`, one of them mixed), **10** of them in both sets. Fixed in two dedicated
+  commits — **format first, then EOL + `.gitattributes`** — which is the order the gate requires: with the EOL
+  commit first, the `ruff-format-check` hook fails on the 10 files that are in both sets.
+
+  Evidence, none of it taken from the tools' own word:
+  - **Semantic equivalence against a frozen pre-image of the 189 touched files: 0 problems.** Every `.py` is
+    `ast.dump`-identical (docstring constants compared with CRLF normalised away, the only permitted delta), every
+    `.json` is `json.loads`-equal, every other file differs only in end-of-line bytes. This is what proves the
+    reflow — and the manual string splits below — changed no behaviour.
+  - **The gates caught four classes of collateral the formatter itself introduced, all fixed in the same commit:**
+    5 `E501` (`ruff format` parenthesised nested `await`s, adding an indent level that pushed three Cypher string
+    literals past 100 — split into implicit concatenations, which the parser folds into the same constant);
+    9 `# noqa: E501` left dead by the reflow; 4 mypy `unused-ignore` (the reflow separated `# type: ignore[union-attr]`
+    from the line mypy flags in `tests/test_run_full_pipeline.py`; the comments moved to the flagged line); and one
+    file left with **mixed** line endings because a byte-level edit stripped the `\r` along with the comment.
+    `RUF100` by `(file, rule)`: 40 findings before, 40 after, zero regressions.
+  - **`data/evaluation/MANIFEST.json` digests untouched:** all four sha256 payloads (`pairs.yaml` and the three
+    `.jsonl`) are LF and still verify. None of them was CRLF, so normalising the EOL of the manifests and of
+    `resolution_baseline.json` is safe — they *contain* hashes, they are not hashed themselves.
+  - **Docstrings:** 17 files had CRLF *inside* string literals; all 17 were docstrings, and the only consumer of any
+    of them is `description=__doc__` in `scripts-ops/cleanup_namespace.py` (no test asserts its `--help`).
+  - **Gates after, all green:** `ruff check .` 0 findings, `ruff format --check .` 0 functional files (only the
+    untracked `scripts-ops/probe_cross_risk.py` loose tail is left alone), `mypy .` 423 files success, architecture
+    validator OK, fast suite (unit + property + root) 1913 passed / 3 skipped, `tools/mcp-oranpi` 502 passed
+    with its own three gates. The integration suite (153 tests, the slow directory) is the long pole.
+  - **Recurrence guard:** new `.gitattributes` with `* text=auto eol=lf`. This repo tracks no `.bat/.cmd/.ps1`, the
+    only kinds that require CRLF. It changes what every clone materialises on its next checkout, the production
+    clone included — that is the point, and it is why the change is a separate commit.
 - **B2 Retrieval warning.** The readiness gate passes but warns `low precision@k: 0.0478` (threshold 0.045,
   retrieval layer is informative/optional). Worth an analysis pass before the number drifts: is it a dataset
   artifact (8 future-corpus records skipped) or real retrieval degradation?
