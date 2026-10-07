@@ -36,7 +36,9 @@ class TestRedactText:
 
     def test_redacts_long_hex_tokens(self) -> None:
         # 64-char hex string (like a sha256 hash / JWT secret)
-        text = f"JWT_SECRET_KEY={REDACTED}"  # This should NOT be matched since it's already REDACTED
+        text = (
+            f"JWT_SECRET_KEY={REDACTED}"  # This should NOT be matched since it's already REDACTED
+        )
         # Use a real hex token
         secret = "a" * 64
         text = f"token={secret}"

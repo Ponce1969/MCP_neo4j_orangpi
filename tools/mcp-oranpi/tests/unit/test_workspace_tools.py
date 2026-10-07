@@ -481,7 +481,7 @@ class TestWorkspaceDeploy:
         assert result.data["status"] == "deployed"
         assert result.data["executed"] is True
         assert "Deployment executed successfully" in result.data["output"]  # type: ignore
-        
+
         last_call = mock_runner.last_call()
         assert last_call is not None
         assert last_call[0] == "workspace_deploy"

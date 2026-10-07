@@ -41,6 +41,7 @@ class TestAppConfig:
         for key in list(os.environ):
             if key.startswith("ORANPI_"):
                 monkeypatch.delenv(key, raising=False)
+
         # Create a config class that doesn't read .env file
         class TestConfig(AppConfig):
             model_config = SettingsConfigDict(
@@ -48,6 +49,7 @@ class TestAppConfig:
                 env_file=None,  # Don't read .env
                 extra="ignore",
             )
+
         with pytest.raises(ValidationError):
             TestConfig()  # type: ignore
 

@@ -22,7 +22,6 @@ async def main() -> None:
         git = "git" if ws_info.has_git else "no-git"
         print(f"  {ws_id}: {ws_info.status} - {ws_info.path} [{compose}, {git}]")
 
-    h = container.mcp_handler
     passed = 0
     failed = 0
 

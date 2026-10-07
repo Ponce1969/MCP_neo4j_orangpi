@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import unittest.mock as mock
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -17,8 +18,6 @@ from mcp_oranpi.server import AppContainer
 
 # ── Environment Fixture ───────────────────────────────────────────────────────
 
-
-from typing import Iterator
 
 @pytest.fixture
 def env_vars() -> Iterator[dict[str, str]]:

@@ -108,9 +108,7 @@ def should_skip(path: Path) -> bool:
     if relative in EXCLUDED_FILES:
         return True
     # Skip test files — they test that validation rejects dangerous inputs
-    if "test_" in path.name or path.name.startswith("test_"):
-        return True
-    return False
+    return "test_" in path.name or path.name.startswith("test_")
 
 
 def scan_file(path: Path) -> list[str]:

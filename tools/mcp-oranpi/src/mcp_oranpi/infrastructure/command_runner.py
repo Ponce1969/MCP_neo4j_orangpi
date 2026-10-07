@@ -282,6 +282,7 @@ class CommandRunner:
 
         if "path" in params:
             from pathlib import PurePosixPath
+
             path_str = str(params["path"])
             if ".." in PurePosixPath(path_str).parts:
                 raise ValueError("Path parameters cannot contain parent traversal (..)")

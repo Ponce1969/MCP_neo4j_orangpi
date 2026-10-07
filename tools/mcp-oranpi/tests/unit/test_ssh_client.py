@@ -110,12 +110,11 @@ class TestConnect:
         assert ssh_client.state == _ConnectionState.CONNECTED
 
     @pytest.mark.asyncio
-    async def test_connect_failure_sets_disconnected(
-        self, ssh_client: SSHClient
-    ) -> None:
-        with patch.object(
-            SSHClient, "_create_connection", side_effect=ConnectionError("refused")
-        ), pytest.raises(ConnectionError):
+    async def test_connect_failure_sets_disconnected(self, ssh_client: SSHClient) -> None:
+        with (
+            patch.object(SSHClient, "_create_connection", side_effect=ConnectionError("refused")),
+            pytest.raises(ConnectionError),
+        ):
             await ssh_client.connect()
 
         assert not ssh_client.connected
@@ -159,9 +158,7 @@ class TestDisconnect:
         assert not ssh_client.connected
 
     @pytest.mark.asyncio
-    async def test_disconnect_cancels_reconnect_task(
-        self, ssh_client: SSHClient
-    ) -> None:
+    async def test_disconnect_cancels_reconnect_task(self, ssh_client: SSHClient) -> None:
         mock_conn = AsyncMock()
         mock_conn.close = MagicMock()
 
@@ -226,9 +223,7 @@ class TestExecute:
             await ssh_client.execute("echo test")
 
     @pytest.mark.asyncio
-    async def test_execute_not_connected_reconnecting(
-        self, ssh_client: SSHClient
-    ) -> None:
+    async def test_execute_not_connected_reconnecting(self, ssh_client: SSHClient) -> None:
         # Simulate reconnecting state
         ssh_client._state = _ConnectionState.RECONNECTING
         ssh_client._conn = None
@@ -272,9 +267,7 @@ class TestExecute:
             await ssh_client.execute("slow_command")
 
     @pytest.mark.asyncio
-    async def test_execute_cancelled_error_reraised(
-        self, ssh_client: SSHClient
-    ) -> None:
+    async def test_execute_cancelled_error_reraised(self, ssh_client: SSHClient) -> None:
         """CancelledError is always re-raised (spec 006, rule 1)."""
 
         async def cancel_run(cmd: str) -> None:
@@ -291,9 +284,7 @@ class TestExecute:
             await ssh_client.execute("echo test")
 
     @pytest.mark.asyncio
-    async def test_execute_none_exit_status_treated_as_zero(
-        self, ssh_client: SSHClient
-    ) -> None:
+    async def test_execute_none_exit_status_treated_as_zero(self, ssh_client: SSHClient) -> None:
         """asyncssh may return None exit_status for signal-killed processes."""
         mock_conn = AsyncMock()
         mock_process = MagicMock()
@@ -335,9 +326,7 @@ class TestHealthCheck:
     """Tests for SSHClient.health_check()."""
 
     @pytest.mark.asyncio
-    async def test_health_check_returns_true_when_connected(
-        self, ssh_client: SSHClient
-    ) -> None:
+    async def test_health_check_returns_true_when_connected(self, ssh_client: SSHClient) -> None:
         mock_conn = AsyncMock()
         mock_process = MagicMock()
         mock_process.exit_status = 0
@@ -358,9 +347,7 @@ class TestHealthCheck:
         assert await ssh_client.health_check() is False
 
     @pytest.mark.asyncio
-    async def test_health_check_returns_false_on_error(
-        self, ssh_client: SSHClient
-    ) -> None:
+    async def test_health_check_returns_false_on_error(self, ssh_client: SSHClient) -> None:
         mock_conn = AsyncMock()
         mock_conn.close = MagicMock()
 
@@ -381,9 +368,7 @@ class TestReconnection:
     """Tests for SSHClient reconnection logic."""
 
     @pytest.mark.asyncio
-    async def test_start_reconnection_sets_state(
-        self, ssh_client: SSHClient
-    ) -> None:
+    async def test_start_reconnection_sets_state(self, ssh_client: SSHClient) -> None:
         mock_conn = AsyncMock()
         mock_conn.close = MagicMock()
 
@@ -408,9 +393,7 @@ class TestReconnection:
         await ssh_client.disconnect()
 
     @pytest.mark.asyncio
-    async def test_execute_raises_during_reconnection(
-        self, ssh_client: SSHClient
-    ) -> None:
+    async def test_execute_raises_during_reconnection(self, ssh_client: SSHClient) -> None:
         ssh_client._state = _ConnectionState.RECONNECTING
         ssh_client._conn = None
 
@@ -425,9 +408,7 @@ class TestSecurityMode:
     """Tests for security mode handling in _create_connection."""
 
     @pytest.mark.asyncio
-    async def test_production_mode_uses_known_hosts(
-        self, ssh_config: SSHConfig
-    ) -> None:
+    async def test_production_mode_uses_known_hosts(self, ssh_config: SSHConfig) -> None:
         ssh_config.security_mode = "production"
         ssh_config.known_hosts = "/home/user/.ssh/known_hosts"  # type: ignore
 
@@ -446,9 +427,7 @@ class TestSecurityMode:
             assert call_kwargs["known_hosts"] == "/home/user/.ssh/known_hosts"
 
     @pytest.mark.asyncio
-    async def test_development_mode_ignores_known_hosts(
-        self, ssh_config: SSHConfig
-    ) -> None:
+    async def test_development_mode_ignores_known_hosts(self, ssh_config: SSHConfig) -> None:
         ssh_config.security_mode = "development"
 
         client = SSHClient(ssh_config)

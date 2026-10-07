@@ -623,7 +623,7 @@ class MCPHandler:
                 error_data["error"]["detail"] = result.error.detail  # type: ignore[index]
             if result.truncated:
                 error_data["truncated"] = True
-            
+
             # Apply redaction to prevent secret leaks in error stdout/stderr
             redacted_error = redact_json_response(error_data)
             return [types.TextContent(type="text", text=json.dumps(redacted_error, default=str))]
