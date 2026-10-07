@@ -201,9 +201,12 @@ TOOL_DEFINITIONS: list[types.Tool] = [
     types.Tool(
         name="network_inspect_bindings",
         description="Inspect all active network bindings on the remote host. "
-        "Returns each listening socket with its exact local_address (the real "
+        "Returns each listening TCP socket with its exact local_address (the real "
         "OS bind, e.g. 100.106.85.109:8003 or [::]:7474, never an assumed "
-        "wildcard), port, protocol, process, pid, and container information. "
+        "wildcard), port, protocol, process and pid. ss resolves the owning process "
+        "only for sockets owned by the SSH user, so process/pid are null for "
+        "root/docker-proxy listeners: process_visibility reports how many bindings "
+        "were attributed, the total, and why the rest are null. "
         "Errors: CONN_FAILED, CONN_TIMEOUT.",
         inputSchema={
             "type": "object",
@@ -320,27 +323,29 @@ TOOL_DEFINITIONS: list[types.Tool] = [
     ),
     types.Tool(
         name="logs_systemd",
-        description="Fetch logs from the systemd journal. Supports filtering by unit, "
-        "priority level (emerg/debug), and time range. "
+        description="Fetch logs from the systemd journal by service (unit) and "
+        "priority level (emerg/debug), optionally bounded by a time range. "
+        "'service' and 'lines' are the documented parameters; 'unit' and 'tail' are "
+        "deprecated aliases kept for older clients, and sending both names with "
+        "different values is an error. "
         "Errors: CONN_FAILED, CONN_TIMEOUT, LOG_UNIT_NOT_FOUND (unit unavailable), "
         "LOG_QUERY_FAILED (journalctl rejected the query), "
         "VALID_PARAM_INVALID (invalid parameters).",
         inputSchema={
             "type": "object",
             "properties": {
-                "unit": {
+                "service": {
                     "type": "string",
-                    "description": "Optional systemd unit name to filter by",
+                    "description": "Optional systemd unit (service) name to filter by",
                 },
                 "priority": {
                     "type": "string",
                     "default": "info",
                     "description": "Priority level: emerg, alert, crit, err, warning, notice, info, debug",
                 },
-                "tail": {
+                "lines": {
                     "type": "integer",
-                    "default": 100,
-                    "description": "Number of lines to fetch from the end",
+                    "description": "Number of lines to fetch from the end (default 100)",
                 },
                 "since": {
                     "type": "string",
@@ -349,6 +354,14 @@ TOOL_DEFINITIONS: list[types.Tool] = [
                 "until": {
                     "type": "string",
                     "description": "ISO timestamp or relative time upper bound (e.g., '1 hour ago')",
+                },
+                "unit": {
+                    "type": "string",
+                    "description": "Deprecated alias of 'service'; prefer 'service'",
+                },
+                "tail": {
+                    "type": "integer",
+                    "description": "Deprecated alias of 'lines'; prefer 'lines' (default 100)",
                 },
             },
         },

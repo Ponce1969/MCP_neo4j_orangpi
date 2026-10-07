@@ -195,6 +195,22 @@ class TestToolDefinitions:
         assert "until" in tool.inputSchema["properties"]
         assert tool.inputSchema["properties"]["until"]["type"] == "string"
 
+    def test_logs_systemd_exposes_service_and_lines_with_legacy_aliases(self) -> None:
+        """service/lines are documented; unit/tail stay as deprecated aliases."""
+        tool = next(t for t in TOOL_DEFINITIONS if t.name == "logs_systemd")
+        properties = tool.inputSchema["properties"]
+
+        assert "service" in properties
+        assert "lines" in properties
+        assert "unit" in properties
+        assert "tail" in properties
+        assert "deprecated" in properties["unit"]["description"].lower()
+        assert "deprecated" in properties["tail"]["description"].lower()
+        # Neither alias carries a schema default: a client that auto-fills one
+        # would otherwise send both names and trip the conflict check.
+        assert "default" not in properties["lines"]
+        assert "default" not in properties["tail"]
+
 
 # ── MCPHandler.call_tool Tests ─────────────────────────────────────────────────
 
@@ -230,6 +246,34 @@ class TestMCPHandlerCallTool:
         parsed = json.loads(result[0].text)
         assert "data" in parsed
         assert parsed["data"]["total_count"] == 0
+
+    async def test_call_logs_systemd_forwards_service_and_lines(
+        self,
+        mcp_handler: MCPHandler,
+        mock_logs_tools: mock.AsyncMock,
+    ) -> None:
+        """The adapter forwards service/lines untouched; aliasing is resolved in the use case."""
+        mock_logs_tools.logs_systemd.return_value = ToolResult(
+            data={"logs": "", "log_count": 0, "truncated": False}
+        )
+
+        await mcp_handler.call_tool("logs_systemd", {"service": "mcp-server", "lines": 5})
+
+        mock_logs_tools.logs_systemd.assert_called_once_with(service="mcp-server", lines=5)
+
+    async def test_call_logs_systemd_keeps_the_deprecated_aliases_working(
+        self,
+        mcp_handler: MCPHandler,
+        mock_logs_tools: mock.AsyncMock,
+    ) -> None:
+        """Older clients sending unit/tail still reach the same use case."""
+        mock_logs_tools.logs_systemd.return_value = ToolResult(
+            data={"logs": "", "log_count": 0, "truncated": False}
+        )
+
+        await mcp_handler.call_tool("logs_systemd", {"unit": "mcp-server", "tail": 5})
+
+        mock_logs_tools.logs_systemd.assert_called_once_with(unit="mcp-server", tail=5)
 
     async def test_call_tool_returns_error_json(
         self,

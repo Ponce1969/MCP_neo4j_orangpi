@@ -28,6 +28,14 @@ from mcp_oranpi.domain.validation import validate_port, validate_port_range
 
 log = structlog.get_logger()
 
+# ``ss`` reports the owning process only for sockets the SSH user owns, so most
+# listeners on this host come back with process=null / pid=null. State why
+# instead of letting callers read null as "no process".
+_PROCESS_VISIBILITY_REASON = (
+    "ss resolves the owning process only for sockets owned by the SSH user; "
+    "listeners owned by other users (root, docker-proxy) report process=null and pid=null"
+)
+
 
 class NetworkTools:
     """Network inspection tools for OrangePi host.
@@ -254,6 +262,11 @@ class NetworkTools:
         by ``ss``. The address is never rewritten to a wildcard: a listener
         bound to the Tailscale or loopback interface is reported as such.
 
+        Only TCP ``LISTEN`` sockets are returned (``ss`` reports UDP sockets as
+        ``UNCONN``). ``process``/``pid`` are resolved only for sockets owned by
+        the SSH user, so ``process_visibility`` states how many bindings could
+        be attributed, the total, and why the remaining ones are null.
+
         Returns:
             ToolResult with list of NetworkBinding.
         """
@@ -281,7 +294,11 @@ class NetworkTools:
         occupied_ports = parse_ss_tulnp(result.stdout)
 
         bindings: list[dict[str, object]] = list()
+        attributed = 0
         for p in occupied_ports:
+            process_attributed = p.process is not None or p.pid is not None
+            if process_attributed:
+                attributed += 1
             bindings.append(
                 {
                     "local_address": p.local_address,
@@ -289,11 +306,22 @@ class NetworkTools:
                     "protocol": p.protocol,
                     "process": p.process,
                     "pid": p.pid,
+                    "process_attributed": process_attributed,
                     "container": p.container,
                 }
             )
 
-        return ToolResult(data={"bindings": bindings})
+        return ToolResult(
+            data={
+                "bindings": bindings,
+                "process_visibility": {
+                    "attributed": attributed,
+                    "total": len(bindings),
+                    "limited": attributed < len(bindings),
+                    "reason": _PROCESS_VISIBILITY_REASON,
+                },
+            }
+        )
 
     # ── Tailscale Status ──────────────────────────────────────────────────────
 

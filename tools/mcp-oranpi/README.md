@@ -230,7 +230,7 @@ All tools are **read-only**. 22 tools across 5 categories:
 | Tool | Description |
 |------|-------------|
 | `logs_docker` | Docker logs (alias) |
-| `logs_systemd` | Journalctl logs by unit/priority |
+| `logs_systemd` | Journalctl logs by service/priority (`lines`; legacy aliases `unit`/`tail`) |
 | `logs_file` | File logs with 7-step security validation |
 
 ### Workspace (5)

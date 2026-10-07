@@ -109,6 +109,79 @@ class TestLogsSystemd:
         assert result.data is not None
         assert result.data["unit"] is None
 
+    async def test_service_and_lines_are_the_documented_names(self, logs_tools: LogsTools) -> None:
+        """service/lines are the primary names and still reach journalctl as -u/-n."""
+        logs_tools._runner.set_response(  # type: ignore
+            "journalctl",
+            CommandResult(exit_code=0, stdout="Jan 15 10:30:00 nginx[1234]: Started", stderr=""),
+        )
+
+        result = await logs_tools.logs_systemd(service="nginx", lines=25)
+
+        assert result.error is None
+        assert result.data is not None
+        assert result.data["service"] == "nginx"
+        assert result.data["unit"] == "nginx"
+        last_call = logs_tools._runner.last_call()  # type: ignore
+        assert last_call is not None
+        assert last_call[1]["unit"] == "nginx"
+        assert last_call[1]["lines"] == 25
+
+    async def test_deprecated_aliases_build_the_same_command(self, logs_tools: LogsTools) -> None:
+        """Older clients sending unit/tail keep working unchanged."""
+        logs_tools._runner.set_response(  # type: ignore
+            "journalctl",
+            CommandResult(exit_code=0, stdout="x", stderr=""),
+        )
+
+        result = await logs_tools.logs_systemd(unit="nginx", tail=25)
+
+        assert result.error is None
+        last_call = logs_tools._runner.last_call()  # type: ignore
+        assert last_call is not None
+        assert last_call[1]["unit"] == "nginx"
+        assert last_call[1]["lines"] == 25
+
+    async def test_aliases_with_the_same_value_are_accepted(self, logs_tools: LogsTools) -> None:
+        logs_tools._runner.set_response(  # type: ignore
+            "journalctl",
+            CommandResult(exit_code=0, stdout="x", stderr=""),
+        )
+
+        result = await logs_tools.logs_systemd(service="nginx", unit="nginx", lines=10, tail=10)
+
+        assert result.error is None
+
+    async def test_conflicting_unit_aliases_are_rejected(self, logs_tools: LogsTools) -> None:
+        """Contradicting aliases are an error, never a silent preference."""
+        result = await logs_tools.logs_systemd(service="nginx", unit="apache")
+
+        assert result.error is not None
+        assert result.error.code == "VALID_PARAM_INVALID"
+        assert "Conflicting" in result.error.message
+        # The command must not run when the parameters contradict each other.
+        assert logs_tools._runner.last_call() is None  # type: ignore
+
+    async def test_conflicting_line_aliases_are_rejected(self, logs_tools: LogsTools) -> None:
+        result = await logs_tools.logs_systemd(lines=10, tail=20)
+
+        assert result.error is not None
+        assert result.error.code == "VALID_PARAM_INVALID"
+        assert "Conflicting" in result.error.message
+
+    async def test_lines_defaults_to_100_when_no_alias_is_sent(self, logs_tools: LogsTools) -> None:
+        logs_tools._runner.set_response(  # type: ignore
+            "journalctl",
+            CommandResult(exit_code=0, stdout="x", stderr=""),
+        )
+
+        result = await logs_tools.logs_systemd(service="nginx")
+
+        assert result.error is None
+        last_call = logs_tools._runner.last_call()  # type: ignore
+        assert last_call is not None
+        assert last_call[1]["lines"] == 100
+
     async def test_with_priority(self, logs_tools: LogsTools) -> None:
         stdout = "Jan 15 10:30:00 nginx[1234]: Error occurred"
         logs_tools._runner.set_response(  # type: ignore

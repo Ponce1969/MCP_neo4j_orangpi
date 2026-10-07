@@ -44,6 +44,52 @@ from mcp_oranpi.domain.validation import (
 log = structlog.get_logger()
 
 
+JOURNAL_LOG_DEFAULT_LINES = 100
+
+
+def resolve_journal_aliases(
+    *,
+    service: str | None,
+    lines: int | None,
+    unit: str | None,
+    tail: int | None,
+) -> tuple[str | None, int, str | None]:
+    """Resolve the ``service``/``unit`` and ``lines``/``tail`` aliases.
+
+    ``service`` and ``lines`` are the documented parameter names; ``unit`` and
+    ``tail`` are accepted so older clients keep working. Sending both names with
+    different values is a conflict, never a silent preference.
+
+    Returns:
+        ``(unit, lines, error)``, where ``error`` is set when the caller sent
+        conflicting aliases.
+    """
+    if service is not None and unit is not None and service != unit:
+        return (
+            None,
+            0,
+            (
+                f"Conflicting parameters: service={service!r} and unit={unit!r} "
+                "select different units; send only one"
+            ),
+        )
+    if lines is not None and tail is not None and lines != tail:
+        return (
+            None,
+            0,
+            (
+                f"Conflicting parameters: lines={lines} and tail={tail} "
+                "request different line counts; send only one"
+            ),
+        )
+
+    resolved_unit = service if service is not None else unit
+    resolved_lines = lines if lines is not None else tail
+    if resolved_lines is None:
+        resolved_lines = JOURNAL_LOG_DEFAULT_LINES
+    return resolved_unit, resolved_lines, None
+
+
 class LogsTools:
     """Logs inspection tools for OrangePi host.
 
@@ -159,26 +205,43 @@ class LogsTools:
 
     async def logs_systemd(
         self,
-        unit: str | None = None,
+        service: str | None = None,
         priority: str = "info",
-        tail: int = 100,
+        lines: int | None = None,
         since: str | None = None,
         until: str | None = None,
+        *,
+        unit: str | None = None,
+        tail: int | None = None,
     ) -> ToolResult:
         """Fetch logs from the systemd journal.
 
         Args:
-            unit: Optional systemd unit name to filter by.
+            service: Optional systemd unit (service) name to filter by.
             priority: Priority level (emerg, alert, crit, err, warning,
                      notice, info, debug). Default info.
-            tail: Number of lines to fetch from the end.
+            lines: Number of lines to fetch from the end. Default 100.
             since: ISO timestamp or relative time (e.g., "1 hour ago").
             until: ISO timestamp or relative time upper bound (e.g., "1 hour ago").
+            unit: Deprecated alias of ``service``, kept for older clients.
+            tail: Deprecated alias of ``lines``, kept for older clients.
 
         Returns:
             ToolResult with SystemdLogResult.
         """
-        log.info("logs_systemd", unit=unit, priority=priority, tail=tail)
+        unit, lines, alias_error = resolve_journal_aliases(
+            service=service, lines=lines, unit=unit, tail=tail
+        )
+        if alias_error is not None:
+            return ToolResult(
+                error=ToolError(
+                    code="VALID_PARAM_INVALID",
+                    message=alias_error,
+                    retryable=False,
+                )
+            )
+
+        log.info("logs_systemd", unit=unit, priority=priority, tail=lines)
 
         if unit:
             try:
@@ -193,7 +256,7 @@ class LogsTools:
                 )
 
         try:
-            validate_line_limit(tail)
+            validate_line_limit(lines)
         except ValidationError as e:
             return ToolResult(
                 error=ToolError(
@@ -204,7 +267,7 @@ class LogsTools:
             )
 
         try:
-            journal_params: dict[str, Any] = {"lines": tail, "priority": priority}
+            journal_params: dict[str, Any] = {"lines": lines, "priority": priority}
             if unit is not None:
                 journal_params["unit"] = unit
             if since is not None:
@@ -262,6 +325,7 @@ class LogsTools:
 
         return ToolResult(
             data={
+                "service": unit,
                 "unit": unit,
                 "log_count": log_result.log_count,
                 "logs": truncated_text,

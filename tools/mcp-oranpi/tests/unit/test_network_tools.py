@@ -5,6 +5,8 @@ Uses MockCommandRunner to test network tools without SSH.
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from mcp_oranpi.application.network_tools import NetworkTools
@@ -189,6 +191,58 @@ tcp   LISTEN 0      2048   100.106.85.109:8003    0.0.0.0:*    users:(("book-gra
         assert bindings[0]["local_address"] == "100.106.85.109:8003"
         assert bindings[0]["pid"] == 3085526
         assert bindings[1]["local_address"] == "[::]:7474"
+
+    async def test_reports_how_many_bindings_could_be_attributed(
+        self, network_tools: NetworkTools
+    ) -> None:
+        # Regression: every non-owned listener came back with process=null and
+        # pid=null, which reads as "no process". ss only attributes sockets owned
+        # by the SSH user, so the response must say how many were attributed and why.
+        ss_output = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
+tcp LISTEN 0 2048 100.106.85.109:8003 0.0.0.0:* users:(("book-graph-rag-",pid=3085526,fd=6))
+tcp LISTEN 0 4096 127.0.0.1:7687 0.0.0.0:*
+tcp LISTEN 0 4096 127.0.0.1:7474 0.0.0.0:*"""
+        network_tools._runner.set_response(  # type: ignore
+            "ss_tulnp",
+            CommandResult(exit_code=0, stdout=ss_output, stderr=""),
+        )
+
+        result = await network_tools.network_inspect_bindings()
+
+        assert result.error is None
+        assert result.data is not None
+        data = result.data
+        visibility = cast("dict[str, Any]", data["process_visibility"])
+        assert visibility["attributed"] == 1
+        assert visibility["total"] == 3
+        assert visibility["limited"] is True
+        assert "SSH user" in visibility["reason"]
+
+        bindings = cast("list[dict[str, Any]]", data["bindings"])
+        assert len(bindings) == 3
+        assert bindings[0]["process_attributed"] is True
+        assert bindings[1]["process"] is None
+        assert bindings[1]["pid"] is None
+        assert bindings[1]["process_attributed"] is False
+
+    async def test_not_limited_when_every_binding_is_attributed(
+        self, network_tools: NetworkTools
+    ) -> None:
+        ss_output = """Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:Port  Process
+tcp LISTEN 0 2048 100.106.85.109:8003 0.0.0.0:* users:(("book-graph-rag-",pid=3085526,fd=6))"""
+        network_tools._runner.set_response(  # type: ignore
+            "ss_tulnp",
+            CommandResult(exit_code=0, stdout=ss_output, stderr=""),
+        )
+
+        result = await network_tools.network_inspect_bindings()
+
+        assert result.error is None
+        assert result.data is not None
+        visibility = cast("dict[str, Any]", result.data["process_visibility"])
+        assert visibility["attributed"] == 1
+        assert visibility["total"] == 1
+        assert visibility["limited"] is False
 
     async def test_empty(self, network_tools: NetworkTools) -> None:
         network_tools._runner.set_response(  # type: ignore
