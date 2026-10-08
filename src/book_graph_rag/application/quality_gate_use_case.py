@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from book_graph_rag.domain.skill_models import (
     Skill,
+    binds_high_tier_tool,
     effective_quality_score,
     validate_tool_names,
 )
@@ -52,7 +53,10 @@ class QualityGateUseCase:
             # tool into the model-facing tool list.
             validate_tool_names(skill)
             score = effective_quality_score(skill, safety_cap=self._safety_cap)
-            if score != skill.quality_score:
+            if binds_high_tier_tool(skill.tool_names):
+                # REQ-SK-06 asks for the ceiling to be reported, not only for a score it changes:
+                # the seeded HIGH-tier skill stores its raw safety already at the cap, and a
+                # rationale that stayed empty exactly there would hide the ceiling that matters.
                 rationale.append(
                     f"{skill.id}: safety capped at {self._safety_cap:.2f} "
                     f"(HIGH-tier tool in {', '.join(skill.tool_names)})"

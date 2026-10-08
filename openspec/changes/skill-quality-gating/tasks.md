@@ -30,7 +30,10 @@ graph mutation without a fresh backup and explicit approval).
 - [x] 0A.1 Draft `proposal.md`, `design.md`, `spec.md`, `tasks.md`
       (`openspec/changes/skill-quality-gating/`). Tracked since 2026-10-07 (`6c1da49`), which
       supersedes the earlier "untracked draft only" arrangement.
-- [ ] 0A.2 Maintainer review of the draft (approve / amend / reject).
+- [x] 0A.2 Maintainer review of the draft (approve / amend / reject). **Approved 2026-10-08**, and
+      incrementally before that: 0A.3, the five-capability catalog, the `skill_top_k` raise and each
+      unit were approved as they landed. The draft is approved as it stands, with the corrections
+      the independent verification forced (see `verify-report.md`).
 - [x] 0A.3 Calibrate the provisional inputs (`skill_min_quality` = `0.60`,
       `skill_safety_high_tier_cap` = `0.40`) and record the decision — approved 2026-10-07 and
       written up in `spec.md` §3.1, together with the finding that the ceiling cannot gate out a
@@ -123,5 +126,10 @@ The switch keeps the default behaviour identical to today's and turns the deploy
 
 ## Release gate
 
-- [ ] All of the above green + `openspec/changes/skill-quality-gating/*` archived with
-      verify-report (mirror of `namespace-question-routing` flow).
+- [x] All of the above green + `openspec/changes/skill-quality-gating/*` archived with
+      verify-report (mirror of `namespace-question-routing` flow). **Archived 2026-10-08**; the
+      verify-report records 8 independent findings, the two material ones fixed with tests and the
+      rest reconciled or accepted. **One clause is deferred, deliberately**: the *full* readiness
+      gate run (its LLM/RAGAS layers take ~2h30m and spend provider budget) — it checks layers the
+      skill gate does not touch, so it belongs before the flag is enabled rather than before this
+      archive, and the flag is off.

@@ -26,14 +26,21 @@ is treated as ineligible (fail-closed) and never returned.
 ### REQ-SK-02 — Weighted formula
 The gate MUST compute `quality_score = Σ(w_i·d_i) / Σ(w_i)`. The 2x weighting on
 `safety` and `executability` MUST be the shipped default.
-GIVEN two skills with equal raw averages, WHEN one has higher `safety`, THEN the
-safer one MUST rank higher.
+GIVEN two skills subject to the **same** ceiling (neither binds a HIGH-tier tool) with equal raw
+averages, WHEN one has higher `safety`, THEN the safer one MUST rank higher. The ceiling of
+REQ-SK-06 deliberately outranks this rule: a skill binding `query_cypher` is demoted on purpose
+even when its raw average is higher.
 
 ### REQ-SK-03 — `min_quality` gate
 The gate MUST return only skills with `quality_score >= min_quality`. The threshold
 is configurable (`skill_min_quality`); the provisional default is `0.60` and its final
 value is a calibration decision, not a code constant.
 GIVEN `min_quality=0.60`, WHEN a skill scores `0.59`, THEN it MUST be gated out.
+
+The comparison is inclusive (`>=`) on a float, so a mathematically exact tie can evaluate a hair
+below the threshold (`4.2 / 7` evaluates to `0.5999999999999999`). The boundary is therefore
+"at or above as computed", not "at or above in exact arithmetic" — accepted on purpose rather
+than papered over with an epsilon.
 
 ### REQ-SK-04 — `top_k` cap
 The gate MUST return at most `top_k` skills (`skill_top_k`), default `5` (the catalog size; see
@@ -44,10 +51,12 @@ GIVEN 5 passing skills and `top_k=3`, WHEN the gate runs, THEN exactly 3 skills 
 returned and the other 2 appear in `gated_out`.
 
 ### REQ-SK-05 — Fail-closed unknown tools
-A skill that binds a tool name not registered by `McpServerAdapter` (undefined in
-`TOOL_TIERS`) MUST be rejected at registry load with `UnknownToolError` semantics
-(reuse `domain/mcp_security.py`). The gate MUST NOT expose tools outside the 8
-registered tools.
+A skill that binds a tool name not registered by `McpServerAdapter` (undefined in `TOOL_TIERS`)
+MUST NOT reach the model-facing tool list. The registry readers drop such a skill
+(`infrastructure/skill_record_mapping.py`) and the gate re-validates every name through `tier_for`
+before scoring, so the boundary holds twice and an unregistered name can never inherit a default
+policy by travelling inside a skill. `UnknownToolError` is the error surfaced when a caller passes
+such a name directly, as `create_server(tool_names=...)` does.
 GIVEN a skill binding `"query_cypher"`, WHEN the gate runs, THEN the skill is scored
 with the HIGH-tier safety ceiling applied (REQ-SK-06).
 

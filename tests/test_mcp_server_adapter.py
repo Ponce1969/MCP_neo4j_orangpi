@@ -1323,6 +1323,39 @@ async def test_ask_global_success_is_logged(
     assert entries[0].zero_results is False
 
 
+async def test_search_rag_logs_an_error_when_its_subqueries_fail(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+    scope_resolver: _FakeScopeResolverPort,
+) -> None:
+    """A failed sub-query must not be recorded as a clean call.
+
+    ``search_rag`` gathers its two reads with ``return_exceptions=True``, so it answers with an
+    ``errors`` payload instead of raising. The log is what the skill gate scores
+    ``executability`` from, so a fully failed call logged clean would let a broken capability
+    stay eligible.
+    """
+    graph_query_port.raise_on = {"find_entity", "search_chunks"}
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        scope_resolver=scope_resolver,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
+    )
+
+    result = await adapter.search_rag("modelos", source_id="book:default")
+
+    assert result["errors"], "the caller must still see both failures"
+    entries = [entry for entry in query_logger.entries if entry.tool_name == "search_rag"]
+    assert len(entries) == 1
+    assert entries[0].error_code is not None, (
+        "a search_rag whose sub-queries all failed must not be logged as a clean call"
+    )
+
+
 async def test_ask_global_detail_level_validation_still_enforced(
     adapter: McpServerAdapter,
 ) -> None:

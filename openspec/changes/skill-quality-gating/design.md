@@ -55,7 +55,17 @@ config (`skill_quality_weights`, `skill_safety_high_tier_cap`) so calibration is
 config change, never a code change. `quality_score` is recomputed and re-materialized
 by the ops seeding script (never by the retrieval path).
 
-## 3. Gating Cypher (read-only, runs before the LLM tool list is assembled)
+## 3. Gating (read-only, runs before the LLM tool list is assembled)
+
+**As shipped, the gate lives in the application layer, not in Cypher.** The query below is the
+original sketch: it embeds the threshold and the limit in the read, which would duplicate the
+selection rule in two languages and let a stale materialized `quality_score` decide what the
+model sees. `Neo4jSkillRegistryAdapter` therefore selects the raw dimensions and weights only,
+and `QualityGateUseCase.execute` does the threshold, the ceiling, the ordering and the `top_k`
+cut — see `tasks.md` 2.2. `QualityGateResult` also grew a `rationale` field, which REQ-SK-06
+needs and the sketch below does not have.
+
+The sketch, kept for the shape of the score:
 
 ```cypher
 MATCH (s:Skill)

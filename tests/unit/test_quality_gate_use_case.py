@@ -117,6 +117,35 @@ async def test_high_tier_skill_is_scored_with_the_ceiling_and_reported() -> None
     assert any("query_cypher" in line and "0.40" in line for line in result.rationale)
 
 
+async def test_ceiling_is_reported_when_the_raw_safety_is_already_at_the_cap() -> None:
+    """REQ-SK-06 wants the ceiling reported, not only a score it happens to change.
+
+    The seeded ``skill:raw-cypher:v1`` is exactly this shape — its raw safety is 0.40, equal to
+    the cap — so a rationale that only fired on score changes would stay empty for the one skill
+    whose ceiling actually matters.
+    """
+    at_cap = Skill(
+        id="s:at-cap",
+        name="Raw cypher (high tier)",
+        version="v1",
+        status="active",
+        tool_names=("query_cypher",),
+        scores=SkillQualityScores(
+            safety=0.4,
+            executability=1.0,
+            completeness=1.0,
+            maintainability=1.0,
+            cost_awareness=0.9,
+        ),
+    )
+    use_case = QualityGateUseCase(_FakeRegistry((at_cap,)), safety_cap=0.40)
+
+    result = await use_case.execute(min_quality=0.60, top_k=5)
+
+    assert [skill.id for skill in result.selected] == ["s:at-cap"]
+    assert any("query_cypher" in line and "0.40" in line for line in result.rationale)
+
+
 async def test_unknown_tool_in_a_loaded_skill_is_rejected_fail_closed() -> None:
     """REQ-SK-05: the gate never exposes a tool outside the registered eight."""
     use_case = QualityGateUseCase(

@@ -775,6 +775,10 @@ class McpServerAdapter:
             entity_not_found=entity_not_found,
             duration_ms=duration_ms,
             prompt=query,
+            # Sub-query failures are collected instead of raised, so the caller sees them in the
+            # payload while the log would otherwise record a clean call. The skill gate scores
+            # executability from this log, so a failed sub-query has to count as one.
+            error_code="subquery_failed" if errors else None,
         )
         return {
             "query": query,
