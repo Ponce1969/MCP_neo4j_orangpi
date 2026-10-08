@@ -1,4 +1,20 @@
-"""Application use case: evaluate the retrieval layer (Slice B, U3)."""
+"""Application use case: evaluate the retrieval layer (Slice B, U3).
+
+Why this layer has no absolute precision threshold
+--------------------------------------------------
+``precision@k`` is ``matched / len(contexts)`` per question and the retrieval
+port returns at most ``k`` contexts, so the metric's ceiling is fixed by the
+dataset and not by retrieval quality: with the committed dataset (12 ``current``
+questions carrying 1-3 reference ids each, ``k=10``) a *perfect* retrieval scores
+``mean(min(len(refs), k) / k) = 0.1917``. Any absolute threshold above that can
+never be met — a hardcoded ``0.5`` warned on every run, whatever the quality.
+
+So the only alert mechanism is the committed baseline (``precision_at_k_min``),
+which is also what ``docs/spec/06-evaluation-and-readiness.md`` names as the
+retrieval criterion (">= baseline"), and the measured value stays visible in the
+rationale for a human to read. If the dataset changes, its ceiling changes with
+it: recompute it with the formula above before trusting any absolute number.
+"""
 
 from __future__ import annotations
 
@@ -27,7 +43,6 @@ class EvaluateRetrievalLayerUseCase:
     unfinalized baseline yields INCOMPLETE until a Phase 5 delta finalizes it).
     """
 
-    _PRECISION_WARNING_THRESHOLD: float = 0.5
     _BASELINE_REPORT_PATH = "data/evaluation/retrieval_baseline.json"
 
     def __init__(
@@ -114,8 +129,6 @@ class EvaluateRetrievalLayerUseCase:
 
         ragas = await self._run_ragas(dataset, run_ragas=run_ragas)
         warnings: list[str] = []
-        if precisions and precision < self._PRECISION_WARNING_THRESHOLD:
-            warnings.append(f"low precision@k: {precision:.4f}")
         threshold = baseline.precision_at_k_min
         if threshold is not None and precision < threshold:
             warnings.append(

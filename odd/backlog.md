@@ -187,9 +187,23 @@ Deliberately out of scope, with comments in the code: `scripts/migrate_namespace
   - **Recurrence guard:** new `.gitattributes` with `* text=auto eol=lf`. This repo tracks no `.bat/.cmd/.ps1`, the
     only kinds that require CRLF. It changes what every clone materialises on its next checkout, the production
     clone included — that is the point, and it is why the change is a separate commit.
-- **B2 Retrieval warning.** The readiness gate passes but warns `low precision@k: 0.0478` (threshold 0.045,
-  retrieval layer is informative/optional). Worth an analysis pass before the number drifts: is it a dataset
-  artifact (8 future-corpus records skipped) or real retrieval degradation?
+- **B2 Retrieval warning — closed 2026-10-07.** The warning was noise by construction, not a signal:
+  `_PRECISION_WARNING_THRESHOLD` was a hardcoded `0.5` while the metric is `matched / len(contexts)` with `k=10`,
+  so the ceiling with *perfect* retrieval is `mean(min(len(refs), k)/k) = 0.1917` over the 12 `current` records —
+  it could never be satisfied. Both hypotheses this entry carried were wrong: the 8 future-corpus records are
+  filtered correctly (they carry 0 reference ids and `corpus: "future"`), and the drop from the `0.0549` of the
+  2026-09-23 Phase-5 note to the committed `0.0478` is the expected effect of `80f68f1` ("exclude merged_into
+  entities in find_entity and batch lookup", 2026-09-26), an ancestor of the baseline's `code_commit` `3605e33` —
+  the old number was inflated by ghosts, so the drop is a correctness fix, not degradation.
+
+  Fix: the arbitrary threshold is gone and the committed baseline (`precision_at_k_min`, the criterion
+  `docs/spec/06-evaluation-and-readiness.md` already names: ">= baseline") is the only alert mechanism; the
+  measured value stays visible in the rationale. The module docstring now carries the ceiling **formula** and the
+  dated value, so the next reader recomputes it instead of hardcoding another absolute number. RED first: the new
+  test asserts that precision `0.1` against a committed `0.045` is silent (it warned before), and the two tests
+  that pinned the old warning were rewritten to the new contract — the `chunk_id` one keeps its `0.0` assertion,
+  which is its real point. Residual, noted for whoever finalizes thresholds: the committed `0.045` sits ~6 % below
+  the measured `0.0478`, so that check is the fragile one now, and it is the one that matters.
 - **B3 Five legacy Book 1 chunks without a `:Checkpoint`** (indices 57, 1026, 1302, 1499, 1501; graph predates
   Phase 2). Cover them with `--backfill-checkpoints --dry-run` and then the approval-gated apply. The other three
   books are at 100%.

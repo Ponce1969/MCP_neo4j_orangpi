@@ -115,25 +115,37 @@ def _precision(result: EvaluationLayerResult) -> float:
     return metric.value
 
 
-def test_warning_only_status_for_low_precision() -> None:
-    """Low precision@k returns PASSED with a WARNING (never FAILED)."""
+def test_precision_above_committed_baseline_emits_no_warning() -> None:
+    """Precision above the committed baseline is silent: no arbitrary threshold.
+
+    This is the production shape: 0.0478 against a committed 0.045 used to warn,
+    because a hardcoded 0.5 was unreachable for a ``matched / len(contexts)``
+    metric with k=10 (the dataset's ceiling is ~0.19). The committed baseline is
+    the only alert mechanism; the number itself stays visible in the rationale.
+    """
     records = (
         {
             "question_id": "ret-001",
             "question": "ReAct pattern definition",
             "qtype": "local",
-            "reference_context_ids": ["a:book:1", "a:book:2"],
+            "reference_context_ids": ["a:book:1", "a:book:77"],
         },
     )
     contexts = {
-        "ReAct pattern definition": (
-            RetrievalContext(chunk_id="a:book:99", text="unrelated-context"),
+        "ReAct pattern definition": tuple(
+            RetrievalContext(chunk_id=f"a:book:{n}", text="ctx") for n in range(10)
         ),
     }
-    uc = _make_use_case(records=records, contexts=contexts)
+    uc = _make_use_case(
+        records=records,
+        contexts=contexts,
+        ragas_metrics=RAGASSecondaryMetrics(available=True),
+        baseline=_finalized_baseline(precision_at_k_min=0.045),
+    )
     result = asyncio.run(uc.execute())
     assert result.status == LayerStatus.PASSED
-    assert any("low precision" in w.lower() for w in result.warnings)
+    assert _precision(result) == 0.1
+    assert result.warnings == ()
 
 
 def test_high_precision_returns_passed_no_warning() -> None:
@@ -204,7 +216,9 @@ def test_chunk_id_none_contributes_zero_never_false_positive() -> None:
     uc = _make_use_case(records=records, contexts=contexts)
     result = asyncio.run(uc.execute())
     assert _precision(result) == 0.0
-    assert any("low precision" in w.lower() for w in result.warnings)
+    # No arbitrary threshold warns about the zero; only the committed baseline
+    # does, and here it is 0.0.
+    assert not any("precision" in w.lower() for w in result.warnings)
 
 
 def test_ragas_context_precision_drop_folded_as_warning() -> None:
