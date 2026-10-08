@@ -1,18 +1,20 @@
-"""Community detection + summarization SCOPED to the knowledge:graphrag-agentic namespace.
+"""Community detection + summarization SCOPED to a single knowledge namespace.
 
-Self-contained bottom-up pipeline (GraphRAG-style) that runs ENTIRELY on the
-active entities of the GraphRAG-agentic book: id STARTS WITH the namespace and
-merged_into NULL/empty, plus the RELATED edges internal to that set.  It does
-NOT reload the global graph inside the orchestrator, so the scope is respected.
+Self-contained bottom-up pipeline (GraphRAG-style) that runs ENTIRELY on the active entities
+of one book: ``id STARTS WITH <corpus>:<source>:`` and ``merged_into`` NULL/empty, plus the
+RELATED edges internal to that set. It does NOT reload the global graph inside the orchestrator,
+so the scope is respected. The namespace comes from ``--namespace corpus:source`` and defaults
+to ``knowledge:graphrag-agentic``, the book this tool was first written for.
 
-Checkpoint scoping: community ids are hashes of namespaced entity ids (cannot
-collide across books) and already-persisted summaries are read via
-get_summaries_by_level(level, scope=...) so only GA summaries are resumed.
-Runs are resumable: every summary is persisted immediately (upsert MERGE).
+Checkpoint scoping: community ids are hashes of namespaced entity ids (cannot collide across
+books) and already-persisted summaries are read via ``get_summaries_by_level(level, scope=...)``
+so only this book's summaries are resumed. Runs are resumable: every summary is persisted
+immediately (upsert MERGE).
 
 Usage (run from the repo on the OrangePi with the project venv):
-  uv run python run_communities_scoped.py --detect-only   # Leiden counts, no LLM
-  uv run python run_communities_scoped.py --run           # detect + summarize (resumable)
+  uv run python run_communities_scoped.py --detect-only            # Leiden counts, no LLM
+  uv run python run_communities_scoped.py --detect-only --namespace knowledge:ai-engineering-huyen
+  uv run python run_communities_scoped.py --run                    # detect + summarize (resumable)
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ from neo4j import Driver, GraphDatabase
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import CommunitySummary, Entity, Relationship
-from book_graph_rag.domain.namespaces import SourceNamespace
+from book_graph_rag.domain.namespaces import SEPARATOR, SourceNamespace
 from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
 from book_graph_rag.infrastructure.community_clustering import (
     CommunityDetectionError,
@@ -46,23 +48,34 @@ from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
 warnings.filterwarnings("ignore", category=UserWarning, module="numba.*")
 warnings.filterwarnings("ignore", category=UserWarning, module="graspologic.*")
 
-NS_SOURCE = SourceNamespace(corpus="knowledge", source="graphrag-agentic")
-SCOPE = ScopeContext(source=NS_SOURCE)
-NS_PREFIX = f"{NS_SOURCE.source_id}:"
+DEFAULT_NAMESPACE = "knowledge:graphrag-agentic"
 LEIDEN_RESOLUTIONS = [0.1, 0.5, 1.0]
 
 
-def _active_ids(driver: Driver) -> set[str]:
+def _resolve_namespace(value: str) -> tuple[SourceNamespace, ScopeContext, str]:
+    """Turn a ``--namespace corpus:source`` value into the namespace, its scope and its prefix.
+
+    The grammar is one corpus slug, one colon, one source slug; anything else is refused here
+    rather than silently scoping a run to the wrong book.
+    """
+    corpus, separator, source = value.partition(SEPARATOR)
+    if not separator or not corpus or not source or SEPARATOR in source:
+        raise SystemExit(f"--namespace must be 'corpus:source' (exactly one colon), got {value!r}")
+    namespace = SourceNamespace(corpus=corpus, source=source)
+    return namespace, ScopeContext(source=namespace), f"{namespace.source_id}:"
+
+
+def _active_ids(driver: Driver, prefix: str) -> set[str]:
     with driver.session() as s:
         rows = s.run(
             "MATCH (n:Entity) WHERE n.id STARTS WITH $prefix "
             "AND (n.merged_into IS NULL OR n.merged_into = '') RETURN n.id AS id",
-            prefix=NS_PREFIX,
+            prefix=prefix,
         )
         return {r["id"] for r in rows}
 
 
-async def _load_scoped(settings: Settings) -> tuple[list[Entity], list[Relationship]]:
+async def _load_scoped(settings: Settings, prefix: str) -> tuple[list[Entity], list[Relationship]]:
     adapter = Neo4jCommunityAdapter(settings)
     try:
         all_entities, all_rels = await adapter.load_entity_graph()
@@ -73,7 +86,7 @@ async def _load_scoped(settings: Settings) -> tuple[list[Entity], list[Relations
         auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value()),
     )
     try:
-        active = _active_ids(driver)
+        active = _active_ids(driver, prefix)
     finally:
         driver.close()
     entities = [e for e in all_entities if e.id in active]
@@ -100,12 +113,13 @@ async def _run_scoped_communities(
     settings: Settings,
     entities: list[Entity],
     relationships: list[Relationship],
+    scope: ScopeContext,
 ) -> None:
-    """Bottom-up summary orchestration scoped to the GA namespace (port re-load free).
+    """Bottom-up summary orchestration scoped to one namespace (port re-load free).
 
     Faithful copy of scripts/run_communities._run_communities but the entity graph
     and summaries are pre-scoped: entities/relationships arrive filtered and
-    checkpoint reads use get_summaries_by_level(level, scope=SCOPE).
+    checkpoint reads use get_summaries_by_level(level, scope=scope).
     """
     graph = build_entity_graph(entities, relationships)
     entity_map = {entity.id: entity for entity in entities}
@@ -132,7 +146,7 @@ async def _run_scoped_communities(
 
     existing_by_id: dict[str, CommunitySummary] = {}
     for level in communities_by_level:
-        for summary in await read_port.get_summaries_by_level(level, scope=SCOPE):
+        for summary in await read_port.get_summaries_by_level(level, scope=scope):
             existing_by_id[summary.id] = summary
     if existing_by_id:
         print(f"Checkpoint: {len(existing_by_id)} GA communities already summarized")
@@ -239,13 +253,22 @@ async def main() -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--detect-only", action="store_true", help="Leiden counts, no LLM calls")
     mode.add_argument("--run", action="store_true", help="detect + summarize (resumable)")
+    parser.add_argument(
+        "--namespace",
+        default=DEFAULT_NAMESPACE,
+        help=f"Book to scope the run to: corpus:source (default {DEFAULT_NAMESPACE}).",
+    )
     args = parser.parse_args()
 
+    namespace, scope, prefix = _resolve_namespace(args.namespace)
     settings = Settings.model_validate({})
-    entities, relationships = await _load_scoped(settings)
-    print(f"SCOPED load: {len(entities)} active entities, {len(relationships)} internal RELATED")
+    entities, relationships = await _load_scoped(settings, prefix)
+    print(
+        f"SCOPED load [{namespace.source_id}]: {len(entities)} active entities, "
+        f"{len(relationships)} internal RELATED"
+    )
     if not entities:
-        print("No entities for namespace; aborting")
+        print(f"No active entities for {namespace.source_id}; aborting")
         return 1
 
     by_level = _detect(entities, relationships)
@@ -262,7 +285,9 @@ async def main() -> int:
     llm_port: LLMSummaryPort = LLMAdapter(settings)
     try:
         await adapter.ensure_indexes()
-        await _run_scoped_communities(adapter, adapter, llm_port, settings, entities, relationships)
+        await _run_scoped_communities(
+            adapter, adapter, llm_port, settings, entities, relationships, scope
+        )
     finally:
         await adapter.close()
     return 0
