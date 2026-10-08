@@ -43,10 +43,13 @@ graph mutation without a fresh backup and explicit approval).
       `Skill` (+ `quality_score` property) — stdlib + Pydantic only. It also carries the two
       fail-closed helpers the rest of the change reuses: `validate_tool_names` (REQ-SK-05) and
       `effective_quality_score` / `binds_high_tier_tool` (REQ-SK-06).
-- [ ] 1.2 `QualityGateUseCase` + `QualityGateResult` (top_k, min_quality, gated_out);
-      unknown-tool fail-closed (reuse `UnknownToolError`).
-- [ ] 1.3 `Safety` ceiling rule for HIGH-tier tools (`query_cypher`).
-- [ ] 1.4 Unit tests: weighting, ties, ceiling, fail-closed empty set, determinism.
+- [x] 1.2 `QualityGateUseCase` + `QualityGateResult` (top_k, min_quality, gated_out,
+      rationale); unknown-tool fail-closed (reuses `UnknownToolError`).
+- [x] 1.3 Safety ceiling rule for HIGH-tier tools (`query_cypher`) — applied to the score and
+      reported in `rationale` per REQ-SK-06; `safety_cap` is injected at construction so
+      `execute` keeps the signature the design fixes.
+- [x] 1.4 Unit tests: weighting, ties, ceiling, fail-closed empty set, determinism
+      (`tests/unit/test_skill_models.py` and `tests/unit/test_quality_gate_use_case.py`, 15 tests).
 
 ## Unit 2 — Registry
 
