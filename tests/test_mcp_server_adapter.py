@@ -1277,6 +1277,52 @@ async def test_ask_global_resolves_scope_before_use_case_check(
     assert scope_resolver.calls == [("book:default", (), (), ())]
 
 
+class _FakeGlobalQueryUseCase:
+    """Returns a canned answer, so ask_global takes its success path."""
+
+    def __init__(self, answer: dict[str, Any]) -> None:
+        self.answer = answer
+        self.calls: list[tuple[str, int, Any]] = []
+
+    async def ask(self, question: str, detail_level: int, *, scope: Any) -> dict[str, Any]:
+        self.calls.append((question, detail_level, scope))
+        return self.answer
+
+
+async def test_ask_global_success_is_logged(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+    scope_resolver: _FakeScopeResolverPort,
+) -> None:
+    """A successful global answer must leave a query-log record.
+
+    The skill gate scores ``executability`` from that log, so a tool that only records its
+    failures can never prove itself and its whole skill stays gated out — dragging its
+    sibling tools out of the model-facing surface with it.
+    """
+    use_case = _FakeGlobalQueryUseCase({"answer": "42", "citations": ["a", "b"]})
+    adapter = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        scope_resolver=scope_resolver,
+        global_query_use_case=use_case,  # type: ignore[arg-type]
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
+    )
+
+    result = await adapter.ask_global("what patterns mitigate risk?", source_id="book:default")
+
+    assert result == {"answer": "42", "citations": ["a", "b"]}
+    assert len(use_case.calls) == 1, "the answer must come from the use case, not a fallback"
+    entries = [entry for entry in query_logger.entries if entry.tool_name == "ask_global"]
+    assert len(entries) == 1
+    assert entries[0].error_code is None
+    assert entries[0].result_count == 2
+    assert entries[0].zero_results is False
+
+
 async def test_ask_global_detail_level_validation_still_enforced(
     adapter: McpServerAdapter,
 ) -> None:

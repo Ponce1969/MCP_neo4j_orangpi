@@ -909,7 +909,7 @@ class McpServerAdapter:
         start = self._now()
         try:
             async with self._budget_port.budget(tier_for("ask_global"), key="ask_global"):
-                return await self._global_query_use_case.ask(question, detail_level, scope=scope)
+                answer = await self._global_query_use_case.ask(question, detail_level, scope=scope)
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -923,6 +923,21 @@ class McpServerAdapter:
                 prompt=question,
             )
             raise
+
+        # Success is logged too, not only failure: the skill quality gate scores
+        # ``executability`` from this log, so a tool that records only its errors can never
+        # prove itself and its whole skill stays gated out, taking its siblings with it.
+        await self._log(
+            tool_name="ask_global",
+            query_type="global",
+            query_params={"question": question, "detail_level": detail_level},
+            result_count=len(answer.get("citations") or []),
+            entity_not_found=False,
+            duration_ms=(self._now() - start).total_seconds() * 1000,
+            error_code=None,
+            prompt=question,
+        )
+        return answer
 
     def _build_instructions(self) -> str:
         """Build ``initialize.instructions`` text from the catalog (cannot drift)."""
