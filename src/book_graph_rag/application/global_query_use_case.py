@@ -52,6 +52,19 @@ class GlobalQueryUseCase:
 
         summaries = await self._read_port.get_summaries_by_level(detail_level, scope=scope)
         if not summaries:
+            if scope is not None:
+                # A scoped miss is per-namespace, so name it and point at the tool that builds one
+                # namespace: the global wording sent the reader to a pipeline that would rebuild
+                # every book, and hid which one was actually missing its communities.
+                source_id = scope.source.source_id
+                return {
+                    "answer": (
+                        f"No community summaries for {source_id} at detail level {detail_level}; "
+                        f"build them with: uv run python "
+                        f"scripts-ops/run_communities_scoped.py --run --namespace {source_id}"
+                    ),
+                    "citations": [],
+                }
             return {
                 "answer": "Run scripts/run_communities.py first",
                 "citations": [],

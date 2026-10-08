@@ -255,3 +255,34 @@ async def _tiny_sleep() -> None:
     import asyncio
 
     await asyncio.sleep(0)
+
+
+async def test_a_scoped_miss_names_the_namespace_and_how_to_build_it() -> None:
+    """The miss is per-namespace, so the answer must say which one and what fixes it.
+
+    The global wording ("Run scripts/run_communities.py first") pointed at a pipeline that rebuilds
+    every book and hid which namespace was actually missing its communities — exactly the confusion
+    this produced in production, where books 3 and 4 had none while books 1 and 2 did.
+    """
+    from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
+
+    use_case = GlobalQueryUseCase(_FakeCommunityReadPort(), _FakeLLMSummaryPort())
+    scope = ScopeContext(source=SourceNamespace(corpus="knowledge", source="ai-engineering-huyen"))
+
+    result = await use_case.ask("de que trata el libro?", 1, scope=scope)
+
+    assert result["citations"] == []
+    assert "knowledge:ai-engineering-huyen" in result["answer"]
+    assert "detail level 1" in result["answer"]
+    assert "run_communities_scoped.py" in result["answer"]
+
+
+async def test_an_unscoped_miss_keeps_the_legacy_message() -> None:
+    """The unscoped path is the legacy contract and keeps its wording."""
+    from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
+
+    use_case = GlobalQueryUseCase(_FakeCommunityReadPort(), _FakeLLMSummaryPort())
+
+    result = await use_case.ask("de que trata?", 1)
+
+    assert result == {"answer": "Run scripts/run_communities.py first", "citations": []}
