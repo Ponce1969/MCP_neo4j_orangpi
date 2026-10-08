@@ -117,7 +117,7 @@ def test_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.mcp_log_path == Path("logs/mcp_queries.jsonl")
     assert settings.mcp_log_retention_days == 7
     assert settings.summary_max_concurrency == 3
-    assert settings.community_max_calls == 150
+    assert settings.community_max_calls == 300
     assert settings.relationship_orphan_policy == "log_orphan"
     assert settings.dead_letter_path_orphans == Path("data/dead_letter_orphans.jsonl")
     assert settings.catalog_path == Path("catalog.yaml")
@@ -497,7 +497,7 @@ def test_settings_community_max_calls_default(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """community_max_calls defaults to 150."""
+    """community_max_calls defaults to 300: one run's summaries, sized for a big book."""
     monkeypatch.chdir(tmp_path)
     _clear_required_env(monkeypatch)
 
@@ -508,7 +508,7 @@ def test_settings_community_max_calls_default(
     }
     settings = Settings.model_validate(data)
 
-    assert settings.community_max_calls == 150
+    assert settings.community_max_calls == 300
 
 
 def test_settings_community_max_calls_can_be_overridden(
