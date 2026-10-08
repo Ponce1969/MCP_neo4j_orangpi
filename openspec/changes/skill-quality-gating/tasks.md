@@ -55,11 +55,18 @@ graph mutation without a fresh backup and explicit approval).
 
 - [x] 2.1 `SkillRegistryPort` (`load_active`) — landed with Unit 1, because it is the gate's
       dependency and the application layer must not reach for the adapter.
-- [ ] 2.2 `Neo4jSkillRegistryAdapter`: read-only §3 Cypher, node→`Skill` mapping,
-      missing-score rejection.
-- [ ] 2.3 `JsonSkillRegistryReader` mirror for deterministic tests.
-- [ ] 2.4 Tests with a fake/JSON registry; gates green
-      (ruff/mypy/validate_architecture/pytest).
+- [x] 2.2 `Neo4jSkillRegistryAdapter`: one read-only `MATCH` over `:Skill`, node→`Skill`
+      mapping, and rejection of a node missing a score or a weight. The threshold/`top_k`
+      decision is deliberately NOT in this Cypher: §3 of the design embeds the gate in the query
+      while §4-§5 put it in the gate, and the query form would duplicate the rule in two
+      languages. The gate stays the single source of truth and this adapter is a reader, which
+      also means a stale materialized `quality_score` can never decide what the model sees.
+- [x] 2.3 `JsonSkillRegistryReader` mirror for deterministic tests (no artifact yet = empty
+      snapshot, following the `JsonNamespaceProfileReader` convention).
+- [x] 2.4 Tests with a fake driver and a JSON artifact; gates green
+      (ruff/mypy/validate_architecture/pytest). Both readers share
+      `infrastructure/skill_record_mapping.py`, so the fail-closed policy (REQ-SK-01,
+      REQ-SK-05) lives in exactly one place instead of drifting between them.
 
 ## Unit 3 — MCP integration
 
