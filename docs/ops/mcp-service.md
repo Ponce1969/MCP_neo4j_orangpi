@@ -161,20 +161,21 @@ A good run shows:
 - handshake `book-graph-rag 1.28.0` (the version is the installed `mcp` SDK
   pinned in `uv.lock`, not this project's version);
 - `count_entities` for the four namespaces, in the order the script prints
-  them (baseline 2026-10-03):
+  them (baseline 2026-10-07):
 
   | Scope | Entities |
   |-------|----------|
-  | `knowledge:agentic-architectural-patterns` | 7111 |
-  | `knowledge:essential-graphrag` | 1241 |
-  | `knowledge:graphrag-agentic` | 6078 |
-  | `knowledge:ai-engineering-huyen` | 6963 |
+  | `knowledge:agentic-architectural-patterns` | 6899 |
+  | `knowledge:essential-graphrag` | 1103 |
+  | `knowledge:graphrag-agentic` | 5900 |
+  | `knowledge:ai-engineering-huyen` | 6526 |
 
-  These figures predate the Block C fix that makes `count_entities` — and the
-  `bookgraph://catalog` resource — exclude soft-deleted (`merged_into`) entities, so they
-  will **drop** on the first deploy that carries it. Re-measure them with this same smoke
-  and update the table; unchanged numbers mean either an older binary or a namespace with
-  no merged entities.
+  Re-measured 2026-10-07, after the Block C fix that makes `count_entities` — and the
+  `bookgraph://catalog` resource — exclude soft-deleted (`merged_into`) entities. The earlier
+  baseline (7111 / 1241 / 6078 / 6963, 2026-10-03) included **965 ghosts**, measured as the
+  delta of this same smoke before and after the restart that loaded the fix
+  (−212 / −138 / −178 / −437). A run that still shows the old numbers is running a binary
+  from before that fix.
 
 - a `search_rag` sanity block plus one cross-scope isolation query;
 - the tool list: `ask_global`, `count_entities`, `find_entity`, `list_entities`,

@@ -126,11 +126,13 @@ by decision (they move documented baselines).
   It now carries the same predicate, with its own red-then-green case (`assert 4 == 3` before the fix) in the
   same integration file.
 
-  **Still open, and deliberately not done here:** the counts documented as baselines
-  (`7111 / 1241 / 6078 / 6963`) include ghosts, so they drop on the first deploy that carries this change. The
-  runbook table now carries a note to re-measure them with the same smoke; the measurement needs the production
-  host, which is a separate, human-approved step. The raw escape hatches are documented limits, not leaks:
-  `query_cypher` (off by default) and `execute_read` run caller-supplied Cypher and cannot filter it.
+  **Baselines re-measured on production — closed 2026-10-07.** Deployed and verified with an A/B on the same
+  graph: with the pre-fix process still in memory the smoke returned the old baseline
+  (`7111 / 1241 / 6078 / 6963`, MainPID 3085521), and after the restart that loaded the fix it returned
+  `6899 / 1103 / 5900 / 6526` (MainPID 2632211) — **965 ghosts left the counts** (−212 / −138 / −178 / −437).
+  `search_rag` was unchanged, so the retrieval path was not touched. The runbook table now carries the new
+  numbers and the delta. The raw escape hatches remain documented limits, not leaks: `query_cypher` (off by
+  default) and `execute_read` run caller-supplied Cypher and cannot filter it.
 
 Deliberately out of scope, with comments in the code: `scripts/migrate_namespaces.py`,
 `scripts/backfill_resilience.py`, `scripts-ops/calibrate_cross_namespace_cosine.py`,
