@@ -1,7 +1,7 @@
 # Spec: Quality-Gated Skill Retrieval (SkillNet)
 
 **Change:** `skill-quality-gating`
-**Status:** DRAFT (frozen; not approved)
+**Status:** DRAFT (unfrozen 2026-10-07; not yet approved)
 **Keywords:** RFC 2119 (MUST/SHOULD/MAY). Scenarios use GIVEN/WHEN/THEN.
 
 ## 1. Scope
@@ -71,7 +71,7 @@ fail closed (no un-gated tool is exposed).
 GIVEN an empty active skill set, WHEN a request arrives, THEN the LLM sees no tools
 (not the full 8).
 
-## 3. Calibration inputs (frozen, not final)
+## 3. Calibration inputs (provisional, not final)
 
 | Input | Provision | Owner |
 |---|---|---|

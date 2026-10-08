@@ -1,27 +1,40 @@
 # Tasks: Quality-Gated Skill Retrieval (SkillNet)
 
-**Decision:** DRAFT — pending maintainer approval. **Status:** FROZEN.
-**Current phase:** None (frozen before Unit 0 completes).
+**Decision:** DRAFT — pending maintainer approval. **Status:** UNFROZEN (2026-10-07).
+**Current phase:** Unit 0 — intent, design and normative contract.
 **Delivery strategy:** Chained work-unit commits; keep each review candidate below the
 400-line budget; alternate-review waiver documented (native RDD blocked upstream, see
 `namespace-question-routing/tasks.md` review gate note).
 
-**Why frozen:** the original gate "close Unit 5" (namespace-question-routing) is already
-satisfied — Units 0-5 were ARCHIVED on 2026-09-29 (`3605e33`..`0673c52`). This change is
-frozen pending (1) the Phase 5 retrieval-quality follow-up (RAGAS drop / precision@k
-0.0478 — obs `roadmap/phase5-retrieval-baseline-next`), (2) the 4th book (Chip Huyen)
-index decision, and (3) explicit maintainer approval to unfreeze. Production policy:
-no Orange Pi/Neo4j mutation while frozen.
+**Why it was frozen, and why it is not any more (2026-10-07):** the original gate "close Unit 5"
+(namespace-question-routing) was already satisfied — Units 0-5 were ARCHIVED on 2026-09-29
+(`3605e33`..`0673c52`). It stayed frozen on three conditions, re-checked one by one:
+
+1. **The Phase 5 retrieval-quality follow-up (RAGAS drop / precision@k 0.0478).** Half done: the
+   `precision@k` warning was closed on 2026-10-07 as a calibration artifact (an unreachable absolute
+   threshold, now removed) whose apparent drop was the expected effect of the merged-entity fix
+   `80f68f1` — see B2 in `odd/backlog.md`. The **RAGAS `context_precision` drop is still open** and is
+   now tracked as B5 there; it is a secondary, non-blocking metric (R6.1), so it does not gate this
+   change.
+2. **The 4th book (Chip Huyen) index decision.** Satisfied: the source is indexed and active —
+   `knowledge:ai-engineering-huyen` has 989 chunks and 989 `PROCESSED` checkpoints in production, and
+   `catalog.yaml` lists it as `status: active`.
+3. **Explicit maintainer approval to unfreeze.** Given on 2026-10-07, together with the decision to
+   track this draft (`6c1da49`) instead of keeping it as an untracked draft.
+
+Production policy: unfreezing changes nothing about the host — the normal §7 gate still applies (no
+graph mutation without a fresh backup and explicit approval).
 
 ## Unit 0 — Intent, design and normative contract (gated on approval)
 
 - [x] 0A.1 Draft `proposal.md`, `design.md`, `spec.md`, `tasks.md`
-      (`openspec/changes/skill-quality-gating/`, committed as untracked draft only).
+      (`openspec/changes/skill-quality-gating/`). Tracked since 2026-10-07 (`6c1da49`), which
+      supersedes the earlier "untracked draft only" arrangement.
 - [ ] 0A.2 Maintainer review of the draft (approve / amend / reject).
 - [ ] 0A.3 If approved: calibrate provisional inputs (`skill_min_quality`,
       `skill_safety_high_tier_cap`) and record the decision.
 
-## Unit 1 — Domain model and gate logic (frozen)
+## Unit 1 — Domain model and gate logic
 
 - [ ] 1.1 `skill_models.py`: `SkillQualityScores`, `SkillQualityWeights`,
       `Skill` (+ `quality_score` property) — stdlib + Pydantic only.
@@ -30,7 +43,7 @@ no Orange Pi/Neo4j mutation while frozen.
 - [ ] 1.3 `Safety` ceiling rule for HIGH-tier tools (`query_cypher`).
 - [ ] 1.4 Unit tests: weighting, ties, ceiling, fail-closed empty set, determinism.
 
-## Unit 2 — Registry (frozen)
+## Unit 2 — Registry
 
 - [ ] 2.1 `SkillRegistryPort` (load_active).
 - [ ] 2.2 `Neo4jSkillRegistryAdapter`: read-only §3 Cypher, node→`Skill` mapping,
@@ -39,7 +52,7 @@ no Orange Pi/Neo4j mutation while frozen.
 - [ ] 2.4 Tests with a fake/JSON registry; gates green
       (ruff/mypy/validate_architecture/pytest).
 
-## Unit 3 — MCP integration (frozen)
+## Unit 3 — MCP integration
 
 - [ ] 3.1 Wire `QualityGateUseCase` into `McpServerAdapter.create_server`; assemble
       the LLM-facing tool set from `selected[*].tool_names` only.
@@ -49,7 +62,7 @@ no Orange Pi/Neo4j mutation while frozen.
 - [ ] 3.4 Regression tests: `ToolRiskTier`/`ResourcePolicy` budgets still enforced;
       smoke test that 8 tools are exposed exactly when 3 skills select them.
 
-## Unit 4 — Evidence and seeding script (frozen; write path gated)
+## Unit 4 — Evidence and seeding script (write path gated)
 
 - [ ] 4.1 `scripts/seed_skill_scores.py --dry-run` (deterministic dimension inputs,
       `provenance` field, `--approval` gate on `--apply`).

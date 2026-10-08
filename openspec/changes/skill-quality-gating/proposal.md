@@ -1,7 +1,7 @@
 # Proposal: Quality-Gated Skill Retrieval (SkillNet)
 
 **Change:** `skill-quality-gating`
-**Status:** DRAFT (not approved; frozen pending maintainer go-ahead)
+**Status:** DRAFT (unfrozen 2026-10-07; pending maintainer review of this draft)
 **Store:** OpenSpec (`openspec/changes/skill-quality-gating/`)
 **Technical register:** English; RFC 2119 keywords; GIVEN/WHEN/THEN scenarios.
 

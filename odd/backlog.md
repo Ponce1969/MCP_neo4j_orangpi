@@ -187,6 +187,14 @@ Deliberately out of scope, with comments in the code: `scripts/migrate_namespace
   - **Recurrence guard:** new `.gitattributes` with `* text=auto eol=lf`. This repo tracks no `.bat/.cmd/.ps1`, the
     only kinds that require CRLF. It changes what every clone materialises on its next checkout, the production
     clone included — that is the point, and it is why the change is a separate commit.
+- **B5 RAGAS `context_precision` drop warning — open.** The readiness gate passes but warns "RAGAS
+  context_precision drop detected" against the committed baseline
+  (`data/evaluation/generation_baseline.json`, `context_precision: 0.474`). It is a secondary,
+  non-blocking metric (R6.1), and it was the other half of the follow-up that kept
+  `openspec/changes/skill-quality-gating` frozen — B2 closed the `precision@k` half. Not analysed yet:
+  first decide whether the drop is real or a baseline/measurement artifact, the way B2 was settled —
+  measure the metric, compute what the dataset can reach, and check `git log` plus
+  `git merge-base --is-ancestor` for a correctness fix in the window before calling it degradation.
 - **B2 Retrieval warning — closed 2026-10-07.** The warning was noise by construction, not a signal:
   `_PRECISION_WARNING_THRESHOLD` was a hardcoded `0.5` while the metric is `matched / len(contexts)` with `k=10`,
   so the ceiling with *perfect* retrieval is `mean(min(len(refs), k)/k) = 0.1917` over the 12 `current` records —
