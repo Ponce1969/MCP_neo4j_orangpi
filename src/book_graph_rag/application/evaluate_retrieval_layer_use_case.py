@@ -134,14 +134,16 @@ class EvaluateRetrievalLayerUseCase:
             warnings.append(
                 f"retrieval precision below committed baseline threshold {threshold:.4f}"
             )
-        if ragas is not None:
-            if not ragas.available:
-                if ragas.notes:
-                    warnings.append(f"RAGAS unavailable: {ragas.notes}")
-                else:
-                    warnings.append("RAGAS unavailable")
-            elif ragas.drop_warning:
-                warnings.append("RAGAS context_precision drop detected")
+        if ragas is not None and not ragas.available:
+            if ragas.notes:
+                warnings.append(f"RAGAS unavailable: {ragas.notes}")
+            else:
+                warnings.append("RAGAS unavailable")
+        # No drop branch here on purpose: this layer calls the RAGAS runner with
+        # ``previous_metrics=None``, so ``drop_warning`` is always False and the branch was
+        # unreachable — while its message named context_precision although the flag is computed on
+        # faithfulness. The generation layer does pass a previous snapshot and keeps its own,
+        # correctly worded warning.
 
         if not precisions:
             rationale = (

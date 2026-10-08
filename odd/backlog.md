@@ -187,14 +187,16 @@ Deliberately out of scope, with comments in the code: `scripts/migrate_namespace
   - **Recurrence guard:** new `.gitattributes` with `* text=auto eol=lf`. This repo tracks no `.bat/.cmd/.ps1`, the
     only kinds that require CRLF. It changes what every clone materialises on its next checkout, the production
     clone included — that is the point, and it is why the change is a separate commit.
-- **B5 RAGAS `context_precision` drop warning — open.** The readiness gate passes but warns "RAGAS
-  context_precision drop detected" against the committed baseline
-  (`data/evaluation/generation_baseline.json`, `context_precision: 0.474`). It is a secondary,
-  non-blocking metric (R6.1), and it was the other half of the follow-up that kept
-  `openspec/changes/skill-quality-gating` frozen — B2 closed the `precision@k` half. Not analysed yet:
-  first decide whether the drop is real or a baseline/measurement artifact, the way B2 was settled —
-  measure the metric, compute what the dataset can reach, and check `git log` plus
-  `git merge-base --is-ancestor` for a correctness fix in the window before calling it degradation.
+- **B5 RAGAS drop warning — closed 2026-10-08: it was a dead, mislabelled branch.** `drop_warning` is
+  computed on **faithfulness** (`stub_ragas_runner.py` and `subprocess_ragas_runner.py`,
+  `_DROP_THRESHOLD = 0.05`), yet the retrieval layer's message said "RAGAS context_precision drop
+  detected" — and that layer calls the runner with `previous_metrics=None`
+  (`evaluate_retrieval_layer_use_case.py`), so the flag is always `False` there and the branch could
+  never fire. The last gate report (2026-10-01) confirms it: `overall_state: passed`, exit 0, and
+  **no warnings in any layer**. The branch and the test that pinned its message are gone; the
+  generation layer keeps its own warning, which is reachable and correctly worded ("RAGAS drop
+  detected vs baseline"). If a real `context_precision` drop check is ever wanted, that is a feature
+  — pass a previous snapshot in the retrieval layer and label it right — not a fix.
 - **B2 Retrieval warning — closed 2026-10-07.** The warning was noise by construction, not a signal:
   `_PRECISION_WARNING_THRESHOLD` was a hardcoded `0.5` while the metric is `matched / len(contexts)` with `k=10`,
   so the ceiling with *perfect* retrieval is `mean(min(len(refs), k)/k) = 0.1917` over the 12 `current` records —

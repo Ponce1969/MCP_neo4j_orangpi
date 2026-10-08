@@ -221,32 +221,6 @@ def test_chunk_id_none_contributes_zero_never_false_positive() -> None:
     assert not any("precision" in w.lower() for w in result.warnings)
 
 
-def test_ragas_context_precision_drop_folded_as_warning() -> None:
-    """RAGAS context_precision drop is folded as a warning, never FAILED."""
-    records = (
-        {
-            "question_id": "ret-001",
-            "question": "ReAct pattern definition",
-            "qtype": "local",
-            "reference_context_ids": ["a:book:7"],
-        },
-    )
-    contexts = {
-        "ReAct pattern definition": (
-            RetrievalContext(chunk_id="a:book:7", text="the definition."),
-        ),
-    }
-    ragas = RAGASSecondaryMetrics(
-        context_precision=0.3,
-        available=True,
-        drop_warning=True,
-    )
-    uc = _make_use_case(records=records, contexts=contexts, ragas_metrics=ragas)
-    result = asyncio.run(uc.execute())
-    assert result.status == LayerStatus.PASSED
-    assert any("RAGAS" in w for w in result.warnings)
-
-
 def test_retrieval_layer_never_failed() -> None:
     """The retrieval layer result status is never FAILED."""
     records = (
