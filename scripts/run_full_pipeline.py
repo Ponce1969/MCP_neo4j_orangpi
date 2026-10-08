@@ -43,6 +43,10 @@ from scripts import (  # noqa: E402
 )
 
 _BACKUP_DIR = Path.home() / "backups_neo4j"
+#: Node labels this backup owns. ``Skill`` is deliberately absent: the skill registry is derived
+#: metadata, recreated by an idempotent ``seed_skill_scores.py`` run, so a restore that omits it is
+#: complete once the seeding runs again — and including it would let a backup's stale scores
+#: disagree with the seeded ones. Decided 2026-10-08.
 _INDEX_NODE_LABELS = (
     "Chunk",
     "Entity",

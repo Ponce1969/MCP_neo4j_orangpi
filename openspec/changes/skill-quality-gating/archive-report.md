@@ -55,9 +55,11 @@ mutates the graph from the retrieval path, and it sits upstream of the existing
 
 1. **Full readiness gate run**, then the decision to enable `SKILL_GATE_ENABLED` (pull + restart).
 2. `ask_global` answers `"Run scripts/run_communities.py first"` — the community layer is empty.
-3. Decide whether `:Skill` should join `_INDEX_NODE_LABELS` of
-   `scripts/run_full_pipeline.py::_backup`; as derived metadata recreated by an idempotent seeding
-   run, it probably should not, but that is an explicit decision rather than an omission.
+3. **Decided 2026-10-08: `:Skill` stays out of `_INDEX_NODE_LABELS`** in
+   `scripts/run_full_pipeline.py::_backup`. The skill registry is derived metadata, recreated by an
+   idempotent `seed_skill_scores.py` run, so a restore that omits it is complete once the seeding
+   runs again — and including it would let a backup's stale scores disagree with the seeded ones.
+   A comment next to the tuple records the decision so nobody "fixes" the omission.
 4. `B5` — the RAGAS `context_precision` drop warning, still unanalysed.
 5. The four `SKILL_*` keys in `.env.example`, to be added by hand (the safety policy blocks that
    path; the defaults live in `config.py`).
