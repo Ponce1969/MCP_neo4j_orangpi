@@ -770,7 +770,8 @@ async def test_traverse_depth_zero_returns_only_start_entity(adapter: Neo4jQuery
     entities, relationships = await adapter.traverse_relationships("s", None, 0)
 
     query, params = session.queries[0]
-    assert "MATCH (start:Entity {id: $source_id}) RETURN start" in query
+    assert "MATCH (start:Entity {id: $source_id})" in query
+    assert "RETURN start" in query
     assert "-[:RELATED" not in query
     assert len(entities) == 1
     assert entities[0].entity.id == "s"

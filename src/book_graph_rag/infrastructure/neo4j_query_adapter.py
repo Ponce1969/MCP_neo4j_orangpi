@@ -405,7 +405,11 @@ class Neo4jQueryAdapter(GraphQueryPort):
                 records = await self._run_with_timeout(
                     self._read_records(
                         session,
-                        "MATCH (start:Entity {id: $source_id}) RETURN start",
+                        """
+                        MATCH (start:Entity {id: $source_id})
+                        WHERE (start.merged_into IS NULL OR start.merged_into = '')
+                        RETURN start
+                        """,
                         {"source_id": source_id},
                     )
                 )
@@ -423,6 +427,9 @@ class Neo4jQueryAdapter(GraphQueryPort):
 
         predicates = [
             "($rel_type IS NULL OR ALL(r IN relationships(p) WHERE r.type = $rel_type))",
+            # A merged entity is soft-deleted, so a path through one is not a path:
+            # filter every node of it, not only the two ends.
+            "ALL(n IN nodes(p) WHERE (n.merged_into IS NULL OR n.merged_into = ''))",
         ]
         path_clause = scope_clauses["path"]
         if path_clause:
@@ -497,6 +504,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
                 -[:RELATED*..{max_depth}]->
                 (b:Entity {{id: $end_id}})
             )
+            WHERE ALL(n IN nodes(p) WHERE (n.merged_into IS NULL OR n.merged_into = ''))
             RETURN p
         """
         async with self._read_session() as session:
@@ -605,7 +613,10 @@ class Neo4jQueryAdapter(GraphQueryPort):
         scope_params, scope_clauses = self._build_scope_clause(scope)
         params: dict[str, Any] = {"type": entity_type, **scope_params}
 
-        predicates = ["($type IS NULL OR n.type = $type)"]
+        predicates = [
+            "($type IS NULL OR n.type = $type)",
+            "(n.merged_into IS NULL OR n.merged_into = '')",
+        ]
         entity_clause = scope_clauses["entity"]
         if entity_clause:
             predicates.append(entity_clause)
@@ -642,7 +653,10 @@ class Neo4jQueryAdapter(GraphQueryPort):
 
         # ``>=`` plus an exclusive ``next_cursor`` (last id + 1) returns every
         # entity exactly once: the initial cursor=0 must include internal id 0.
-        predicates = ["id(n) >= $cursor"]
+        predicates = [
+            "id(n) >= $cursor",
+            "(n.merged_into IS NULL OR n.merged_into = '')",
+        ]
         entity_clause = scope_clauses["entity"]
         if entity_clause:
             predicates.append(entity_clause)

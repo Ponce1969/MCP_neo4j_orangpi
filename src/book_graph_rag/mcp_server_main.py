@@ -25,7 +25,10 @@ from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.infrastructure.text2cypher_adapter import Text2CypherAdapter
 
 #: ONE cheap read for the bookgraph://catalog resource: per-source chunk and
-#: entity counts, executed as a single round trip at resource-read time.
+#: entity counts, executed as a single round trip at resource-read time. The
+#: entity branch applies the same soft-delete predicate the query adapter uses,
+#: so the resource can never report a different count than ``count_entities``
+#: for the same graph.
 _CATALOG_STATS_CYPHER = """
 CALL {
   MATCH (c:Chunk)
@@ -35,6 +38,7 @@ CALL {
   UNION ALL
   MATCH (e:Entity)
   WHERE e.id IS NOT NULL AND e.id CONTAINS ':'
+    AND (e.merged_into IS NULL OR e.merged_into = '')
   WITH split(e.id, ':') AS parts, count(*) AS entities
   WHERE size(parts) >= 2
   RETURN parts[0] + ':' + parts[1] AS source_id, 0 AS chunks, entities

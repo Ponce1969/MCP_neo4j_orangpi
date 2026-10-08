@@ -170,6 +170,12 @@ A good run shows:
   | `knowledge:graphrag-agentic` | 6078 |
   | `knowledge:ai-engineering-huyen` | 6963 |
 
+  These figures predate the Block C fix that makes `count_entities` — and the
+  `bookgraph://catalog` resource — exclude soft-deleted (`merged_into`) entities, so they
+  will **drop** on the first deploy that carries it. Re-measure them with this same smoke
+  and update the table; unchanged numbers mean either an older binary or a namespace with
+  no merged entities.
+
 - a `search_rag` sanity block plus one cross-scope isolation query;
 - the tool list: `ask_global`, `count_entities`, `find_entity`, `list_entities`,
   `query_cypher`, `search_chunks`, `search_rag`, `traverse_relationships` —

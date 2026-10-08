@@ -105,13 +105,32 @@ by decision (they move documented baselines).
   every caller of both reads, and confirmed no consumer needed the merged entities and no test asserted the
   old behaviour.
 
-**Visible through the MCP tools — open, needs an explicit decision:**
-- `infrastructure/neo4j_query_adapter.py`: `count_entities` (:596-619), `list_entities` (:633-665),
-  `traverse_relationships` (:432-441) and `find_path` (:495-499) do not filter `merged_into`, while the
-  `find_entity` tiers in the same file **do**. Consequence: the counts documented as baselines
-  (`7111 / 1241 / 6078 / 6963` in the runbook and in the MCP smoke) include ghosts, and `list_entities`
-  returns ghost records. Changing this moves numbers other documents and scripts assert, so it is a
-  separate, explicitly approved change; `list_entities` is also uncovered by tests.
+**Visible through the MCP tools — closed 2026-10-07 (was: needs an explicit decision):**
+- `infrastructure/neo4j_query_adapter.py`: `count_entities`, `list_entities`, `traverse_relationships` and
+  `find_path` now apply the same live predicate the `find_entity` tiers in that file already used,
+  `(n.merged_into IS NULL OR n.merged_into = '')`. The two path reads apply it to **every** node of the path
+  (`ALL(n IN nodes(p) WHERE …)`), not only the endpoints, and the depth-0 branch of
+  `traverse_relationships` got the same guard — a ghost in the middle of a chain no longer makes its two ends
+  look connected.
+
+  Evidence: `tests/integration/test_merged_entities_invisible_to_mcp_reads.py`, five testcontainer cases,
+  **all five red before the fix** (the failure output showed the returned path crossing the ghost) and green
+  after: `count_entities`, `list_entities` (previously uncovered — it is covered now), traversal from a live
+  node, traversal from a ghost at depth 0 and depth 1 (both empty), and `find_path` whose only route crosses a
+  ghost. One existing unit test asserted the exact depth-0 query text; its assertion was split into two
+  intent-level ones (targets the start id, returns the start), since the query gained a WHERE — the "no
+  relationship expansion" assertion was already separate. Its behavioural expectations did not change.
+- **A fifth read the original list missed**, found by an independent verifier's sweep of every `:Entity` read:
+  `mcp_server_main.py::_CATALOG_STATS_CYPHER`, which backs the `bookgraph://catalog` resource. It had the same
+  leak, so the same graph answered `entities: 5` through the resource and `3` through the `count_entities` tool.
+  It now carries the same predicate, with its own red-then-green case (`assert 4 == 3` before the fix) in the
+  same integration file.
+
+  **Still open, and deliberately not done here:** the counts documented as baselines
+  (`7111 / 1241 / 6078 / 6963`) include ghosts, so they drop on the first deploy that carries this change. The
+  runbook table now carries a note to re-measure them with the same smoke; the measurement needs the production
+  host, which is a separate, human-approved step. The raw escape hatches are documented limits, not leaks:
+  `query_cypher` (off by default) and `execute_read` run caller-supplied Cypher and cannot filter it.
 
 Deliberately out of scope, with comments in the code: `scripts/migrate_namespaces.py`,
 `scripts/backfill_resilience.py`, `scripts-ops/calibrate_cross_namespace_cosine.py`,
