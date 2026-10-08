@@ -100,8 +100,11 @@ The switch keeps the default behaviour identical to today's and turns the deploy
       tiers, executability from the MCP query log with no-evidence scoring 0.0, completeness
       fixed at 1.0 until `Skill` carries an expected-output contract, maintainability 1.0 at
       seeding, and cost-awareness normalized from the real `ResourcePolicy` row budgets.
-- [ ] 4.2 Seed skills for the 4 book namespaces once the Chip Huyen index lands
-      (backup → dry-run → approval → apply; AGENTS.md §7.1).
+- [ ] 4.2 Seed the approved capability catalog — **one run, not one per namespace**: every tool
+      already takes `source_id`, so a per-namespace split would expose exactly the same tool set
+      and only add rows. The 4th source this line used to wait on is already indexed and active
+      (`knowledge:ai-engineering-huyen`: 989 chunks, 989 `PROCESSED` checkpoints). Protocol:
+      fresh backup → dry-run → approval → apply (AGENTS.md §7.1).
 - [ ] 4.3 Re-run `gate` + audit + retrieval layer; record skill-gate evidence in
       `data/evaluation/`.
 
