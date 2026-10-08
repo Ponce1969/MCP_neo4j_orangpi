@@ -23,6 +23,27 @@ def test_settings_fails_fast_without_env(tmp_path: Path, monkeypatch: pytest.Mon
         Settings.model_validate({})
 
 
+def test_skill_gate_bounds_are_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The gate's knobs fail fast at startup, like every other setting."""
+    _clear_required_env(monkeypatch)
+    base = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+    }
+
+    for bad in (
+        {"skill_min_quality": 1.5},
+        {"skill_min_quality": -0.1},
+        {"skill_top_k": 0},
+        {"skill_top_k": 9},
+        {"skill_safety_high_tier_cap": -0.1},
+        {"skill_safety_high_tier_cap": 1.1},
+    ):
+        with pytest.raises(ValidationError):
+            Settings.model_validate({**base, **bad})
+
+
 def test_settings_loads_secret_securely(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """AC-01.3: SecretStr value is reachable but never exposed by repr/str."""
     monkeypatch.chdir(tmp_path)
@@ -89,6 +110,10 @@ def test_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.query_llm_api_key is None
     assert settings.mcp_port == 8003
     assert settings.mcp_bind_host == "127.0.0.1"
+    assert settings.skill_gate_enabled is False
+    assert settings.skill_min_quality == 0.60
+    assert settings.skill_top_k == 3
+    assert settings.skill_safety_high_tier_cap == 0.40
     assert settings.mcp_log_path == Path("logs/mcp_queries.jsonl")
     assert settings.mcp_log_retention_days == 7
     assert settings.summary_max_concurrency == 3

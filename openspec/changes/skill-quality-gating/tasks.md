@@ -70,13 +70,25 @@ graph mutation without a fresh backup and explicit approval).
 
 ## Unit 3 — MCP integration
 
-- [ ] 3.1 Wire `QualityGateUseCase` into `McpServerAdapter.create_server`; assemble
-      the LLM-facing tool set from `selected[*].tool_names` only.
-- [ ] 3.2 Settings: `skill_min_quality` (default 0.60), `skill_top_k` (default 3, bound
-      1..8), `skill_safety_high_tier_cap` (default 0.40), fail-closed with no skills.
-- [ ] 3.3 Config wiring via `pydantic-settings`; no hardcoded values.
-- [ ] 3.4 Regression tests: `ToolRiskTier`/`ResourcePolicy` budgets still enforced;
-      smoke test that 8 tools are exposed exactly when 3 skills select them.
+- [x] 3.1 Wire `QualityGateUseCase` into the composition root; the LLM-facing tool set is
+      assembled from `selected[*].tool_names` only. The set reaches the adapter through a
+      late-bound `tool_names` attribute (the same wiring point `catalog` already uses), so the
+      adapter's constructor signature stays stable for test doubles.
+- [x] 3.2 Settings: `skill_gate_enabled` (**off by default** — an addition of this unit, see
+      below), `skill_min_quality` (0.60), `skill_top_k` (3, bound 1..8) and
+      `skill_safety_high_tier_cap` (0.40), all validated fail-fast at startup.
+- [x] 3.3 Config wiring via `pydantic-settings`; no hardcoded values.
+- [x] 3.4 Regression tests: the eight-tool default, a selected subset, the empty selection
+      exposing nothing, an unregistered name rejected, and the composition root resolving the
+      set from settings (`tests/unit/test_skill_gate_wiring.py`). The existing
+      `ToolRiskTier`/`ResourcePolicy` tests keep passing untouched, which is the "still
+      enforced" half.
+
+**Why `skill_gate_enabled` exists (added here, not in the draft):** the gate is fail-closed,
+so wiring it unconditionally would expose an **empty** tool set until Unit 4 seeds the
+`:Skill` nodes — a server that answers nothing instead of a server that answers everything.
+The switch keeps the default behaviour identical to today's and turns the deploy order
+(seed, then enable) into a deployment concern rather than a landmine.
 
 ## Unit 4 — Evidence and seeding script (write path gated)
 

@@ -244,6 +244,7 @@ class McpServerAdapter:
         # performs ONE cheap graph read per resource read (counts as of read).
         self._catalog = catalog
         self._catalog_stats_reader = catalog_stats_reader
+        self._tool_names: frozenset[str] | None = None
 
     @property
     def catalog(self) -> Catalog | None:
@@ -269,6 +270,21 @@ class McpServerAdapter:
         self, value: Callable[[], Awaitable[dict[str, dict[str, int]]]] | None
     ) -> None:
         self._catalog_stats_reader = value
+
+    @property
+    def tool_names(self) -> frozenset[str] | None:
+        """Model-facing tool set the skill quality gate selected, if wired.
+
+        ``None`` keeps the historical behaviour and exposes every registered tool.
+        """
+        return self._tool_names
+
+    @tool_names.setter
+    def tool_names(self, value: frozenset[str] | None) -> None:
+        # Same late-binding wiring point as ``catalog``: the composition root sets this
+        # after construction and before run_sse/create_server, so the adapter's
+        # constructor signature stays stable for test doubles.
+        self._tool_names = value
 
     def _now(self) -> datetime:
         """Return the current UTC time (extracted for testability)."""
@@ -992,6 +1008,8 @@ class McpServerAdapter:
         falling back to everything. An unregistered name is rejected here, through the
         same ``UnknownToolError`` boundary the tier registry enforces.
         """
+        if tool_names is None:
+            tool_names = self._tool_names
         if tool_names is not None:
             for name in tool_names:
                 tier_for(name)
@@ -1213,7 +1231,7 @@ class McpServerAdapter:
             TransportDispatcher,
         )
 
-        server = self.create_server(host=host, port=port)
+        server = self.create_server(host=host, port=port, tool_names=self._tool_names)
         app: Any = TransportDispatcher(
             sse_app=server.sse_app(),
             streamable_app=server.streamable_http_app(),

@@ -142,6 +142,14 @@ class Settings(BaseSettings):
     # must carry a validated ScopeContext. Legacy unscoped callers opt out by
     # setting this to False explicitly.
     mcp_require_scope: bool = True
+
+    # ── Skill quality gate (openspec/changes/skill-quality-gating) ───────────
+    # Off by default on purpose: the gate is fail-closed, so enabling it before the
+    # skills are seeded would expose an empty tool set instead of all eight.
+    skill_gate_enabled: bool = False
+    skill_min_quality: float = 0.60
+    skill_top_k: int = 3
+    skill_safety_high_tier_cap: float = 0.40
     # Raw query logging is development-only (R5). The persisted JSONL schema is
     # metadata-only; raw text may only flow to a separate dev channel when BOTH
     # ``mcp_raw_logging_enabled`` and ``app_env == "development"`` hold. The
@@ -425,6 +433,15 @@ class Settings(BaseSettings):
             )
         if not 1 <= self.mcp_port <= 65535:
             raise ValueError(f"mcp_port ({self.mcp_port}) debe ser entre 1 y 65535")
+        if not 0.0 <= self.skill_min_quality <= 1.0:
+            raise ValueError(f"skill_min_quality ({self.skill_min_quality}) debe ser entre 0 y 1")
+        if not 1 <= self.skill_top_k <= 8:
+            raise ValueError(f"skill_top_k ({self.skill_top_k}) debe ser entre 1 y 8")
+        if not 0.0 <= self.skill_safety_high_tier_cap <= 1.0:
+            raise ValueError(
+                f"skill_safety_high_tier_cap ({self.skill_safety_high_tier_cap}) "
+                f"debe ser entre 0 y 1"
+            )
         if self.mcp_log_retention_days < 1:
             raise ValueError(
                 f"mcp_log_retention_days ({self.mcp_log_retention_days}) debe ser mayor o igual a 1"

@@ -704,9 +704,35 @@ async def test_run_sse_uses_configured_host_and_port(
     await adapter.run_sse(host="127.0.0.1", port=9000)
 
     assert len(calls) == 1
-    assert calls[0] == ((), {"host": "127.0.0.1", "port": 9000})
+    assert calls[0] == ((), {"host": "127.0.0.1", "port": 9000, "tool_names": None})
     assert _FakeUvicornServer.instances[0].config.host == "127.0.0.1"
     assert _FakeUvicornServer.instances[0].config.port == 9000
+
+
+async def test_run_sse_passes_the_wired_tool_names_through(
+    adapter: McpServerAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The composition root's late-bound tool set reaches the registered tools."""
+    calls: list[dict[str, Any]] = []
+    servers: list[FastMCP] = []
+    original_create_server = adapter.create_server
+
+    def fake_create_server(*args: Any, **kwargs: Any) -> FastMCP:
+        calls.append(kwargs)
+        server = original_create_server(*args, **kwargs)
+        servers.append(server)
+        return server
+
+    monkeypatch.setattr(adapter, "create_server", fake_create_server)
+    monkeypatch.setattr(uvicorn, "Server", _FakeUvicornServer)
+    _FakeUvicornServer.instances.clear()
+    adapter.tool_names = frozenset({"find_entity"})
+
+    await adapter.run_sse(host="127.0.0.1", port=9000)
+
+    assert calls[0]["tool_names"] == frozenset({"find_entity"})
+    names = {tool.name for tool in await servers[0].list_tools()}
+    assert names == {"find_entity"}
 
 
 async def test_run_sse_token_wraps_app_in_bearer_middleware(

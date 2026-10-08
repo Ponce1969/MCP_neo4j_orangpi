@@ -7,8 +7,10 @@ import sys
 from typing import Any
 
 import click
+from neo4j import AsyncGraphDatabase
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
+from book_graph_rag.application.quality_gate_use_case import QualityGateUseCase
 from book_graph_rag.config import Settings
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader
 from book_graph_rag.infrastructure.catalog_scope_resolver import CatalogScopeResolver
@@ -22,7 +24,9 @@ from book_graph_rag.infrastructure.mcp_resource_budget_adapter import (
     InMemoryResourceBudgetAdapter,
 )
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
+from book_graph_rag.infrastructure.neo4j_skill_registry_adapter import Neo4jSkillRegistryAdapter
 from book_graph_rag.infrastructure.text2cypher_adapter import Text2CypherAdapter
+from book_graph_rag.ports.skill_registry_port import SkillRegistryPort
 
 #: ONE cheap read for the bookgraph://catalog resource: per-source chunk and
 #: entity counts, executed as a single round trip at resource-read time. The
@@ -60,6 +64,26 @@ def _stats_from_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
                 "entities": entities if isinstance(entities, int) else 0,
             }
     return stats
+
+
+async def _resolve_tool_names(
+    settings: Settings, registry: SkillRegistryPort
+) -> frozenset[str] | None:
+    """Return the tool set the skill quality gate selected, or ``None`` when it is off.
+
+    ``None`` means "every registered tool", which is the historical behaviour. With the
+    gate on, an empty registry yields an **empty** set on purpose: the gate is fail-closed,
+    so an unseeded registry must expose nothing rather than falling back to everything.
+    """
+    if not settings.skill_gate_enabled:
+        return None
+    gate = QualityGateUseCase(registry, safety_cap=settings.skill_safety_high_tier_cap)
+    result = await gate.execute(min_quality=settings.skill_min_quality, top_k=settings.skill_top_k)
+    tool_names = frozenset(name for skill in result.selected for name in skill.tool_names)
+    click.echo(f"Skill gate: {len(result.selected)} skill(s) selected -> {len(tool_names)} tool(s)")
+    for line in result.rationale:
+        click.echo(f"Skill gate: {line}")
+    return tool_names
 
 
 @click.group()
@@ -113,6 +137,20 @@ async def _run_server(settings: Settings) -> None:
                 # stats are attached before the server starts.
                 server_adapter.catalog = catalog
                 server_adapter.catalog_stats_reader = _catalog_stats
+                if settings.skill_gate_enabled:
+                    registry_driver = AsyncGraphDatabase.driver(
+                        settings.neo4j_uri,
+                        auth=(
+                            settings.neo4j_user,
+                            settings.neo4j_password.get_secret_value(),
+                        ),
+                    )
+                    try:
+                        server_adapter.tool_names = await _resolve_tool_names(
+                            settings, Neo4jSkillRegistryAdapter(registry_driver)
+                        )
+                    finally:
+                        await registry_driver.close()
                 click.echo(f"MCP server starting on port {settings.mcp_port}")
                 await server_adapter.run_sse(
                     host=settings.mcp_bind_host,
