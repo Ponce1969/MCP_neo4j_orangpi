@@ -35,6 +35,7 @@ from book_graph_rag.infrastructure.community_clustering import (
     _community_summary_id,
     assign_parent_ids,
     build_entity_graph,
+    missing_community_ids,
     run_leiden,
     select_leiden_backend,
 )
@@ -95,10 +96,29 @@ async def _run_communities(
         communities_by_level[level] = run_leiden(graph, resolution, backend)
 
     total_communities = sum(len(communities) for communities in communities_by_level.values())
-    if total_communities > settings.community_max_calls:
+
+    # -- Checkpointing first: the cost guard must count the summaries this run will actually
+    # generate, not every community detection can see. With --fresh nothing is persisted, so every
+    # detected community counts and the guard keeps its full meaning. --
+    existing_by_id: dict[str, CommunitySummary] = {}
+    if fresh:
+        await write_port.clear_summaries()
+        click.echo("Cleared existing summaries (--fresh)")
+    else:
+        for level in communities_by_level:
+            for summary in await read_port.get_summaries_by_level(level):
+                existing_by_id[summary.id] = summary
+    missing_communities = missing_community_ids(communities_by_level, set(existing_by_id))
+    if len(missing_communities) > settings.community_max_calls:
         raise CommunityDetectionError(
-            f"Total communities ({total_communities}) exceeds community_max_calls "
+            f"Communities still missing a summary ({len(missing_communities)} of "
+            f"{total_communities} detected) exceed community_max_calls "
             f"({settings.community_max_calls}). Aborting to avoid runaway LLM costs."
+        )
+    if existing_by_id:
+        click.echo(
+            f"Checkpoint: {len(existing_by_id)} communities already summarized; "
+            f"{len(missing_communities)} to summarize in this run"
         )
 
     assignments = assign_parent_ids(communities_by_level)
@@ -111,18 +131,6 @@ async def _run_communities(
             cid = _community_summary_id(level, community_ids)
             if parent_id is not None:
                 child_map.setdefault(parent_id, []).append(cid)
-
-    # -- Checkpointing: load already-persisted summaries (unless --fresh). --
-    existing_by_id: dict[str, CommunitySummary] = {}
-    if fresh:
-        await write_port.clear_summaries()
-        click.echo("Cleared existing summaries (--fresh)")
-    else:
-        for level in communities_by_level:
-            for summary in await read_port.get_summaries_by_level(level):
-                existing_by_id[summary.id] = summary
-        if existing_by_id:
-            click.echo(f"Checkpoint: {len(existing_by_id)} communities already summarized")
 
     semaphore = asyncio.Semaphore(settings.summary_max_concurrency)
     done_counter = 0

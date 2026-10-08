@@ -95,6 +95,25 @@ def run_leiden(graph: nx.Graph, resolution: float, backend: str) -> list[list[st
     raise CommunityDetectionError(f"Unknown Leiden backend: {backend}")
 
 
+def missing_community_ids(
+    communities_by_level: dict[int, list[list[str]]],
+    existing_ids: set[str],
+) -> set[str]:
+    """Community ids that still need a summary: detected, and without a persisted node.
+
+    The cost guard has to count *these* and not what detection found. A book keeps the same
+    communities across runs, so guarding the detected total stops every later resume — the run
+    that costs nothing — while not protecting the first one any better, which is the run that
+    spends the tokens.
+    """
+    return {
+        _community_summary_id(level, community_ids)
+        for level, communities in communities_by_level.items()
+        for community_ids in communities
+        if _community_summary_id(level, community_ids) not in existing_ids
+    }
+
+
 def assign_parent_ids(
     communities_by_level: dict[int, list[list[str]]],
 ) -> dict[int, list[tuple[list[str], str | None]]]:

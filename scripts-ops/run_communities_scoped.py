@@ -37,6 +37,7 @@ from book_graph_rag.infrastructure.community_clustering import (
     _community_summary_id,
     assign_parent_ids,
     build_entity_graph,
+    missing_community_ids,
     run_leiden,
     select_leiden_backend,
 )
@@ -130,10 +131,24 @@ async def _run_scoped_communities(
         communities_by_level[level] = run_leiden(graph, resolution, backend=select_leiden_backend())
 
     total_communities = sum(len(c) for c in communities_by_level.values())
-    if total_communities > settings.community_max_calls:
+
+    # The checkpoint read happens before the cost guard on purpose: the guard bounds the LLM calls
+    # a run will make, and those are the *missing* summaries, not every community detection sees.
+    existing_by_id: dict[str, CommunitySummary] = {}
+    for level in communities_by_level:
+        for summary in await read_port.get_summaries_by_level(level, scope=scope):
+            existing_by_id[summary.id] = summary
+    missing_communities = missing_community_ids(communities_by_level, set(existing_by_id))
+    if len(missing_communities) > settings.community_max_calls:
         raise CommunityDetectionError(
-            f"Total communities ({total_communities}) exceeds community_max_calls "
+            f"Communities still missing a summary ({len(missing_communities)} of "
+            f"{total_communities} detected) exceed community_max_calls "
             f"({settings.community_max_calls}). Aborting to avoid runaway LLM costs."
+        )
+    if existing_by_id:
+        print(
+            f"Checkpoint: {len(existing_by_id)} communities already summarized; "
+            f"{len(missing_communities)} to summarize in this run"
         )
 
     assignments = assign_parent_ids(communities_by_level)
@@ -143,13 +158,6 @@ async def _run_scoped_communities(
             cid = _community_summary_id(level, community_ids)
             if parent_id is not None:
                 child_map.setdefault(parent_id, []).append(cid)
-
-    existing_by_id: dict[str, CommunitySummary] = {}
-    for level in communities_by_level:
-        for summary in await read_port.get_summaries_by_level(level, scope=scope):
-            existing_by_id[summary.id] = summary
-    if existing_by_id:
-        print(f"Checkpoint: {len(existing_by_id)} GA communities already summarized")
 
     semaphore = asyncio.Semaphore(settings.summary_max_concurrency)
     done_counter = 0
