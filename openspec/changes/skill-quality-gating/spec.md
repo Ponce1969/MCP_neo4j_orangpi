@@ -71,14 +71,49 @@ fail closed (no un-gated tool is exposed).
 GIVEN an empty active skill set, WHEN a request arrives, THEN the LLM sees no tools
 (not the full 8).
 
-## 3. Calibration inputs (provisional, not final)
+## 3. Calibration inputs
 
-| Input | Provision | Owner |
+| Input | Value | Status |
 |---|---|---|
-| `skill_min_quality` | `0.60` | calibration after first seeding on Orange Pi |
+| `skill_min_quality` | `0.60` | provisional, approved 2026-10-07; final value after first seeding (§3.1) |
 | `skill_top_k` | `3` | fixed by REQ-SK-04 |
-| weights | `2/2/1/1/1` | proposal policy; re-evaluate after 4th book index |
-| `skill_safety_high_tier_cap` | `0.40` | safety review |
+| weights | `2/2/1/1/1` | approved 2026-10-07; re-evaluate after the 4th book index |
+| `skill_safety_high_tier_cap` | `0.40` | provisional, approved 2026-10-07 |
+
+### 3.1 Calibration decision (2026-10-07)
+
+The arithmetic behind both numbers, with the weights summing to `7`:
+
+| Case | Score | Passes `0.60`? |
+|---|---|---|
+| Every dimension `1.0`, `safety` capped at `0.40` (a HIGH-tier binding) | `0.8286` | **yes** |
+| No evidence (`executability = 0`), the rest perfect | `0.7143` | yes |
+| No evidence **and** a HIGH-tier binding | `0.5429` | **no** |
+| Every dimension exactly at the threshold | `0.6000` | yes (`>=`) |
+
+Two consequences are normative, not accidental:
+
+- **`0.60` is fail-closed without starving evidence-backed skills.** Because
+  `executability` scores `0.0` when nothing has been observed, passing with no evidence
+  requires `safety >= 0.60` (from `(2s + 3) / 7 >= 0.60`), and a HIGH-tier binding capped
+  at `0.40` fails at `0.5429`.
+- **The safety ceiling is a scoring signal, not a gate.** The other four dimensions
+  contribute `5/7 = 0.714` on their own, so no value of the ceiling can push a HIGH-tier
+  skill below `0.60`: excluding it would require `skill_min_quality > 0.8286`. Decided on
+  2026-10-07 to keep it that way and let such a skill be exposed when its evidence is
+  good, because `query_cypher` stays disabled by config
+  (`mcp_enable_query_cypher=False`) and REQ-SK-05/06 forbid this gate from weakening the
+  tier/scope boundary; REQ-SK-06 asks the ceiling to be capped and reported in the
+  rationale. Revisiting this means either raising `min_quality` above `0.8286` or making
+  the ceiling a hard eligibility rule — a spec change, not a config change.
+
+**Final value (after Unit 4 seeds the skills on the Orange Pi, read-only):** measure the
+`quality_score` distribution of the seeded skills, then set `min_quality` to the value
+that (a) keeps every skill whose bound tools have zero observed failures and
+`safety >= 0.60`, and (b) gates out every skill with no evidence and a HIGH-tier binding,
+recording both counts before and after plus the chosen percentile. Per
+`docs/spec/06-evaluation-and-readiness.md` these thresholds are project-owned and set
+from measured baselines, never imported.
 
 ## 4. Constraints and compatibility
 

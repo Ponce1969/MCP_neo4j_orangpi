@@ -31,8 +31,11 @@ graph mutation without a fresh backup and explicit approval).
       (`openspec/changes/skill-quality-gating/`). Tracked since 2026-10-07 (`6c1da49`), which
       supersedes the earlier "untracked draft only" arrangement.
 - [ ] 0A.2 Maintainer review of the draft (approve / amend / reject).
-- [ ] 0A.3 If approved: calibrate provisional inputs (`skill_min_quality`,
-      `skill_safety_high_tier_cap`) and record the decision.
+- [x] 0A.3 Calibrate the provisional inputs (`skill_min_quality` = `0.60`,
+      `skill_safety_high_tier_cap` = `0.40`) and record the decision — approved 2026-10-07 and
+      written up in `spec.md` §3.1, together with the finding that the ceiling cannot gate out a
+      HIGH-tier skill (decided to accept that and keep `query_cypher` disabled by config) and the
+      post-seeding procedure that fixes the final `min_quality` from measured data.
 
 ## Unit 1 — Domain model and gate logic
 
