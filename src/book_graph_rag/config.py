@@ -148,7 +148,9 @@ class Settings(BaseSettings):
     # skills are seeded would expose an empty tool set instead of all eight.
     skill_gate_enabled: bool = False
     skill_min_quality: float = 0.60
-    skill_top_k: int = 3
+    # The cap must cover the catalog: five capabilities are seeded, so a cap of 3 would
+    # silently drop the lowest-scoring one and take its tools out of the surface with it.
+    skill_top_k: int = 5
     skill_safety_high_tier_cap: float = 0.40
     # Raw query logging is development-only (R5). The persisted JSONL schema is
     # metadata-only; raw text may only flow to a separate dev channel when BOTH

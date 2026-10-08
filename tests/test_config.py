@@ -112,7 +112,7 @@ def test_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.mcp_bind_host == "127.0.0.1"
     assert settings.skill_gate_enabled is False
     assert settings.skill_min_quality == 0.60
-    assert settings.skill_top_k == 3
+    assert settings.skill_top_k == 5
     assert settings.skill_safety_high_tier_cap == 0.40
     assert settings.mcp_log_path == Path("logs/mcp_queries.jsonl")
     assert settings.mcp_log_retention_days == 7

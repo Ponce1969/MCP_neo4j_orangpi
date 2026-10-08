@@ -49,6 +49,29 @@ def test_catalog_covers_every_registered_tool() -> None:
     assert covered == set(TOOL_TIERS)
 
 
+def test_the_shipped_top_k_covers_the_shipped_catalog() -> None:
+    """The cap must fit the catalog: a smaller one drops tools by score, not by policy.
+
+    This is the regression guard for what the real-chain verification found: with
+    `skill_top_k = 3`, `rag-answer` passed the threshold at 0.8429 and still fell outside the
+    cap as the fourth skill, taking `search_rag` and `ask_global` out of the surface with it.
+    """
+    from book_graph_rag.config import Settings
+
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+        }
+    )
+
+    assert len(_SEED.SKILL_CATALOG) <= settings.skill_top_k, (
+        "skill_top_k must cover the catalog: a smaller cap silently removes the bound tools "
+        "of the lowest-scoring capability"
+    )
+
+
 def test_safety_is_the_minimum_over_the_bound_tiers() -> None:
     """The riskiest bound tool dominates the skill's safety."""
     assert _SEED.safety_for(("find_entity", "count_entities")) == 1.0

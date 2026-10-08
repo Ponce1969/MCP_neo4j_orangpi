@@ -76,8 +76,8 @@ LIMIT $top_k
 ```
 
 Parameters: `$min_quality` (provisional default `0.60`, calibration pending),
-`$top_k` (hard cap `3`, configurable `1..8` but never above a skills-per-prompt
-budget derived from model context).
+`$top_k` (the cap must cover the catalog — five seeded capabilities, so `5`, configurable
+`1..8` but never above a skills-per-prompt budget derived from model context).
 
 ## 4. Pydantic contracts (domain — hexagonal, no infra imports)
 

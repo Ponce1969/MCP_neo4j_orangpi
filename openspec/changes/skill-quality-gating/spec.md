@@ -36,8 +36,10 @@ value is a calibration decision, not a code constant.
 GIVEN `min_quality=0.60`, WHEN a skill scores `0.59`, THEN it MUST be gated out.
 
 ### REQ-SK-04 — `top_k` cap
-The gate MUST return at most `top_k` skills (`skill_top_k`), default `3`, bounded to
-`1..8`. Order MUST be deterministic: `quality_score` descending, ties broken by `id`.
+The gate MUST return at most `top_k` skills (`skill_top_k`), default `5` (the catalog size; see
+§3.2), bounded to `1..8`. Order MUST be deterministic: `quality_score` descending, ties broken
+by `id`. A cap smaller than the catalog is a surface decision, not a budget decision: the
+skills it drops take their bound tools out of the model-facing list.
 GIVEN 5 passing skills and `top_k=3`, WHEN the gate runs, THEN exactly 3 skills are
 returned and the other 2 appear in `gated_out`.
 
@@ -76,7 +78,7 @@ GIVEN an empty active skill set, WHEN a request arrives, THEN the LLM sees no to
 | Input | Value | Status |
 |---|---|---|
 | `skill_min_quality` | `0.60` | provisional, approved 2026-10-07; final value after first seeding (§3.1) |
-| `skill_top_k` | `3` | fixed by REQ-SK-04 |
+| `skill_top_k` | `5` | raised from `3` on 2026-10-08, see §3.2 |
 | weights | `2/2/1/1/1` | approved 2026-10-07; re-evaluate after the 4th book index |
 | `skill_safety_high_tier_cap` | `0.40` | provisional, approved 2026-10-07 |
 
@@ -114,6 +116,19 @@ that (a) keeps every skill whose bound tools have zero observed failures and
 recording both counts before and after plus the chosen percentile. Per
 `docs/spec/06-evaluation-and-readiness.md` these thresholds are project-owned and set
 from measured baselines, never imported.
+
+### 3.2 Why `skill_top_k` is `5` and not `3` (raised 2026-10-08)
+
+The `3` came from the draft's REQ-SK-04, written when no catalog existed. Once Unit 4.1
+defined five capabilities, that cap stopped being a prompt-budget guard and became a silent
+surface cut: `rag-answer` passes the threshold at `0.8429` but lands **fourth** by score, so it
+fell outside the cap and took `search_rag` and `ask_global` out of the model-facing tool list
+with it.
+
+Only running the real chain (Neo4j adapter → `QualityGateUseCase`) against the seeded graph
+revealed it: the seeding dry-run reports scores, not the selection, and `top_k`/`gated_out`
+nothing else. The cap is therefore the catalog size, and it MUST be revisited whenever the
+catalog grows — a cap below it decides the surface by score instead of by policy.
 
 ## 4. Constraints and compatibility
 

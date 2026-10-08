@@ -100,11 +100,17 @@ The switch keeps the default behaviour identical to today's and turns the deploy
       tiers, executability from the MCP query log with no-evidence scoring 0.0, completeness
       fixed at 1.0 until `Skill` carries an expected-output contract, maintainability 1.0 at
       seeding, and cost-awareness normalized from the real `ResourcePolicy` row budgets.
-- [ ] 4.2 Seed the approved capability catalog — **one run, not one per namespace**: every tool
+- [x] 4.2 Seed the approved capability catalog — **one run, not one per namespace**: every tool
       already takes `source_id`, so a per-namespace split would expose exactly the same tool set
       and only add rows. The 4th source this line used to wait on is already indexed and active
       (`knowledge:ai-engineering-huyen`: 989 chunks, 989 `PROCESSED` checkpoints). Protocol:
       fresh backup → dry-run → approval → apply (AGENTS.md §7.1).
+      **Done 2026-10-08**: backup `bookgraph_backup_20261008T120849Z.json` → human approval file
+      → `--apply` wrote **five `:Skill` nodes** (`active`, five dimensions, weights, materialized
+      `quality_score`, `provenance`). Verified surgically: nodes `29332 → 29337` (+5 exactly) and
+      relationships `89247 → 89247` (untouched). The same verification, run through the real gate
+      instead of the seeding dry-run, also exposed that `skill_top_k = 3` cut `rag-answer` — and
+      with it `search_rag` and `ask_global` — out of the surface; corrected to `5` in §3.2.
 - [ ] 4.3 Re-run `gate` + audit + retrieval layer; record skill-gate evidence in
       `data/evaluation/`.
 
