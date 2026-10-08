@@ -111,8 +111,15 @@ The switch keeps the default behaviour identical to today's and turns the deploy
       relationships `89247 → 89247` (untouched). The same verification, run through the real gate
       instead of the seeding dry-run, also exposed that `skill_top_k = 3` cut `rag-answer` — and
       with it `search_rag` and `ask_global` — out of the surface; corrected to `5` in §3.2.
-- [ ] 4.3 Re-run `gate` + audit + retrieval layer; record skill-gate evidence in
-      `data/evaluation/`.
+- [x] 4.3 Re-run `gate` + audit + retrieval layer; record skill-gate evidence in
+      `data/evaluation/`. **Done 2026-10-08, in part**: the audit re-ran with the five `:Skill`
+      nodes present and **passed** (`state: passed`, `blocking_total: 0`, exit 0), and the
+      evidence is committed as `data/evaluation/skill_gate_evidence.json` — catalog, the five
+      dimensions and weights per skill with their materialized scores, the gate's real selection
+      at both caps, the seeding ledger with its node/relationship deltas, and the provenance
+      note. **Deferred on purpose**: the full readiness gate run, because its LLM/RAGAS layers
+      take ~2h30m and spend provider budget and it checks layers the skill gate does not touch —
+      it belongs before the flag is enabled, not now.
 
 ## Release gate
 

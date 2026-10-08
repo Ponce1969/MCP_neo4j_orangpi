@@ -1,0 +1,209 @@
+{
+  "audit_after_seeding": {
+    "blocking_total": 0,
+    "command": "book-graph-rag audit --target bookgraph-neo4j",
+    "exit_code": 0,
+    "note": "read-only regression check with the five :Skill nodes present",
+    "state": "passed"
+  },
+  "catalog": [
+    {
+      "id": "skill:entity-lookup:v1",
+      "name": "Entity lookup",
+      "tool_names": [
+        "find_entity",
+        "list_entities",
+        "count_entities"
+      ],
+      "version": "v1"
+    },
+    {
+      "id": "skill:relationship-traversal:v1",
+      "name": "Relationship traversal",
+      "tool_names": [
+        "traverse_relationships"
+      ],
+      "version": "v1"
+    },
+    {
+      "id": "skill:chunk-search:v1",
+      "name": "Chunk search",
+      "tool_names": [
+        "search_chunks"
+      ],
+      "version": "v1"
+    },
+    {
+      "id": "skill:rag-answer:v1",
+      "name": "RAG answer",
+      "tool_names": [
+        "search_rag",
+        "ask_global"
+      ],
+      "version": "v1"
+    },
+    {
+      "id": "skill:raw-cypher:v1",
+      "name": "Raw Cypher (high tier)",
+      "tool_names": [
+        "query_cypher"
+      ],
+      "version": "v1"
+    }
+  ],
+  "flag_enabled": false,
+  "gate_runs": {
+    "top_k_3": {
+      "gated_out": [
+        "skill:raw-cypher:v1",
+        "skill:rag-answer:v1"
+      ],
+      "rationale": [],
+      "selected": [
+        "skill:chunk-search:v1",
+        "skill:entity-lookup:v1",
+        "skill:relationship-traversal:v1"
+      ],
+      "tools": [
+        "count_entities",
+        "find_entity",
+        "list_entities",
+        "search_chunks",
+        "traverse_relationships"
+      ]
+    },
+    "top_k_5": {
+      "gated_out": [
+        "skill:raw-cypher:v1"
+      ],
+      "rationale": [],
+      "selected": [
+        "skill:chunk-search:v1",
+        "skill:entity-lookup:v1",
+        "skill:relationship-traversal:v1",
+        "skill:rag-answer:v1"
+      ],
+      "tools": [
+        "ask_global",
+        "count_entities",
+        "find_entity",
+        "list_entities",
+        "search_chunks",
+        "search_rag",
+        "traverse_relationships"
+      ]
+    }
+  },
+  "generated_at": "2026-10-08T12:27:21+00:00",
+  "graph_now": {
+    "nodes": 29337,
+    "relationships": 89247,
+    "skill_nodes": 5
+  },
+  "layer": "skill-quality-gating",
+  "note": "Generated on the host at commit 64bbe51, before the skill_top_k=5 fix was pulled, so settings_at_generation still reads 3; gate_runs covers both caps and the A/B is the record that motivated raising the default to the catalog size.",
+  "registered_tools": [
+    "ask_global",
+    "count_entities",
+    "find_entity",
+    "list_entities",
+    "query_cypher",
+    "search_chunks",
+    "search_rag",
+    "traverse_relationships"
+  ],
+  "schema_version": "1.0.0",
+  "scores": {
+    "skill:chunk-search:v1": {
+      "completeness": 1.0,
+      "cost_awareness": 0.0,
+      "executability": 1.0,
+      "maintainability": 1.0,
+      "quality_score": 0.8571428571428571,
+      "safety": 1.0,
+      "weights": {
+        "completeness": 1.0,
+        "cost_awareness": 1.0,
+        "executability": 2.0,
+        "maintainability": 1.0,
+        "safety": 2.0
+      }
+    },
+    "skill:entity-lookup:v1": {
+      "completeness": 1.0,
+      "cost_awareness": 0.0,
+      "executability": 1.0,
+      "maintainability": 1.0,
+      "quality_score": 0.8571428571428571,
+      "safety": 1.0,
+      "weights": {
+        "completeness": 1.0,
+        "cost_awareness": 1.0,
+        "executability": 2.0,
+        "maintainability": 1.0,
+        "safety": 2.0
+      }
+    },
+    "skill:rag-answer:v1": {
+      "completeness": 1.0,
+      "cost_awareness": 0.5,
+      "executability": 1.0,
+      "maintainability": 1.0,
+      "quality_score": 0.8428571428571429,
+      "safety": 0.7,
+      "weights": {
+        "completeness": 1.0,
+        "cost_awareness": 1.0,
+        "executability": 2.0,
+        "maintainability": 1.0,
+        "safety": 2.0
+      }
+    },
+    "skill:raw-cypher:v1": {
+      "completeness": 1.0,
+      "cost_awareness": 0.9,
+      "executability": 0.0,
+      "maintainability": 1.0,
+      "quality_score": 0.5285714285714286,
+      "safety": 0.4,
+      "weights": {
+        "completeness": 1.0,
+        "cost_awareness": 1.0,
+        "executability": 2.0,
+        "maintainability": 1.0,
+        "safety": 2.0
+      }
+    },
+    "skill:relationship-traversal:v1": {
+      "completeness": 1.0,
+      "cost_awareness": 0.0,
+      "executability": 1.0,
+      "maintainability": 1.0,
+      "quality_score": 0.8571428571428571,
+      "safety": 1.0,
+      "weights": {
+        "completeness": 1.0,
+        "cost_awareness": 1.0,
+        "executability": 2.0,
+        "maintainability": 1.0,
+        "safety": 2.0
+      }
+    }
+  },
+  "seeding": {
+    "approval_file": "/tmp/skill_seed_approval.txt",
+    "backup": "/home/gonzalo/backups_neo4j/bookgraph_backup_20261008T120849Z.json",
+    "nodes_after": 29337,
+    "nodes_before": 29332,
+    "relationships_after": 89247,
+    "relationships_before": 89247
+  },
+  "settings_at_generation": {
+    "skill_min_quality": 0.6,
+    "skill_safety_high_tier_cap": 0.4,
+    "skill_top_k": 3
+  },
+  "tools_never_exposed_with_top_k_5": [
+    "query_cypher"
+  ]
+}
