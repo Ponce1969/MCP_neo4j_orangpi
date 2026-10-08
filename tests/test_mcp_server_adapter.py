@@ -22,6 +22,7 @@ from book_graph_rag.domain.mcp_security import (
     RateLimitExceededError,
     ScopeContext,
     ToolRiskTier,
+    UnknownToolError,
 )
 from book_graph_rag.domain.models import (
     REDACTED_PLACEHOLDER,
@@ -347,6 +348,34 @@ async def test_create_server_registers_eight_tools(adapter: McpServerAdapter) ->
         "query_cypher",
         "ask_global",
     }
+
+
+async def test_create_server_registers_only_the_selected_tools(
+    adapter: McpServerAdapter,
+) -> None:
+    """A selection is the whole model-facing tool set: the gate's decision, verbatim."""
+    server = adapter.create_server(tool_names=frozenset({"find_entity", "count_entities"}))
+
+    names = {tool.name for tool in await server.list_tools()}
+
+    assert names == {"find_entity", "count_entities"}
+
+
+async def test_create_server_with_an_empty_selection_exposes_nothing(
+    adapter: McpServerAdapter,
+) -> None:
+    """Fail-closed: an empty selection must not fall back to every tool."""
+    server = adapter.create_server(tool_names=frozenset())
+
+    assert not await server.list_tools()
+
+
+async def test_create_server_rejects_an_unregistered_tool_name(
+    adapter: McpServerAdapter,
+) -> None:
+    """An unknown name crosses the same boundary the tier registry enforces."""
+    with pytest.raises(UnknownToolError):
+        adapter.create_server(tool_names=frozenset({"not_a_registered_tool"}))
 
 
 # ── find_entity ──────────────────────────────────────────────────────────────

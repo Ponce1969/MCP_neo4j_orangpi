@@ -973,14 +973,28 @@ class McpServerAdapter:
             "sources": sources,
         }
 
-    def create_server(self, host: str = "0.0.0.0", port: int = 8003) -> FastMCP:
-        """Return a configured FastMCP instance with the 8 tools registered.
+    def create_server(
+        self,
+        host: str = "0.0.0.0",
+        port: int = 8003,
+        tool_names: frozenset[str] | None = None,
+    ) -> FastMCP:
+        """Return a configured FastMCP instance with the selected tools registered.
 
         When a ``catalog`` is wired, the server describes itself:
         ``instructions`` are built from ``catalog.yaml``, the
         ``bookgraph://catalog`` resource is registered, and every scope
         parameter is declared required with an enum of the active sources.
+
+        ``tool_names`` is the model-facing set the skill quality gate selected. ``None``
+        keeps the historical behaviour and registers all eight; a set registers exactly
+        those names, so an empty selection exposes nothing (fail-closed) instead of
+        falling back to everything. An unregistered name is rejected here, through the
+        same ``UnknownToolError`` boundary the tier registry enforces.
         """
+        if tool_names is not None:
+            for name in tool_names:
+                tier_for(name)
         scope_values: tuple[str, ...] = (
             tuple(source_id for source_id, _ in _active_sources(self._catalog))
             if self._catalog is not None
@@ -993,7 +1007,24 @@ class McpServerAdapter:
             port=port,
         )
 
-        @mcp.tool()
+        def _tool(name: str) -> Callable[[_FnT], _FnT]:
+            """Register a tool only when it is part of the selected set.
+
+            Keeping this a decorator rather than wrapping each definition in an ``if``
+            block leaves the tool bodies untouched, so the diff stays reviewable.
+            """
+
+            def decorate(fn: _FnT) -> _FnT:
+                if tool_names is not None and name not in tool_names:
+                    return fn
+                assert fn.__name__ == name, f"tool {name!r} is bound to {fn.__name__!r}"
+                # FastMCP's decorator returns the same function it was given; the cast
+                # keeps the decorated tool's own signature visible to mypy.
+                return cast(_FnT, mcp.tool()(fn))
+
+            return decorate
+
+        @_tool("find_entity")
         @_scope_contract("source_id", scope_values)
         async def find_entity(
             name: str,
@@ -1012,7 +1043,7 @@ class McpServerAdapter:
                 relationship_types=relationship_types,
             )
 
-        @mcp.tool()
+        @_tool("traverse_relationships")
         @_scope_contract("scope_source_id", scope_values)
         async def traverse_relationships(
             source_id: str,
@@ -1033,7 +1064,7 @@ class McpServerAdapter:
                 relationship_types=relationship_types,
             )
 
-        @mcp.tool()
+        @_tool("search_chunks")
         @_scope_contract("source_id", scope_values)
         async def search_chunks(
             query: str,
@@ -1052,7 +1083,7 @@ class McpServerAdapter:
                 relationship_types=relationship_types,
             )
 
-        @mcp.tool()
+        @_tool("list_entities")
         @_scope_contract("source_id", scope_values)
         async def list_entities(
             cursor: int = 0,
@@ -1071,7 +1102,7 @@ class McpServerAdapter:
                 relationship_types=relationship_types,
             )
 
-        @mcp.tool()
+        @_tool("count_entities")
         @_scope_contract("source_id", scope_values)
         async def count_entities(
             entity_type: str | None = None,
@@ -1088,7 +1119,7 @@ class McpServerAdapter:
                 relationship_types=relationship_types,
             )
 
-        @mcp.tool()
+        @_tool("search_rag")
         @_scope_contract("source_id", scope_values)
         async def search_rag(
             query: str,
@@ -1109,7 +1140,7 @@ class McpServerAdapter:
                 relationship_types=relationship_types,
             )
 
-        @mcp.tool()
+        @_tool("query_cypher")
         @_scope_contract("source_id", scope_values)
         async def query_cypher(
             question: str,
@@ -1126,7 +1157,7 @@ class McpServerAdapter:
                 relationship_types=relationship_types,
             )
 
-        @mcp.tool()
+        @_tool("ask_global")
         @_scope_contract("source_id", scope_values)
         async def ask_global(
             question: str,
