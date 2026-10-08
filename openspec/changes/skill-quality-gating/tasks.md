@@ -92,8 +92,14 @@ The switch keeps the default behaviour identical to today's and turns the deploy
 
 ## Unit 4 — Evidence and seeding script (write path gated)
 
-- [ ] 4.1 `scripts/seed_skill_scores.py --dry-run` (deterministic dimension inputs,
-      `provenance` field, `--approval` gate on `--apply`).
+- [x] 4.1 `scripts/seed_skill_scores.py --dry-run` (deterministic dimension inputs,
+      `provenance` field, `--approval` gate on `--apply`). The catalog and the four scoring
+      rules were approved 2026-10-07 and are documented in the script's docstring: five
+      capabilities covering the eight tools (a per-namespace split would expose the same tool
+      set, since every tool already takes `source_id`), safety as the minimum over the bound
+      tiers, executability from the MCP query log with no-evidence scoring 0.0, completeness
+      fixed at 1.0 until `Skill` carries an expected-output contract, maintainability 1.0 at
+      seeding, and cost-awareness normalized from the real `ResourcePolicy` row budgets.
 - [ ] 4.2 Seed skills for the 4 book namespaces once the Chip Huyen index lands
       (backup → dry-run → approval → apply; AGENTS.md §7.1).
 - [ ] 4.3 Re-run `gate` + audit + retrieval layer; record skill-gate evidence in
