@@ -181,6 +181,18 @@ async def _seed_intra_group_related(adapter: Neo4jCommandAdapter, driver: Any) -
             dup="book:ch1:duplicate",
             sibling="book:ch1:duplicate-2",
         )
+        # The same intra-group shape with the canonical as the SOURCE. The
+        # canonical-as-target direction above is captured as an "out" entry; this
+        # one is captured from the duplicate as "in", so rollback has to restore
+        # it from the other branch and must not treat it as a mirror.
+        await session.run(
+            """
+            MATCH (c:Entity {id: $canon}), (d:Entity {id: $dup})
+            MERGE (c)-[r:RELATED {type: 'requires', source_page: 13}]->(d)
+            """,
+            dup="book:ch1:duplicate",
+            canon="book:ch1:canonical",
+        )
         # Duplicate related to an entity outside the group.
         await session.run(
             """
@@ -517,7 +529,13 @@ async def test_apply_merge_does_not_leave_intra_group_related_edges(
     neo4j_settings: Settings,
     neo4j_driver: Any,
 ) -> None:
-    """Intra-group RELATED edges are deleted; the out-of-group edge moves intact."""
+    """Intra-group RELATED edges are deleted, then restored by rollback.
+
+    Covers the three intra-group shapes (duplicate to canonical, duplicate to
+    sibling, canonical to duplicate) in both directions of the operation, so the
+    fidelity of ``_DELETE_INTRA_GROUP_RELATED`` is exercised, not just its
+    deletion; the out-of-group edge moves intact.
+    """
     command = Neo4jCommandAdapter(neo4j_settings)
     merge_adapter = Neo4jGraphMergeAdapter(neo4j_driver)
     try:
@@ -599,10 +617,13 @@ async def test_apply_merge_does_not_leave_intra_group_related_edges(
                 assert rec is not None
                 assert rec["merged"] is None
 
-            # Intra-group edges: exactly the ones apply deleted, restored once each.
+            # Intra-group edges: exactly the ones apply deleted, restored once each,
+            # in every shape the group can take — duplicate to canonical, duplicate
+            # to sibling, and canonical to duplicate.
             for source, target in (
                 ("book:ch1:duplicate", "book:ch1:canonical"),
                 ("book:ch1:duplicate", "book:ch1:duplicate-2"),
+                ("book:ch1:canonical", "book:ch1:duplicate"),
             ):
                 restored = await session.run(
                     """
@@ -635,10 +656,9 @@ async def test_apply_merge_does_not_leave_intra_group_related_edges(
                 assert (await restored.single())["c"] == 1
 
             # No mirror may appear for edges that existed in a single direction only.
-            for source, target in (
-                ("book:ch1:canonical", "book:ch1:duplicate"),
-                ("book:ch1:duplicate-2", "book:ch1:duplicate"),
-            ):
+            # ``canonical -> duplicate`` used to be pinned here; it is now a seeded
+            # intra-group edge and is asserted in the restored list above.
+            for source, target in (("book:ch1:duplicate-2", "book:ch1:duplicate"),):
                 mirror = await session.run(
                     """
                     MATCH (a:Entity {id: $src})-[r:RELATED]->(b:Entity {id: $dst})

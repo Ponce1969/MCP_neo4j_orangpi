@@ -205,9 +205,16 @@ Deliberately out of scope, with comments in the code: `scripts/migrate_namespace
 - **R2 The ledger does not record the canonical's prior marker.** `apply_merge` now clears the canonical's
   leftover `merged_into`/`merged_at` (it must, or round-robin merges create mutual pairs), but rollback cannot
   restore it. Declared limit (D9), pinned by test.
-- **R3 `_DELETE_INTRA_GROUP_RELATED` has no reversibility test.** It deletes any group-to-group RELATED edge
-  while rollback restores only what the inverse map captured; fidelity depends on capture completeness and is not
-  exercised by any test.
+- **R3 `_DELETE_INTRA_GROUP_RELATED` reversibility — closed 2026-10-07 (the entry was stale).** The claim that
+  fidelity "is not exercised by any test" stopped being true on 2026-10-02: `45d96c3` extended
+  `tests/integration/test_neo4j_graph_merge_adapter.py::test_apply_merge_does_not_leave_intra_group_related_edges`
+  to capture, apply, **roll back** and assert that the intra-group edges come back once each
+  (`duplicate -> canonical` and `duplicate -> duplicate-2`), with no mirror. What was still uncovered was the third
+  shape of the same class — an intra-group edge with the **canonical as the source** — so it is seeded and asserted
+  now, and the old "no mirror" assertion for that pair moved to the restored list because it is a real edge, not a
+  mirror. It passes: the capture reads `(dup)-[r:RELATED]-(other)` undirected and unfiltered, so that edge is
+  captured from the duplicate's side as an `in` entry and rebuilt by `_ROLLBACK_RESTORE_RELATED_IN`. The file's 10
+  testcontainer tests pass, which is what makes this a proof instead of a reading of the Cypher.
 
 ## Closed (for reference)
 
