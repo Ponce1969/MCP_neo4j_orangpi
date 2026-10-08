@@ -204,9 +204,39 @@ Deliberately out of scope, with comments in the code: `scripts/migrate_namespace
   that pinned the old warning were rewritten to the new contract — the `chunk_id` one keeps its `0.0` assertion,
   which is its real point. Residual, noted for whoever finalizes thresholds: the committed `0.045` sits ~6 % below
   the measured `0.0478`, so that check is the fragile one now, and it is the one that matters.
-- **B3 Five legacy Book 1 chunks without a `:Checkpoint`** (indices 57, 1026, 1302, 1499, 1501; graph predates
-  Phase 2). Cover them with `--backfill-checkpoints --dry-run` and then the approval-gated apply. The other three
-  books are at 100%.
+- **B3 Legacy checkpoints — closed 2026-10-07 as "accepted, nothing to repair".** A read-only census of
+  production (`MATCH (c:Checkpoint)` per source, run through the project's own container) settled what this entry
+  had guessed:
+
+  | source | chunks | `PROCESSED` | gap |
+  |---|---|---|---|
+  | `knowledge:agentic-architectural-patterns` | 1520 | 1515 | **5** |
+  | `knowledge:ai-engineering-huyen` | 989 | 989 | 0 |
+  | `knowledge:essential-graphrag` | 302 | 302 | 0 |
+  | `knowledge:graphrag-agentic` | 657 | 657 | 0 |
+
+  So the graph is 3463/3468 backfilled, "graph predates Phase 2" was the wrong frame, and the 5 indices this entry
+  named (57, 1026, 1302, 1499, 1501) really are the only chunks without a `PROCESSED` checkpoint. **The proposed
+  remedy could not have worked**: `fetch_backfill_candidates` (`neo4j_command_adapter.py:725`) selects chunks with
+  at least one outgoing `MENTIONS` edge and never looks at checkpoints — its own docstring says "Libro 1 has 16.200
+  mentions for 1.515 chunks" — so an `--apply` would have rewritten the 1515 checkpoints that already exist and
+  left the 5 untouched. Those 5 are exactly the chunks with **no mentions**, i.e. chunks that produced no entities:
+  the state is legitimate and a resume run is the only tool that could touch them. Accepted as is.
+
+  Method note for whoever revisits: the dry-run reports *candidates to mark*, not *missing checkpoints*, and the
+  two sets differ (`ai-engineering-huyen` has 987 chunks with mentions against 989 with checkpoints). A first pass
+  of this analysis got that backwards and claimed the other three books were not at 100 %; the census disproved it,
+  and the correction is recorded here on purpose.
+- **B4 (found while closing B3) `catalog.yaml` and the host's `data/` disagree — open, not repaired.**
+  `catalog.yaml` points `knowledge:essential-graphrag` at `data/Essential_GraphRAG.pdf`, which does not exist on the
+  production host (five PDFs live there, none with that name). Consequence: that source cannot be re-indexed — nor
+  backfilled or replayed, which read the PDF for the checkpoint version dimensions (`main.py:293` hashes
+  `pdf_path.read_bytes()`) — from the host as configured today. Worth deciding whether the catalog path should
+  change or the file should be restored there.
+
+  Recorded on purpose: a first pass of this analysis claimed the backfill "never reads the PDF" and called the
+  required `PDF_PATH` a defect. It does read it, so the requirement is correct and there is nothing to fix — the
+  only real item is the catalog/host drift above.
 
 ## Merge adapter debts (from the 2026-10-02 cycle-break work)
 
