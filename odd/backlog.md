@@ -227,16 +227,20 @@ Deliberately out of scope, with comments in the code: `scripts/migrate_namespace
   two sets differ (`ai-engineering-huyen` has 987 chunks with mentions against 989 with checkpoints). A first pass
   of this analysis got that backwards and claimed the other three books were not at 100 %; the census disproved it,
   and the correction is recorded here on purpose.
-- **B4 (found while closing B3) `catalog.yaml` and the host's `data/` disagree — open, not repaired.**
-  `catalog.yaml` points `knowledge:essential-graphrag` at `data/Essential_GraphRAG.pdf`, which does not exist on the
-  production host (five PDFs live there, none with that name). Consequence: that source cannot be re-indexed — nor
-  backfilled or replayed, which read the PDF for the checkpoint version dimensions (`main.py:293` hashes
-  `pdf_path.read_bytes()`) — from the host as configured today. Worth deciding whether the catalog path should
-  change or the file should be restored there.
+- **B4 `catalog.yaml` and the host's `data/` disagreed — resolved 2026-10-07.** `catalog.yaml` points
+  `knowledge:essential-graphrag` at `data/Essential_GraphRAG.pdf`, which was missing on the host. A checkpoint stores
+  `source_version = sha256(pdf_bytes)[:16]` (`infrastructure/version_dimensions.py:38`), so a source can be matched to
+  its PDF by hash instead of by name — and three of the four matched a host PDF exactly (`425c9533…` Book 1,
+  `e5dfe834…` ai-engineering-huyen, `0f31856f…` graphrag-agentic) while `knowledge:essential-graphrag` matched
+  nothing there and `163660ba…` existed only on the development machine. Root cause: `*.pdf` is in `.gitignore`, so
+  the PDFs are local artifacts that never travel with the repo; four reached the host by other means and this one did
+  not. Fixed by copying it (13 841 182 bytes): it verifies as the same hash on both sides, and the backfill dry-run
+  for that source now runs and reports `source_version: 163660ba80115472`, matching the 302 checkpoints already
+  stored — the exact bytes, so a future re-index stays consistent instead of looking like a new source version.
 
-  Recorded on purpose: a first pass of this analysis claimed the backfill "never reads the PDF" and called the
-  required `PDF_PATH` a defect. It does read it, so the requirement is correct and there is nothing to fix — the
-  only real item is the catalog/host drift above.
+  A first pass of this analysis also called the required `PDF_PATH` of `index` a defect, on the claim that a backfill
+  "never reads the PDF". `main.py:293` disproves it: the checkpoint version dimensions are computed from
+  `pdf_path.read_bytes()`. The requirement is correct.
 
 ## Merge adapter debts (from the 2026-10-02 cycle-break work)
 
