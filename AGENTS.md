@@ -173,3 +173,25 @@ destructiva:
   aplica por conexión nueva, sin reiniciar nada.
 - Cualquier recreación de `bookgraph-neo4j` (`docker compose up -d`) o edición del
   `.env` del host exige aprobación humana explícita (regla de oro de §7).
+
+### 7.7 Dos llaves SSH — no son intercambiables
+
+En este host hay **dos** llaves y el camino que uses cambia por completo lo que podés hacer:
+
+- **`~/.ssh/id_ed25519` = la humana.** Acceso pleno **sin gatekeeper**; es la que §7 documenta como
+  "SSH directo". En el MCP `oranpi` esta llave *bypassa* la restricción (su propio README lo dice).
+- **`~/.ssh/id_agente_ed25519` = la del agente**, y es la que el agente usa efectivamente: el MCP
+  `oranpi` la toma de `ORANPI_SSH_KEY_PATH` (= `~/.ssh/id_agente_ed25519` en `tools/mcp-oranpi/.env`).
+  Pasa por el gatekeeper, cuya allowlist **no permite `git` directo**: `git status`, `id` o un
+  encadenado como `docker logs …; id` responden `Acceso denegado: Comando no autorizado.`, mientras
+  `hostname`, `journalctl -u mcp-server` y los comandos de lectura sí están permitidos. La **única**
+  invocación de git de la allowlist vive dentro de `deploy <proyecto>`, que solo existe para 8
+  proyectos **ajenos** (no hay `deploy bookgraph`) y hace `git pull origin main` +
+  `docker compose up --build -d` sobre ese otro proyecto ⇒ **pullear este repo no está disponible
+  para el agente por esa vía: es una operación del humano.**
+
+Verificado el 2026-10-08 contra la configuración real (script del gatekeeper, `~/.ssh/config`,
+`tools/mcp-oranpi/.env`) y por comportamiento: con la llave del agente `hostname` responde y
+`git status` es denegado; con la humana todo funciona. **Lección (casi me hace reportar una regresión
+falsa):** antes de concluir que un guard dejó de enforcear, comprobá por qué camino estás entrando —
+con la llave humana todo funciona y *parece* que el gatekeeper está roto, cuando está intacto.
