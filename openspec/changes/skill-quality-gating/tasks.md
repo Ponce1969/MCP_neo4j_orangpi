@@ -39,8 +39,10 @@ graph mutation without a fresh backup and explicit approval).
 
 ## Unit 1 — Domain model and gate logic
 
-- [ ] 1.1 `skill_models.py`: `SkillQualityScores`, `SkillQualityWeights`,
-      `Skill` (+ `quality_score` property) — stdlib + Pydantic only.
+- [x] 1.1 `skill_models.py`: `SkillQualityScores`, `SkillQualityWeights`,
+      `Skill` (+ `quality_score` property) — stdlib + Pydantic only. It also carries the two
+      fail-closed helpers the rest of the change reuses: `validate_tool_names` (REQ-SK-05) and
+      `effective_quality_score` / `binds_high_tier_tool` (REQ-SK-06).
 - [ ] 1.2 `QualityGateUseCase` + `QualityGateResult` (top_k, min_quality, gated_out);
       unknown-tool fail-closed (reuse `UnknownToolError`).
 - [ ] 1.3 `Safety` ceiling rule for HIGH-tier tools (`query_cypher`).
@@ -48,7 +50,8 @@ graph mutation without a fresh backup and explicit approval).
 
 ## Unit 2 — Registry
 
-- [ ] 2.1 `SkillRegistryPort` (load_active).
+- [x] 2.1 `SkillRegistryPort` (`load_active`) — landed with Unit 1, because it is the gate's
+      dependency and the application layer must not reach for the adapter.
 - [ ] 2.2 `Neo4jSkillRegistryAdapter`: read-only §3 Cypher, node→`Skill` mapping,
       missing-score rejection.
 - [ ] 2.3 `JsonSkillRegistryReader` mirror for deterministic tests.
