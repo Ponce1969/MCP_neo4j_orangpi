@@ -164,3 +164,36 @@ def test_subprocess_ragas_runner_missing_file_returns_available_false(
         )
     )
     assert metrics.available is False
+
+
+def test_subprocess_ragas_runner_keeps_the_answers_it_sent(tmp_path: Path) -> None:
+    """The dataset sent to RAGAS must survive the run: it carries the answer and the
+    contexts per question, which is what makes a failing score diagnosable."""
+    fake_script = tmp_path / "fake_ragas.py"
+    fake_script.write_text(
+        "import json, sys\n"
+        "out = sys.argv[sys.argv.index('--json-output') + 1]\n"
+        "with open(out, 'w', encoding='utf-8') as f:\n"
+        "    json.dump({'metrics': {'faithfulness': 1.0}}, f)\n",
+        encoding="utf-8",
+    )
+    answers_dir = tmp_path / "answers"
+    runner = SubprocessRAGASRunner(script_path=str(fake_script), answers_dir=str(answers_dir))
+
+    metrics = asyncio.run(
+        runner.run(
+            dataset_id="generation_dataset",
+            generation_results=(
+                ("gen-001", "ReAct interleaves reasoning and acting.", ("ctx-a", "ctx-b")),
+            ),
+            previous_metrics=None,
+        )
+    )
+
+    assert metrics.available is True
+    kept = sorted(answers_dir.glob("*.jsonl"))
+    assert len(kept) == 1, "the answers sent to RAGAS must be kept on disk"
+    row = json.loads(kept[0].read_text(encoding="utf-8").splitlines()[0])
+    assert row["question_id"] == "gen-001"
+    assert row["answer"] == "ReAct interleaves reasoning and acting."
+    assert row["contexts"] == ["ctx-a", "ctx-b"]

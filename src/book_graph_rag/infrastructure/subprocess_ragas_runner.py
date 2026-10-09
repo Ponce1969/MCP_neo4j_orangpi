@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -40,9 +42,16 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
         script_path: str | None = None,
         *,
         json_output_path: str | None = None,
+        answers_dir: str | None = None,
     ) -> None:
         self._script_path = script_path or "scripts/run_ragas_evaluation.py"
         self._json_output_path = json_output_path
+        #: Where the dataset sent to RAGAS is kept. It carries the answer and the contexts per
+        #: question, which is what makes a failing score diagnosable; the temporary output JSON
+        #: is still deleted. Defaults under ``data/`` (gitignored ops artifacts).
+        self._answers_dir = (
+            Path(answers_dir) if answers_dir is not None else Path("data/evaluation")
+        )
 
     @staticmethod
     def _map_metric_name(name: str) -> str:
@@ -87,7 +96,9 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
         self,
         generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
     ) -> Path:
-        tmp = Path(tempfile.mkstemp(suffix=".jsonl")[1])
+        self._answers_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        answers_path = self._answers_dir / f"ragas_input_{stamp}.jsonl"
         rows: list[dict[str, Any]] = []
         for question_id, answer, contexts in generation_results:
             rows.append(
@@ -99,10 +110,10 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
                     "contexts": list(contexts),
                 }
             )
-        with tmp.open("w", encoding="utf-8") as f:
+        with answers_path.open("w", encoding="utf-8") as f:
             for row in rows:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
-        return tmp
+        return answers_path
 
     async def run(
         self,
@@ -129,7 +140,11 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
             )
 
         jsonl_path = self._write_generation_jsonl(generation_results)
-        output_path = Path(tempfile.mkstemp(suffix=".json")[1])
+        # mkstemp opens the file and hands the descriptor to the caller: on Windows an open file
+        # cannot be unlinked (WinError 32), so close it now that only the path is needed.
+        fd, output_name = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        output_path = Path(output_name)
         try:
             subprocess.run(
                 [
@@ -152,8 +167,10 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
                 notes=f"subprocess ragas failed: {exc}",
             )
         finally:
-            jsonl_path.unlink(missing_ok=True)
+            # Only the temporary metrics JSON is removed: the inputs are kept so a failing
+            # per-question score can be traced back to the answer and contexts that produced it.
             output_path.unlink(missing_ok=True)
+        logger.info("RAGAS inputs kept at %s", jsonl_path)
         return self._apply_drop_warning(metrics, previous_metrics)
 
     def _apply_drop_warning(
