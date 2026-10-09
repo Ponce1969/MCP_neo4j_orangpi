@@ -199,6 +199,43 @@ def _serialize_ragas_result(raw_result: Any) -> dict[str, float]:
     raise TypeError(f"Unsupported RAGAS result type: {type(raw_result)}")
 
 
+def _extract_ragas_rows(raw_result: Any) -> list[dict[str, Any]]:
+    """Per-question RAGAS scores, which ``_serialize_ragas_result`` averages away.
+
+    The aggregates cannot tell WHICH question failed, which is what a quality
+    diagnosis needs. Values are kept as native floats so the JSON stays portable.
+    """
+    if hasattr(raw_result, "to_pandas"):
+        df = raw_result.to_pandas()
+        rows: list[dict[str, Any]] = []
+        for index, record in df.iterrows():
+            row: dict[str, Any] = {"question_id": str(index)}
+            for column in df.columns:
+                if df[column].dtype.kind not in "fc":
+                    continue
+                value = record[column]
+                if value is not None:
+                    row[str(column)] = float(value)
+            rows.append(row)
+        return rows
+    scores = getattr(raw_result, "scores", None)
+    if scores:
+        return [
+            {"question_id": str(index), **{str(k): float(v) for k, v in row.items()}}
+            for index, row in enumerate(scores)
+        ]
+    return []
+
+
+def _ensure_questions(total_questions: int) -> None:
+    """Fail loudly on an empty dataset: null metrics must not look like a clean run."""
+    if total_questions == 0:
+        raise click.ClickException(
+            "no questions to evaluate: check the dataset path and contents, otherwise the "
+            "metrics are null and the run looks clean"
+        )
+
+
 def _run_ragas(
     results: list[dict[str, Any]],
     settings: Settings,
@@ -343,7 +380,7 @@ def _run_ragas(
     # ragas 0.4+ returns EvaluationResult/Result objects instead of a plain
     # dict, and metric values may be numpy floats. Convert to a JSON-safe
     # mapping of native floats so callers can serialize the score directly.
-    return _serialize_ragas_result(raw_result)
+    return _serialize_ragas_result(raw_result), _extract_ragas_rows(raw_result)
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
@@ -471,6 +508,7 @@ def main(
             await query_adapter.close()
 
     results = asyncio.run(_run())
+    _ensure_questions(len(results))
 
     # Persist raw tuples for reproducibility.
     with open(_RESULTS_OUTPUT, "w", encoding="utf-8") as f:
@@ -490,13 +528,14 @@ def main(
         "local_questions": sum(1 for r in results if r["type"] == "local"),
         "failed_questions": [{"question": r["question"], "error": r["error"]} for r in failed_rows],
         "metrics": None,
+        "per_question": [],
     }
 
     if no_ragas:
         click.echo("Skipping RAGAS (--no-ragas).")
     else:
         click.echo("Computing RAGAS metrics…")
-        after["metrics"] = _run_ragas(results, settings)
+        after["metrics"], after["per_question"] = _run_ragas(results, settings)
 
     no_compare = no_compare or no_baseline
     if no_compare:

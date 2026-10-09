@@ -148,6 +148,17 @@ class PairwiseJudgment(BaseModel):
     judge_model_id: str
 
 
+class RAGASQuestionScore(BaseModel):
+    """Per-question RAGAS scores: the detail the aggregate metrics average away."""
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    question_id: str
+    faithfulness: float | None = None
+    answer_relevancy: float | None = None
+    context_precision: float | None = None
+
+
 class RAGASSecondaryMetrics(BaseModel):
     """RAGAS secondary metrics; failure/unavailability is a warning only."""
 
@@ -160,6 +171,9 @@ class RAGASSecondaryMetrics(BaseModel):
     drop_warning: bool = False
     available: bool = False
     notes: str = ""
+    #: Per-question scores, when the runner produced them. Aggregates alone cannot tell
+    #: WHICH question failed, which is what a quality diagnosis needs.
+    per_question: tuple[RAGASQuestionScore, ...] = ()
 
 
 # ── Evaluation dataset exceptions ─────────────────────────────────────────────
@@ -346,6 +360,9 @@ class ReadinessLayerStatus(BaseModel):
     rationale: str
     measured: tuple[LayerMetricValue, ...] = ()
     thresholds: tuple[LayerMetricValue, ...] = ()
+    #: RAGAS secondary metrics (with per-question rows). Kept in the report so the evidence
+    #: behind a warning like "RAGAS drop" is readable without re-running the evaluation.
+    ragas: RAGASSecondaryMetrics | None = None
 
 
 class ReadinessGateResult(BaseModel):

@@ -183,3 +183,11 @@ def test_after_output_redirect_never_touches_repo_benchmark(
         assert not benchmark.exists(), (
             "--after-output recreated the default docs/benchmarks/gr3_after.json file"
         )
+
+
+def test_ensure_questions_fails_loudly_on_an_empty_dataset() -> None:
+    """An empty dataset must not look like a clean run with null metrics."""
+    with pytest.raises(run_ragas_module.click.ClickException):
+        run_ragas_module._ensure_questions(0)
+
+    run_ragas_module._ensure_questions(3)

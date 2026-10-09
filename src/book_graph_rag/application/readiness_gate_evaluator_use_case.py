@@ -149,6 +149,7 @@ class ReadinessGateEvaluatorUseCase:
             status=layer_result.status,
             rationale=layer_result.rationale,
             measured=layer_result.project_owned_metrics,
+            ragas=layer_result.ragas_secondary,
             thresholds=tuple(
                 LayerMetricValue(
                     name=m.name,

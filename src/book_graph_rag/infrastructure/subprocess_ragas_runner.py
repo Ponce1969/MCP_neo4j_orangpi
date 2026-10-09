@@ -10,10 +10,20 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from book_graph_rag.domain.evaluation_models import RAGASSecondaryMetrics
+from book_graph_rag.domain.evaluation_models import RAGASQuestionScore, RAGASSecondaryMetrics
 from book_graph_rag.ports.ragas_runner_port import RAGASRunnerPort
 
 logger = logging.getLogger(__name__)
+
+
+def _optional_float(value: Any) -> float | None:
+    """Coerce a JSON/numpy value to float, or ``None`` when it is not a number."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class SubprocessRAGASRunner(RAGASRunnerPort):
@@ -49,9 +59,29 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
             faithfulness=mapped.get("faithfulness"),
             answer_relevancy=mapped.get("answer_relevancy"),
             context_precision=mapped.get("context_precision"),
+            per_question=self._parse_per_question(raw),
             available=True,
             notes="subprocess ragas",
         )
+
+    def _parse_per_question(self, raw: dict[str, Any]) -> tuple[RAGASQuestionScore, ...]:
+        """Per-question rows, optional on purpose: older JSON outputs have none."""
+        rows = raw.get("per_question") or []
+        parsed: list[RAGASQuestionScore] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            mapped = {self._map_metric_name(str(key)): value for key, value in row.items()}
+            question_id = mapped.get("question_id") or mapped.get("question")
+            parsed.append(
+                RAGASQuestionScore(
+                    question_id=str(question_id or ""),
+                    faithfulness=_optional_float(mapped.get("faithfulness")),
+                    answer_relevancy=_optional_float(mapped.get("answer_relevancy")),
+                    context_precision=_optional_float(mapped.get("context_precision")),
+                )
+            )
+        return tuple(parsed)
 
     def _write_generation_jsonl(
         self,

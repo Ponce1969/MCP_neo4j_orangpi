@@ -104,6 +104,50 @@ def test_subprocess_ragas_runner_parses_json_output_file(tmp_path: Path) -> None
     assert metrics.faithfulness == pytest.approx(0.7)
     assert metrics.answer_relevancy == pytest.approx(0.6)
     assert metrics.context_precision == pytest.approx(0.5)
+    # An older JSON with no per-question rows must stay safe (backwards compatible).
+    assert metrics.per_question == ()
+
+
+def test_subprocess_ragas_runner_parses_per_question_rows(tmp_path: Path) -> None:
+    """Per-question RAGAS scores must survive parsing: aggregates hide WHICH question failed."""
+    output_file = tmp_path / "ragas_output.json"
+    output_file.write_text(
+        json.dumps(
+            {
+                "metrics": {"faithfulness": 0.7},
+                "per_question": [
+                    {
+                        "question_id": "gen-001",
+                        "faithfulness": 1.0,
+                        "answer_relevancy": 0.9,
+                        "llm_context_precision_without_reference": 0.8,
+                    },
+                    {
+                        "question": "gen-002",
+                        "faithfulness": 0.4,
+                        "answer_relevancy": None,
+                        "llm_context_precision_without_reference": 0.2,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    runner = SubprocessRAGASRunner(script_path=None, json_output_path=str(output_file))
+    metrics = asyncio.run(
+        runner.run(
+            dataset_id="generation_dataset",
+            generation_results=(),
+            previous_metrics=None,
+        )
+    )
+
+    assert [row.question_id for row in metrics.per_question] == ["gen-001", "gen-002"]
+    assert metrics.per_question[0].context_precision == pytest.approx(0.8)
+    assert metrics.per_question[0].answer_relevancy == pytest.approx(0.9)
+    assert metrics.per_question[1].faithfulness == pytest.approx(0.4)
+    assert metrics.per_question[1].answer_relevancy is None
 
 
 def test_subprocess_ragas_runner_missing_file_returns_available_false(
