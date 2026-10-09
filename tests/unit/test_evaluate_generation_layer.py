@@ -299,6 +299,45 @@ def test_ragas_drop_yields_warning_not_block() -> None:
     assert any("RAGAS drop" in w for w in result.warnings)
 
 
+def test_ragas_drop_warning_names_the_metric_and_delta() -> None:
+    """The warning must carry WHAT dropped and by how much, not just that something did."""
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={"faithfulness": 0.8},
+    )
+    ragas = RAGASSecondaryMetrics(
+        faithfulness=0.71,
+        previous_faithfulness=0.8,
+        available=True,
+        drop_warning=True,
+    )
+    uc = _make_use_case(baseline=baseline, ragas_metrics=ragas)
+    result = asyncio.run(uc.execute())
+
+    assert any("0.8000 -> 0.7100" in w for w in result.warnings)
+
+
+def test_ragas_drop_warning_without_previous_value_stays_safe() -> None:
+    """A drop flag with no previous value must not raise while formatting the message."""
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={"faithfulness": 0.8},
+    )
+    ragas = RAGASSecondaryMetrics(faithfulness=0.71, available=True, drop_warning=True)
+    uc = _make_use_case(baseline=baseline, ragas_metrics=ragas)
+    result = asyncio.run(uc.execute())
+
+    assert any("values unavailable" in w for w in result.warnings)
+
+
 def test_pairwise_recorded_as_evidence_never_blocks() -> None:
     """Pairwise verdict is recorded in metrics but never causes FAILED."""
     baseline = EvaluationBaselineReport(

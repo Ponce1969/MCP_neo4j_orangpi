@@ -118,7 +118,16 @@ class EvaluateGenerationLayerUseCase:
         if not ragas.available:
             warnings.append(f"RAGAS unavailable: {ragas.notes}")
         elif ragas.drop_warning:
-            warnings.append("RAGAS drop detected vs baseline")
+            # The gate report keeps only this string, so name the metric and the delta: the previous
+            # generic message left the reader unable to tell what dropped or by how much.
+            previous = ragas.previous_faithfulness
+            current = ragas.faithfulness
+            detail = (
+                f"{previous:.4f} -> {current:.4f}"
+                if previous is not None and current is not None
+                else "values unavailable"
+            )
+            warnings.append(f"RAGAS drop in faithfulness vs baseline: {detail}")
 
         if not baseline.thresholds_finalized:
             return self._result(
