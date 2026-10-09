@@ -130,10 +130,18 @@ destructiva:
 - En el OrangePi usar `~/.local/bin/uv` (uv instalado localmente para el usuario
   `gonzalo`) y luego `uv sync --extra community` para sincronizar las dependencias
   opcionales de comunidad requeridas por el readiness gate.
-- Los umbrales son **mechanism-first**: los archivos `data/evaluation/*_baseline.json`
-  llevan `thresholds_finalized: false` hasta una delta posterior de Phase 5 que fije
-  los valores numéricos. Mientras tanto, el readiness gate reporta `INCOMPLETE` (11)
-  aunque las métricas medidas pasen las comprobaciones relativas al baseline.
+- Los umbrales siguen el criterio **mechanism-first** (se derivan del mecanismo medido,
+  no de metas inventadas) y ya están **finalizados**: los `data/evaluation/*_baseline.json`
+  llevan `thresholds_finalized: true` con sus valores numéricos (generation
+  `faithfulness_min` 0.65 · resolution `f1_min` 0.6 y `hard_over_merge_max` 0.0 ·
+  retrieval `precision_at_k_min` 0.045) ⇒ el readiness gate **pasa o falla de verdad**;
+  sólo reporta `INCOMPLETE` (11) si falta un baseline o no tiene umbrales finalizados.
+  *(Hasta 2026-10-09 estos archivos llevaban `false` y el gate era estructuralmente
+  incapaz de pasar; esa versión de esta nota quedó obsoleta.)*
+- Corrida de referencia (2026-10-09, `gate expose-mcp-readiness --target bookgraph-neo4j`
+  con `--output data/evaluation/gate_report.json`): **exit 0 (pass)** — structure,
+  resolution y generation `passed`, extraction `pending` ("deferred per R6.1"),
+  retrieval `passed` (f1 0.6410 · faithfulness 0.792 · precision@k 0.0482).
 
 ### 7.5 MCP en producción — contrato de operación
 
