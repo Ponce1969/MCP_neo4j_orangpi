@@ -203,3 +203,23 @@ Verificado el 2026-10-08 contra la configuración real (script del gatekeeper, `
 `git status` es denegado; con la humana todo funciona. **Lección (casi me hace reportar una regresión
 falsa):** antes de concluir que un guard dejó de enforcear, comprobá por qué camino estás entrando —
 con la llave humana todo funciona y *parece* que el gatekeeper está roto, cuando está intacto.
+
+## 8. Próxima fase documentada — cache de agentes y recetas del grafo
+
+Diseño acordado el 2026-10-09. **Nada implementado todavía.**
+Documento completo: `docs/spec/08-agent-cache-and-recipes.md`.
+
+- **Qué es**: una **cache local SQLite** de las respuestas del grafo — clave = pregunta
+  normalizada + scope + herramienta + `detail_level` + **versión del grafo** + modelo — y después
+  tablas de **recetas de consulta aprobadas** y **snapshots de salud del corpus**.
+- **Lo que no se negocia**: la cache vive **fuera** del MCP (el MCP es read-only por diseño: scope,
+  allowlist, budgets y logs son su postura de seguridad) y **nunca** se guarda Cypher generado por
+  un LLM. Las enseñanzas sobre el *proceso* del agente van a Engram, no a estas tablas (evitar dos
+  fuentes de verdad).
+- **Antes de implementarla**: deployar los commits pendientes (pull + restart) y **fijar un baseline
+  RAGAS propio** — el actual (67 preguntas, otro dataset) no es comparable con las 35 respuestas que
+  evalúa el gate.
+- **Alternativas ya evaluadas y descartadas como arquitectura** (con números): NotebookLM de
+  consumidor (sin API, puentes no oficiales) y Gemini context caching (storage $0,50 por 1M
+  tokens-hora ⇒ ≈$12/día por libro). Detalle y evidencia en `docs/spec/08-agent-cache-and-recipes.md`
+  §2 y §5.
