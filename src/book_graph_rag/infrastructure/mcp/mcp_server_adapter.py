@@ -43,8 +43,13 @@ from book_graph_rag.ports.text2cypher_port import Text2CypherPort
 
 
 def _tool_content(payload: dict[str, Any]) -> list[TextContent]:
-    """Serialize a dict result into MCP text content."""
-    return [TextContent(type="text", text=json.dumps(payload, indent=2))]
+    """Serialize a dict result into MCP text content.
+
+    ``ensure_ascii=False`` keeps accented text literal: escaping it inflates every
+    payload an agent receives (measured ~6-9% on Spanish answers) and makes it harder
+    to read. The catalog resource already serializes this way.
+    """
+    return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False, indent=2))]
 
 
 #: Free-text prompt keys are never persisted or included in the structured query

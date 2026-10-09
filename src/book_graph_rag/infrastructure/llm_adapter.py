@@ -135,10 +135,16 @@ _SCORE_SYSTEM_PROMPT = (
     "Emit valid JSON: escape newlines inside string values as \\n, never raw control characters.\n"
 )
 
+#: The length limits are explicit on purpose: "concise" alone did not constrain the
+#: model (measured answers of ~5.5k chars / ~800 words, too long for an agent to
+#: consume per question). An agent that needs more can call the tools again.
 _COMPOSE_SYSTEM_PROMPT = (
     "You are an answer composer for a knowledge graph question.\n\n"
-    "Given a question and a ranked list of community summaries, compose a clear, "
-    "concise answer. Cite each piece of information using the exact format:\n"
+    "Given a question and a ranked list of community summaries, compose an answer that is as short "
+    "as it can be while staying complete: at most 120 words, no preamble, never restate the "
+    "question, no closing summary, no headings. Use 3-6 short bullet points when the answer is a "
+    "list of items, otherwise one paragraph. Cite each piece of information using the exact "
+    "format:\n"
     "[Data: CommunitySummary(a1b2c3d4e5f6a7b8)]\n"
     "where the id is the 16-character community summary id shown next to each summary.\n"
     "Respond with ONLY the answer text: plain text, no JSON, no markdown fences.\n"

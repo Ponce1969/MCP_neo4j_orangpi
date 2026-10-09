@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -34,7 +35,10 @@ from book_graph_rag.domain.models import (
     RelationshipType,
 )
 from book_graph_rag.domain.namespaces import SourceNamespace
-from book_graph_rag.infrastructure.mcp.mcp_server_adapter import McpServerAdapter
+from book_graph_rag.infrastructure.mcp.mcp_server_adapter import (
+    McpServerAdapter,
+    _tool_content,
+)
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
 from book_graph_rag.ports.mcp_security_port import BudgetLease, ResourceBudgetPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
@@ -1940,3 +1944,13 @@ async def test_raw_logging_disabled_emits_nothing_to_dev_channel(
 
     assert handler.messages == []
     assert len(query_logger.entries) == 1
+
+
+def test_tool_content_keeps_non_ascii_unescaped() -> None:
+    """Non-ASCII must not be \\uXXXX-escaped: escaping inflates every agent payload."""
+    payload = {"answer": "Optimización de la inferencia en producción"}
+    text = _tool_content(payload)[0].text
+
+    assert json.loads(text) == payload
+    assert "Optimización" in text
+    assert "\\u" not in text
