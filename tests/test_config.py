@@ -530,6 +530,44 @@ def test_settings_community_max_calls_can_be_overridden(
     assert settings.community_max_calls == 50
 
 
+def test_settings_ask_global_top_n_default_and_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ask_global_top_n must be tunable: it trades context precision against recall."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+    }
+    assert Settings.model_validate(data).ask_global_top_n == 8
+
+    assert Settings.model_validate(dict(data, ask_global_top_n=4)).ask_global_top_n == 4
+
+
+def test_settings_ask_global_top_n_must_be_positive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A zero or negative top_n would hand the composer no context at all."""
+    monkeypatch.chdir(tmp_path)
+    _clear_required_env(monkeypatch)
+
+    data = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+        "ask_global_top_n": 0,
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(data)
+
+    assert "ask_global_top_n" in str(exc_info.value)
+
+
 def test_settings_community_max_calls_must_be_positive(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

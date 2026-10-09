@@ -454,6 +454,7 @@ def main(
         read_port=community_adapter,
         llm_port=llm_adapter,
         max_concurrency=settings.summary_max_concurrency,
+        top_n=settings.ask_global_top_n,
     )
 
     async def _eval_all() -> list[dict[str, Any]]:

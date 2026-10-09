@@ -220,6 +220,10 @@ class Settings(BaseSettings):
     max_cluster_size: int = 10
     summary_max_concurrency: int = 3  # max concurrent LLM calls for summarization
     community_max_calls: int = 300  # hard guard on the summaries one run will generate
+    # How many community summaries reach the answer composer. Lowering it sharpens the context
+    # (less diluted relevance) at the cost of recall; a Settings key so a deployment can tune it
+    # without touching code. Measured context_precision today: 0.474 with 8.
+    ask_global_top_n: int = 8
     # Minimum seconds to wait between LLM calls for community summaries.
     # Set to 12.0 for NVIDIA NIM free tier (~5 RPM limit).
     # Set to 0.0 to disable throttling (local Ollama or paid tiers).
@@ -337,6 +341,13 @@ class Settings(BaseSettings):
     def _validate_community_max_calls(cls, value: int) -> int:
         if value < 1:
             raise ValueError(f"community_max_calls ({value}) debe ser mayor o igual a 1")
+        return value
+
+    @field_validator("ask_global_top_n")
+    @classmethod
+    def _validate_ask_global_top_n(cls, value: int) -> int:
+        if not 1 <= value <= 20:
+            raise ValueError(f"ask_global_top_n ({value}) debe ser entre 1 y 20")
         return value
 
     @field_validator("summary_chunk_tokens")

@@ -108,6 +108,7 @@ async def _run_server(settings: Settings) -> None:
                     read_port=community_adapter,
                     llm_port=llm_adapter,
                     max_concurrency=settings.summary_max_concurrency,
+                    top_n=settings.ask_global_top_n,
                 )
                 catalog_loader = CatalogLoader(settings.catalog_path)
                 scope_resolver = CatalogScopeResolver(catalog_loader)

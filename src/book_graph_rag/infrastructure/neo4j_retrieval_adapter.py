@@ -45,6 +45,7 @@ class Neo4jRetrievalAdapter(GraphRetrievalPort):
             read_port=self._community_adapter,
             llm_port=self._llm_adapter,
             max_concurrency=settings.summary_max_concurrency,
+            top_n=settings.ask_global_top_n,
         )
 
     async def close(self) -> None:
