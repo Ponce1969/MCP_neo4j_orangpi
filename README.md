@@ -1,50 +1,56 @@
 # book-graph-rag
 
-> Knowledge-graph RAG indexer for the book
-> *"Agentic Architectural Patterns for Building Multi-Agent Systems"*.
+> Knowledge-graph RAG indexer for a growing corpus of technical books — today four
+> namespaces: *Agentic Architectural Patterns for Building Multi-Agent Systems*,
+> *Essential GraphRAG*, *GraphRAG agéntico* and *Ingeniería de IA* (Chip Huyen).
 >
 > Reads a PDF, splits it using a **semantic chunker driven by its own TOC**
 > (not fixed char windows), extracts entities and relationships via an
-> OpenAI-compatible LLM (Groq by default), and writes them to a **Neo4j**
+> OpenAI-compatible LLM (**DeepSeek** in production), and writes them to a **Neo4j**
 > knowledge graph using idempotent `MERGE` upserts.
 
 ---
 
-## Current status — 2026-09-18
+## Current status — 2026-10-09
 
-Phase 5 (evaluation and readiness) is complete, verified, archived, and
-**deployed to the Orange Pi 5 Plus**. Phase 6 (MCP hardening) is **implemented**
-through T-I.1 (24/26 tasks): server-side namespace scoping, read-only authority,
-structural Cypher allowlist, tiered budgets, private bind, and metadata-only HMAC
-query logs. Guarded external exposure (Phase 7) still requires the 06/07 gate and
-an explicit human decision; deployment alone does not close that gate.
+Phase 5 (evaluation and readiness) is complete, archived and **passing**: the
+readiness gate returns exit `0` instead of the old `INCOMPLETE`, because the three
+project-owned baselines now carry finalized numeric thresholds. Phase 6 (MCP
+hardening) is deployed and serving.
 
 | Area | Current state | Evidence / location |
 |---|---|---|
 | Phase 0 — Evidence baseline | complete | `docs/spec/` and roadmap |
-| Phase 1 — Namespaces | complete | `docs/spec/02-knowledge-namespaces.md` |
+| Phase 1 — Namespaces | complete — **four books** | `catalog.yaml`, `docs/spec/02-knowledge-namespaces.md` |
 | Phase 2 — Resumable indexing | complete | `:Checkpoint` nodes and resume CLI |
 | Phase 3 — Semantic resolution | complete with W1 follow-up | `docs/spec/03-semantic-entity-resolution.md` |
 | Phase 4 — Scoped audit and gates | complete | `book-graph-rag audit` / `gate` |
-| Phase 5 — Evaluation and readiness | complete and archived | `docs/spec/06-evaluation-and-readiness.md`, `data/evaluation/` |
-| Phase 6 — MCP hardening | implemented (24/26) | allowlist, scope, read-only session, budgets, HMAC logs, private bind |
-| Phase 7 — Guarded exposure | pending approval | production exposure gate |
-| Orange Pi MCP service | running | `mcp-server.service`, SSE on port `8003` |
+| Phase 5 — Evaluation and readiness | complete, archived, **gate passing** | `docs/spec/06-evaluation-and-readiness.md`, `data/evaluation/README.md` |
+| Phase 6 — MCP hardening | deployed and serving | allowlist, scope, read-only session, budgets, HMAC logs, private bind |
+| Phase 7 — Guarded exposure | pending explicit approval | production exposure gate |
+| Community layer | complete — 4/4 namespaces | `:CommunitySummary`, `ask_global` answers for every book |
+| Skill quality gate | implemented, **off by default** | `SKILL_GATE_ENABLED`, `data/evaluation/skill_gate_evidence.json` |
+| Namespace router | implemented, **off by default** | `ROUTER_ENABLED`, `data/router/namespace_profiles.json` |
+| Orange Pi MCP service | running | `mcp-server.service`, streamable HTTP `/mcp` plus legacy `/sse` on port `8003` |
 | Neo4j production graph | healthy | Docker service `bookgraph-neo4j` |
 
 ### Deployment facts
 
-- Git `main` is deployed at commit `776c60d`.
+- Repository `main` is at `393d596`; the Orange Pi deployment runs `69d7931`
+  (the newer commits are documentation and evaluation changes, pending the next
+  `git pull` and service restart).
 - The application repository lives on the Pi at
   `/home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi`.
 - The MCP server runs under systemd as `mcp-server.service`; it is **not** a
-  Docker Compose service.
-- Docker Compose manages the Neo4j container only: `bookgraph-neo4j`.
+  Docker Compose service, and it binds the Tailscale address only.
+- Docker Compose manages the Neo4j container only: `bookgraph-neo4j`, whose ports
+  are published on `127.0.0.1` only.
 - Neo4j remains untouched by application deploys; no containers, volumes, or
   databases are deleted as part of deployment.
-- The readiness gate intentionally remains `INCOMPLETE` (exit code `11`) until
-  project-owned numeric thresholds are finalized. W1 remains a separate human
-  decision supported by Phase 5 evidence.
+- Reference readiness run (2026-10-09), `gate expose-mcp-readiness --target
+  bookgraph-neo4j`: **exit 0**, with resolution f1 `0.6410`, generation
+  faithfulness `0.792` and retrieval precision@k `0.0482`. The extraction layer
+  stays `pending` ("deferred per R6.1") and is not blocking.
 
 ## What this is — and what it is **not** yet
 
@@ -136,7 +142,7 @@ uv run mypy src
 uv run python scripts/validate_architecture.py
 uv run pytest -v
 
-# 7. Index a book (smoke test, ~20-30 min against Groq free plan)
+# 7. Index a book (end-to-end smoke test; LLM extraction dominates the runtime)
 uv run book-graph-rag index data/your-book.pdf
 
 # 8. Audit the graph (read-only structural health check)
@@ -379,24 +385,49 @@ Enforced at the MCP boundary (verified against `src/`):
 - **HMAC logs:** the query log is metadata-only — raw query/prompt/error text never
   enters the JSONL; requests are correlated via keyed HMAC-SHA256 fingerprints.
 
-Known open risks (recorded in `docs/spec/07`): `ask_global` validates scope but does
-not yet thread it into the community read path (cross-namespace summaries possible);
-Text2Cypher requires a scope proof but does not yet bind `$param` values end-to-end.
-Production exposure still requires the 06/07 readiness/security gate and an explicit
-human decision.
+Known open risks (recorded in `docs/spec/07`): Text2Cypher requires a scope proof but
+does not yet bind `$param` values end-to-end. Production exposure still requires the
+readiness/security gate and an explicit human decision. (`ask_global` used to expose
+cross-namespace summaries; the scoped community read now filters by namespace, and
+production isolation was verified: the same query returns 46 entities in book 4 and 2
+in book 1.)
 
 ---
 
 ## Roadmap
 
-- **Phase 05 — Evaluation and readiness:** complete and archived. The readiness
-  gate is mechanism-first and remains `INCOMPLETE` until numeric thresholds are
-  finalized from project-owned baselines.
+- **Phase 05 — Evaluation and readiness:** complete and archived. The thresholds are
+  finalized from project-owned baselines, so the readiness gate passes or fails for
+  real (see the reference run above).
 - **Phase 06 — MCP hardening:** implemented through T-I.1 (24/26 tasks). Server-side
   namespace scoping, read-only authority, structural Cypher allowlist, tiered
   concurrency/rate budgets, private fail-closed bind, and metadata-only HMAC query
-  logs are in place. Two open risks remain (see the note below): `ask_global`
-  community-scope wiring and Text2Cypher scope-parameter binding.
+  logs are in place. Text2Cypher scope-parameter binding remains open (see the note
+  above).
+- **Phase 07 — Guarded exposure:** pending explicit approval and all readiness /
+  security preconditions. The MCP service is deployed, but deployment is not
+  equivalent to approval for unrestricted exposure.
+
+### Queued next steps
+
+- **Deploy the pending commits** (`git pull --ff-only` + `systemctl restart
+  mcp-server`) and measure them: the answer composer now enforces an explicit
+  length limit, and the readiness report keeps per-question RAGAS scores plus the
+  answers and contexts it sent (`data/evaluation/ragas_input_*.jsonl`).
+- **Answer quality.** The last measured RAGAS numbers are answer_relevancy
+  `0.5953` and context_precision `0.474`, on a baseline of 67 questions over a
+  different dataset than the gate's 35 generated answers: the two are not directly
+  comparable, so a project-owned baseline comes first. The known cost driver is
+  `ask_global` scoring **every** summary of the chosen level with one LLM call each
+  (164 at level 1), which also makes the top-8 selection nearly arbitrary among
+  ties; batching that scoring is the highest-value change.
+- **Tunable flags, still off:** `SKILL_GATE_ENABLED` (filters the MCP tool surface
+  from the seeded `:Skill` nodes) and `ROUTER_ENABLED` (namespace routing; no caller
+  uses the adapter yet, so enabling it changes nothing today). `ask_global_top_n` is
+  now a Setting (`ask_global_top_n`, default `8`) for the context-precision/recall
+  trade-off.
+- **Product direction:** *to be written with the maintainer* — what "enterprise
+  ready" means for this graph and which of the queued items it gates.
 - **Phase 07 — Guarded exposure:** pending explicit approval and all readiness /
   security preconditions. The MCP service is deployed, but deployment is not
   equivalent to approval for unrestricted exposure.
