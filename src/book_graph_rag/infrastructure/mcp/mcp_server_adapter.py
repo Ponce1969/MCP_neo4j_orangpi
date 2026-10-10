@@ -15,6 +15,7 @@ from mcp.types import TextContent
 from pydantic import Field, SecretStr
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
+from book_graph_rag.domain.graph_version import graph_version_from
 from book_graph_rag.domain.mcp_security import (
     InvalidScopeError,
     McpSecurityError,
@@ -933,6 +934,11 @@ class McpServerAdapter:
             )
             raise
 
+        # The version names the graph this answer came from, so a consumer that caches the
+        # answer can tell when it stopped being current. A failed census read reports null
+        # rather than guessing, and it costs no model call.
+        answer["graph_version"] = await self._graph_version()
+
         # Success is logged too, not only failure: the skill quality gate scores
         # ``executability`` from this log, so a tool that records only its errors can never
         # prove itself and its whole skill stays gated out, taking its siblings with it.
@@ -976,6 +982,23 @@ class McpServerAdapter:
             "source with its label, language, and chunk/entity size as of the read."
         )
 
+    async def _graph_version(self) -> str | None:
+        """The graph version, or ``None`` when the census cannot be read.
+
+        Never guessed: a consumer that caches an answer is better served by a null
+        version than by one that does not name the graph it came from.
+        """
+        if self._catalog is None or self._catalog_stats_reader is None:
+            return None
+        try:
+            stats = await self._catalog_stats_reader()
+        except Exception:  # noqa: BLE001 - the answer matters more than its version
+            logger.warning(
+                "graph version census read failed; reporting null version", exc_info=True
+            )
+            return None
+        return graph_version_from(self._catalog.version, stats)
+
     async def _catalog_payload(self) -> dict[str, Any]:
         """Build the ``bookgraph://catalog`` resource payload.
 
@@ -1010,6 +1033,9 @@ class McpServerAdapter:
         return {
             "catalog_version": self._catalog.version,
             "counts_as_of": counts_as_of,
+            "graph_version": (
+                graph_version_from(self._catalog.version, stats) if stats is not None else None
+            ),
             "sources": sources,
         }
 
@@ -1226,6 +1252,17 @@ class McpServerAdapter:
             async def catalog_resource() -> str:
                 """Active catalog sources with label, language, and size as of the read."""
                 return json.dumps(await self._catalog_payload(), indent=2, ensure_ascii=False)
+
+            @mcp.resource("bookgraph://version")
+            async def version_resource() -> str:
+                """The graph version to name when caching or citing an answer."""
+                return json.dumps(
+                    {
+                        "graph_version": await self._graph_version(),
+                        "as_of": datetime.now(tz=UTC).isoformat(),
+                    },
+                    indent=2,
+                )
 
         return mcp
 

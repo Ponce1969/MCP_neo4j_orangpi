@@ -52,3 +52,7 @@ class TestSensitivity:
 
         assert empty.startswith("gv-")
         assert empty != graph_version_from("c1", _STATS)
+
+    def test_the_catalog_version_may_be_a_number(self) -> None:
+        """The catalog declares its version as a number, and that must not break."""
+        assert graph_version_from(1, _STATS) == graph_version_from("1", _STATS)

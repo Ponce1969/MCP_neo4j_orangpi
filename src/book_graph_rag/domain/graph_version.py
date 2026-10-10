@@ -21,13 +21,14 @@ _DIGEST_CHARS = 12
 
 
 def graph_version_from(
-    catalog_version: str,
+    catalog_version: str | int,
     stats: Mapping[str, Mapping[str, int]],
 ) -> str:
     """Return a stable short digest of the census at ``catalog_version``.
 
     ``stats`` maps ``source_id`` to its ``chunks``/``entities`` counts, exactly as
-    the catalog resource reads them. Source order never matters.
+    the catalog resource reads them. Source order never matters. ``catalog_version``
+    is the catalog's own version, which the catalog declares as a number.
     """
     parts: list[str] = [f"catalog{_SEPARATOR}{catalog_version}"]
     for source_id in sorted(stats):
