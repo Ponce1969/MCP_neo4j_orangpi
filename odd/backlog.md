@@ -274,6 +274,30 @@ Deliberately out of scope, with comments in the code: `scripts/migrate_namespace
   captured from the duplicate's side as an `in` entry and rebuilt by `_ROLLBACK_RESTORE_RELATED_IN`. The file's 10
   testcontainer tests pass, which is what makes this a proof instead of a reading of the Cypher.
 
+## MCP consumer surface (found 2026-10-10, from the agentic-memory work)
+
+- **C1 `ask_global` returns citations but not the contexts it used.** The answer carries
+  `[Data: CommunitySummary(<id>)]` markers, so a consumer can confirm that an id exists but
+  cannot audit whether that summary actually supports the sentence. The summaries were
+  already fetched and scored inside the server, so returning their text costs **no extra LLM
+  call** — only payload bytes. Evidence: (a) the real `ask_global` payload read on 2026-10-10
+  is `{"answer": "- Logs for flat event coverage ... [Data: CommunitySummary(007873583f96e774)] ..."}`
+  — one answer string and ids, no summary text; (b) a memory service that must decide whether an
+  answer has "sufficient evidence" cannot do it from ids alone; (c) a RAGAS faithfulness run over
+  answers obtained through the MCP is impossible for the same reason, which is what blocked the
+  level-0 vs level-1 quality A/B. Proposed shape (additive, so no existing consumer breaks): keep
+  `answer` short and add sibling fields — `citations` (ids), `contexts` (`[{id, level, score, text}]`),
+  `graph_version`, and `usage` (`{llm_calls, detail_level}`); allow trimming the contexts with a
+  parameter for callers that only want the answer. A `usage.llm_calls` counter would also remove the
+  need to scrape `journalctl` to count calls.
+- **C2 The graph does not expose a data version identifier.** A caller that caches or cites an
+  answer needs to name the graph state it came from, and today there is nothing to name:
+  `agentic-memory` was fed a date by hand (`2026-10-10`). Proposed: derive a cheap, reproducible
+  `graph_version` from a fixed census (counts by label + newest `indexed_at` + the catalog revision)
+  rather than from a counter that needs its own state, and expose it both as a field in every read
+  response and as an MCP resource (`bookgraph://version`). Consumers then pass it back verbatim,
+  which is what keeps the memory from ever querying the graph (see §8 of AGENTS.md).
+
 ## Closed (for reference)
 
 - The 286 dangling edges of `knowledge:essential-graphrag` (90 MENTIONS + 196 RELATED): closed 2026-10-02 —
