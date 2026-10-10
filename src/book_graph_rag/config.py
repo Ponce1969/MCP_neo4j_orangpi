@@ -224,6 +224,10 @@ class Settings(BaseSettings):
     # (less diluted relevance) at the cost of recall; a Settings key so a deployment can tune it
     # without touching code. Measured context_precision today: 0.474 with 8.
     ask_global_top_n: int = 8
+    # How many community summaries one scoring LLM call covers. At level 1 a question sees ~164
+    # summaries, so batching turns ~164 calls into a handful; the model also ranks better when it
+    # sees candidates together. Tunable per deployment.
+    ask_global_score_batch_size: int = 20
     # Minimum seconds to wait between LLM calls for community summaries.
     # Set to 12.0 for NVIDIA NIM free tier (~5 RPM limit).
     # Set to 0.0 to disable throttling (local Ollama or paid tiers).
@@ -348,6 +352,13 @@ class Settings(BaseSettings):
     def _validate_ask_global_top_n(cls, value: int) -> int:
         if not 1 <= value <= 20:
             raise ValueError(f"ask_global_top_n ({value}) debe ser entre 1 y 20")
+        return value
+
+    @field_validator("ask_global_score_batch_size")
+    @classmethod
+    def _validate_ask_global_score_batch_size(cls, value: int) -> int:
+        if not 1 <= value <= 200:
+            raise ValueError(f"ask_global_score_batch_size ({value}) debe ser entre 1 y 200")
         return value
 
     @field_validator("summary_chunk_tokens")

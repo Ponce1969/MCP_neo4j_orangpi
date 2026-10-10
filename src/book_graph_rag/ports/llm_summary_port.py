@@ -46,6 +46,19 @@ class LLMSummaryPort(abc.ABC):
         """Return a relevance score (0-100) for ``summary`` against ``question``."""
         ...
 
+    async def score_communities(
+        self,
+        question: str,
+        summaries: tuple[CommunitySummary, ...],
+    ) -> dict[str, int]:
+        """Score many summaries for ``question``, keyed by summary id.
+
+        Concrete on purpose: existing implementations and test doubles keep working unchanged,
+        with one call per summary. An adapter that can batch overrides this to collapse a whole
+        batch into a single LLM call (see ``LLMAdapter.score_communities``).
+        """
+        return {summary.id: await self.score_community(question, summary) for summary in summaries}
+
     @abc.abstractmethod
     async def compose_answer(
         self,

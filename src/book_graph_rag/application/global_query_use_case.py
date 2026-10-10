@@ -25,11 +25,13 @@ class GlobalQueryUseCase:
         llm_port: LLMSummaryPort,
         max_concurrency: int = 3,
         top_n: int = 8,
+        score_batch_size: int = 20,
     ) -> None:
         self._read_port = read_port
         self._llm_port = llm_port
         self._max_concurrency = max_concurrency
         self._top_n = top_n
+        self._score_batch_size = score_batch_size
 
     async def ask(
         self,
@@ -71,13 +73,26 @@ class GlobalQueryUseCase:
             }
 
         semaphore = asyncio.Semaphore(self._max_concurrency)
+        # One LLM call per batch instead of one per summary: at level 1 a single question used
+        # to spend ~164 calls. The model also sees the candidates together, so near-ties get
+        # better-calibrated scores.
+        batches = [
+            tuple(summaries[index : index + self._score_batch_size])
+            for index in range(0, len(summaries), self._score_batch_size)
+        ]
 
-        async def _score(summary: CommunitySummary) -> tuple[CommunitySummary, int]:
+        async def _score_batch(
+            batch: tuple[CommunitySummary, ...],
+        ) -> list[tuple[CommunitySummary, int]]:
             async with semaphore:
-                score = await self._llm_port.score_community(question, summary)
-            return summary, score
+                scores = await self._llm_port.score_communities(question, batch)
+            return [(summary, scores[summary.id]) for summary in batch]
 
-        scored = await asyncio.gather(*(_score(summary) for summary in summaries))
+        scored = [
+            item
+            for group in await asyncio.gather(*(_score_batch(batch) for batch in batches))
+            for item in group
+        ]
         ranked = sorted(scored, key=lambda item: item[1], reverse=True)
         top = ranked[: self._top_n]
 

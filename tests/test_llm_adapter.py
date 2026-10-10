@@ -843,6 +843,80 @@ async def test_score_community_returns_parsed_score(
     assert captured["model"] == settings.query_llm_model_name
 
 
+async def test_score_communities_scores_a_whole_batch_in_one_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Batching keeps the same 0-100 semantics with ONE call per batch, not per summary.
+
+    Today `ask_global` scores every summary of the level with its own LLM call (~164 at
+    level 1); batching turns that into a handful of calls and gives the model comparative
+    context, which also improves the ranking among near-ties.
+    """
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+    calls: list[dict[str, Any]] = []
+    summaries = (
+        CommunitySummary(level=1, summary="first summary", entity_ids=["e1"], parent_id="p1"),
+        CommunitySummary(level=1, summary="second summary", entity_ids=["e2"], parent_id="p1"),
+    )
+
+    class _FakeEntry(BaseModel):
+        id: str
+        score: int
+
+    class _FakeScores(BaseModel):
+        scores: list[_FakeEntry]
+
+    async def fake_create(*args: Any, **kwargs: Any) -> _FakeScores:
+        calls.append(kwargs)
+        return _FakeScores(
+            scores=[
+                _FakeEntry(id=summaries[0].id, score=90),
+                _FakeEntry(id=summaries[1].id, score=40),
+            ]
+        )
+
+    monkeypatch.setattr(adapter._query_client, "create", fake_create)
+
+    scores = await adapter.score_communities("what is MCP?", summaries)
+
+    assert len(calls) == 1, "one LLM call for the whole batch"
+    assert scores == {summaries[0].id: 90, summaries[1].id: 40}
+    content = "\n".join(msg["content"] for msg in calls[0]["messages"])
+    assert "first summary" in content
+    assert "second summary" in content
+    assert summaries[0].id in content, "the prompt must carry each summary id"
+
+
+async def test_score_communities_raises_when_a_summary_is_unscored(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing id must fail loudly: a silent default score would corrupt the ranking."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+    summaries = (
+        CommunitySummary(level=1, summary="first summary", entity_ids=["e1"], parent_id="p1"),
+        CommunitySummary(level=1, summary="second summary", entity_ids=["e2"], parent_id="p1"),
+    )
+
+    class _FakeEntry(BaseModel):
+        id: str
+        score: int
+
+    class _FakeScores(BaseModel):
+        scores: list[_FakeEntry]
+
+    async def fake_create(*args: Any, **kwargs: Any) -> _FakeScores:
+        return _FakeScores(scores=[_FakeEntry(id=summaries[0].id, score=90)])
+
+    monkeypatch.setattr(adapter._query_client, "create", fake_create)
+
+    with pytest.raises(ValueError, match="unscored"):
+        await adapter.score_communities("what is MCP?", summaries)
+
+
 async def test_compose_answer_prompt_requires_citation_format(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

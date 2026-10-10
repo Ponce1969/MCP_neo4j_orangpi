@@ -248,10 +248,36 @@ class _CypherResponse(BaseModel):
     cypher: str
 
 
+_BATCH_SCORE_SYSTEM_PROMPT = (
+    "You are a relevance scorer for a knowledge graph question.\n\n"
+    "You receive a question and several community summaries, each preceded by its id. "
+    "Return one integer score from 0 to 100 for EVERY summary, keyed by its exact id. "
+    "100 means the summary directly answers the question; 0 means it is completely unrelated. "
+    "Score each summary on its own merits, using the others only to calibrate: a summary that is "
+    "better than another must get a higher score, and clearly different usefulness must not get "
+    "the same score.\n"
+    "Return exactly one entry per id: no extra ids, no missing ids.\n"
+    "Emit valid JSON: escape newlines inside string values as \\n, never raw control characters.\n"
+)
+
+
 class _CommunityScore(BaseModel):
     """Structured LLM output schema for summary relevance scoring."""
 
     score: int = Field(ge=0, le=100)
+
+
+class _CommunityScoreEntry(BaseModel):
+    """One summary's score inside a batched scoring response."""
+
+    id: str
+    score: int = Field(ge=0, le=100)
+
+
+class _CommunityScores(BaseModel):
+    """Structured LLM output schema for BATCHED summary relevance scoring."""
+
+    scores: list[_CommunityScoreEntry]
 
 
 class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
@@ -652,6 +678,46 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
             return ""
         blocks = [f"Child community summary:\n{summary}" for summary in child_summaries]
         return await self._summarize_blocks_recursive(blocks, level)
+
+    async def score_communities(
+        self,
+        question: str,
+        summaries: tuple[CommunitySummary, ...],
+    ) -> dict[str, int]:
+        """Score a whole batch of summaries in ONE call, keyed by summary id.
+
+        ``ask_global`` used to spend one LLM call per summary (about 164 at level 1). Batching
+        cuts that to a handful of calls and, because the model sees the candidates together,
+        gives better-calibrated scores among near-ties. A response that misses an id fails
+        loudly: a silent default score would corrupt the ranking.
+        """
+        if not summaries:
+            return {}
+        listing = "\n\n".join(f"id: {summary.id}\n{summary.summary}" for summary in summaries)
+        prompt = (
+            f"Question: {question}\n\nCommunity summaries:\n\n{listing}\n\nReturn one score per id."
+        )
+        response: _CommunityScores | None = None
+        async for attempt in self._retrying:
+            with attempt:
+                response = await self._query_client.create(
+                    response_model=_CommunityScores,
+                    messages=[
+                        {"role": "system", "content": _BATCH_SCORE_SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    model=self._query_model_name,
+                    max_retries=self._instructor_retries,
+                )
+        if response is None:
+            raise RuntimeError("batched community scoring produced no response")
+        scored = {entry.id: entry.score for entry in response.scores}
+        missing = [summary.id for summary in summaries if summary.id not in scored]
+        if missing:
+            raise ValueError(
+                f"batched community scoring left {len(missing)} summary(ies) unscored: {missing}"
+            )
+        return scored
 
     async def score_community(self, question: str, summary: CommunitySummary) -> int:
         """Score a community summary for relevance to ``question``."""

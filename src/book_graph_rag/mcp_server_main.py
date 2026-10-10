@@ -109,6 +109,7 @@ async def _run_server(settings: Settings) -> None:
                     llm_port=llm_adapter,
                     max_concurrency=settings.summary_max_concurrency,
                     top_n=settings.ask_global_top_n,
+                    score_batch_size=settings.ask_global_score_batch_size,
                 )
                 catalog_loader = CatalogLoader(settings.catalog_path)
                 scope_resolver = CatalogScopeResolver(catalog_loader)

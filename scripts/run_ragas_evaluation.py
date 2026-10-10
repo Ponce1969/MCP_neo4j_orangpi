@@ -455,6 +455,7 @@ def main(
         llm_port=llm_adapter,
         max_concurrency=settings.summary_max_concurrency,
         top_n=settings.ask_global_top_n,
+        score_batch_size=settings.ask_global_score_batch_size,
     )
 
     async def _eval_all() -> list[dict[str, Any]]:
