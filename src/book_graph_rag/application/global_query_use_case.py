@@ -16,6 +16,20 @@ from book_graph_rag.ports.community_read_port import CommunityReadPort
 from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
 
 
+def _empty_usage(detail_level: int) -> dict[str, int]:
+    """The usage of an answer that never reached the model.
+
+    The shape is identical to a real answer on purpose: a consumer parses one shape,
+    and an empty result must not be a special case it has to guess about.
+    """
+    return {
+        "llm_calls": 0,
+        "detail_level": detail_level,
+        "summaries_considered": 0,
+        "summaries_used": 0,
+    }
+
+
 class GlobalQueryUseCase:
     """Answer a global question using community-summary map-reduce."""
 
@@ -66,10 +80,14 @@ class GlobalQueryUseCase:
                         f"scripts-ops/run_communities_scoped.py --run --namespace {source_id}"
                     ),
                     "citations": [],
+                    "contexts": [],
+                    "usage": _empty_usage(detail_level),
                 }
             return {
                 "answer": "Run scripts/run_communities.py first",
                 "citations": [],
+                "contexts": [],
+                "usage": _empty_usage(detail_level),
             }
 
         semaphore = asyncio.Semaphore(self._max_concurrency)
@@ -100,4 +118,24 @@ class GlobalQueryUseCase:
         return {
             "answer": answer,
             "citations": [summary.id for summary, _ in top],
+            # The summaries the composer actually saw, with the text that supports the
+            # answer. A citation id proves the summary exists; only the text lets a
+            # consumer audit whether it supports the sentence.
+            "contexts": [
+                {
+                    "id": summary.id,
+                    "level": summary.level,
+                    "score": score,
+                    "text": summary.summary,
+                }
+                for summary, score in top
+            ],
+            # What this answer cost, so a caller reasons about it instead of scraping
+            # logs: one call per batch plus the single compose call.
+            "usage": {
+                "llm_calls": len(batches) + 1,
+                "detail_level": detail_level,
+                "summaries_considered": len(summaries),
+                "summaries_used": len(top),
+            },
         }

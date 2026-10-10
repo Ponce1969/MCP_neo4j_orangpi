@@ -285,4 +285,96 @@ async def test_an_unscoped_miss_keeps_the_legacy_message() -> None:
 
     result = await use_case.ask("de que trata?", 1)
 
-    assert result == {"answer": "Run scripts/run_communities.py first", "citations": []}
+    assert result["answer"] == "Run scripts/run_communities.py first"
+    assert result["citations"] == []
+    assert result["contexts"] == []
+    assert result["usage"]["llm_calls"] == 0
+
+
+# ── contexts and usage (MCP consumer surface) ──────────────────────────────────
+
+
+async def test_ask_returns_the_contexts_it_used(
+    read_port: _FakeCommunityReadPort,
+    llm_port: _FakeLLMSummaryPort,
+    use_case: Any,
+) -> None:
+    """The summaries handed to the composer come back with their text and score.
+
+    A citation id alone lets a consumer confirm the summary exists; it cannot show
+    whether the summary supports the sentence, which is what the text is for.
+    """
+    s1 = CommunitySummary(id="", level=1, summary="Alpha text", entity_ids=["e1"], parent_id="p1")
+    s2 = CommunitySummary(id="", level=1, summary="Beta text", entity_ids=["e2"], parent_id="p1")
+    read_port.summaries = {1: [s1, s2]}
+    llm_port.scores = {s1.id: 90, s2.id: 20}
+
+    result = await use_case.ask("question", 1)
+
+    assert result["contexts"] == [
+        {"id": s1.id, "level": 1, "score": 90, "text": "Alpha text"},
+        {"id": s2.id, "level": 1, "score": 20, "text": "Beta text"},
+    ]
+
+
+async def test_ask_reports_the_model_calls_it_spent(
+    read_port: _FakeCommunityReadPort,
+    llm_port: _FakeLLMSummaryPort,
+) -> None:
+    """usage.llm_calls is the batches actually issued plus the single compose call."""
+    from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
+
+    summaries = [
+        CommunitySummary(id="", level=1, summary=f"S{i}", entity_ids=[f"e{i}"], parent_id="p")
+        for i in range(5)
+    ]
+    read_port.summaries = {1: summaries}
+    use_case = GlobalQueryUseCase(
+        read_port, llm_port, max_concurrency=2, top_n=5, score_batch_size=2
+    )
+
+    result = await use_case.ask("question", 1)
+
+    # 5 summaries in batches of 2 -> 3 batches, plus one compose.
+    assert result["usage"] == {
+        "llm_calls": 4,
+        "detail_level": 1,
+        "summaries_considered": 5,
+        "summaries_used": 5,
+    }
+
+
+async def test_ask_reports_the_usage_when_the_top_n_trims(
+    read_port: _FakeCommunityReadPort,
+    llm_port: _FakeLLMSummaryPort,
+    use_case: Any,
+) -> None:
+    """The fixture keeps top_n=2, so five candidates are considered and two used."""
+    summaries = [
+        CommunitySummary(id="", level=1, summary=f"S{i}", entity_ids=[f"e{i}"], parent_id="p")
+        for i in range(5)
+    ]
+    read_port.summaries = {1: summaries}
+
+    result = await use_case.ask("question", 1)
+
+    assert result["usage"]["summaries_considered"] == 5
+    assert result["usage"]["summaries_used"] == 2
+    assert len(result["contexts"]) == 2
+
+
+async def test_the_empty_summary_path_keeps_the_same_shape(
+    read_port: _FakeCommunityReadPort,
+    use_case: Any,
+) -> None:
+    """A consumer parses one shape: the empty path carries the same keys."""
+    result = await use_case.ask("question", 1)
+
+    assert result["contexts"] == []
+    assert result["citations"] == []
+    assert result["usage"] == {
+        "llm_calls": 0,
+        "detail_level": 1,
+        "summaries_considered": 0,
+        "summaries_used": 0,
+    }
