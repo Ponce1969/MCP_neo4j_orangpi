@@ -58,3 +58,18 @@ but no summary text, so a consumer cannot audit whether the summary supports the
 is one round trip used by `bookgraph://catalog`;
 (c) the use case already returns a dict with `citations`, so the change is additive to an
 existing shape rather than a new contract.
+
+L4 — 2026-10-10, implementation evidence:
+- T1 `e3e5053` — the digest, 8 unit tests (stability, order independence, sensitivity to
+  every input, and the catalog's numeric version).
+- T2 `42cbd2e` — `contexts` + `usage` on every path; the one existing test that pinned the
+  exact dict now asserts the legacy wording plus the new keys, which is what it protected.
+- T3 `9650d93` — the version stamped into `ask_global`, `bookgraph://version`, and
+  `graph_version` in `bookgraph://catalog`. mypy caught that `catalog.version` is a number,
+  which the digest now accepts.
+- Pre-existing, NOT caused by this change and verified by stashing: the three tests in
+  `tests/integration/test_ask_global_tool.py` fail locally without `MCP_HMAC_KEY` as the
+  adapter sees it (the file builds its adapter without an `hmac_key`). They fail identically
+  on `HEAD`, and they pass on the host, where the `.env` carries the key.
+- Production evidence (the live payload and `bookgraph://version`) is recorded after the
+  deploy, which needs the human's `sudo systemctl restart mcp-server`.

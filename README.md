@@ -394,6 +394,29 @@ in book 1.)
 
 ---
 
+## MCP consumer surface — contexts and graph version
+
+`ask_global` returns what it used, not only citation ids:
+
+```json
+{
+  "answer": "...",
+  "citations": ["CommunitySummary(6ab8a4a1)"],
+  "contexts": [{"id": "CommunitySummary(6ab8a4a1)", "level": 1, "score": 87, "text": "..."}],
+  "usage": {"llm_calls": 7, "detail_level": 1, "summaries_considered": 141, "summaries_used": 8},
+  "graph_version": "gv-1a2b3c4d5e6f"
+}
+```
+
+`contexts` is what makes an answer auditable: a citation id proves a summary exists, while
+its text shows whether that summary supports the sentence. Returning it costs no extra
+model call, because the summaries were already fetched and scored for ranking.
+
+`graph_version` names the graph state the answer came from, so a consumer that caches an
+answer can tell when it stopped being current. It is a structural digest of the same cheap
+census `bookgraph://catalog` reads, it is readable on its own at `bookgraph://version`, and
+it costs no model call. A failed census read reports `null` rather than a guess.
+
 ## Roadmap
 
 - **Phase 05 — Evaluation and readiness:** complete and archived. The thresholds are

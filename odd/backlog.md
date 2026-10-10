@@ -274,9 +274,11 @@ Deliberately out of scope, with comments in the code: `scripts/migrate_namespace
   captured from the duplicate's side as an `in` entry and rebuilt by `_ROLLBACK_RESTORE_RELATED_IN`. The file's 10
   testcontainer tests pass, which is what makes this a proof instead of a reading of the Cypher.
 
-## MCP consumer surface (found 2026-10-10, from the agentic-memory work)
+## MCP consumer surface (implemented 2026-10-10; found from the agentic-memory work)
 
-- **C1 `ask_global` returns citations but not the contexts it used.** The answer carries
+Both items below are **implemented**; the evidence that motivated them is kept as written.
+
+- **C1 (implemented `42cbd2e`) `ask_global` returns citations but not the contexts it used.** The answer carries
   `[Data: CommunitySummary(<id>)]` markers, so a consumer can confirm that an id exists but
   cannot audit whether that summary actually supports the sentence. The summaries were
   already fetched and scored inside the server, so returning their text costs **no extra LLM
@@ -290,7 +292,7 @@ Deliberately out of scope, with comments in the code: `scripts/migrate_namespace
   `graph_version`, and `usage` (`{llm_calls, detail_level}`); allow trimming the contexts with a
   parameter for callers that only want the answer. A `usage.llm_calls` counter would also remove the
   need to scrape `journalctl` to count calls.
-- **C2 The graph does not expose a data version identifier.** A caller that caches or cites an
+- **C2 (implemented `e3e5053` + `9650d93`) The graph does not expose a data version identifier.** A caller that caches or cites an
   answer needs to name the graph state it came from, and today there is nothing to name:
   `agentic-memory` was fed a date by hand (`2026-10-10`). Proposed: derive a cheap, reproducible
   `graph_version` from a fixed census (counts by label + newest `indexed_at` + the catalog revision)
