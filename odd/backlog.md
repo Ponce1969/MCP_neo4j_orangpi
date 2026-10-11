@@ -29,6 +29,23 @@ Each item states what it is, the evidence that it exists, and the block it belon
   **Decision needed (maintainer):** either make the service refuse to start without a token
   (fail-closed, matching §7) or state plainly that a token-less service is loopback-only and
   unauthenticated. Today the two documents disagree with the code.
+  **Resolved 2026-10-11 as fail-closed** (`9f09772`): with `app_env=production` and no token the
+  server refuses to start (exit 2) and outside production it starts with a loud warning, scoped
+  exactly like the wildcard-bind gate. An **independent verifier** challenged it and confirmed:
+  `serve` is the only production entrypoint, the refusal is the first executable statement of
+  `_run_server` (before any adapter is constructed and before anything binds), the warning is
+  development/test only, and an empty-string token is refused. Two residuals it found, neither
+  reachable through the shipped CLI:
+  (i) **a whitespace-only token is accepted as a credential** — the value is truthy, so the gate
+  passes and the middleware wraps the app expecting `Bearer  `; the server is still
+  authenticated, but the value is never sanitized;
+  (ii) **`run_sse` itself has no production gate** — enforcement lives in the composition root,
+  so a future programmatic caller of the adapter's `run_sse` would bypass it. Defense in depth
+  would put the check where serving happens; the adapter already knows `app_env`.
+  Also confirmed: **a fresh clone following `.env.example` now exits 2 at startup**, because the
+  template has no `MCP_ACCESS_TOKEN`. The example must gain it — and should point its LLM
+  provider at production's shape instead of NVIDIA/Llama — for the fail-closed default to be
+  usable by anyone but this host, which already sets the token (verified: 401 without it).
 - **O4 `.env` (and its backups) were world-readable on that host.** **Resolved 2026-10-03**: `chmod 600 .env
   .env.bak-*` applied (all five files now `-rw-------`, owner `gonzalo`); the running service was unaffected (the
   environment was already loaded), file stays readable by its owner, and the smoke passed with the token read from
