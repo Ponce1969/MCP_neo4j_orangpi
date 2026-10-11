@@ -46,6 +46,17 @@ Each item states what it is, the evidence that it exists, and the block it belon
   template has no `MCP_ACCESS_TOKEN`. The example must gain it — and should point its LLM
   provider at production's shape instead of NVIDIA/Llama — for the fail-closed default to be
   usable by anyone but this host, which already sets the token (verified: 401 without it).
+  **Both residuals closed 2026-10-11** (`96ba64e`): a token of spaces now counts as absent in
+  both read sites, so it can never become a credential, and `run_sse` refuses in production
+  before building the app or binding a port (defense in depth). A second independent verifier
+  confirmed the ordering, the absence of disagreement between the two layers, constant-time
+  comparison, fail-fast `APP_ENV` parsing, and that an empty or space-padded `.env` value is
+  treated as absent. It found **one narrower residual of the same class**: `str.strip()` removes
+  whitespace but not invisible **non**-whitespace characters (zero-width space U+200B, BOM
+  U+FEFF), so a token consisting only of those would still pass the gate and become a
+  trivially-guessable credential. A one-line guard would be `any(char.isprintable() ...)` on the
+  stripped value. It also noted the inherent policy gap that a low-entropy token like `"a"`
+  passes: the code does not assess guessability, and that is a decision rather than a bug.
 - **O4 `.env` (and its backups) were world-readable on that host.** **Resolved 2026-10-03**: `chmod 600 .env
   .env.bak-*` applied (all five files now `-rw-------`, owner `gonzalo`); the running service was unaffected (the
   environment was already loaded), file stays readable by its owner, and the smoke passed with the token read from
