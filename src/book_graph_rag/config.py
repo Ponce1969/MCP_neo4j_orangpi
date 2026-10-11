@@ -125,14 +125,18 @@ class Settings(BaseSettings):
     mcp_bind_host: str = "127.0.0.1"
     mcp_log_path: Path = Path("logs/mcp_queries.jsonl")
     mcp_log_retention_days: int = 7
-    # Keyed HMAC-SHA256 query/prompt log fingerprints (R5). Fail-closed: an
-    # empty ``mcp_hmac_key`` raises a typed QueryFingerprintError at fingerprint
-    # time — never plaintext logging. The key is a SecretStr and never logged.
+    # Keyed HMAC-SHA256 query/prompt log fingerprints (R5). Fail-closed: a key that
+    # is empty, invisible or shorter than 32 characters raises a typed
+    # QueryFingerprintError at fingerprint time — never plaintext logging. The key is
+    # a SecretStr and never logged. Same rule as the bearer token: one function decides
+    # what a real secret is.
     mcp_hmac_key_id: str = "mcp-log-v1"
     mcp_hmac_key: SecretStr = SecretStr("")
-    # Optional bearer token for the MCP SSE server. When set, every request
-    # must carry `Authorization: Bearer <mcp_access_token>`; otherwise the
-    # server stays open (dev/tailnet-only). Opt-in to keep local dev unblocked.
+    # Bearer token for the MCP transports. Every request must carry
+    # `Authorization: Bearer <mcp_access_token>`. In production the server refuses to
+    # start without a real one (at least 32 characters); outside production a
+    # token-less server starts with a warning and is only acceptable on a loopback
+    # bind. Same rule as the fingerprint key.
     mcp_access_token: SecretStr | None = None
     # Dynamic text-to-Cypher tool (query_cypher) is fail-closed by default.
     # It must be explicitly enabled; when disabled the MCP boundary returns a

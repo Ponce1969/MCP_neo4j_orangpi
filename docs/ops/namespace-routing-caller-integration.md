@@ -64,7 +64,7 @@ Routing telemetry is separate from the MCP query log and opt-in:
 |---------|---------|---------|
 | `router_enabled` | `false` | Off ⇒ `route_for_caller` returns `None`; callers keep the explicit-scope path. |
 | `router_telemetry_enabled` | `false` | Opt-in event recording to the bounded SQLite store. |
-| `router_telemetry_hmac_key` | empty | Keyed HMAC secret; empty ⇒ fail closed when telemetry is enabled. |
+| `router_telemetry_hmac_key` | empty | Keyed HMAC secret. Empty, invisible, or shorter than 32 characters ⇒ fingerprinting refuses, and enabling telemetry with such a key fails closed. |
 | `router_telemetry_hmac_key_id` | `router-telemetry-v1` | Key identifier for rotation/audit. |
 | `routing_telemetry_path` | `data/router/router_telemetry.db` | Event store path. |
 | `namespace_profile_store_path` | `data/router/namespace_profiles.json` | Read-only centroid artifact, never in Neo4j. |
