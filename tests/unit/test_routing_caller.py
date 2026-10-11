@@ -252,7 +252,7 @@ def test_build_routing_event_uses_keyed_fingerprint_and_never_raw_question() -> 
             "neo4j_uri": "bolt://localhost:7687",
             "neo4j_user": "neo4j",
             "neo4j_password": "secret",
-            "router_telemetry_hmac_key": "very-secret",
+            "router_telemetry_hmac_key": "very-secret-para-tests-0123456789abcdef",
         }
     )
 
@@ -261,7 +261,7 @@ def test_build_routing_event_uses_keyed_fingerprint_and_never_raw_question() -> 
     expected = hmac_query_fingerprint(
         "what is a tool?",
         key_id="router-telemetry-v1",
-        secret="very-secret",
+        secret="very-secret-para-tests-0123456789abcdef",
     )
     assert event.query_fingerprint == expected
     assert "what is a tool?" not in event.model_dump_json()
@@ -280,3 +280,28 @@ def test_build_routing_event_enforces_key_even_when_constructed_directly() -> No
 
     with pytest.raises(RoutingTelemetryError):
         build_routing_event("what is a tool?", _single_route(), settings, latency_ms=1.0)
+
+
+def test_a_short_router_telemetry_key_is_not_a_key() -> None:
+    """The routing telemetry key gets the same floor as the other two secrets.
+
+    It is the third secret this repo fingerprints with, and it was read with a bare
+    truthiness test, so a one-character key passed while the other two refused.
+    """
+    from pydantic import SecretStr
+
+    from book_graph_rag.config import Settings
+    from book_graph_rag.infrastructure.routing_caller import (
+        RoutingTelemetryError,
+        fingerprint_query_for_telemetry,
+    )
+
+    settings = Settings(
+        neo4j_uri="bolt://localhost:7687",
+        neo4j_user="neo4j",
+        neo4j_password=SecretStr("fake-password"),  # pragma: allowlist secret
+        router_telemetry_hmac_key=SecretStr("corta"),
+    )
+
+    with pytest.raises(RoutingTelemetryError, match="router_telemetry_hmac_key"):
+        fingerprint_query_for_telemetry("una pregunta", settings)

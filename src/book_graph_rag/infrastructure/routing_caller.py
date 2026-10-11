@@ -76,12 +76,14 @@ def fingerprint_query_for_telemetry(question: str, settings: Settings) -> str:
     Fails fast when ``router_telemetry_hmac_key`` is unset: the raw question
     is never stored and never hashed plainly.
     """
-    secret = settings.router_telemetry_hmac_key.get_secret_value()
+    from book_graph_rag.domain.mcp_security import effective_token
+
+    secret = effective_token(settings.router_telemetry_hmac_key.get_secret_value())
     if not secret:
         raise RoutingTelemetryError(
-            "router_telemetry_hmac_key is empty or missing; refusing to record "
-            "routing telemetry without a keyed fingerprint (raw questions are "
-            "never stored plainly)."
+            "router_telemetry_hmac_key is empty, invisible or shorter than 32 characters; "
+            "refusing to record routing telemetry without a keyed fingerprint (raw "
+            "questions are never stored plainly)."
         )
     return hmac_query_fingerprint(
         question,
@@ -124,7 +126,9 @@ def build_routing_caller(settings: Settings) -> RoutingCaller:
         RoutingTelemetryError: When telemetry is enabled without a configured
             HMAC key (fail closed; raw questions are never logged plainly).
     """
-    if settings.router_telemetry_enabled and not (
+    from book_graph_rag.domain.mcp_security import effective_token
+
+    if settings.router_telemetry_enabled and not effective_token(
         settings.router_telemetry_hmac_key.get_secret_value()
     ):
         raise RoutingTelemetryError(
