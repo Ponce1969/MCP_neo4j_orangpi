@@ -1318,7 +1318,11 @@ async def test_ask_global_success_is_logged(
 
     result = await adapter.ask_global("what patterns mitigate risk?", source_id="book:default")
 
-    assert result == {"answer": "42", "citations": ["a", "b"]}
+    assert result["answer"] == "42"
+    assert result["citations"] == ["a", "b"]
+    # The adapter stamps the graph version into every answer. This adapter has no catalog, so
+    # it is None - and None is the point: an unknown version is never guessed.
+    assert result["graph_version"] is None
     assert len(use_case.calls) == 1, "the answer must come from the use case, not a fallback"
     entries = [entry for entry in query_logger.entries if entry.tool_name == "ask_global"]
     assert len(entries) == 1
