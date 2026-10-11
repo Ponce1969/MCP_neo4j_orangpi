@@ -126,19 +126,6 @@ async def _run_server(settings: Settings) -> None:
             "only on a loopback bind outside production",
             err=True,
         )
-    # The same rule governs the fingerprint key, and it is checked here rather than at log
-    # time: without it a weak key starts cleanly and then breaks every tool call, after the
-    # graph has already been called.
-    from book_graph_rag.domain.mcp_security import effective_token
-
-    if settings.app_env == "production" and not effective_token(
-        settings.mcp_hmac_key.get_secret_value()
-    ):
-        raise RuntimeError(
-            "mcp_hmac_key must be a real key in production: the MCP refuses to log without "
-            "a keyed fingerprint, so a weak key would start cleanly and then break every "
-            "tool call after it had already called the graph"
-        )
     query_adapter: Neo4jQueryAdapter = Neo4jQueryAdapter(settings)
     try:
         community_adapter: Neo4jCommunityAdapter = Neo4jCommunityAdapter(settings)
