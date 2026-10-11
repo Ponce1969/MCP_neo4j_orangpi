@@ -20,7 +20,7 @@ Every command prints one JSON object to stdout, and the exit code carries the de
 | --- | --- |
 | `0` | `ask` hit: the JSON carries `answer`, `sources`, `confidence`, `stored_at`. `put` succeeded: `{"stored": true, "digest": ...}` |
 | `1` | `ask` miss: `{"hit": false}`. Not a failure, it means produce the answer and store it |
-| `2` | refused: `{"stored": false, "reason": ...}`. Fix the request; the refusal was recorded |
+| `2` | refused, in the vocabulary of the operation: `{"hit": false, "reason": ...}` from `ask`, `{"stored": false, "reason": ...}` from `put`. Fix the request; the refusal was recorded |
 
 Branch on the exit code, never on prose.
 
