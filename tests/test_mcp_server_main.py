@@ -106,6 +106,9 @@ def fake_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
         mcp_access_token=SecretStr(
             "fake-access-token-para-tests-0123456789"
         ),  # pragma: allowlist secret
+        mcp_hmac_key=SecretStr(
+            "fake-hmac-key-para-tests-0123456789abcdef"
+        ),  # pragma: allowlist secret
     )
 
     class _FakeSettingsType:
@@ -489,6 +492,25 @@ async def test_a_whitespace_only_token_counts_as_missing(
 
     with pytest.raises(RuntimeError, match="mcp_access_token"):
         await _run_server(blank)
+
+    assert "server_adapter" not in fake_adapters
+
+
+async def test_production_without_a_real_hmac_key_refuses_to_start(
+    fake_settings: Settings, fake_adapters: dict[str, Any]
+) -> None:
+    """A weak fingerprint key must fail at startup, not halfway through a tool call.
+
+    The MCP refuses to log without a keyed fingerprint, so a short key starts cleanly and
+    then breaks every tool call after it has already called the graph. Refusing at startup
+    turns that into a configuration error, which is what the token already does.
+    """
+    from book_graph_rag.mcp_server_main import _run_server
+
+    weak = fake_settings.model_copy(update={"mcp_hmac_key": SecretStr("corta")})
+
+    with pytest.raises(RuntimeError, match="mcp_hmac_key"):
+        await _run_server(weak)
 
     assert "server_adapter" not in fake_adapters
 
