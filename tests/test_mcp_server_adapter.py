@@ -752,11 +752,11 @@ async def test_run_sse_token_wraps_app_in_bearer_middleware(
     monkeypatch.setattr(uvicorn, "Server", _FakeUvicornServer)
     _FakeUvicornServer.instances.clear()
 
-    await adapter.run_sse(access_token=SecretStr("tok-abc"))
+    await adapter.run_sse(access_token=SecretStr("tok-abc-para-tests-0123456789abcdef"))
 
     served_app = _FakeUvicornServer.instances[0].config.app
     assert isinstance(served_app, BearerTokenAuthMiddleware)
-    assert served_app._expected == b"Bearer tok-abc"  # noqa: SLF001
+    assert served_app._expected == b"Bearer tok-abc-para-tests-0123456789abcdef"  # noqa: SLF001
 
 
 async def test_run_sse_without_token_serves_unwrapped(

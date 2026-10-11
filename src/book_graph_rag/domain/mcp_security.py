@@ -406,14 +406,20 @@ def canonical_json(value: Any) -> bytes:
     ).encode("utf-8")
 
 
+_MIN_TOKEN_CHARACTERS = 32
+
+
 def effective_token(value: str | None) -> str:
     """Return the bearer token if it is a real credential, else an empty string.
 
-    A token is only effective when it survives stripping **and** contains at least one
-    printable character. A token of spaces is guessable, and so is one made of invisible
-    non-whitespace characters (U+200B zero-width space, U+FEFF BOM): ``str.strip`` does not
-    remove those because they are not whitespace, so a naive emptiness check would let them
-    through and the middleware would install a lock anyone can open.
+    A token is effective only when all three hold: it survives stripping, it contains at least
+    one printable character, and it is at least ``_MIN_TOKEN_CHARACTERS`` long.
+
+    Each condition closes a measured hole. Spaces are guessable. Invisible non-whitespace
+    characters (U+200B zero-width space, U+FEFF BOM) are not whitespace, so ``str.strip``
+    leaves them behind. And the shortest survivors of both checks are one character long —
+    a combining mark, a braille blank, a Hangul filler, or a plain ``"a"`` — which is why a
+    length floor covers that whole class in one rule instead of a patch per character class.
 
     Either way the honest answer is "no token", which fails closed in production instead of
     pretending to be protected. This is the single rule both the composition root and the
@@ -423,5 +429,7 @@ def effective_token(value: str | None) -> str:
         return ""
     stripped = value.strip()
     if not stripped or not any(character.isprintable() for character in stripped):
+        return ""
+    if len(stripped) < _MIN_TOKEN_CHARACTERS:
         return ""
     return stripped

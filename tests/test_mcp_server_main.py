@@ -103,7 +103,9 @@ def fake_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
         neo4j_password=SecretStr("fake-password"),  # pragma: allowlist secret
-        mcp_access_token=SecretStr("fake-access-token"),  # pragma: allowlist secret
+        mcp_access_token=SecretStr(
+            "fake-access-token-para-tests-0123456789"
+        ),  # pragma: allowlist secret
     )
 
     class _FakeSettingsType:
@@ -222,7 +224,9 @@ def test_serve_command_starts_server(
     assert "MCP server starting on port 8003" in result.output
     server_adapter = fake_adapters["server_adapter"]
     server_adapter.run_sse_mock.assert_awaited_once_with(
-        host="127.0.0.1", port=8003, access_token=SecretStr("fake-access-token")
+        host="127.0.0.1",
+        port=8003,
+        access_token=SecretStr("fake-access-token-para-tests-0123456789"),
     )
 
 
@@ -299,7 +303,9 @@ def test_serve_uses_custom_mcp_port(
     assert result.exit_code == 0, result.output
     assert "MCP server starting on port 9000" in result.output
     fake_adapters["server_adapter"].run_sse_mock.assert_awaited_once_with(
-        host="127.0.0.1", port=9000, access_token=SecretStr("fake-access-token")
+        host="127.0.0.1",
+        port=9000,
+        access_token=SecretStr("fake-access-token-para-tests-0123456789"),
     )
 
 
@@ -325,7 +331,9 @@ def test_serve_passes_configured_bind_host(
     fake_adapters["server_adapter"].run_sse_mock.assert_awaited_once_with(
         host="100.106.85.109",  # no-external-endpoints-allow
         port=8003,
-        access_token=SecretStr("fake-access-token"),  # no-external-endpoints-allow
+        access_token=SecretStr(
+            "fake-access-token-para-tests-0123456789"
+        ),  # no-external-endpoints-allow
     )
 
 
@@ -492,9 +500,10 @@ def test_effective_token_rejects_everything_that_is_not_a_credential() -> None:
     """
     from book_graph_rag.domain.mcp_security import effective_token
 
-    assert effective_token("real-token") == "real-token"
-    assert effective_token("  real-token  ") == "real-token"
-    assert effective_token("a\u200b") == "a\u200b"
+    good = "real-token-para-tests-0123456789abcd"
+    assert effective_token(good) == good
+    assert effective_token("  " + good + "  ") == good
+    assert effective_token("a" * 32 + "\u200b") == "a" * 32 + "\u200b"
 
     assert effective_token(None) == ""
     assert effective_token("") == ""
@@ -515,5 +524,34 @@ async def test_a_token_of_invisible_characters_counts_as_missing(
 
     with pytest.raises(RuntimeError, match="mcp_access_token"):
         await _run_server(invisible)
+
+    assert "server_adapter" not in fake_adapters
+
+
+def test_effective_token_requires_a_minimum_length() -> None:
+    """A short token is not a credential either: it is guessable.
+
+    Measured 2026-10-11: a combining mark, a braille blank, a Hangul filler and a single
+    letter all survive stripping and printability, and all of them are one character long.
+    One length floor covers that whole class, which is why the policy lives in the same rule
+    instead of becoming another character-class patch.
+    """
+    from book_graph_rag.domain.mcp_security import effective_token
+
+    assert effective_token("a" * 31) == ""
+    assert effective_token("a" * 32) == "a" * 32
+    assert effective_token("  " + "a" * 32 + "  ") == "a" * 32
+
+
+async def test_a_short_token_counts_as_missing_in_production(
+    fake_settings: Settings, fake_adapters: dict[str, Any]
+) -> None:
+    """Production refuses a token that is real but too short to be a credential."""
+    from book_graph_rag.mcp_server_main import _run_server
+
+    short = fake_settings.model_copy(update={"mcp_access_token": SecretStr("corto")})
+
+    with pytest.raises(RuntimeError, match="mcp_access_token"):
+        await _run_server(short)
 
     assert "server_adapter" not in fake_adapters
