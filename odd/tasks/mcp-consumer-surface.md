@@ -73,3 +73,19 @@ L4 — 2026-10-10, implementation evidence:
   on `HEAD`, and they pass on the host, where the `.env` carries the key.
 - Production evidence (the live payload and `bookgraph://version`) is recorded after the
   deploy, which needs the human's `sudo systemctl restart mcp-server`.
+
+L5 — 2026-10-10/11, production evidence (deployed `69c2d7e`, service restarted 21:51):
+`ask_global` at `detail_level=0` returned, in 5.5 s, exactly the keys `answer`, `citations`,
+`contexts`, `graph_version`, `usage`. `graph_version` = `gv-c00459a74b39`; `usage` =
+`{llm_calls: 2, detail_level: 0, summaries_considered: 1, summaries_used: 1}` (one batch plus
+the compose, matching the earlier latency measurement); the single context carried score 88
+and **5,899 characters of the real summary text**, which is the whole point of C1.
+`resources/list` exposes `bookgraph://catalog` **and** `bookgraph://version`; the version
+resource returned the same `gv-c00459a74b39`, and `bookgraph://catalog` carries it too, so
+all three surfaces agree.
+
+The circle between the two repositories, end to end: that real answer (790 characters, one
+citation) was stored in `agentic-memory` with the graph's **own** version — never guessed —
+and asked back with a surface variant (lowercased, padded whitespace) in **0.42 s** as a hit,
+with `stats` reporting `entries: 1, hit_rate: 1.0`. The memory never queried the graph: the
+version arrived as caller input, exactly as S1 requires.
