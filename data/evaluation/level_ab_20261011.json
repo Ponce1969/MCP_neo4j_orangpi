@@ -1,0 +1,51 @@
+{
+  "artifact": "level 0 vs level 1 — project-owned quality comparison",
+  "measured": "2026-10-11",
+  "host_commit": "79ab6d9",
+  "dataset": "generation_dataset (the readiness gate's own 35 questions)",
+  "how": "the generation evaluation layer, one process per level, run on the OrangePi against the live graph; /tmp/baseline_level{0,1}.json",
+  "why": "the project had no comparable quality baseline: the gate measured 35 answers and the standalone RAGAS run measured 67 over a different dataset. This compares two detail levels on the gate's own dataset, with the deterministic evidence-usage signal added the same day.",
+  "levels": {
+    "0": {
+      "contexts_provided_per_question": 4,
+      "project_faithfulness": 0.8793,
+      "project_pairwise_win_rate": 0.7143,
+      "project_claims": 290,
+      "project_pairwise_wins_of_total": "25/35",
+      "ragas_faithfulness": 0.5929,
+      "ragas_context_precision": 0.2472,
+      "ragas_answer_relevancy": 0.2178,
+      "ragas_available": true,
+      "ragas_drop_warning": true,
+      "evidence_usage_mean_term_grounding": 0.7427,
+      "evidence_usage_term_min_median_max": [0.286, 0.8, 0.961],
+      "evidence_usage_cited_context_share": null,
+      "latency_seconds_and_calls": "4-7 s, 2 model calls",
+      "status": "passed"
+    },
+    "1": {
+      "contexts_provided_per_question": 164,
+      "project_faithfulness": 0.7949,
+      "project_pairwise_win_rate": 0.4,
+      "project_claims": 156,
+      "project_pairwise_wins_of_total": "14/35",
+      "ragas_faithfulness": 0.6738,
+      "ragas_context_precision": 0.243,
+      "ragas_answer_relevancy": 0.2052,
+      "ragas_available": true,
+      "ragas_drop_warning": false,
+      "evidence_usage_mean_term_grounding": 0.9585,
+      "evidence_usage_term_min_median_max": [0.75, 1.0, 1.0],
+      "evidence_usage_cited_context_share": null,
+      "latency_seconds_and_calls": "33-40 s, 7 model calls",
+      "status": "passed"
+    }
+  },
+  "verdict": "No clear winner. Level 0 wins the project's own faithfulness (0.879 vs 0.795) and the pairwise judge (0.714 vs 0.400) at a sixth of the latency; level 1 wins RAGAS faithfulness (0.674 vs 0.593) and the deterministic evidence-usage signal; context precision is a tie. The two levels are complementary slices, not one degraded mode.",
+  "caveats": [
+    "evidence_usage (term_grounding) measures vocabulary overlap with the contexts, so it structurally favours the level that sends more context: level 1 sends 164 summaries and level 0 sends 4. It must not be the sole arbiter.",
+    "ragas_answer_relevancy is broken in this configuration (a deterministic 0.0 even when the answer is the question echoed back); its values here must not be tuned against.",
+    "cited_context_share is null for both levels because the evaluation's contexts carry no citable id (chunk_id is None for community summaries), which is why the signal reports an undefined share instead of a zero.",
+    "level 0 carries ragas_drop_warning: true: its RAGAS faithfulness fell below the previous value (0.6825) recorded in the baseline."
+  ]
+}
