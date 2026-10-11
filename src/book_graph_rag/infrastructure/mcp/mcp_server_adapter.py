@@ -333,13 +333,24 @@ class McpServerAdapter:
         )
 
     def _make_fingerprint(self, payload: dict[str, Any]) -> QueryFingerprint:
-        """Compute a keyed query/prompt fingerprint, failing closed without a key."""
-        key = self._hmac_key
-        if key is None or not key.get_secret_value():
+        """Compute a keyed query/prompt fingerprint, failing closed without a real key.
+
+        The key goes through the same rule as the bearer token: a blank, invisible or short
+        value is not a key. The stakes are lower than the token's, because a fingerprint is
+        log correlation rather than an authentication boundary, but a key short enough to
+        guess makes the fingerprint decorative.
+        """
+        from book_graph_rag.domain.mcp_security import effective_token
+
+        secret = effective_token(
+            self._hmac_key.get_secret_value() if self._hmac_key is not None else None
+        )
+        if not secret:
             raise QueryFingerprintError(
-                "mcp_hmac_key is empty or missing; refusing to log without fingerprinting"
+                "mcp_hmac_key is empty, invisible or shorter than 32 characters; refusing to "
+                "log without a real fingerprinting key"
             )
-        return QueryFingerprint.from_canonical(self._hmac_key_id, key.get_secret_value(), payload)
+        return QueryFingerprint.from_canonical(self._hmac_key_id, secret, payload)
 
     def _emit_raw_log(
         self,

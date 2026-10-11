@@ -265,7 +265,7 @@ class _RecordingBudgetPort(ResourceBudgetPort):
 
 
 _TEST_HMAC_KEY_ID = "test-v1"
-_TEST_HMAC_KEY = SecretStr("test-hmac-secret")
+_TEST_HMAC_KEY = SecretStr("test-hmac-secret-para-tests-0123456789abcdef")
 
 
 @pytest.fixture
@@ -1755,7 +1755,7 @@ async def test_fingerprint_differs_with_key(
         query_logger,
         text2cypher_port,
         scope_resolver=scope_resolver,
-        hmac_key=SecretStr("key-a"),
+        hmac_key=SecretStr("key-a-para-tests-0123456789abcdef"),
         hmac_key_id="v1",
     )
     adapter_b = McpServerAdapter(
@@ -1763,7 +1763,7 @@ async def test_fingerprint_differs_with_key(
         query_logger,
         text2cypher_port,
         scope_resolver=scope_resolver,
-        hmac_key=SecretStr("key-b"),
+        hmac_key=SecretStr("key-b-para-tests-0123456789abcdef"),
         hmac_key_id="v1",
     )
 
@@ -2017,3 +2017,27 @@ async def test_an_invisible_token_never_becomes_a_credential(
     from book_graph_rag.infrastructure.mcp.bearer_auth import BearerTokenAuthMiddleware
 
     assert not isinstance(_FakeUvicornServer.instances[0].config.app, BearerTokenAuthMiddleware)
+
+
+async def test_a_short_hmac_key_refuses_to_fingerprint(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """The fingerprint key gets the same floor as the bearer token.
+
+    It is not an authentication boundary, so the stakes are lower, but a key short enough to
+    guess makes the fingerprint decorative - and a blank one already refused to log. One rule
+    now decides what a real secret is, for both.
+    """
+    short = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=SecretStr("corta"),
+        app_env="test",
+    )
+
+    with pytest.raises(Exception, match="hmac"):
+        short._make_fingerprint({"question": "x"})

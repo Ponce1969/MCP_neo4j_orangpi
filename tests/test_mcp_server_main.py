@@ -259,7 +259,9 @@ def test_composition_root_passes_hmac_settings_to_adapter(
 ) -> None:
     """The HMAC key id and key flow from Settings into McpServerAdapter (R5)."""
     fake_settings.mcp_hmac_key_id = "mcp-log-v2"
-    fake_settings.mcp_hmac_key = SecretStr("top-secret-key")  # pragma: allowlist secret
+    fake_settings.mcp_hmac_key = SecretStr(
+        "top-secret-key-para-tests-0123456789abcdef"
+    )  # pragma: allowlist secret
 
     runner = CliRunner()
     runner.invoke(mcp_cli, ["serve"])

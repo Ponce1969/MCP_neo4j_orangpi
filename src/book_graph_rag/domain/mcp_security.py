@@ -410,10 +410,11 @@ _MIN_TOKEN_CHARACTERS = 32
 
 
 def effective_token(value: str | None) -> str:
-    """Return the bearer token if it is a real credential, else an empty string.
+    """Return a secret if it is a real credential, else an empty string.
 
-    A token is effective only when all three hold: it survives stripping, it contains at least
-    one printable character, and it is at least ``_MIN_TOKEN_CHARACTERS`` long.
+    Used for both secrets this service reads: the bearer token and the fingerprint key.
+    A secret is effective only when all three hold: it survives stripping, it contains at
+    least one printable character, and it is at least ``_MIN_TOKEN_CHARACTERS`` long.
 
     Each condition closes a measured hole. Spaces are guessable. Invisible non-whitespace
     characters (U+200B zero-width space, U+FEFF BOM) are not whitespace, so ``str.strip``
@@ -421,9 +422,9 @@ def effective_token(value: str | None) -> str:
     a combining mark, a braille blank, a Hangul filler, or a plain ``"a"`` — which is why a
     length floor covers that whole class in one rule instead of a patch per character class.
 
-    Either way the honest answer is "no token", which fails closed in production instead of
-    pretending to be protected. This is the single rule both the composition root and the
-    adapter consult, so the two layers cannot drift apart.
+    Either way the honest answer is "no secret", which fails closed in production instead of
+    pretending to be protected. This is the single rule every reader consults, so no layer
+    can drift from another.
     """
     if value is None:
         return ""
