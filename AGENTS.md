@@ -206,7 +206,12 @@ con la llave humana todo funciona y *parece* que el gatekeeper está roto, cuand
 
 ## 8. Próxima fase documentada — cache de agentes y recetas del grafo
 
-Diseño acordado el 2026-10-09. **Nada implementado todavía.**
+Diseño acordado el 2026-10-09. **La etapa 1 (la caché de consultas) ya está implementada, pero
+en un repo aparte**: `agentic-memory` (`https://github.com/Ponce1969/agentic-memory`),
+CLI-first sobre SQLite, con la memoria como **servicio pasivo que no consulta nada** y recibe
+el `graph_version` del llamador. **Nada de las etapas 2+ está implementado todavía** (recetas
+aprobadas, snapshots de salud del corpus, memoria semántica / de procedimientos / de
+evaluación, embeddings, y el adaptador MCP sobre ese core).
 Documento completo: `docs/spec/08-agent-cache-and-recipes.md`.
 
 - **Qué es**: una **cache local SQLite** de las respuestas del grafo — clave = pregunta

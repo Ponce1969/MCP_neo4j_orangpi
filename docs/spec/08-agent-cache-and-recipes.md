@@ -1,8 +1,15 @@
-# 08 — Agent cache and graph recipes (design, not implemented)
+# 08 — Agent cache and graph recipes (stage 1 implemented in a separate repository)
 
-**Status:** design agreed 2026-10-09. **Nothing here is implemented yet.**
-Written so that any agent (or human) can pick this up in a later session without
-re-reading the whole conversation that produced it.
+**Status:** design agreed 2026-10-09. **Stage 1 — the query cache — is implemented, but not
+here**: it lives in its own repository, `agentic-memory`
+(`https://github.com/Ponce1969/agentic-memory`), CLI-first over SQLite, which is what keeps
+this MCP read-only. **Everything from stage 2 onward is still not implemented**: approved
+query recipes, corpus health snapshots, semantic / procedure / evaluation memory, embeddings,
+and the MCP adapter over that core.
+
+This document stays as the design rationale and the record of the decisions, so that any
+agent (or human) can pick up the remaining stages without re-reading the whole conversation
+that produced them.
 
 ---
 
