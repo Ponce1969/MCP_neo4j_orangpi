@@ -6,11 +6,18 @@ import uuid
 from typing import Any
 
 from book_graph_rag.config import Settings
+from book_graph_rag.domain.answer_grounding import (
+    AnswerGrounding,
+    GroundingContext,
+    grounding,
+)
 from book_graph_rag.domain.evaluation_models import (
+    AnswerGroundingSummary,
     AtomicClaim,
     EvaluationBaselineReport,
     EvaluationDataset,
     EvaluationLayerResult,
+    GroundingQuestionScore,
     LayerMetricValue,
     LayerRunMetadata,
     LayerStatus,
@@ -187,6 +194,13 @@ class EvaluateGenerationLayerUseCase:
                 detail_level=detail_level,
             )
             answer = await self._retrieval_port.compose_answer(question=question, contexts=contexts)
+            # Deterministic evidence usage: the answer's own citations and terms measured
+            # against the contexts it was given. No model call, and no id is invented for a
+            # context that carries none.
+            evidence_usage = grounding(
+                answer,
+                [GroundingContext(id=context.chunk_id, text=context.text) for context in contexts],
+            )
             # Claim/pairwise ports still consume plain text evidence; pass the
             # text payloads while preserving the structured contexts upstream.
             context_texts = tuple(ctx.text for ctx in contexts)
@@ -215,6 +229,7 @@ class EvaluateGenerationLayerUseCase:
                     question_id=question_id,
                     claims=verified,
                     pairwise=pairwise,
+                    grounding=evidence_usage,
                 )
             )
         return tuple(results)
@@ -259,12 +274,14 @@ class EvaluateGenerationLayerUseCase:
         elif self._settings.query_llm_model_name:
             model_ids = (self._settings.query_llm_model_name,)
 
-        claim_count = sum(len(r.claims) for r in getattr(self, "_last_per_question", ()))
+        per_question: tuple[_PerQuestionResult, ...] = getattr(self, "_last_per_question", ())
+        claim_count = sum(len(r.claims) for r in per_question)
         return EvaluationLayerResult(
             layer="generation",
             status=status,
             project_owned_metrics=metrics,
             ragas_secondary=ragas,
+            answer_grounding=_grounding_summary(per_question),
             warnings=warnings,
             rationale=(
                 f"{rationale} (claims={claim_count}, pairwise={pairwise_wins}/{pairwise_total})"
@@ -279,6 +296,38 @@ class EvaluateGenerationLayerUseCase:
         )
 
 
+def _grounding_summary(results: tuple[_PerQuestionResult, ...]) -> AnswerGroundingSummary | None:
+    """Aggregate the per-question evidence usage, leaving an undefined mean undefined.
+
+    The citation share is only averaged over the questions that could produce it: on paths
+    whose contexts carry no citable id, including that question would drag the mean toward a
+    zero that means "no ids", not "no grounding".
+    """
+    scored: list[tuple[str, AnswerGrounding]] = [
+        (result.question_id, result.grounding) for result in results if result.grounding is not None
+    ]
+    if not scored:
+        return None
+    shares = [
+        usage.cited_context_share for _, usage in scored if usage.cited_context_share is not None
+    ]
+    return AnswerGroundingSummary(
+        questions=tuple(
+            GroundingQuestionScore(
+                question_id=question_id,
+                cited_context_share=usage.cited_context_share,
+                term_grounding=usage.term_grounding,
+                cited_contexts=usage.cited_contexts,
+                contexts_provided=usage.contexts_provided,
+                contexts_with_ids=usage.contexts_with_ids,
+            )
+            for question_id, usage in scored
+        ),
+        mean_cited_context_share=sum(shares) / len(shares) if shares else None,
+        mean_term_grounding=sum(usage.term_grounding for _, usage in scored) / len(scored),
+    )
+
+
 class _PerQuestionResult:
     def __init__(
         self,
@@ -286,7 +335,9 @@ class _PerQuestionResult:
         question_id: str,
         claims: tuple[AtomicClaim, ...],
         pairwise: Any,
+        grounding: AnswerGrounding | None = None,
     ) -> None:
         self.question_id = question_id
         self.claims = claims
         self.pairwise = pairwise
+        self.grounding = grounding

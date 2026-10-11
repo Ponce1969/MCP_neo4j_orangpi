@@ -52,7 +52,8 @@ class TestCitedContextShare:
         assert grounding(answer, contexts).cited_context_share == 0.5
 
     def test_no_contexts_means_no_share_rather_than_a_crash(self) -> None:
-        assert grounding("cualquier cosa", []).cited_context_share == 0.0
+        """0/0 is undefined, so it is reported as undefined and never as a zero."""
+        assert grounding("cualquier cosa", []).cited_context_share is None
 
 
 class TestTermGrounding:
@@ -96,3 +97,33 @@ class TestTermGrounding:
         contexts = [_context("hash-1", "Precisión por paso.")]
 
         assert grounding("PRECISION por paso", contexts).term_grounding == 1.0
+
+
+class TestContextsWithoutIds:
+    """On a path whose contexts carry no ids, the citation share cannot be computed.
+
+    The generation evaluation retrieves contexts that carry a ``chunk_id`` (``None`` for
+    community summaries), so the answer's ``CommunitySummary`` citations cannot be matched
+    to them. Reporting a number there would be inventing one.
+    """
+
+    def test_the_share_is_none_when_no_context_carries_an_id(self) -> None:
+        contexts = [GroundingContext(id=None, text="Percentiles de latencia.")]
+
+        result = grounding("Percentiles de latencia.", contexts)
+
+        assert result.cited_context_share is None
+        assert result.contexts_with_ids == 0
+        assert result.term_grounding == 1.0
+
+    def test_the_share_counts_only_the_contexts_that_have_ids(self) -> None:
+        contexts = [
+            GroundingContext(id="hash-1", text="a"),
+            GroundingContext(id=None, text="b"),
+        ]
+
+        result = grounding(f"Cito {_cite('hash-1')}.", contexts)
+
+        assert result.cited_context_share == 1.0
+        assert result.contexts_with_ids == 1
+        assert result.contexts_provided == 2

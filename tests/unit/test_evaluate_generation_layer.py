@@ -511,3 +511,33 @@ def test_pipeline_orchestration_order() -> None:
     )
     asyncio.run(uc.execute())
     assert calls == ["fetch", "compose", "extract", "verify", "pairwise", "ragas"]
+
+
+def test_the_run_reports_the_evidence_usage_of_every_answer() -> None:
+    """The grounding signal is reported per question and aggregated (S4).
+
+    The fake contexts carry no ids, exactly as the real ones do for community summaries, so
+    the citation share is undefined and must come back as None rather than as a zero that
+    reads like a measurement. The answer is given the contexts' own words so the term
+    grounding is a known number: this test is about the plumbing, not the linguistics.
+    """
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={"faithfulness": 0.8},
+    )
+    uc = _make_use_case(baseline=baseline, answers={"what is MCP?": "ctx1 ctx2"})
+
+    result = asyncio.run(uc.execute())
+
+    grounding = result.answer_grounding
+    assert grounding is not None
+    assert [q.question_id for q in grounding.questions] == ["q1"]
+    assert grounding.questions[0].term_grounding == 1.0
+    assert grounding.questions[0].cited_context_share is None
+    assert grounding.questions[0].contexts_provided == 2
+    assert grounding.mean_term_grounding == 1.0
+    assert grounding.mean_cited_context_share is None

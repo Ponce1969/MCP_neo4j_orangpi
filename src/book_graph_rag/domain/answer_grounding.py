@@ -68,11 +68,16 @@ _STOPWORDS = frozenset(
 
 
 class GroundingContext(BaseModel):
-    """One context an answer was given: the id it is cited by and its text."""
+    """One context an answer was given: the id it is cited by, when it has one, and its text.
+
+    ``id`` is ``None`` on paths whose contexts carry no citable identity — the generation
+    evaluation retrieves contexts with a ``chunk_id`` that is ``None`` for community
+    summaries — and then the citation share is not computable rather than guessed.
+    """
 
     model_config = ConfigDict(frozen=True)
 
-    id: str = Field(min_length=1)
+    id: str | None = None
     text: str = ""
 
 
@@ -81,10 +86,11 @@ class AnswerGrounding(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    cited_context_share: float = Field(ge=0.0, le=1.0)
+    cited_context_share: float | None = Field(default=None, ge=0.0, le=1.0)
     term_grounding: float = Field(ge=0.0, le=1.0)
     cited_contexts: int = Field(ge=0)
     contexts_provided: int = Field(ge=0)
+    contexts_with_ids: int = Field(ge=0)
 
 
 def cited_ids(answer: str) -> list[str]:
@@ -106,29 +112,35 @@ def content_terms(text: str) -> set[str]:
 
 
 def grounding(answer: str, contexts: Sequence[GroundingContext]) -> AnswerGrounding:
-    """Compute both numbers for one answer against the contexts it was given."""
-    provided = [context.id for context in contexts]
-    if not provided:
-        return AnswerGrounding(
-            cited_context_share=0.0,
-            term_grounding=0.0,
-            cited_contexts=0,
-            contexts_provided=0,
-        )
+    """Compute both numbers for one answer against the contexts it was given.
 
-    cited = [context_id for context_id in cited_ids(answer) if context_id in provided]
+    ``cited_context_share`` is ``None`` when no context carries an id: an undefined share is
+    reported as undefined, never as a zero that reads like a measurement.
+    """
+    provided_ids = [context.id for context in contexts if context.id]
     terms = content_terms(answer)
-    if not terms:
+    if not terms or not contexts:
         term_grounding = 0.0
     else:
         context_terms = content_terms(" ".join(context.text for context in contexts))
         term_grounding = len(terms & context_terms) / len(terms)
 
+    if not provided_ids:
+        return AnswerGrounding(
+            cited_context_share=None,
+            term_grounding=term_grounding,
+            cited_contexts=0,
+            contexts_provided=len(contexts),
+            contexts_with_ids=0,
+        )
+
+    cited = [context_id for context_id in cited_ids(answer) if context_id in provided_ids]
     return AnswerGrounding(
-        cited_context_share=len(cited) / len(provided),
+        cited_context_share=len(cited) / len(provided_ids),
         term_grounding=term_grounding,
         cited_contexts=len(cited),
-        contexts_provided=len(provided),
+        contexts_provided=len(contexts),
+        contexts_with_ids=len(provided_ids),
     )
 
 

@@ -159,6 +159,34 @@ class RAGASQuestionScore(BaseModel):
     context_precision: float | None = None
 
 
+class GroundingQuestionScore(BaseModel):
+    """One answer's evidence usage, as the deterministic signal measured it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    question_id: str
+    cited_context_share: float | None = None
+    term_grounding: float = 0.0
+    cited_contexts: int = 0
+    contexts_provided: int = 0
+    contexts_with_ids: int = 0
+
+
+class AnswerGroundingSummary(BaseModel):
+    """Evidence usage across a run: per question, plus the means.
+
+    A mean is ``None`` when no question could produce that number. On the retrieval paths
+    whose contexts carry no citable id the citation share is undefined, and an undefined
+    mean must not be reported as a zero that reads like a measurement.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    questions: tuple[GroundingQuestionScore, ...] = ()
+    mean_cited_context_share: float | None = None
+    mean_term_grounding: float | None = None
+
+
 class RAGASSecondaryMetrics(BaseModel):
     """RAGAS secondary metrics; failure/unavailability is a warning only."""
 
@@ -266,6 +294,7 @@ class EvaluationLayerResult(BaseModel):
     status: LayerStatus
     project_owned_metrics: tuple[LayerMetricValue, ...]
     ragas_secondary: RAGASSecondaryMetrics | None = None
+    answer_grounding: AnswerGroundingSummary | None = None
     warnings: tuple[str, ...] = ()
     rationale: str = ""
     source_dataset_id: str
