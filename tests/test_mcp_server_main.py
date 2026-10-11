@@ -103,6 +103,7 @@ def fake_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
         neo4j_password=SecretStr("fake-password"),  # pragma: allowlist secret
+        mcp_access_token=SecretStr("fake-access-token"),  # pragma: allowlist secret
     )
 
     class _FakeSettingsType:
@@ -221,7 +222,7 @@ def test_serve_command_starts_server(
     assert "MCP server starting on port 8003" in result.output
     server_adapter = fake_adapters["server_adapter"]
     server_adapter.run_sse_mock.assert_awaited_once_with(
-        host="127.0.0.1", port=8003, access_token=None
+        host="127.0.0.1", port=8003, access_token=SecretStr("fake-access-token")
     )
 
 
@@ -298,7 +299,7 @@ def test_serve_uses_custom_mcp_port(
     assert result.exit_code == 0, result.output
     assert "MCP server starting on port 9000" in result.output
     fake_adapters["server_adapter"].run_sse_mock.assert_awaited_once_with(
-        host="127.0.0.1", port=9000, access_token=None
+        host="127.0.0.1", port=9000, access_token=SecretStr("fake-access-token")
     )
 
 
@@ -324,7 +325,7 @@ def test_serve_passes_configured_bind_host(
     fake_adapters["server_adapter"].run_sse_mock.assert_awaited_once_with(
         host="100.106.85.109",  # no-external-endpoints-allow
         port=8003,
-        access_token=None,  # no-external-endpoints-allow
+        access_token=SecretStr("fake-access-token"),  # no-external-endpoints-allow
     )
 
 
@@ -424,3 +425,41 @@ def test_composition_root_passes_raw_logging_settings_to_adapter(
     server_adapter = fake_adapters["server_adapter"]
     assert server_adapter.app_env == "development"
     assert server_adapter.raw_logging_enabled is True
+
+
+async def test_production_without_a_token_refuses_to_start(
+    fake_settings: Settings, fake_adapters: dict[str, Any]
+) -> None:
+    """A production service with no bearer token must refuse to start.
+
+    ``mcp_access_token`` defaults to None and the bearer middleware is installed only when
+    it is set, so a production deployment without it would serve every tool to anyone who
+    can reach the port. docs/ops/mcp-service.md section 7 already claims every path requires
+    the token; this makes the code agree with the document instead of the reverse.
+    """
+    from book_graph_rag.mcp_server_main import _run_server
+
+    unauthenticated = fake_settings.model_copy(update={"mcp_access_token": None})
+
+    with pytest.raises(RuntimeError, match="mcp_access_token"):
+        await _run_server(unauthenticated)
+
+    assert "server_adapter" not in fake_adapters, "it must refuse before wiring anything"
+
+
+async def test_development_without_a_token_serves_but_says_so_loudly(
+    fake_settings: Settings,
+    fake_adapters: dict[str, Any],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Outside production a token-less service is allowed, and it says so."""
+    from book_graph_rag.mcp_server_main import _run_server
+
+    development = fake_settings.model_copy(
+        update={"app_env": "development", "mcp_access_token": None}
+    )
+
+    await _run_server(development)
+
+    fake_adapters["server_adapter"].run_sse_mock.assert_awaited_once()
+    assert "without authentication" in capsys.readouterr().err

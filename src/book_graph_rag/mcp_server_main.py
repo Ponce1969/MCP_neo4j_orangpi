@@ -92,8 +92,31 @@ def mcp_cli() -> None:
     """book-graph-rag-mcp: MCP server for knowledge graph queries."""
 
 
+def _has_access_token(settings: Settings) -> bool:
+    """Whether a non-empty bearer token is configured."""
+    return bool(settings.mcp_access_token and settings.mcp_access_token.get_secret_value())
+
+
 async def _run_server(settings: Settings) -> None:
     """Composition root: wire dependencies and run the MCP SSE server."""
+    # The bearer middleware is installed only when a token is configured, so a production
+    # deployment without one would serve every tool to anyone who can reach the port.
+    # docs/ops/mcp-service.md section 7 already says every path requires
+    # ``Authorization: Bearer <MCP_ACCESS_TOKEN>``; this makes the code agree with it.
+    # Scoped to production for the same reason the wildcard-bind gate is: development and
+    # test may run token-less on purpose, and they are told so.
+    if settings.app_env == "production" and not _has_access_token(settings):
+        raise RuntimeError(
+            "mcp_access_token must be set when app_env=production: without it the MCP "
+            "serves every tool unauthenticated, and docs/ops/mcp-service.md requires "
+            "Authorization: Bearer <MCP_ACCESS_TOKEN> on every path"
+        )
+    if not _has_access_token(settings):
+        click.echo(
+            "Warning: serving without authentication (no mcp_access_token); acceptable "
+            "only on a loopback bind outside production",
+            err=True,
+        )
     query_adapter: Neo4jQueryAdapter = Neo4jQueryAdapter(settings)
     try:
         community_adapter: Neo4jCommunityAdapter = Neo4jCommunityAdapter(settings)
