@@ -463,3 +463,21 @@ async def test_development_without_a_token_serves_but_says_so_loudly(
 
     fake_adapters["server_adapter"].run_sse_mock.assert_awaited_once()
     assert "without authentication" in capsys.readouterr().err
+
+
+async def test_a_whitespace_only_token_counts_as_missing(
+    fake_settings: Settings, fake_adapters: dict[str, Any]
+) -> None:
+    """A token made of spaces is not a credential.
+
+    It is truthy, so it used to pass the gate and wrap the app expecting ``Bearer   `` -
+    a key anyone could guess. Production must treat it as absent and refuse to start.
+    """
+    from book_graph_rag.mcp_server_main import _run_server
+
+    blank = fake_settings.model_copy(update={"mcp_access_token": SecretStr("   ")})
+
+    with pytest.raises(RuntimeError, match="mcp_access_token"):
+        await _run_server(blank)
+
+    assert "server_adapter" not in fake_adapters

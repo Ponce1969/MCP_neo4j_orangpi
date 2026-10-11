@@ -93,8 +93,15 @@ def mcp_cli() -> None:
 
 
 def _has_access_token(settings: Settings) -> bool:
-    """Whether a non-empty bearer token is configured."""
-    return bool(settings.mcp_access_token and settings.mcp_access_token.get_secret_value())
+    """Whether a real bearer token is configured.
+
+    A token of spaces is not a credential: it is truthy, so a naive check would pass and the
+    middleware would wrap the app expecting ``Bearer   `` - a key anyone could guess.
+    Treating it as absent is what makes the fail-closed default actually closed.
+    """
+    if settings.mcp_access_token is None:
+        return False
+    return bool(settings.mcp_access_token.get_secret_value().strip())
 
 
 async def _run_server(settings: Settings) -> None:

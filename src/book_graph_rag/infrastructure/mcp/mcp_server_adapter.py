@@ -1280,6 +1280,11 @@ class McpServerAdapter:
         ``access_token`` is set, :class:`BearerTokenAuthMiddleware` wraps the
         dispatcher so both transports share exactly one auth rule.
 
+        In ``production`` this refuses to serve at all without a token: the middleware is
+        only installed when one is configured, so serving without it would expose every
+        tool to anyone who can reach the port. A token made of spaces counts as no token,
+        because it would otherwise become a credential anyone could guess.
+
         The method name is kept for compatibility with existing callers and
         tests; it now serves streamable HTTP in addition to SSE.
         """
@@ -1292,12 +1297,22 @@ class McpServerAdapter:
             TransportDispatcher,
         )
 
+        # Defense in depth: the composition root refuses a token-less production server before
+        # wiring anything, but serving is where the consequence lives, so the adapter refuses
+        # too instead of trusting its caller. A token of spaces counts as no token.
+        token = access_token.get_secret_value().strip() if access_token is not None else ""
+        if self._app_env == "production" and not token:
+            raise RuntimeError(
+                "refusing to serve without a bearer token in production: the port would be "
+                "open to anyone who can reach it"
+            )
+
         server = self.create_server(host=host, port=port, tool_names=self._tool_names)
         app: Any = TransportDispatcher(
             sse_app=server.sse_app(),
             streamable_app=server.streamable_http_app(),
         )
-        if access_token is not None and access_token.get_secret_value():
-            app = BearerTokenAuthMiddleware(app, access_token.get_secret_value())
+        if token:
+            app = BearerTokenAuthMiddleware(app, token)
         config = uvicorn.Config(app, host=host, port=port, log_level="info")
         await uvicorn.Server(config).serve()

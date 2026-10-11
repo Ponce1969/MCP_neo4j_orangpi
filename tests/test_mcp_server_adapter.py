@@ -300,6 +300,7 @@ def adapter(
         text2cypher_port,
         hmac_key_id=_TEST_HMAC_KEY_ID,
         hmac_key=_TEST_HMAC_KEY,
+        app_env="test",
     )
 
 
@@ -317,6 +318,7 @@ def scoped_adapter(
         scope_resolver=scope_resolver,
         hmac_key_id=_TEST_HMAC_KEY_ID,
         hmac_key=_TEST_HMAC_KEY,
+        app_env="test",
     )
 
 
@@ -1958,3 +1960,46 @@ def test_tool_content_keeps_non_ascii_unescaped() -> None:
     assert json.loads(text) == payload
     assert "Optimización" in text
     assert "\\u" not in text
+
+
+async def test_run_sse_refuses_to_serve_without_a_token_in_production(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Serving is where the consequence lives, so the adapter refuses too.
+
+    The composition root refuses earlier, but a future programmatic caller could reach
+    this method directly. Defense in depth: no token in production means no port.
+    """
+    monkeypatch.setattr(uvicorn, "Server", _FakeUvicornServer)
+    _FakeUvicornServer.instances.clear()
+    strict = McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
+        app_env="production",
+    )
+
+    with pytest.raises(RuntimeError, match="token"):
+        await strict.run_sse()
+
+    assert _FakeUvicornServer.instances == [], "it must refuse before serving anything"
+
+
+async def test_a_whitespace_token_never_becomes_a_credential(
+    adapter: McpServerAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A token of spaces must not install the middleware expecting ``Bearer   ``."""
+    monkeypatch.setattr(uvicorn, "Server", _FakeUvicornServer)
+    _FakeUvicornServer.instances.clear()
+
+    await adapter.run_sse(access_token=SecretStr("   "))
+
+    from book_graph_rag.infrastructure.mcp.bearer_auth import BearerTokenAuthMiddleware
+
+    served_app = _FakeUvicornServer.instances[0].config.app
+    assert not isinstance(served_app, BearerTokenAuthMiddleware)
