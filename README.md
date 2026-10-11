@@ -433,26 +433,28 @@ it costs no model call. A failed census read reports `null` rather than a guess.
 
 ### Queued next steps
 
-- **Deploy the pending commits** (`git pull --ff-only` + `systemctl restart
-  mcp-server`) and measure them: the answer composer now enforces an explicit
-  length limit, and the readiness report keeps per-question RAGAS scores plus the
-  answers and contexts it sent (`data/evaluation/ragas_input_*.jsonl`).
-- **Answer quality.** The last measured RAGAS numbers are answer_relevancy
-  `0.5953` and context_precision `0.474`, on a baseline of 67 questions over a
-  different dataset than the gate's 35 generated answers: the two are not directly
-  comparable, so a project-owned baseline comes first. The known cost driver is
-  `ask_global` scoring **every** summary of the chosen level with one LLM call each
-  (164 at level 1), which also makes the top-8 selection nearly arbitrary among
-  ties; batching that scoring is the highest-value change.
-- **Tunable flags, still off:** `SKILL_GATE_ENABLED` (filters the MCP tool surface
-  from the seeded `:Skill` nodes) and `ROUTER_ENABLED` (namespace routing; no caller
-  uses the adapter yet, so enabling it changes nothing today). `ask_global_top_n` is
-  now a Setting (`ask_global_top_n`, default `8`) for the context-precision/recall
-  trade-off.
-- **Product direction:** *to be written with the maintainer* — what "enterprise
-  ready" means for this graph and which of the queued items it gates.
+- **Answer quality — a project-owned baseline first.** The gate's own numbers are the
+  reference (generation faithfulness `0.792`, retrieval precision@k `0.0482`, both on the
+  gate's 35 generated answers). The standalone RAGAS run over 67 questions on a different
+  dataset is **not comparable** with them and is not a baseline; producing one over the
+  gate's dataset is the first step. **`answer_relevancy` is broken in this configuration**
+  and must not be tuned against: it returns a deterministic `0.0` even when the answer is
+  the question echoed back, so a deterministic replacement signal ships with the baseline.
+- **Contexts are auditable now.** `ask_global` returns the `contexts` it used, so
+  faithfulness can finally be measured over answers obtained through the MCP (see the
+  consumer-surface section above). Redoing the level-0/level-1 quality comparison with it is
+  the first thing that unblocks.
+- **`detail_level` is the latency lever, not concurrency.** Measured: level 0 = 4-7 s and 2
+  model calls, level 1 = 33-40 s and 7 calls; raising `summary_max_concurrency` from 3 to 6
+  changed nothing measurable (24.9-45.8 s across four samples), because the batches already
+  fit in one wave. Zero rate-limit responses across 46 calls.
+- **`ROUTER_ENABLED` is measured and unused.** The namespace router reaches 100% precision
+  when it commits (15/15, no wrong book) with 8/9 correct abstentions, but no caller uses
+  the adapter, so flipping the flag changes nothing today. Wiring a caller is the decision.
+- **Product direction:** *to be written with the maintainer* — what "enterprise ready"
+  means for this graph and which of the queued items it gates.
 - **Phase 07 — Guarded exposure:** pending explicit approval and all readiness /
-  security preconditions. The MCP service is deployed, but deployment is not
-  equivalent to approval for unrestricted exposure.
-- **Operational hardening:** Docker secrets for API keys, TLS for Bolt,
-  Tailscale-only firewall, and Neo4j heap tuning on the Pi.
+  security preconditions. The MCP service is deployed, but deployment is not equivalent to
+  approval for unrestricted exposure.
+- **Operational hardening:** Docker secrets for API keys, TLS for Bolt, Tailscale-only
+  firewall, and Neo4j heap tuning on the Pi.
