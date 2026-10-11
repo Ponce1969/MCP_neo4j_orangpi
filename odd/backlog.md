@@ -7,6 +7,28 @@ Each item states what it is, the evidence that it exists, and the block it belon
 
 ## Operational findings (infrastructure)
 
+- **O5 A fresh clone's example config and its auth posture both differ from production.** Found
+  2026-10-10 by an agent working on the separate `agentic-memory` repository, and verified here
+  against the code rather than assumed:
+  (a) **`.env.example` steers a fresh clone at NVIDIA with a Llama model**, so `ask_global` does
+  not behave as it does in production, where the host runs `deepseek-v4-flash`. The code's own
+  defaults are empty strings and `validate_llm_provider_settings` fails fast without a base URL
+  and a model name, so the drift lives in the example file and not in the defaults. That file is
+  the maintainer's and was neither read nor edited here.
+  (b) **`MCP_ACCESS_TOKEN` is absent from `.env.example`**, while `docs/ops/mcp-service.md` §7
+  states that every path requires `Authorization: Bearer <MCP_ACCESS_TOKEN>` and that the token
+  lives in `<repo>/.env`. The question asked was whether a missing variable leaves the service
+  fail-open or fail-closed. **Verified answer: fail-open on authentication.** `mcp_access_token`
+  defaults to `None` (`config.py`) and `mcp_server_adapter.py` installs
+  `BearerTokenAuthMiddleware` only when the value is set and non-empty, so a clone without the
+  variable serves every tool with no Authorization header at all. The blast radius is bounded by
+  two other defaults: `mcp_bind_host` defaults to `127.0.0.1`, and a production environment
+  refuses a wildcard bind. A fresh clone is therefore unauthenticated but reachable only from its
+  own machine — unless someone points it at a non-loopback host outside production, which is
+  precisely the case the documentation says cannot happen.
+  **Decision needed (maintainer):** either make the service refuse to start without a token
+  (fail-closed, matching §7) or state plainly that a token-less service is loopback-only and
+  unauthenticated. Today the two documents disagree with the code.
 - **O4 `.env` (and its backups) were world-readable on that host.** **Resolved 2026-10-03**: `chmod 600 .env
   .env.bak-*` applied (all five files now `-rw-------`, owner `gonzalo`); the running service was unaffected (the
   environment was already loaded), file stays readable by its owner, and the smoke passed with the token read from
