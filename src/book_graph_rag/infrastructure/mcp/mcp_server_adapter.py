@@ -1290,6 +1290,11 @@ class McpServerAdapter:
         """
         import uvicorn
 
+        # Defense in depth: the composition root refuses a token-less production server before
+        # wiring anything, but serving is where the consequence lives, so the adapter refuses
+        # too instead of trusting its caller. One rule decides what a real token is, and it
+        # lives in domain.mcp_security so the two layers can never drift apart.
+        from book_graph_rag.domain.mcp_security import effective_token
         from book_graph_rag.infrastructure.mcp.bearer_auth import (
             BearerTokenAuthMiddleware,
         )
@@ -1297,10 +1302,9 @@ class McpServerAdapter:
             TransportDispatcher,
         )
 
-        # Defense in depth: the composition root refuses a token-less production server before
-        # wiring anything, but serving is where the consequence lives, so the adapter refuses
-        # too instead of trusting its caller. A token of spaces counts as no token.
-        token = access_token.get_secret_value().strip() if access_token is not None else ""
+        token = effective_token(
+            access_token.get_secret_value() if access_token is not None else None
+        )
         if self._app_env == "production" and not token:
             raise RuntimeError(
                 "refusing to serve without a bearer token in production: the port would be "

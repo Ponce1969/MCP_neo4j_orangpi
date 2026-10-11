@@ -2003,3 +2003,17 @@ async def test_a_whitespace_token_never_becomes_a_credential(
 
     served_app = _FakeUvicornServer.instances[0].config.app
     assert not isinstance(served_app, BearerTokenAuthMiddleware)
+
+
+async def test_an_invisible_token_never_becomes_a_credential(
+    adapter: McpServerAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A zero-width token must not install a middleware expecting 'Bearer \u200b'."""
+    monkeypatch.setattr(uvicorn, "Server", _FakeUvicornServer)
+    _FakeUvicornServer.instances.clear()
+
+    await adapter.run_sse(access_token=SecretStr("\u200b"))
+
+    from book_graph_rag.infrastructure.mcp.bearer_auth import BearerTokenAuthMiddleware
+
+    assert not isinstance(_FakeUvicornServer.instances[0].config.app, BearerTokenAuthMiddleware)

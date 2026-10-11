@@ -404,3 +404,24 @@ def canonical_json(value: Any) -> bytes:
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def effective_token(value: str | None) -> str:
+    """Return the bearer token if it is a real credential, else an empty string.
+
+    A token is only effective when it survives stripping **and** contains at least one
+    printable character. A token of spaces is guessable, and so is one made of invisible
+    non-whitespace characters (U+200B zero-width space, U+FEFF BOM): ``str.strip`` does not
+    remove those because they are not whitespace, so a naive emptiness check would let them
+    through and the middleware would install a lock anyone can open.
+
+    Either way the honest answer is "no token", which fails closed in production instead of
+    pretending to be protected. This is the single rule both the composition root and the
+    adapter consult, so the two layers cannot drift apart.
+    """
+    if value is None:
+        return ""
+    stripped = value.strip()
+    if not stripped or not any(character.isprintable() for character in stripped):
+        return ""
+    return stripped

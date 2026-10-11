@@ -481,3 +481,39 @@ async def test_a_whitespace_only_token_counts_as_missing(
         await _run_server(blank)
 
     assert "server_adapter" not in fake_adapters
+
+
+def test_effective_token_rejects_everything_that_is_not_a_credential() -> None:
+    """One rule, one place: what counts as a real bearer token.
+
+    Spaces are stripped, but invisible non-whitespace characters (zero-width space, BOM) are
+    not whitespace, so ``strip`` leaves them behind. A token made of them is as guessable as a
+    blank one, so both must read as "no token".
+    """
+    from book_graph_rag.domain.mcp_security import effective_token
+
+    assert effective_token("real-token") == "real-token"
+    assert effective_token("  real-token  ") == "real-token"
+    assert effective_token("a\u200b") == "a\u200b"
+
+    assert effective_token(None) == ""
+    assert effective_token("") == ""
+    assert effective_token("   ") == ""
+    assert effective_token("\t\n ") == ""
+    assert effective_token("\u200b") == ""
+    assert effective_token("\ufeff") == ""
+    assert effective_token("\u200b\ufeff\u200b") == ""
+
+
+async def test_a_token_of_invisible_characters_counts_as_missing(
+    fake_settings: Settings, fake_adapters: dict[str, Any]
+) -> None:
+    """Production must refuse a token that only looks present."""
+    from book_graph_rag.mcp_server_main import _run_server
+
+    invisible = fake_settings.model_copy(update={"mcp_access_token": SecretStr("\u200b\ufeff")})
+
+    with pytest.raises(RuntimeError, match="mcp_access_token"):
+        await _run_server(invisible)
+
+    assert "server_adapter" not in fake_adapters

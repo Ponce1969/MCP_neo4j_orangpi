@@ -95,13 +95,15 @@ def mcp_cli() -> None:
 def _has_access_token(settings: Settings) -> bool:
     """Whether a real bearer token is configured.
 
-    A token of spaces is not a credential: it is truthy, so a naive check would pass and the
-    middleware would wrap the app expecting ``Bearer   `` - a key anyone could guess.
-    Treating it as absent is what makes the fail-closed default actually closed.
+    One rule decides what counts, and it lives in ``domain.mcp_security`` so this layer and the
+    adapter can never drift apart. Spaces, tabs and invisible non-whitespace characters all
+    read as "no token", which is what makes the fail-closed default actually closed.
     """
+    from book_graph_rag.domain.mcp_security import effective_token
+
     if settings.mcp_access_token is None:
         return False
-    return bool(settings.mcp_access_token.get_secret_value().strip())
+    return bool(effective_token(settings.mcp_access_token.get_secret_value()))
 
 
 async def _run_server(settings: Settings) -> None:
