@@ -59,6 +59,8 @@ class _FakeMcpServerAdapter:
         hmac_key: Any = None,
         app_env: str = "production",
         raw_logging_enabled: bool = False,
+        reranker: Any | None = None,
+        rerank_overfetch_n: int = 40,
     ) -> None:
         self.query_port = query_port
         self.query_logger = query_logger
@@ -72,6 +74,10 @@ class _FakeMcpServerAdapter:
         self.hmac_key = hmac_key
         self.app_env = app_env
         self.raw_logging_enabled = raw_logging_enabled
+        # Mirrors the real signature so the composition root's flag-gated reranker
+        # wiring (S3) is observable from these tests.
+        self.reranker = reranker
+        self.rerank_overfetch_n = rerank_overfetch_n
         self.run_sse_mock = AsyncMock()
 
     async def run_sse(
@@ -154,6 +160,8 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             hmac_key: Any = None,
             app_env: str = "production",
             raw_logging_enabled: bool = False,
+            reranker: Any | None = None,
+            rerank_overfetch_n: int = 40,
         ) -> None:
             super().__init__(
                 query_port,
@@ -168,6 +176,8 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
                 hmac_key,
                 app_env,
                 raw_logging_enabled,
+                reranker,
+                rerank_overfetch_n,
             )
             created["server_adapter"] = self
 
@@ -579,3 +589,19 @@ async def test_a_short_token_counts_as_missing_in_production(
         await _run_server(short)
 
     assert "server_adapter" not in fake_adapters
+
+
+def test_composition_root_leaves_the_reranker_off_by_default(
+    fake_settings: Settings, fake_adapters: dict[str, Any]
+) -> None:
+    """Option A: with the flag off (the shipped default) the adapter gets no reranker.
+
+    The A/B measured every candidate cross-encoder below the plain fulltext order, so
+    the wiring must stay cold — and cold means the object is never even constructed,
+    which is what keeps the model from being downloaded at boot.
+    """
+    runner = CliRunner()
+    result = runner.invoke(mcp_cli, ["serve"])
+
+    assert result.exit_code == 0, result.output
+    assert fake_adapters["server_adapter"].reranker is None

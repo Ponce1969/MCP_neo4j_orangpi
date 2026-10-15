@@ -25,6 +25,9 @@ from book_graph_rag.infrastructure.mcp_resource_budget_adapter import (
 )
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.infrastructure.neo4j_skill_registry_adapter import Neo4jSkillRegistryAdapter
+from book_graph_rag.infrastructure.sentence_transformer_reranker_adapter import (
+    reranker_for,
+)
 from book_graph_rag.infrastructure.text2cypher_adapter import Text2CypherAdapter
 from book_graph_rag.ports.skill_registry_port import SkillRegistryPort
 
@@ -178,6 +181,8 @@ async def _run_server(settings: Settings) -> None:
                     hmac_key=settings.mcp_hmac_key,
                     app_env=settings.app_env,
                     raw_logging_enabled=settings.mcp_raw_logging_enabled,
+                    reranker=reranker_for(settings),
+                    rerank_overfetch_n=settings.retrieval_overfetch_n,
                 )
                 # Self-description wiring: constructor kwargs are kept stable
                 # for test doubles, so the catalog and its single-read size
