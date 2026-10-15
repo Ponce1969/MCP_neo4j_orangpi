@@ -127,6 +127,9 @@ from book_graph_rag.infrastructure.resolution_wiring import (
 from book_graph_rag.infrastructure.sentence_transformer_adapter import (
     SentenceTransformerAdapter,
 )
+from book_graph_rag.infrastructure.sentence_transformer_reranker_adapter import (
+    reranker_for,
+)
 from book_graph_rag.infrastructure.subprocess_ragas_runner import SubprocessRAGASRunner
 from book_graph_rag.infrastructure.version_dimensions import compute_version_dimensions
 
@@ -629,7 +632,10 @@ def _build_evaluate_command_use_case(settings: Settings) -> EvaluateCommandUseCa
         harness=harness,
     )
 
-    retrieval_port = Neo4jRetrievalAdapter(settings)
+    # The reranker is flag-gated through ONE rule shared with the MCP composition
+    # root: the A/B measured every candidate cross-encoder below the plain fulltext
+    # order on the committed dataset, so the evaluation path ships it off too.
+    retrieval_port = Neo4jRetrievalAdapter(settings, reranker=reranker_for(settings))
     ragas_port = SubprocessRAGASRunner()
     retrieval_layer = EvaluateRetrievalLayerUseCase(
         dataset_port=dataset_port,
@@ -682,7 +688,10 @@ def _build_readiness_gate_evaluator_use_case(
         harness=harness,
     )
 
-    retrieval_port = Neo4jRetrievalAdapter(settings)
+    # The reranker is flag-gated through ONE rule shared with the MCP composition
+    # root: the A/B measured every candidate cross-encoder below the plain fulltext
+    # order on the committed dataset, so the evaluation path ships it off too.
+    retrieval_port = Neo4jRetrievalAdapter(settings, reranker=reranker_for(settings))
     ragas_port = SubprocessRAGASRunner()
     retrieval_layer = EvaluateRetrievalLayerUseCase(
         dataset_port=dataset_port,

@@ -15,6 +15,7 @@ from mcp.types import TextContent
 from pydantic import Field, SecretStr
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
+from book_graph_rag.domain.evaluation_models import RetrievalContext
 from book_graph_rag.domain.graph_version import graph_version_from
 from book_graph_rag.domain.mcp_security import (
     InvalidScopeError,
@@ -39,6 +40,7 @@ from book_graph_rag.infrastructure.mcp_resource_budget_adapter import (
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
 from book_graph_rag.ports.mcp_security_port import ResourceBudgetPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
+from book_graph_rag.ports.reranker_port import RerankerPort
 from book_graph_rag.ports.scope_resolver_port import ScopeResolverPort
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort
 
@@ -217,6 +219,8 @@ class McpServerAdapter:
         dev_raw_logger: logging.Logger | None = None,
         catalog: Catalog | None = None,
         catalog_stats_reader: Callable[[], Awaitable[dict[str, dict[str, int]]]] | None = None,
+        reranker: RerankerPort | None = None,
+        rerank_overfetch_n: int = 40,
     ) -> None:
         self._graph_query_port = graph_query_port
         self._query_logger = query_logger
@@ -251,6 +255,38 @@ class McpServerAdapter:
         self._catalog = catalog
         self._catalog_stats_reader = catalog_stats_reader
         self._tool_names: frozenset[str] | None = None
+        # Optional chunk reranker (S3). Wired only when the composition root enables
+        # it; ``None`` keeps the historical fetch-and-return behaviour untouched.
+        self._reranker = reranker
+        self._rerank_overfetch_n = rerank_overfetch_n
+
+    def _fetch_limit(self, requested: int) -> int:
+        """Fulltext fetch size for a chunk query.
+
+        A reranker can only promote what the pool already contains, so it needs a
+        fetch wider than the reply; without one, this is exactly the caller's limit.
+        """
+        if self._reranker is None:
+            return requested
+        return max(requested, self._rerank_overfetch_n)
+
+    async def _rerank_chunks(
+        self, query: str, chunks: list[dict[str, Any]], top_k: int
+    ) -> list[dict[str, Any]]:
+        """Re-order an over-fetched chunk payload with the wired reranker.
+
+        The port returns the same objects it was handed (conservation invariant), so
+        an identity map brings the ORIGINAL payload dicts back in the new order —
+        score, page range and provenance intact — instead of rebuilding them.
+        """
+        if self._reranker is None or not chunks:
+            return chunks
+        candidates = tuple(
+            RetrievalContext(chunk_id=c.get("chunk_id"), text=c.get("text", "")) for c in chunks
+        )
+        ranked = await self._reranker.rerank(query=query, candidates=candidates, top_k=top_k)
+        by_identity = {id(ctx): chunk for ctx, chunk in zip(candidates, chunks, strict=True)}
+        return [by_identity[id(ctx)] for ctx in ranked]
 
     @property
     def catalog(self) -> Catalog | None:
@@ -579,7 +615,10 @@ class McpServerAdapter:
         start = self._now()
         try:
             async with self._budget_port.budget(tier_for("search_chunks"), key="search_chunks"):
-                chunks = await self._graph_query_port.search_chunks(query, limit, scope=scope)
+                chunks = await self._graph_query_port.search_chunks(
+                    query, self._fetch_limit(limit), scope=scope
+                )
+                chunks = await self._rerank_chunks(query, chunks, limit)
         except Exception as exc:
             duration_ms = (self._now() - start).total_seconds() * 1000
             await self._log(
@@ -744,7 +783,9 @@ class McpServerAdapter:
 
         try:
             async with self._budget_port.budget(tier_for("search_rag"), key="search_rag"):
-                chunk_task = self._graph_query_port.search_chunks(query, limit, scope=scope)
+                chunk_task = self._graph_query_port.search_chunks(
+                    query, self._fetch_limit(limit), scope=scope
+                )
                 entity_task = self._graph_query_port.find_entity(query, None, scope=scope)
                 chunk_result, entity_result = await asyncio.gather(
                     chunk_task, entity_task, return_exceptions=True
@@ -753,7 +794,7 @@ class McpServerAdapter:
                 if isinstance(chunk_result, Exception):
                     errors.append(str(chunk_result))
                 else:
-                    chunks = chunk_result
+                    chunks = await self._rerank_chunks(query, chunk_result, limit)
 
                 if isinstance(entity_result, Exception):
                     errors.append(str(entity_result))
