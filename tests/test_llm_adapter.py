@@ -889,13 +889,20 @@ async def test_score_communities_scores_a_whole_batch_in_one_call(
     assert summaries[0].id in content, "the prompt must carry each summary id"
 
 
-async def test_score_communities_raises_when_a_summary_is_unscored(
+async def test_score_communities_retries_only_for_the_ids_the_model_skipped(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A missing id must fail loudly: a silent default score would corrupt the ranking."""
+    """A dropped id earns one targeted retry instead of losing the whole question.
+
+    The model omits a score occasionally. Failing the batch on the first omission used to
+    abort a full evaluation run after an hour and, in production, the whole ``ask_global``
+    call. The retry asks again for exactly the missing summaries, so the rule that survives is
+    the important one: a score is never invented.
+    """
     settings = _make_settings(tmp_path, monkeypatch)
     adapter = LLMAdapter(settings)
+    calls: list[dict[str, Any]] = []
     summaries = (
         CommunitySummary(level=1, summary="first summary", entity_ids=["e1"], parent_id="p1"),
         CommunitySummary(level=1, summary="second summary", entity_ids=["e2"], parent_id="p1"),
@@ -909,12 +916,56 @@ async def test_score_communities_raises_when_a_summary_is_unscored(
         scores: list[_FakeEntry]
 
     async def fake_create(*args: Any, **kwargs: Any) -> _FakeScores:
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _FakeScores(scores=[_FakeEntry(id=summaries[0].id, score=90)])
+        return _FakeScores(scores=[_FakeEntry(id=summaries[1].id, score=55)])
+
+    monkeypatch.setattr(adapter._query_client, "create", fake_create)
+
+    scores = await adapter.score_communities("what is MCP?", summaries)
+
+    assert scores == {summaries[0].id: 90, summaries[1].id: 55}
+    assert len(calls) == 2, "exactly one retry"
+    retry_prompt = calls[1]["messages"][-1]["content"]
+    assert "second summary" in retry_prompt, "the retry must carry the missing summary"
+    assert "first summary" not in retry_prompt, "and only the missing one"
+
+
+async def test_score_communities_raises_when_a_summary_is_unscored(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing id must fail loudly: a silent default score would corrupt the ranking.
+
+    The retry is bounded: when the model keeps dropping the same id, the batch still fails
+    instead of falling back to an invented score.
+    """
+    settings = _make_settings(tmp_path, monkeypatch)
+    adapter = LLMAdapter(settings)
+    calls: list[dict[str, Any]] = []
+    summaries = (
+        CommunitySummary(level=1, summary="first summary", entity_ids=["e1"], parent_id="p1"),
+        CommunitySummary(level=1, summary="second summary", entity_ids=["e2"], parent_id="p1"),
+    )
+
+    class _FakeEntry(BaseModel):
+        id: str
+        score: int
+
+    class _FakeScores(BaseModel):
+        scores: list[_FakeEntry]
+
+    async def fake_create(*args: Any, **kwargs: Any) -> _FakeScores:
+        calls.append(kwargs)
         return _FakeScores(scores=[_FakeEntry(id=summaries[0].id, score=90)])
 
     monkeypatch.setattr(adapter._query_client, "create", fake_create)
 
     with pytest.raises(ValueError, match="unscored"):
         await adapter.score_communities("what is MCP?", summaries)
+
+    assert len(calls) == 2, "the original batch plus exactly one retry"
 
 
 async def test_compose_answer_prompt_requires_citation_format(

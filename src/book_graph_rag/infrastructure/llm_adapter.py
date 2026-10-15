@@ -684,15 +684,37 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
         question: str,
         summaries: tuple[CommunitySummary, ...],
     ) -> dict[str, int]:
-        """Score a whole batch of summaries in ONE call, keyed by summary id.
+        """Score a whole batch of summaries, keyed by summary id.
 
         ``ask_global`` used to spend one LLM call per summary (about 164 at level 1). Batching
         cuts that to a handful of calls and, because the model sees the candidates together,
-        gives better-calibrated scores among near-ties. A response that misses an id fails
-        loudly: a silent default score would corrupt the ranking.
+        gives better-calibrated scores among near-ties.
+
+        A response that misses an id is retried **once** for exactly the missing summaries and
+        then fails loudly: a silent default score would corrupt the ranking, and losing the
+        whole question to a transient omission used to abort a full evaluation run (one hour)
+        and, in production, the whole ``ask_global`` call.
         """
         if not summaries:
             return {}
+        scored = await self._score_batch_once(question, summaries)
+        missing = tuple(summary for summary in summaries if summary.id not in scored)
+        if missing:
+            scored.update(await self._score_batch_once(question, missing))
+        still_missing = [summary.id for summary in summaries if summary.id not in scored]
+        if still_missing:
+            raise ValueError(
+                f"batched community scoring left {len(still_missing)} summary(ies) unscored: "
+                f"{still_missing}"
+            )
+        return scored
+
+    async def _score_batch_once(
+        self,
+        question: str,
+        summaries: tuple[CommunitySummary, ...],
+    ) -> dict[str, int]:
+        """One scoring call for ``summaries``, keyed by id. Shared by the batch and its retry."""
         listing = "\n\n".join(f"id: {summary.id}\n{summary.summary}" for summary in summaries)
         prompt = (
             f"Question: {question}\n\nCommunity summaries:\n\n{listing}\n\nReturn one score per id."
@@ -711,13 +733,7 @@ class LLMAdapter(LLMProviderPort, CypherGeneratorPort, LLMSummaryPort):
                 )
         if response is None:
             raise RuntimeError("batched community scoring produced no response")
-        scored = {entry.id: entry.score for entry in response.scores}
-        missing = [summary.id for summary in summaries if summary.id not in scored]
-        if missing:
-            raise ValueError(
-                f"batched community scoring left {len(missing)} summary(ies) unscored: {missing}"
-            )
-        return scored
+        return {entry.id: entry.score for entry in response.scores}
 
     async def score_community(self, question: str, summary: CommunitySummary) -> int:
         """Score a community summary for relevance to ``question``."""
