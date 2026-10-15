@@ -81,7 +81,7 @@ def test_telemetry_event_build_is_shape_stable() -> None:
             "neo4j_uri": "bolt://localhost:7687",
             "neo4j_user": "neo4j",
             "neo4j_password": "secret",
-            "router_telemetry_hmac_key": "test-secret",
+            "router_telemetry_hmac_key": "test-secret-router-telemetry-key-0001",
             "catalog_path": str(_ROOT / "catalog.yaml"),
         }
     )
@@ -100,7 +100,7 @@ def test_telemetry_event_build_is_shape_stable() -> None:
     assert event.route_kind == "abstain"
     assert event.latency_ms == 12.5
     assert event.query_fingerprint == hmac_query_fingerprint(
-        "question", key_id="router-telemetry-v1", secret="test-secret"
+        "question", key_id="router-telemetry-v1", secret="test-secret-router-telemetry-key-0001"
     )
     # The raw question text is never stored; only the keyed digest is kept.
     assert event.raw_question is None
