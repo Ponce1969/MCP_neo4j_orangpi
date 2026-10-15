@@ -2,10 +2,14 @@
 
 Why this layer has no absolute precision threshold
 --------------------------------------------------
-``precision@k`` is ``matched / len(contexts)`` per question and the retrieval
-port returns at most ``k`` contexts, so the metric's ceiling is fixed by the
-dataset and not by retrieval quality: with the committed dataset (12 ``current``
-questions carrying 1-3 reference ids each, ``k=10``) a *perfect* retrieval scores
+``precision@k`` is ``matched / len(chunk_contexts)`` per question: only the
+contexts that carry a real ``chunk_id`` form the denominator. Entity hits and
+community summaries arrive with ``chunk_id=None`` and can never match a
+reference id, so counting them diluted the metric with evidence that could not
+count (measured: 0.048 against a 0.19 ceiling). The chunk denominator is bounded
+by ``k``, so the ceiling is still fixed by the dataset and not by retrieval
+quality: with the committed dataset (12 ``current`` questions carrying 1-3
+reference ids each, ``k=10``) a *perfect* retrieval scores
 ``mean(min(len(refs), k) / k) = 0.1917``. Any absolute threshold above that can
 never be met — a hardcoded ``0.5`` warned on every run, whatever the quality.
 
@@ -120,10 +124,16 @@ class EvaluateRetrievalLayerUseCase:
             if not contexts:
                 precisions.append(0.0)
                 continue
-            matched = sum(
-                1 for ctx in contexts if ctx.chunk_id is not None and ctx.chunk_id in reference_ids
-            )
-            precisions.append(matched / len(contexts))
+            # Only chunk-bearing contexts form the denominator: entities and
+            # summaries carry chunk_id=None and can never match a chunk reference
+            # id, so counting them penalized precision for evidence that could
+            # not count either way.
+            chunk_contexts = [ctx for ctx in contexts if ctx.chunk_id is not None]
+            if not chunk_contexts:
+                precisions.append(0.0)
+                continue
+            matched = sum(1 for ctx in chunk_contexts if ctx.chunk_id in reference_ids)
+            precisions.append(matched / len(chunk_contexts))
 
         precision = sum(precisions) / len(precisions) if precisions else 0.0
 
