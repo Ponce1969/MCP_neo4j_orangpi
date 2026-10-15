@@ -3,15 +3,15 @@
   "layer": "generation",
   "dataset_id": "generation_dataset",
   "dataset_sha256": "e9616f3cd5a68969b4e82cf0bc8c41aac564e13052ca9924c5cfb8d64442c88a",
-  "committed_at": "2026-10-15T14:09:19Z",
-  "code_commit": "49793a0",
+  "committed_at": "2026-10-15T23:55:27Z",
+  "code_commit": "03d8e98",
   "model_ids": [
     "deepseek-v4-flash"
   ],
   "metrics": {
-    "faithfulness": 0.7913043478260869
+    "faithfulness": 0.8988195615514334
   },
   "thresholds_finalized": true,
-  "faithfulness_min": 0.65,
+  "faithfulness_min": 0.85,
   "pairwise_win_rate_min": null
 }

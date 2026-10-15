@@ -120,15 +120,17 @@ def test_generation_baseline_metrics_shape() -> None:
     It no longer carries the RAGAS names: that feed is empty by construction in
     this layer (``odd/backlog.md``, E1), so the artifact records the project-owned
     claims faithfulness of the measured run and names the instrument that
-    produced it.
+    produced it. The threshold was re-derived mechanism-first on 2026-10-15
+    (``0.85``, ~5% below the ``0.8988`` the question-aware instrument measured over
+    593 claims across the 35 questions).
     """
     loader = JsonEvaluationBaselineLoader(Path("data/evaluation"))
     baseline = loader.load("generation")
     assert baseline is not None
     assert set(baseline.metrics) == {"faithfulness"}
-    assert baseline.metrics["faithfulness"] == pytest.approx(0.7913043478260869)
+    assert baseline.metrics["faithfulness"] == pytest.approx(0.8988195615514334)
     assert baseline.model_ids == ("deepseek-v4-flash",)
-    assert baseline.faithfulness_min == pytest.approx(0.65)
+    assert baseline.faithfulness_min == pytest.approx(0.85)
     faithfulness_min = baseline.faithfulness_min
     assert faithfulness_min is not None
     assert baseline.metrics["faithfulness"] >= faithfulness_min

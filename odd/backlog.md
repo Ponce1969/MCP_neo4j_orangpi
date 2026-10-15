@@ -383,6 +383,15 @@ to the project-owned claims metric, which is what T8 measured.
   which is the "674 KB per question" first measured on 2026-10-11 and is most of the gate's 72 s per
   question. Worth doing with the retrieval work: find why the chunk half is absent for `global` and why
   the entity part is identical across questions before tuning anything on top of this metric.
+  **Resolved 2026-10-15** by `feat/eval-question-aware-global-retrieval` (`4ed3c96`): the root cause was
+  that the evaluation adapter built a `GlobalQueryUseCase` and never called it, so the layer composed
+  its own answer from the first fifteen of every summary. The ranking now lives in one place
+  (`GlobalQueryUseCase._rank`, shared by `ask` and the new `select`), the port gained the additive
+  `answer_global`, and the layer answers global questions through the production path. Measured effect
+  on the same 35 questions: `faithfulness` 0.7913 → **0.8988**, `pairwise_win_rate` 0.3714 (13/35) →
+  **0.9714** (34/35), `cited_context_share` undefined → **0.5143**, contexts 164 → **8** with ids. What
+  remains of the original item is the *pool recall* half, tracked as the README's retrieval-quality
+  step (candidate generation, hybrid lexical + vector).
 
 ## Closed (for reference)
 

@@ -57,11 +57,20 @@ hardening) is deployed and serving.
   that run, not the current baselines.
 - Re-measured baselines (2026-10-15, committed in `data/evaluation/`): retrieval
   `precision@k = 0.1250` against `precision_at_k_min = 0.1175`, and generation
-  `faithfulness = 0.7913` over the gate's 35 questions (115 claims supported) against a
-  `faithfulness_min` deliberately kept at `0.65`. The retrieval gain comes from the
+  `faithfulness = 0.8988` over the gate's 35 questions (593 claims) against a
+  `faithfulness_min` re-derived mechanism-first at `0.85`. The retrieval gain comes from the
   chunk-only precision denominator; the cross-encoder candidates all measured *below* the
   plain fulltext order (`0.0917` / `0.1083` / `0.1000` vs `0.1250`), so `RERANK_ENABLED`
   ships **off** and the `precision@k >= 0.15` objective of that work is declared unmet.
+- The generation layer now measures the **production path**: it answers through `ask_global`'s
+  own use case (question-aware selection of `ask_global_top_n` summaries plus the production
+  composer) instead of fetching every summary at the level in database order and composing
+  from the first fifteen of them. With the old instrument the graph answer **lost** its
+  pairwise comparison in 22 of 35 questions (win rate `0.3714`); with the production path it
+  wins 34 of 35 (`0.9714`) and `cited_context_share` stops being undefined (`0.5143`). Read
+  that near-1.0 win rate with care: the judge sees both answers and the production one carries
+  citations, so it is a signal, not a verdict. Evidence and the instrument's measured spread
+  live in `odd/tasks/eval-question-aware-global-retrieval.md`.
 
 ## What this is — and what it is **not** yet
 
@@ -454,14 +463,16 @@ it costs no model call. A failed census read reports `null` rather than a guess.
   configuration** and must not be tuned against: it returns a deterministic `0.0` even when
   the answer is the question echoed back, so the deterministic replacement signal
   (`grounding`: `cited_context_share`, `term_grounding`) is the one to use.
-- **Retrieval quality — the blocker is pool recall, not ordering.** Measured 2026-10-15: the
-  plain fulltext order already places 15 of the pool's 18 reference chunks inside the top-10
-  (83% of the N=40 ceiling), while 5 of the 23 references never enter the pool at N=40 and
-  `ret-018`'s single reference does not enter even at N=50 — which puts the hand-crafted
-  ground truth itself in question. Candidate generation (hybrid lexical + vector) and
-  validating that dataset are the two candidate next moves; a generic cross-encoder was
-  measured and does not help on this corpus. See `odd/tasks/retrieval-reranker-port.md`
-  (L9/L10) and `odd/backlog.md` E1/E2.
+- **Retrieval quality — the blocker is pool recall, not ordering, and the labels are sound.**
+  Measured 2026-10-15: the plain fulltext order already places 15 of the pool's 18 reference
+  chunks inside the top-10 (83% of the N=40 ceiling), while 5 of the 23 references never enter
+  the pool at N=40 and 2 never enter even at N=50. `scripts/verify_retrieval_references.py`
+  then checked all 23 against the graph: **every one exists and is indexed**, and the ones that
+  never return are found by the index when queried with their own words — a lexical-coverage
+  miss, not a broken label. (An earlier version of this note suspected the hand-crafted ground
+  truth itself; that was measured and refuted.) Candidate generation (hybrid lexical + vector)
+  is the next move; a generic cross-encoder was measured and does not help on this corpus. See
+  `odd/tasks/retrieval-reranker-port.md` (L9/L10) and `odd/backlog.md` E1/E2.
 - **Contexts are auditable now.** `ask_global` returns the `contexts` it used, so
   faithfulness can finally be measured over answers obtained through the MCP (see the
   consumer-surface section above). Redoing the level-0/level-1 quality comparison with it is
