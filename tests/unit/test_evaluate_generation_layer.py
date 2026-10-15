@@ -42,8 +42,13 @@ class _FakeDatasetPort(EvaluationDatasetPort):
 class _FakeRetrievalPort(GraphRetrievalPort):
     """Retrieval double that records which entry point the layer used."""
 
-    def __init__(self, answers: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        answers: Mapping[str, str] | None = None,
+        fail_for: set[str] | None = None,
+    ) -> None:
         self._answers = answers or {}
+        self._fail_for = fail_for or set()
         self.answer_global_calls: list[str] = []
         self.fetch_calls: list[str] = []
         self.compose_calls: list[str] = []
@@ -77,6 +82,8 @@ class _FakeRetrievalPort(GraphRetrievalPort):
         detail_level: int,
     ) -> GlobalRetrievalAnswer:
         self.answer_global_calls.append(question)
+        if question in self._fail_for:
+            raise RuntimeError("batched community scoring left 1 summary(ies) unscored: ['x']")
         return GlobalRetrievalAnswer(
             answer=self._answers.get(question, "composed answer"),
             contexts=(
@@ -178,10 +185,12 @@ def _build_use_case(
     ragas_metrics: RAGASSecondaryMetrics | None = None,
     answers: Mapping[str, str] | None = None,
     qtype: str = "global",
+    records: tuple[dict[str, Any], ...] | None = None,
+    fail_for: set[str] | None = None,
 ) -> tuple[EvaluateGenerationLayerUseCase, _FakeRetrievalPort]:
     """The use case plus its retrieval double, for tests that assert how it was called."""
-    retrieval_port = _FakeRetrievalPort(answers=answers)
-    records = (
+    retrieval_port = _FakeRetrievalPort(answers=answers, fail_for=fail_for)
+    selected = records or (
         {
             "question_id": "q1",
             "question": "what is MCP?",
@@ -197,7 +206,7 @@ def _build_use_case(
     )
     claims = claims or {"q1": (default_claim,)}
     return EvaluateGenerationLayerUseCase(
-        dataset_port=_FakeDatasetPort(records),
+        dataset_port=_FakeDatasetPort(selected),
         retrieval_port=retrieval_port,
         claim_port=_FakeClaimPort(claims, verdict=verdict),
         pairwise_port=_FakePairwisePort(),
@@ -230,6 +239,60 @@ def _make_use_case(
         qtype=qtype,
     )
     return use_case
+
+
+def test_a_failed_question_is_named_and_the_layer_refuses_to_pass_a_partial_sample() -> None:
+    """One question that cannot be evaluated must not cost the run, and must not be hidden.
+
+    A transient scoring omission used to abort an hour-long run with an exit code and no report.
+    The layer now keeps going, names the question in its report, and refuses to report PASSED
+    over a partial sample while still publishing the metrics of the questions that did run.
+    """
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={"faithfulness": 0.8},
+    )
+    records = (
+        {
+            "question_id": "q1",
+            "question": "what is MCP?",
+            "qtype": "global",
+            "reference_answer": "MCP is a protocol.",
+            "contexts_hint": ["ctx1"],
+        },
+        {
+            "question_id": "q2",
+            "question": "what is RAG?",
+            "qtype": "global",
+            "reference_answer": "RAG retrieves context.",
+            "contexts_hint": ["ctx2"],
+        },
+    )
+    claims = {
+        "q1": (AtomicClaim(claim_id="c1", text="MCP is a protocol.", evidence_refs=("ctx1",)),),
+        "q2": (AtomicClaim(claim_id="c2", text="RAG retrieves context.", evidence_refs=("ctx2",)),),
+    }
+    uc, port = _build_use_case(
+        baseline=baseline,
+        claims=claims,
+        records=records,
+        fail_for={"what is RAG?"},
+    )
+
+    result = asyncio.run(uc.execute())
+
+    assert port.answer_global_calls == ["what is MCP?", "what is RAG?"]
+    assert result.status == LayerStatus.UNREACHABLE
+    assert "q2" in result.rationale
+    assert any("q2" in warning for warning in result.warnings)
+    # The question that did run keeps its evidence, and the metric is published as partial.
+    assert result.answer_grounding is not None
+    assert [q.question_id for q in result.answer_grounding.questions] == ["q1"]
+    assert result.project_owned_metrics[0].value == 1.0
 
 
 def test_global_questions_are_answered_through_the_production_path() -> None:
