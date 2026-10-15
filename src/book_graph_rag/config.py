@@ -243,6 +243,23 @@ class Settings(BaseSettings):
     # safe margin for the generated summary. ~12000 tokens ≈ 48K chars.
     summary_chunk_tokens: int = 12000
 
+    # ── Retrieval reranker (precision@k recovery) ─────────────────────────
+    # Master switch for the PRODUCTION query path (search_rag / search_chunks).
+    # The evaluation path always reranks: that is exactly what the layer-4 gate
+    # measures. Default False until the gate reports the improvement.
+    rerank_enabled: bool = False
+    # Cross-encoder used by RerankerPort. Multilingual on purpose: the corpus is
+    # partly English and partly Spanish (the catalog marks (EN)/(ES)).
+    reranker_model_id: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    # Chunks handed to callers after reranking. Was hardcoded as limit=10 inside
+    # Neo4jRetrievalAdapter.fetch_contexts.
+    retrieval_top_k: int = 10
+    # Fulltext candidates fetched BEFORE reranking. A reranker can only promote
+    # what this pool already contains: measured recall@40 = 0.7500 and
+    # recall@50 = 0.8333 on the committed retrieval dataset, so this size is the
+    # ceiling of the whole mechanism.
+    retrieval_overfetch_n: int = 40
+
     # Instructor internal retries for JSON self-healing only. When the LLM returns
     # malformed JSON (trailing characters, etc.), instructor re-prompts with the
     # parse error so it can recover. Keep this LOW (1): transport errors (503/429/
@@ -364,6 +381,30 @@ class Settings(BaseSettings):
         if not 1 <= value <= 200:
             raise ValueError(f"ask_global_score_batch_size ({value}) debe ser entre 1 y 200")
         return value
+
+    @field_validator("retrieval_top_k")
+    @classmethod
+    def _validate_retrieval_top_k(cls, value: int) -> int:
+        if not 1 <= value <= 100:
+            raise ValueError(f"retrieval_top_k ({value}) debe ser entre 1 y 100")
+        return value
+
+    @field_validator("retrieval_overfetch_n")
+    @classmethod
+    def _validate_retrieval_overfetch_n(cls, value: int) -> int:
+        if not 1 <= value <= 500:
+            raise ValueError(f"retrieval_overfetch_n ({value}) debe ser entre 1 y 500")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_overfetch_covers_top_k(self) -> "Settings":
+        """Over-fetch must never undershoot top_k, or truncation is impossible."""
+        if self.retrieval_overfetch_n < self.retrieval_top_k:
+            raise ValueError(
+                f"retrieval_overfetch_n ({self.retrieval_overfetch_n}) must be >= "
+                f"retrieval_top_k ({self.retrieval_top_k})"
+            )
+        return self
 
     @field_validator("summary_chunk_tokens")
     @classmethod
