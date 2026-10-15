@@ -115,13 +115,36 @@ def test_generation_baseline_finalized_loads() -> None:
 
 
 def test_generation_baseline_metrics_shape() -> None:
-    """The committed generation baseline carries the real RAGAS metric names."""
+    """The committed generation baseline carries the metric the gate measures.
+
+    It no longer carries the RAGAS names: that feed is empty by construction in
+    this layer (``odd/backlog.md``, E1), so the artifact records the project-owned
+    claims faithfulness of the measured run and names the instrument that
+    produced it.
+    """
     loader = JsonEvaluationBaselineLoader(Path("data/evaluation"))
     baseline = loader.load("generation")
     assert baseline is not None
-    assert "faithfulness" in baseline.metrics
-    assert "answer_relevancy" in baseline.metrics
-    assert "context_precision" in baseline.metrics
-    assert baseline.metrics["faithfulness"] == pytest.approx(0.6825)
-    assert baseline.metrics["answer_relevancy"] == pytest.approx(0.5953)
-    assert baseline.metrics["context_precision"] == pytest.approx(0.474)
+    assert set(baseline.metrics) == {"faithfulness"}
+    assert baseline.metrics["faithfulness"] == pytest.approx(0.7913043478260869)
+    assert baseline.model_ids == ("deepseek-v4-flash",)
+    assert baseline.faithfulness_min == pytest.approx(0.65)
+    faithfulness_min = baseline.faithfulness_min
+    assert faithfulness_min is not None
+    assert baseline.metrics["faithfulness"] >= faithfulness_min
+
+
+def test_retrieval_baseline_reflects_the_shipping_configuration() -> None:
+    """The committed retrieval baseline pins the measurement and its threshold.
+
+    The reranker is off in production, so the recorded precision@k is the plain
+    fulltext order over the over-fetched pool with the chunk-only denominator.
+    """
+    loader = JsonEvaluationBaselineLoader(Path("data/evaluation"))
+    baseline = loader.load("retrieval")
+    assert baseline is not None
+    assert baseline.metrics["precision_at_k"] == pytest.approx(0.125)
+    assert baseline.precision_at_k_min == pytest.approx(0.1175)
+    precision_at_k_min = baseline.precision_at_k_min
+    assert precision_at_k_min is not None
+    assert baseline.metrics["precision_at_k"] >= precision_at_k_min
