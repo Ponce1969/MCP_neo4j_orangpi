@@ -28,15 +28,17 @@ measured mechanism (generation faithfulness, resolution F1 and over-merge, retri
 precision@k). While a report still has `thresholds_finalized: false`, the readiness gate
 reports `INCOMPLETE` (exit 11) even if the measured metrics pass.
 
-The 2026-10-15 re-baseline changed the generation instrument: `metrics.faithfulness` now
-records the project-owned claims metric that the gate actually compares — `0.7913` over the
-35 questions of `generation_dataset` against `faithfulness_min = 0.65` — instead of a RAGAS
-number the layer's feed cannot reproduce (`odd/backlog.md`, E1). That threshold is
-deliberately **kept, not re-derived**: keeping it widens the margin from 4.8 % (the old
-`0.6825` pair) to 21.7 %, and re-deriving it from the new measurement is a decision for the
-maintainer, not something a re-baseline may do silently. The retrieval baseline was
-re-measured on the shipping configuration in the same pass: `precision@k = 0.1250` against a
-`precision_at_k_min` of `0.1175` (the same ~6 % margin the previous pair used).
+The 2026-10-15 re-baseline changed the generation instrument: `metrics.faithfulness` records
+the project-owned claims metric that the gate actually compares, instead of a RAGAS number the
+layer's feed cannot reproduce (`odd/backlog.md`, E1). It was measured twice that day, and the
+second measurement is the one committed: after the layer stopped fetching every community
+summary and started answering through the production path, faithfulness is **`0.8988` over the
+35 questions (593 claims) against `faithfulness_min = 0.85`**, re-derived mechanism-first (~5 %
+below the measurement; the aggregate's standard error is ≈ `0.012`, so the threshold sits ≈ 3.9 σ
+below it). The earlier `0.7913`/`0.65` pair belongs to the question-blind instrument. The
+retrieval baseline was re-measured on the shipping configuration in the same pass:
+`precision@k = 0.1250` against a `precision_at_k_min` of `0.1175` (the same ~6 % margin the
+previous pair used).
 
 ## Metrics that must not be trusted
 
