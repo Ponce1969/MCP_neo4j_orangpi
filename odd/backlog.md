@@ -350,6 +350,40 @@ Both items below are **implemented**; the evidence that motivated them is kept a
   response and as an MCP resource (`bookgraph://version`). Consumers then pass it back verbatim,
   which is what keeps the memory from ever querying the graph (see §8 of AGENTS.md).
 
+## Evaluation instrument findings (found 2026-10-15, out of the retrieval-reranker-port work unit)
+
+Both were found while running the layer-5 gate for `retrieval-reranker-port` (T8) and both predate that
+branch. The owner's routing decision (2026-10-15) was to record them here as separate work rather than
+extend that feature. Neither one invalidates T8's number: the gate's `faithfulness` threshold is applied
+to the project-owned claims metric, which is what T8 measured.
+
+- **E1 The RAGAS secondary metric of layers 4 and 5 is unmeasurable by construction, and the subprocess
+  failure that hides it reads like a provider problem.** Chain, with code:
+  `evaluate_generation_layer_use_case.py:246` builds
+  `generation_results = tuple((r.question_id, "", ()))`, discarding the answer and the contexts the use
+  case already holds (the retrieval layer does the same at `evaluate_retrieval_layer_use_case.py:184`);
+  `subprocess_ragas_runner._write_generation_jsonl` writes `"question": question_id`, so the *id*
+  travels as the question; and `scripts/run_ragas_evaluation.py` ignores the payload and re-retrieves
+  from that string, which is what makes the value noise. Measured evidence: the runner's input is
+  **98 bytes** (`answer: ""`, `contexts: []`, `question: "gen-001"`), and running the script directly on
+  that same input returned `faithfulness` **1.0** once and **0.0** another time. The subprocess inside
+  the gate still exits 1 and the runner swallows its stderr into a one-line warning. It also rewrites the untracked `docs/benchmarks/gr3_after.json` on every gate run, so the repo's own `test_gr3_after_removed_or_distinct` guard fails until that file is deleted by hand. Consequences: the
+  `0.6825` that `generation_baseline.json` recorded as `metrics.faithfulness` is a standalone-benchmark
+  number, not this path's; and the `0.792` of the 2026-10-09 reference run was never RAGAS (the empty
+  feed dates from `b442705`, 2026-09-10) but the project-owned claims metric. Fix shape if it is taken:
+  pass the real question, answer and contexts through `RAGASRunnerPort.run` (the port signature already
+  carries them), stop writing the id as the question, and let the use case keep the per-question answer
+  so the secondary signal becomes a real measurement.
+- **E2 The layer-5 contexts do not depend on the question.** `fetch_contexts(qtype="global")` returned
+  exactly the same **164 contexts, 674 623 chars (659 KiB), zero with a `chunk_id`** for `gen-001`,
+  `gen-002` and `gen-003` on production (0.2–0.3 s each, measured 2026-10-15 over the SSH tunnel). Two
+  consequences: the claims-faithfulness score is a self-consistency check of the model against a fixed
+  blob rather than a per-question retrieval quality signal (`cited_context_share` is null by design,
+  `contexts_with_ids = 0`), and every claims/verify/pairwise prompt carries ~659 KiB (~170 k tokens),
+  which is the "674 KB per question" first measured on 2026-10-11 and is most of the gate's 72 s per
+  question. Worth doing with the retrieval work: find why the chunk half is absent for `global` and why
+  the entity part is identical across questions before tuning anything on top of this metric.
+
 ## Closed (for reference)
 
 - The 286 dangling edges of `knowledge:essential-graphrag` (90 MENTIONS + 196 RELATED): closed 2026-10-02 —
