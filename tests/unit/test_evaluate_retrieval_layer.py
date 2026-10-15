@@ -221,6 +221,56 @@ def test_chunk_id_none_contributes_zero_never_false_positive() -> None:
     assert not any("precision" in w.lower() for w in result.warnings)
 
 
+def test_entities_without_chunk_id_do_not_dilute_precision() -> None:
+    """Entity contexts (chunk_id=None) are excluded from the precision denominator.
+
+    The retrieval port appends entity hits after the chunk hits; counting them
+    in ``len(contexts)`` penalized precision with evidence that can never match
+    a chunk reference id. Only chunk-bearing contexts form the denominator:
+    1 matching chunk + 3 entities must read as 1.0, not 0.25.
+    """
+    records = (
+        {
+            "question_id": "ret-001",
+            "question": "ReAct pattern definition",
+            "qtype": "local",
+            "reference_context_ids": ["a:book:5"],
+        },
+    )
+    contexts = {
+        "ReAct pattern definition": (
+            RetrievalContext(chunk_id="a:book:5", text="the ReAct definition."),
+            RetrievalContext(chunk_id=None, text="ReAct: pattern, agent, tool"),
+            RetrievalContext(chunk_id=None, text="entity two: description"),
+            RetrievalContext(chunk_id=None, text="entity three: description"),
+        ),
+    }
+    uc = _make_use_case(records=records, contexts=contexts)
+    result = asyncio.run(uc.execute())
+    assert _precision(result) == 1.0
+
+
+def test_entity_only_contexts_yield_zero_without_division_error() -> None:
+    """A pool with no chunk-bearing context scores 0.0 instead of dividing by zero."""
+    records = (
+        {
+            "question_id": "ret-001",
+            "question": "ReAct pattern definition",
+            "qtype": "local",
+            "reference_context_ids": ["a:book:5"],
+        },
+    )
+    contexts = {
+        "ReAct pattern definition": (
+            RetrievalContext(chunk_id=None, text="a:book:5 appears only in entity text"),
+        ),
+    }
+    uc = _make_use_case(records=records, contexts=contexts)
+    result = asyncio.run(uc.execute())
+    assert result.status == LayerStatus.PASSED
+    assert _precision(result) == 0.0
+
+
 def test_retrieval_layer_never_failed() -> None:
     """The retrieval layer result status is never FAILED."""
     records = (
