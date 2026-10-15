@@ -134,10 +134,18 @@ destructiva:
   no de metas inventadas) y ya están **finalizados**: los `data/evaluation/*_baseline.json`
   llevan `thresholds_finalized: true` con sus valores numéricos (generation
   `faithfulness_min` 0.65 · resolution `f1_min` 0.6 y `hard_over_merge_max` 0.0 ·
-  retrieval `precision_at_k_min` 0.045) ⇒ el readiness gate **pasa o falla de verdad**;
+  retrieval `precision_at_k_min` 0.1175) ⇒ el readiness gate **pasa o falla de verdad**;
   sólo reporta `INCOMPLETE` (11) si falta un baseline o no tiene umbrales finalizados.
   *(Hasta 2026-10-09 estos archivos llevaban `false` y el gate era estructuralmente
   incapaz de pasar; esa versión de esta nota quedó obsoleta.)*
+- **Valores medidos y vigentes (2026-10-15, `data/evaluation/*_baseline.json`):**
+  retrieval `precision@k` **0.1250** con umbral 0.1175, y generation `faithfulness`
+  **0.7913** con umbral 0.65 (conservado a propósito, no re-derivado). El `precision@k`
+  subió por el fix del denominador (los contextos sólo-chunk), **no** por el reranker: los
+  tres cross-encoders probados quedaron por debajo del orden fulltext puro (0.0917 /
+  0.1083 / 0.1000 vs 0.1250) ⇒ `RERANK_ENABLED` vive en `false` y **no debe habilitarse sin
+  una medición nueva**; el cuello de botella medido es el recall del pool, no el orden.
+  El detalle está en `odd/tasks/retrieval-reranker-port.md` (L1-L14) y en `odd/backlog.md`.
 - Corrida de referencia (2026-10-09, `gate expose-mcp-readiness --target bookgraph-neo4j`
   con `--output data/evaluation/gate_report.json`): **exit 0 (pass)** — structure,
   resolution y generation `passed`, extraction `pending` ("deferred per R6.1"),
