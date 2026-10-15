@@ -188,18 +188,37 @@ class EvaluateGenerationLayerUseCase:
             qtype = str(record.get("qtype", "global"))
             reference_answer = str(record.get("reference_answer", ""))
 
-            contexts = await self._retrieval_port.fetch_contexts(
-                question=question,
-                qtype=qtype,  # type: ignore[arg-type]
-                detail_level=detail_level,
-            )
-            answer = await self._retrieval_port.compose_answer(question=question, contexts=contexts)
+            if qtype == "global":
+                # Global questions go through the production path, which selects and composes in
+                # ONE pass. Fetching the contexts and composing separately measured a path
+                # production never runs — and measured it blind to the question, because that
+                # fetch returned every summary at the level in database order.
+                global_answer = await self._retrieval_port.answer_global(
+                    question=question, detail_level=detail_level
+                )
+                contexts = global_answer.contexts
+                answer = global_answer.answer
+                evidence_ids: tuple[str | None, ...] = global_answer.citation_ids
+            else:
+                contexts = await self._retrieval_port.fetch_contexts(
+                    question=question,
+                    qtype=qtype,  # type: ignore[arg-type]
+                    detail_level=detail_level,
+                )
+                answer = await self._retrieval_port.compose_answer(
+                    question=question, contexts=contexts
+                )
+                evidence_ids = tuple(context.chunk_id for context in contexts)
             # Deterministic evidence usage: the answer's own citations and terms measured
             # against the contexts it was given. No model call, and no id is invented for a
-            # context that carries none.
+            # context that carries none. Chunk hits cite their chunk id; the global path cites
+            # the summary ids production hands its composer, so the share stops being undefined.
             evidence_usage = grounding(
                 answer,
-                [GroundingContext(id=context.chunk_id, text=context.text) for context in contexts],
+                [
+                    GroundingContext(id=evidence_id, text=context.text)
+                    for evidence_id, context in zip(evidence_ids, contexts, strict=True)
+                ],
             )
             # Claim/pairwise ports still consume plain text evidence; pass the
             # text payloads while preserving the structured contexts upstream.

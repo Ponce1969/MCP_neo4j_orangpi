@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.evaluation_models import RetrievalContext
+from book_graph_rag.domain.models import CommunitySummary
 from book_graph_rag.infrastructure.neo4j_retrieval_adapter import Neo4jRetrievalAdapter
 
 
@@ -79,9 +80,22 @@ class _FakeEntity:
         self.entity = _FakeEntityValue(name, description)
 
 
-class _FakeSummary:
-    def __init__(self, summary: str) -> None:
-        self.summary = summary
+class _FakeCommunityScorer:
+    """Minimal LLM summary port for the global path: records the question it scored for."""
+
+    def __init__(self) -> None:
+        self.questions: list[str] = []
+
+    async def score_communities(
+        self, question: str, summaries: tuple[CommunitySummary, ...]
+    ) -> dict[str, int]:
+        self.questions.append(question)
+        return {summary.id: 50 for summary in summaries}
+
+    async def compose_answer(
+        self, question: str, ranked: list[tuple[CommunitySummary, int]]
+    ) -> str:
+        return "composed"
 
 
 def _settings(**overrides: Any) -> Settings:
@@ -104,10 +118,11 @@ def _adapter(
     community: _FakeCommunityAdapter | None = None,
     reranker: _FakeReranker | None = None,
     settings: Settings | None = None,
+    llm: Any = None,
 ) -> Neo4jRetrievalAdapter:
     return Neo4jRetrievalAdapter(
         settings or _settings(),
-        llm_adapter=cast(Any, object()),
+        llm_adapter=cast(Any, llm) if llm is not None else cast(Any, object()),
         query_adapter=cast(Any, query),
         community_adapter=cast(Any, community or _FakeCommunityAdapter()),
         reranker=cast(Any, reranker) if reranker is not None else None,
@@ -155,14 +170,22 @@ async def test_entities_are_appended_after_the_reranked_chunks() -> None:
 
 
 async def test_global_qtype_does_not_call_the_reranker() -> None:
-    """Global retrieval is community summaries: the chunk reranker stays out."""
+    """Global retrieval is community summaries: the chunk reranker stays out.
+
+    It does rank against the question (the production ranking), which is what makes the
+    layer-5 evidence comparable to `ask_global`; the chunk reranker still never sees it.
+    """
     query = _FakeQueryAdapter(_chunks(40))
     reranker = _FakeReranker()
-    community = _FakeCommunityAdapter([_FakeSummary("summary one")])
-    adapter = _adapter(query, community=community, reranker=reranker)
+    community = _FakeCommunityAdapter(
+        [CommunitySummary(level=1, summary="summary one", entity_ids=["e1"], parent_id="p1")]
+    )
+    llm = _FakeCommunityScorer()
+    adapter = _adapter(query, community=community, reranker=reranker, llm=llm)
 
     contexts = await adapter.fetch_contexts(question="q", qtype="global", detail_level=1)
 
     assert [c.text for c in contexts] == ["summary one"]
     assert reranker.received == ()
+    assert llm.questions == ["q"]
     assert query.search_limits == []

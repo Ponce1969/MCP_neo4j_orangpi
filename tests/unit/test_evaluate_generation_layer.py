@@ -14,6 +14,7 @@ from book_graph_rag.domain.evaluation_models import (
     AtomicClaim,
     EvaluationBaselineReport,
     EvaluationDataset,
+    GlobalRetrievalAnswer,
     LayerStatus,
     PairwiseJudgment,
     RAGASSecondaryMetrics,
@@ -39,8 +40,13 @@ class _FakeDatasetPort(EvaluationDatasetPort):
 
 
 class _FakeRetrievalPort(GraphRetrievalPort):
+    """Retrieval double that records which entry point the layer used."""
+
     def __init__(self, answers: Mapping[str, str] | None = None) -> None:
         self._answers = answers or {}
+        self.answer_global_calls: list[str] = []
+        self.fetch_calls: list[str] = []
+        self.compose_calls: list[str] = []
 
     async def fetch_contexts(
         self,
@@ -49,6 +55,7 @@ class _FakeRetrievalPort(GraphRetrievalPort):
         qtype: str,
         detail_level: int,
     ) -> tuple[RetrievalContext, ...]:
+        self.fetch_calls.append(question)
         return (
             RetrievalContext(chunk_id=None, text="ctx1"),
             RetrievalContext(chunk_id=None, text="ctx2"),
@@ -60,7 +67,24 @@ class _FakeRetrievalPort(GraphRetrievalPort):
         question: str,
         contexts: tuple[RetrievalContext, ...],
     ) -> str:
+        self.compose_calls.append(question)
         return self._answers.get(question, "composed answer")
+
+    async def answer_global(
+        self,
+        *,
+        question: str,
+        detail_level: int,
+    ) -> GlobalRetrievalAnswer:
+        self.answer_global_calls.append(question)
+        return GlobalRetrievalAnswer(
+            answer=self._answers.get(question, "composed answer"),
+            contexts=(
+                RetrievalContext(chunk_id=None, text="ctx1"),
+                RetrievalContext(chunk_id=None, text="ctx2"),
+            ),
+            citation_ids=("summary-1", "summary-2"),
+        )
 
 
 class _FakeClaimPort(ClaimValidatorPort):
@@ -146,19 +170,22 @@ def _settings() -> Settings:
     )
 
 
-def _make_use_case(
+def _build_use_case(
     *,
     baseline: EvaluationBaselineReport | None,
     claims: Mapping[str, tuple[AtomicClaim, ...]] | None = None,
     verdict: str | None = "support",
     ragas_metrics: RAGASSecondaryMetrics | None = None,
     answers: Mapping[str, str] | None = None,
-) -> EvaluateGenerationLayerUseCase:
+    qtype: str = "global",
+) -> tuple[EvaluateGenerationLayerUseCase, _FakeRetrievalPort]:
+    """The use case plus its retrieval double, for tests that assert how it was called."""
+    retrieval_port = _FakeRetrievalPort(answers=answers)
     records = (
         {
             "question_id": "q1",
             "question": "what is MCP?",
-            "qtype": "global",
+            "qtype": qtype,
             "reference_answer": "MCP is a protocol.",
             "contexts_hint": ["ctx1"],
         },
@@ -171,7 +198,7 @@ def _make_use_case(
     claims = claims or {"q1": (default_claim,)}
     return EvaluateGenerationLayerUseCase(
         dataset_port=_FakeDatasetPort(records),
-        retrieval_port=_FakeRetrievalPort(answers=answers),
+        retrieval_port=retrieval_port,
         claim_port=_FakeClaimPort(claims, verdict=verdict),
         pairwise_port=_FakePairwisePort(),
         ragas_port=_FakeRagasPort(
@@ -181,7 +208,59 @@ def _make_use_case(
         settings=_settings(),
         run_id="run-1",
         code_commit="abc123",
+    ), retrieval_port
+
+
+def _make_use_case(
+    *,
+    baseline: EvaluationBaselineReport | None,
+    claims: Mapping[str, tuple[AtomicClaim, ...]] | None = None,
+    verdict: str | None = "support",
+    ragas_metrics: RAGASSecondaryMetrics | None = None,
+    answers: Mapping[str, str] | None = None,
+    qtype: str = "global",
+) -> EvaluateGenerationLayerUseCase:
+    """The use case alone, for tests that only assert its outcome."""
+    use_case, _port = _build_use_case(
+        baseline=baseline,
+        claims=claims,
+        verdict=verdict,
+        ragas_metrics=ragas_metrics,
+        answers=answers,
+        qtype=qtype,
     )
+    return use_case
+
+
+def test_global_questions_are_answered_through_the_production_path() -> None:
+    """A global question must use the production answer, never the blind pair.
+
+    The layer used to fetch every summary at the level and compose from the first fifteen of
+    them without looking at the question, so three different questions produced the same
+    context blob. This pins the routing: the production entry point is used, the old pair is
+    not, and the citation ids it returns reach the evidence-usage signal.
+    """
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={"faithfulness": 0.8},
+    )
+    uc, port = _build_use_case(baseline=baseline)
+
+    result = asyncio.run(uc.execute())
+
+    assert port.answer_global_calls == ["what is MCP?"]
+    assert port.fetch_calls == []
+    assert port.compose_calls == []
+    assert result.status == LayerStatus.PASSED
+    grounding = result.answer_grounding
+    assert grounding is not None
+    # The production answer carries citable ids, so the share stops being undefined.
+    assert grounding.questions[0].contexts_with_ids == 2
+    assert grounding.questions[0].cited_context_share == 0.0
 
 
 def test_generation_status_incomplete_when_baseline_missing() -> None:
@@ -372,35 +451,18 @@ def test_claims_auditable() -> None:
 
 
 def test_pipeline_orchestration_order() -> None:
-    """The pipeline runs fetch -> compose -> extract -> verify -> pairwise -> ragas."""
+    """The pipeline answers globally, then extracts, verifies, judges and scores."""
     calls: list[str] = []
 
     class TracedRetrieval(_FakeRetrievalPort):
-        async def fetch_contexts(
+        async def answer_global(
             self,
             *,
             question: str,
-            qtype: str,
             detail_level: int,
-        ) -> tuple[RetrievalContext, ...]:
-            calls.append("fetch")
-            return await super().fetch_contexts(
-                question=question,
-                qtype=qtype,
-                detail_level=detail_level,
-            )
-
-        async def compose_answer(
-            self,
-            *,
-            question: str,
-            contexts: tuple[RetrievalContext, ...],
-        ) -> str:
-            calls.append("compose")
-            return await super().compose_answer(
-                question=question,
-                contexts=contexts,
-            )
+        ) -> GlobalRetrievalAnswer:
+            calls.append("answer_global")
+            return await super().answer_global(question=question, detail_level=detail_level)
 
     class TracedClaim(_FakeClaimPort):
         async def extract_claims(
@@ -510,15 +572,15 @@ def test_pipeline_orchestration_order() -> None:
         settings=_settings(),
     )
     asyncio.run(uc.execute())
-    assert calls == ["fetch", "compose", "extract", "verify", "pairwise", "ragas"]
+    assert calls == ["answer_global", "extract", "verify", "pairwise", "ragas"]
 
 
 def test_the_run_reports_the_evidence_usage_of_every_answer() -> None:
     """The grounding signal is reported per question and aggregated (S4).
 
-    The fake contexts carry no ids, exactly as the real ones do for community summaries, so
-    the citation share is undefined and must come back as None rather than as a zero that
-    reads like a measurement. The answer is given the contexts' own words so the term
+    A global answer cites the summary ids the production path handed its composer, so the
+    citation share is defined now; it was undefined while the layer fed the metric every
+    summary at the level with no ids. The answer is given the contexts' own words so the term
     grounding is a known number: this test is about the plumbing, not the linguistics.
     """
     baseline = EvaluationBaselineReport(
@@ -537,7 +599,34 @@ def test_the_run_reports_the_evidence_usage_of_every_answer() -> None:
     assert grounding is not None
     assert [q.question_id for q in grounding.questions] == ["q1"]
     assert grounding.questions[0].term_grounding == 1.0
-    assert grounding.questions[0].cited_context_share is None
     assert grounding.questions[0].contexts_provided == 2
+    assert grounding.questions[0].contexts_with_ids == 2
+    assert grounding.questions[0].cited_context_share == 0.0
     assert grounding.mean_term_grounding == 1.0
+    assert grounding.mean_cited_context_share == 0.0
+
+
+def test_a_context_set_without_ids_reports_an_undefined_citation_share() -> None:
+    """A local answer over contexts with no chunk ids leaves the share undefined, never zero.
+
+    An undefined share must not read like a measurement: this is the case the old global path
+    created for every question, and it still exists for entity-only local contexts.
+    """
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={"faithfulness": 0.8},
+    )
+    uc = _make_use_case(baseline=baseline, answers={"what is MCP?": "ctx1 ctx2"}, qtype="local")
+
+    result = asyncio.run(uc.execute())
+
+    grounding = result.answer_grounding
+    assert grounding is not None
+    assert grounding.questions[0].term_grounding == 1.0
+    assert grounding.questions[0].contexts_with_ids == 0
+    assert grounding.questions[0].cited_context_share is None
     assert grounding.mean_cited_context_share is None

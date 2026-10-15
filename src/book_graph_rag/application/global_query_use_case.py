@@ -47,6 +47,64 @@ class GlobalQueryUseCase:
         self._top_n = top_n
         self._score_batch_size = score_batch_size
 
+    async def select(
+        self,
+        question: str,
+        detail_level: int,
+        *,
+        scope: ScopeContext | None = None,
+    ) -> tuple[tuple[CommunitySummary, int], ...]:
+        """Return the summaries that matter for ``question``, most relevant first.
+
+        This is the ranking half of the map-reduce flow, exposed to callers that need the
+        evidence without the composed answer — the evaluation's global retrieval, whose
+        metrics are only comparable to production if they rank the same way. One
+        implementation on purpose (``_rank``): a second ranking would let the gate measure a
+        selection production never runs, which is exactly the defect this replaced.
+        """
+        if not 0 <= detail_level <= 3:
+            raise ValueError(f"detail_level must be between 0 and 3, got {detail_level}")
+        summaries = await self._read_port.get_summaries_by_level(detail_level, scope=scope)
+        ranking, _ = await self._rank(question, summaries)
+        return tuple(ranking)
+
+    async def _rank(
+        self,
+        question: str,
+        summaries: list[CommunitySummary],
+    ) -> tuple[list[tuple[CommunitySummary, int]], int]:
+        """Score in batches and keep ``top_n``, best first.
+
+        Returns the ranking and how many scoring calls produced it, so a caller's usage count
+        cannot drift from the batching that was actually issued.
+
+        One LLM call per batch instead of one per summary: at level 1 a single question used
+        to spend ~164 calls. The model also sees the candidates together, so near-ties get
+        better-calibrated scores.
+        """
+        if not summaries:
+            return [], 0
+        semaphore = asyncio.Semaphore(self._max_concurrency)
+        batches = [
+            tuple(summaries[index : index + self._score_batch_size])
+            for index in range(0, len(summaries), self._score_batch_size)
+        ]
+
+        async def _score_batch(
+            batch: tuple[CommunitySummary, ...],
+        ) -> list[tuple[CommunitySummary, int]]:
+            async with semaphore:
+                scores = await self._llm_port.score_communities(question, batch)
+            return [(summary, scores[summary.id]) for summary in batch]
+
+        scored = [
+            item
+            for group in await asyncio.gather(*(_score_batch(batch) for batch in batches))
+            for item in group
+        ]
+        ranked = sorted(scored, key=lambda item: item[1], reverse=True)
+        return ranked[: self._top_n], len(batches)
+
     async def ask(
         self,
         question: str,
@@ -90,29 +148,7 @@ class GlobalQueryUseCase:
                 "usage": _empty_usage(detail_level),
             }
 
-        semaphore = asyncio.Semaphore(self._max_concurrency)
-        # One LLM call per batch instead of one per summary: at level 1 a single question used
-        # to spend ~164 calls. The model also sees the candidates together, so near-ties get
-        # better-calibrated scores.
-        batches = [
-            tuple(summaries[index : index + self._score_batch_size])
-            for index in range(0, len(summaries), self._score_batch_size)
-        ]
-
-        async def _score_batch(
-            batch: tuple[CommunitySummary, ...],
-        ) -> list[tuple[CommunitySummary, int]]:
-            async with semaphore:
-                scores = await self._llm_port.score_communities(question, batch)
-            return [(summary, scores[summary.id]) for summary in batch]
-
-        scored = [
-            item
-            for group in await asyncio.gather(*(_score_batch(batch) for batch in batches))
-            for item in group
-        ]
-        ranked = sorted(scored, key=lambda item: item[1], reverse=True)
-        top = ranked[: self._top_n]
+        top, batch_count = await self._rank(question, summaries)
 
         answer = await self._llm_port.compose_answer(question, top)
         return {
@@ -133,7 +169,7 @@ class GlobalQueryUseCase:
             # What this answer cost, so a caller reasons about it instead of scraping
             # logs: one call per batch plus the single compose call.
             "usage": {
-                "llm_calls": len(batches) + 1,
+                "llm_calls": batch_count + 1,
                 "detail_level": detail_level,
                 "summaries_considered": len(summaries),
                 "summaries_used": len(top),
