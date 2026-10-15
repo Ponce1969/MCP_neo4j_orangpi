@@ -45,6 +45,10 @@ Thumbs.db
 logs/
 *.log
 evaluation_results.jsonl
+# RAGAS inputs are per-run scratch, not datasets: a failed subprocess leaves a
+# 0-byte file here, and the `!data/evaluation/**` negation above would otherwise
+# force-include it in every commit.
+data/evaluation/ragas_input_*.jsonl
 
 # ── Pi harness runtime config ───────────────────────────────────────────
 .pi/
