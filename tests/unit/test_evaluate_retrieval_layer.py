@@ -13,6 +13,7 @@ from book_graph_rag.domain.evaluation_models import (
     EvaluationBaselineReport,
     EvaluationDataset,
     EvaluationLayerResult,
+    GlobalRetrievalAnswer,
     LayerStatus,
     RAGASSecondaryMetrics,
     RetrievalContext,
@@ -67,6 +68,19 @@ class _FakeRetrievalPort(GraphRetrievalPort):
         contexts: tuple[RetrievalContext, ...],
     ) -> str:
         return ""
+
+    async def answer_global(
+        self,
+        *,
+        question: str,
+        detail_level: int,
+    ) -> GlobalRetrievalAnswer:
+        """Never used: this double serves the retrieval layer, which measures chunk contexts.
+
+        Raising instead of returning an empty answer keeps a future test from silently
+        passing on a path this layer does not own.
+        """
+        raise NotImplementedError("the retrieval layer does not ask for a global answer")
 
 
 class _FakeRagasPort(RAGASRunnerPort):

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.config import Settings
-from book_graph_rag.domain.evaluation_models import RetrievalContext
+from book_graph_rag.domain.evaluation_models import GlobalRetrievalAnswer, RetrievalContext
 from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
@@ -72,10 +72,17 @@ class Neo4jRetrievalAdapter(GraphRetrievalPort):
         reranker is wired, re-order them and keep ``retrieval_top_k``; entities are
         appended after the ranked chunks, unchanged. Without a reranker the fetch is
         ``retrieval_top_k`` — exactly the pre-reranker behaviour.
+
+        Global questions return the community summaries the production path would rank
+        first for this question (``GlobalQueryUseCase.select``): the same ranking
+        ``ask_global`` uses, so the layer-5 evidence is comparable to production instead of
+        being every summary at the level in database order.
         """
         if qtype == "global":
-            summaries = await self._community_adapter.get_summaries_by_level(detail_level)
-            return tuple(RetrievalContext(chunk_id=None, text=s.summary) for s in summaries)
+            ranking = await self._global_uc.select(question, detail_level)
+            return tuple(
+                RetrievalContext(chunk_id=None, text=summary.summary) for summary, _score in ranking
+            )
 
         top_k = self._settings.retrieval_top_k
         fetch_limit = self._settings.retrieval_overfetch_n if self._reranker is not None else top_k
@@ -113,13 +120,39 @@ class Neo4jRetrievalAdapter(GraphRetrievalPort):
             )
         return tuple(contexts)
 
+    async def answer_global(
+        self,
+        *,
+        question: str,
+        detail_level: int,
+    ) -> GlobalRetrievalAnswer:
+        """Return the answer production would give, with the summaries behind it.
+
+        Delegates to the same use case ``ask_global`` runs, so the evaluation measures that
+        path instead of a parallel one. ``contexts`` and ``citation_ids`` are built from the
+        same list in the same order, so they cannot drift apart.
+        """
+        result = await self._global_uc.ask(question, detail_level)
+        entries = result["contexts"]
+        return GlobalRetrievalAnswer(
+            answer=str(result["answer"]),
+            contexts=tuple(
+                RetrievalContext(chunk_id=None, text=str(entry["text"])) for entry in entries
+            ),
+            citation_ids=tuple(str(entry["id"]) for entry in entries),
+        )
+
     async def compose_answer(
         self,
         *,
         question: str,
         contexts: tuple[RetrievalContext, ...],
     ) -> str:
-        """Compose an NL answer from retrieved contexts."""
+        """Compose an NL answer from retrieved contexts.
+
+        Local questions only: a global question is answered by ``answer_global``, which uses
+        the production composer. This prompt sees the reranked chunk pool.
+        """
         joined = "\n---\n".join(ctx.text for ctx in contexts[:15])
         prompt = (
             f"Question: {question}\n\n"

@@ -106,6 +106,23 @@ class RetrievalContext(BaseModel):
     text: str
 
 
+class GlobalRetrievalAnswer(BaseModel):
+    """What the production global path returns for one question (R11.1, R5.1).
+
+    Global questions are selected and composed in one pass by the same use case production
+    runs (``GlobalQueryUseCase.ask``), so the layer-5 evaluation can measure that path
+    instead of a parallel one. The summaries are not chunks: their ``RetrievalContext``
+    carries ``chunk_id=None``, and their citable identity travels separately in
+    ``citation_ids``, aligned index by index with ``contexts``.
+    """
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    answer: str
+    contexts: tuple[RetrievalContext, ...]
+    citation_ids: tuple[str, ...]
+
+
 ClaimVerdictLabel = Literal["support", "contradict", "not_verifiable"]
 
 

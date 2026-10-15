@@ -5,7 +5,7 @@ from __future__ import annotations
 import abc
 from typing import Literal
 
-from book_graph_rag.domain.evaluation_models import RetrievalContext
+from book_graph_rag.domain.evaluation_models import GlobalRetrievalAnswer, RetrievalContext
 
 
 class GraphRetrievalPort(abc.ABC):
@@ -33,3 +33,19 @@ class GraphRetrievalPort(abc.ABC):
         contexts: tuple[RetrievalContext, ...],
     ) -> str:
         """Run the project's NL composition to produce the graph answer (R5.1)."""
+
+    @abc.abstractmethod
+    async def answer_global(
+        self,
+        *,
+        question: str,
+        detail_level: int,
+    ) -> GlobalRetrievalAnswer:
+        """Return the production global answer **and** the summaries it was composed from.
+
+        Global questions are selected and composed in one pass by the use case production
+        runs, so the evaluation asks for both halves together: fetching every summary at the
+        level and composing a parallel answer measured a path production never runs, and did
+        it without the question. ``citation_ids`` stay aligned with ``contexts`` index by
+        index, which is what lets a caller score citations against the evidence it was given.
+        """
