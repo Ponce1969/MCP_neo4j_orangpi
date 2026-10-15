@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import SecretStr, ValidationError
 
 from book_graph_rag.config import Settings
+from book_graph_rag.domain.evaluation_models import RetrievalContext
 from book_graph_rag.domain.mcp_security import (
     ConcurrencyLimitExceededError,
     InvalidScopeError,
@@ -42,6 +43,7 @@ from book_graph_rag.infrastructure.mcp.mcp_server_adapter import (
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
 from book_graph_rag.ports.mcp_security_port import BudgetLease, ResourceBudgetPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
+from book_graph_rag.ports.reranker_port import RerankerPort
 from book_graph_rag.ports.scope_resolver_port import ScopeResolverPort
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort, Text2CypherResult
 
@@ -2041,3 +2043,108 @@ async def test_a_short_hmac_key_refuses_to_fingerprint(
 
     with pytest.raises(Exception, match="hmac"):
         short._make_fingerprint({"question": "x"})
+
+
+# ── chunk reranking (Phase 3: production wiring, flag-gated at the composition root) ──
+
+
+class _FakeReranker(RerankerPort):
+    """Records the pool it received; returns it reversed, truncated to ``top_k``."""
+
+    def __init__(self) -> None:
+        self.received: tuple[RetrievalContext, ...] = ()
+        self.top_k_seen: int | None = None
+
+    async def rerank(
+        self, *, query: str, candidates: tuple[RetrievalContext, ...], top_k: int
+    ) -> tuple[RetrievalContext, ...]:
+        self.received = candidates
+        self.top_k_seen = top_k
+        return tuple(reversed(candidates))[:top_k]
+
+
+def _chunk_payloads(count: int) -> list[dict[str, Any]]:
+    return [
+        {"chunk_id": f"a:book:{i}", "text": f"chunk {i}", "score": 1.0 - i / 100}
+        for i in range(count)
+    ]
+
+
+def _reranking_adapter(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+    reranker: RerankerPort | None,
+    *,
+    overfetch: int = 40,
+) -> McpServerAdapter:
+    return McpServerAdapter(
+        graph_query_port,
+        query_logger,
+        text2cypher_port,
+        require_scope=False,
+        hmac_key_id=_TEST_HMAC_KEY_ID,
+        hmac_key=_TEST_HMAC_KEY,
+        app_env="test",
+        reranker=reranker,
+        rerank_overfetch_n=overfetch,
+    )
+
+
+async def test_search_chunks_reranks_the_overfetched_pool(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """The wired reranker sees N candidates and only the requested limit survives."""
+    graph_query_port.search_chunks_result = _chunk_payloads(40)
+    reranker = _FakeReranker()
+    adapter = _reranking_adapter(graph_query_port, query_logger, text2cypher_port, reranker)
+
+    result = await adapter.search_chunks("query", 10)
+
+    limits = [call[1]["limit"] for call in graph_query_port.calls if call[0] == "search_chunks"]
+    assert limits == [40]
+    assert len(reranker.received) == 40
+    assert reranker.top_k_seen == 10
+    chunks = result["chunks"]
+    assert [c["chunk_id"] for c in chunks] == [f"a:book:{i}" for i in range(39, 29, -1)]
+    # The original payload dicts come back, score and provenance included.
+    assert chunks[0]["score"] == pytest.approx(1.0 - 39 / 100)
+
+
+async def test_search_chunks_without_reranker_keeps_the_caller_limit(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """No reranker (the default) keeps the legacy fetch: the caller's limit."""
+    payloads = _chunk_payloads(10)
+    graph_query_port.search_chunks_result = payloads
+    adapter = _reranking_adapter(graph_query_port, query_logger, text2cypher_port, None)
+
+    result = await adapter.search_chunks("query", 10)
+
+    limits = [call[1]["limit"] for call in graph_query_port.calls if call[0] == "search_chunks"]
+    assert limits == [10]
+    assert result["chunks"] == payloads
+
+
+async def test_search_rag_reranks_chunks_and_leaves_entities_alone(
+    graph_query_port: _FakeGraphQueryPort,
+    query_logger: _FakeQueryLoggerPort,
+    text2cypher_port: _FakeText2CypherPort,
+) -> None:
+    """search_rag reranks its chunk half; entities are untouched by the chunk reranker."""
+    graph_query_port.search_chunks_result = _chunk_payloads(40)
+    graph_query_port.find_entity_result = [_entity("ReAct")]
+    reranker = _FakeReranker()
+    adapter = _reranking_adapter(graph_query_port, query_logger, text2cypher_port, reranker)
+
+    result = await adapter.search_rag("query", limit=5)
+
+    limits = [call[1]["limit"] for call in graph_query_port.calls if call[0] == "search_chunks"]
+    assert limits == [40]
+    assert reranker.top_k_seen == 5
+    assert [c["chunk_id"] for c in result["chunks"]] == [f"a:book:{i}" for i in range(39, 34, -1)]
+    assert [e["entity"]["name"] for e in result["entities"]] == ["ReAct"]

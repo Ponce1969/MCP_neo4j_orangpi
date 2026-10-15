@@ -14,6 +14,7 @@ from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapte
 from book_graph_rag.infrastructure.llm_adapter import LLMAdapter
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.ports.graph_retrieval_port import GraphRetrievalPort
+from book_graph_rag.ports.reranker_port import RerankerPort
 
 
 class _ProxyAnswer(BaseModel):
@@ -36,11 +37,15 @@ class Neo4jRetrievalAdapter(GraphRetrievalPort):
         llm_adapter: LLMAdapter | None = None,
         query_adapter: Neo4jQueryAdapter | None = None,
         community_adapter: Neo4jCommunityAdapter | None = None,
+        reranker: RerankerPort | None = None,
     ) -> None:
         self._settings = settings
         self._query_adapter = query_adapter or Neo4jQueryAdapter(settings)
         self._community_adapter = community_adapter or Neo4jCommunityAdapter(settings)
         self._llm_adapter = llm_adapter or LLMAdapter(settings)
+        # Optional: without a reranker the read path keeps its legacy shape
+        # (fetch exactly retrieval_top_k chunks, no re-ordering).
+        self._reranker = reranker
         self._global_uc = GlobalQueryUseCase(
             read_port=self._community_adapter,
             llm_port=self._llm_adapter,
@@ -61,23 +66,42 @@ class Neo4jRetrievalAdapter(GraphRetrievalPort):
         qtype: Literal["global", "local"],
         detail_level: int,
     ) -> tuple[RetrievalContext, ...]:
-        """Return ordered contexts for ``question``."""
+        """Return ordered contexts for ``question``.
+
+        Local questions fetch ``retrieval_overfetch_n`` fulltext candidates when a
+        reranker is wired, re-order them and keep ``retrieval_top_k``; entities are
+        appended after the ranked chunks, unchanged. Without a reranker the fetch is
+        ``retrieval_top_k`` — exactly the pre-reranker behaviour.
+        """
         if qtype == "global":
             summaries = await self._community_adapter.get_summaries_by_level(detail_level)
             return tuple(RetrievalContext(chunk_id=None, text=s.summary) for s in summaries)
 
+        top_k = self._settings.retrieval_top_k
+        fetch_limit = self._settings.retrieval_overfetch_n if self._reranker is not None else top_k
         chunks, entities = await asyncio.gather(
-            self._query_adapter.search_chunks(question, limit=10),
+            self._query_adapter.search_chunks(question, limit=fetch_limit),
             self._query_adapter.find_entity(question, None),
             return_exceptions=True,
         )
-        contexts: list[RetrievalContext] = []
+        chunk_contexts: list[RetrievalContext] = []
         if isinstance(chunks, list):
-            contexts.extend(
+            chunk_contexts = [
                 RetrievalContext(chunk_id=c.get("chunk_id"), text=c.get("text", ""))
                 for c in chunks
                 if isinstance(c, dict) and c.get("text")
+            ]
+        if self._reranker is not None and chunk_contexts:
+            # The reranker only re-orders and truncates the pool it was handed: the
+            # extra recall comes from fetch_limit, never from the reranker itself.
+            chunk_contexts = list(
+                await self._reranker.rerank(
+                    query=question,
+                    candidates=tuple(chunk_contexts),
+                    top_k=top_k,
+                )
             )
+        contexts: list[RetrievalContext] = list(chunk_contexts)
         if isinstance(entities, list):
             contexts.extend(
                 RetrievalContext(
