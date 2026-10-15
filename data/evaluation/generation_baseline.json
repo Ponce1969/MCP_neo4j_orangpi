@@ -3,15 +3,13 @@
   "layer": "generation",
   "dataset_id": "generation_dataset",
   "dataset_sha256": "e9616f3cd5a68969b4e82cf0bc8c41aac564e13052ca9924c5cfb8d64442c88a",
-  "committed_at": "2026-09-11T00:00:00Z",
-  "code_commit": "03406ee",
+  "committed_at": "2026-10-15T14:09:19Z",
+  "code_commit": "49793a0",
   "model_ids": [
-    "sentence-transformers/all-MiniLM-L6-v2"
+    "deepseek-v4-flash"
   ],
   "metrics": {
-    "faithfulness": 0.6825,
-    "answer_relevancy": 0.5953,
-    "context_precision": 0.474
+    "faithfulness": 0.7913043478260869
   },
   "thresholds_finalized": true,
   "faithfulness_min": 0.65,
