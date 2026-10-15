@@ -90,9 +90,10 @@ class EvaluateGenerationLayerUseCase:
                 pairwise_total=0,
             )
 
-        self._last_per_question = per_question_results = await self._evaluate_questions(
+        per_question_results, failures = await self._evaluate_questions(
             dataset, detail_level=detail_level
         )
+        self._last_per_question = per_question_results
 
         total_claims = sum(len(r.claims) for r in per_question_results)
         supported_claims = sum(
@@ -121,7 +122,10 @@ class EvaluateGenerationLayerUseCase:
         )
 
         ragas = await self._run_ragas(baseline, per_question_results, run_ragas=run_ragas)
-        warnings: list[str] = []
+        warnings: list[str] = [
+            f"question {question_id} could not be evaluated: {message}"
+            for question_id, message in failures
+        ]
         if not ragas.available:
             warnings.append(f"RAGAS unavailable: {ragas.notes}")
         elif ragas.drop_warning:
@@ -167,6 +171,24 @@ class EvaluateGenerationLayerUseCase:
                 warnings=tuple(warnings),
             )
 
+        if failures:
+            # Never PASSED over a partial sample: name the questions that were lost and say what
+            # the metrics cover. One failing question used to abort the whole layer instead.
+            failed_ids = ", ".join(question_id for question_id, _ in failures)
+            return self._result(
+                status=LayerStatus.UNREACHABLE,
+                rationale=(
+                    f"{len(failures)} of {len(dataset.records)} questions could not be "
+                    f"evaluated ({failed_ids}); the metrics cover the rest"
+                ),
+                metrics=metrics,
+                baseline=baseline,
+                ragas=ragas,
+                pairwise_wins=pairwise_wins,
+                pairwise_total=pairwise_total,
+                warnings=tuple(warnings),
+            )
+
         return self._result(
             status=LayerStatus.PASSED,
             rationale="generation layer passed baseline checks",
@@ -180,78 +202,104 @@ class EvaluateGenerationLayerUseCase:
 
     async def _evaluate_questions(
         self, dataset: EvaluationDataset, *, detail_level: int
-    ) -> tuple[_PerQuestionResult, ...]:
+    ) -> tuple[tuple[_PerQuestionResult, ...], tuple[tuple[str, str], ...]]:
+        """Evaluate every record, keeping the failures instead of aborting the run.
+
+        Each question is independent, and a transient provider omission used to abort the whole
+        layer: an hour of work, one exit code and no report. The failures come back with their
+        question id so ``execute`` can name them and refuse to call a partial sample PASSED.
+        """
         results: list[_PerQuestionResult] = []
+        failures: list[tuple[str, str]] = []
         for record in dataset.records:
             question_id = str(record.get("question_id", ""))
             question = str(record.get("question", ""))
             qtype = str(record.get("qtype", "global"))
             reference_answer = str(record.get("reference_answer", ""))
 
-            if qtype == "global":
-                # Global questions go through the production path, which selects and composes in
-                # ONE pass. Fetching the contexts and composing separately measured a path
-                # production never runs — and measured it blind to the question, because that
-                # fetch returned every summary at the level in database order.
-                global_answer = await self._retrieval_port.answer_global(
-                    question=question, detail_level=detail_level
-                )
-                contexts = global_answer.contexts
-                answer = global_answer.answer
-                evidence_ids: tuple[str | None, ...] = global_answer.citation_ids
-            else:
-                contexts = await self._retrieval_port.fetch_contexts(
+            try:
+                result = await self._evaluate_one(
+                    question_id=question_id,
                     question=question,
-                    qtype=qtype,  # type: ignore[arg-type]
+                    qtype=qtype,
+                    reference_answer=reference_answer,
                     detail_level=detail_level,
                 )
-                answer = await self._retrieval_port.compose_answer(
-                    question=question, contexts=contexts
-                )
-                evidence_ids = tuple(context.chunk_id for context in contexts)
-            # Deterministic evidence usage: the answer's own citations and terms measured
-            # against the contexts it was given. No model call, and no id is invented for a
-            # context that carries none. Chunk hits cite their chunk id; the global path cites
-            # the summary ids production hands its composer, so the share stops being undefined.
-            evidence_usage = grounding(
-                answer,
-                [
-                    GroundingContext(id=evidence_id, text=context.text)
-                    for evidence_id, context in zip(evidence_ids, contexts, strict=True)
-                ],
+            except Exception as exc:  # noqa: BLE001 - one question must not cost the run
+                failures.append((question_id, f"{type(exc).__name__}: {exc}"))
+                continue
+            results.append(result)
+        return tuple(results), tuple(failures)
+
+    async def _evaluate_one(
+        self,
+        *,
+        question_id: str,
+        question: str,
+        qtype: str,
+        reference_answer: str,
+        detail_level: int,
+    ) -> _PerQuestionResult:
+        """Run one question end to end: evidence, answer, claims, verdict and grounding."""
+        if qtype == "global":
+            # Global questions go through the production path, which selects and composes in
+            # ONE pass. Fetching the contexts and composing separately measured a path
+            # production never runs — and measured it blind to the question, because that
+            # fetch returned every summary at the level in database order.
+            global_answer = await self._retrieval_port.answer_global(
+                question=question, detail_level=detail_level
             )
-            # Claim/pairwise ports still consume plain text evidence; pass the
-            # text payloads while preserving the structured contexts upstream.
-            context_texts = tuple(ctx.text for ctx in contexts)
-            extracted = await self._claim_port.extract_claims(
-                question_id=question_id,
-                answer=answer,
-                contexts=context_texts,
-                extractor_model_id=self._settings.query_llm_model_name or "extractor",
-            )
-            verified = await self._claim_port.verify_claims(
-                question_id=question_id,
-                claims=extracted,
-                contexts=context_texts,
-                verifier_model_id=self._settings.query_llm_model_name or "verifier",
-            )
-            pairwise = await self._pairwise_port.compare(
-                question_id=question_id,
+            contexts = global_answer.contexts
+            answer = global_answer.answer
+            evidence_ids: tuple[str | None, ...] = global_answer.citation_ids
+        else:
+            contexts = await self._retrieval_port.fetch_contexts(
                 question=question,
-                graph_answer=answer,
-                baseline_answer=reference_answer,
-                contexts=context_texts,
-                judge_model_id=self._settings.query_llm_model_name or "judge",
+                qtype=qtype,  # type: ignore[arg-type]
+                detail_level=detail_level,
             )
-            results.append(
-                _PerQuestionResult(
-                    question_id=question_id,
-                    claims=verified,
-                    pairwise=pairwise,
-                    grounding=evidence_usage,
-                )
-            )
-        return tuple(results)
+            answer = await self._retrieval_port.compose_answer(question=question, contexts=contexts)
+            evidence_ids = tuple(context.chunk_id for context in contexts)
+        # Deterministic evidence usage: the answer's own citations and terms measured
+        # against the contexts it was given. No model call, and no id is invented for a
+        # context that carries none. Chunk hits cite their chunk id; the global path cites
+        # the summary ids production hands its composer, so the share stops being undefined.
+        evidence_usage = grounding(
+            answer,
+            [
+                GroundingContext(id=evidence_id, text=context.text)
+                for evidence_id, context in zip(evidence_ids, contexts, strict=True)
+            ],
+        )
+        # Claim/pairwise ports still consume plain text evidence; pass the
+        # text payloads while preserving the structured contexts upstream.
+        context_texts = tuple(ctx.text for ctx in contexts)
+        extracted = await self._claim_port.extract_claims(
+            question_id=question_id,
+            answer=answer,
+            contexts=context_texts,
+            extractor_model_id=self._settings.query_llm_model_name or "extractor",
+        )
+        verified = await self._claim_port.verify_claims(
+            question_id=question_id,
+            claims=extracted,
+            contexts=context_texts,
+            verifier_model_id=self._settings.query_llm_model_name or "verifier",
+        )
+        pairwise = await self._pairwise_port.compare(
+            question_id=question_id,
+            question=question,
+            graph_answer=answer,
+            baseline_answer=reference_answer,
+            contexts=context_texts,
+            judge_model_id=self._settings.query_llm_model_name or "judge",
+        )
+        return _PerQuestionResult(
+            question_id=question_id,
+            claims=verified,
+            pairwise=pairwise,
+            grounding=evidence_usage,
+        )
 
     async def _run_ragas(
         self,
