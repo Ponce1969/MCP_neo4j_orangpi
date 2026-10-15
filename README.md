@@ -36,9 +36,12 @@ hardening) is deployed and serving.
 
 ### Deployment facts
 
-- Repository `main` is at `393d596`; the Orange Pi deployment runs `69d7931`
-  (the newer commits are documentation and evaluation changes, pending the next
-  `git pull` and service restart).
+- Repository `main` is at `458dea4`; the Orange Pi checkout is at `79ab6d9`, **24 commits
+  behind** (both verified 2026-10-15; on the host the commit is readable without git as
+  `.git/refs/heads/main`). What is pending there is the evaluation re-baseline, the
+  documentation and the flag-gated reranker port — none of which changes the service's
+  behaviour while `RERANK_ENABLED` stays off — so a `git pull` plus `sudo systemctl restart
+  mcp-server` is a deliberate step, not an urgent one.
 - The application repository lives on the Pi at
   `/home/gonzalo/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi`.
 - The MCP server runs under systemd as `mcp-server.service`; it is **not** a
@@ -50,7 +53,15 @@ hardening) is deployed and serving.
 - Reference readiness run (2026-10-09), `gate expose-mcp-readiness --target
   bookgraph-neo4j`: **exit 0**, with resolution f1 `0.6410`, generation
   faithfulness `0.792` and retrieval precision@k `0.0482`. The extraction layer
-  stays `pending` ("deferred per R6.1") and is not blocking.
+  stays `pending` ("deferred per R6.1") and is not blocking. Those are the numbers of
+  that run, not the current baselines.
+- Re-measured baselines (2026-10-15, committed in `data/evaluation/`): retrieval
+  `precision@k = 0.1250` against `precision_at_k_min = 0.1175`, and generation
+  `faithfulness = 0.7913` over the gate's 35 questions (115 claims supported) against a
+  `faithfulness_min` deliberately kept at `0.65`. The retrieval gain comes from the
+  chunk-only precision denominator; the cross-encoder candidates all measured *below* the
+  plain fulltext order (`0.0917` / `0.1083` / `0.1000` vs `0.1250`), so `RERANK_ENABLED`
+  ships **off** and the `precision@k >= 0.15` objective of that work is declared unmet.
 
 ## What this is — and what it is **not** yet
 
@@ -433,13 +444,24 @@ it costs no model call. A failed census read reports `null` rather than a guess.
 
 ### Queued next steps
 
-- **Answer quality — a project-owned baseline first.** The gate's own numbers are the
-  reference (generation faithfulness `0.792`, retrieval precision@k `0.0482`, both on the
-  gate's 35 generated answers). The standalone RAGAS run over 67 questions on a different
-  dataset is **not comparable** with them and is not a baseline; producing one over the
-  gate's dataset is the first step. **`answer_relevancy` is broken in this configuration**
-  and must not be tuned against: it returns a deterministic `0.0` even when the answer is
-  the question echoed back, so a deterministic replacement signal ships with the baseline.
+- **Answer quality — the project-owned baseline exists; the RAGAS route is blocked.** The
+  gate's own numbers are now committed (`generation_baseline.json`: faithfulness `0.7913`,
+  threshold `0.65`) together with the retrieval pair (`0.1250` / `0.1175`). A RAGAS baseline
+  over the gate's dataset **cannot be produced through the gate** as it stands: the layer-4/5
+  runner receives an empty payload by construction and the script re-retrieves from the
+  question id, so its output is noise (`odd/backlog.md`, E1) — repairing that feed is the
+  prerequisite, and it is deliberately separate work. **`answer_relevancy` is broken in this
+  configuration** and must not be tuned against: it returns a deterministic `0.0` even when
+  the answer is the question echoed back, so the deterministic replacement signal
+  (`grounding`: `cited_context_share`, `term_grounding`) is the one to use.
+- **Retrieval quality — the blocker is pool recall, not ordering.** Measured 2026-10-15: the
+  plain fulltext order already places 15 of the pool's 18 reference chunks inside the top-10
+  (83% of the N=40 ceiling), while 5 of the 23 references never enter the pool at N=40 and
+  `ret-018`'s single reference does not enter even at N=50 — which puts the hand-crafted
+  ground truth itself in question. Candidate generation (hybrid lexical + vector) and
+  validating that dataset are the two candidate next moves; a generic cross-encoder was
+  measured and does not help on this corpus. See `odd/tasks/retrieval-reranker-port.md`
+  (L9/L10) and `odd/backlog.md` E1/E2.
 - **Contexts are auditable now.** `ask_global` returns the `contexts` it used, so
   faithfulness can finally be measured over answers obtained through the MCP (see the
   consumer-surface section above). Redoing the level-0/level-1 quality comparison with it is
