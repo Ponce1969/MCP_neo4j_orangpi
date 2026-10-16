@@ -26,6 +26,7 @@ from book_graph_rag.domain.checkpoint_models import (
     CheckpointStatus,
     FailedChunkRecord,
     VersionDimensions,
+    redacted_error,
 )
 from book_graph_rag.domain.models import Entity, KnowledgeGraphChunk, Relationship
 from book_graph_rag.domain.provenance import resolve_chunk_provenance
@@ -61,6 +62,8 @@ class IndexBookUseCase:
         max_attempts: int = 3,
         stale_lease_seconds: int = 300,
         force_reprocess: bool = False,
+        hmac_key_id: str = "",
+        hmac_secret: str = "",
     ) -> None:
         self._pdf_port = pdf_port
         self._llm_port = llm_port
@@ -76,6 +79,12 @@ class IndexBookUseCase:
         self._max_attempts = max_attempts
         self._stale_lease_seconds = stale_lease_seconds
         self._force_reprocess = force_reprocess
+        # R5: the dead-letter record and the checkpoint transition describe a failure by
+        # its type, its length and a keyed fingerprint — never by its text. Both come from
+        # the same settings the MCP log uses, so one rule covers every sink. An absent key
+        # simply means no fingerprint; the raw text is dropped either way.
+        self._hmac_key_id = hmac_key_id
+        self._hmac_secret = hmac_secret
         self._logger = logging.getLogger(__name__)
 
     async def close(self) -> None:
@@ -242,11 +251,10 @@ class IndexBookUseCase:
         """Release the lease to FAILED and append a re-addressable dead-letter record."""
         assert self._checkpoint_port is not None
         assert self._versions is not None
-        error_type = type(error).__name__
-        error_message = str(error)
+        redacted = redacted_error(error, key_id=self._hmac_key_id, secret=self._hmac_secret)
         with contextlib.suppress(Exception):
             await self._checkpoint_port.release_lease_to_failed(
-                source_id, chunk.chunk_index, error_type, error_message, attempt
+                source_id, chunk.chunk_index, redacted, attempt
             )
 
         if self._dead_letter_port is not None:
@@ -260,8 +268,9 @@ class IndexBookUseCase:
                 schema_version=self._versions.schema_version,
                 attempt=attempt,
                 checkpoint_status=CheckpointStatus.FAILED,
-                error_type=error_type,
-                error_message=error_message,
+                error_type=redacted.error_type,
+                error_length=redacted.error_length,
+                error_fingerprint=redacted.error_fingerprint,
             )
             await self._dead_letter_port.write_failed_chunk(record.model_dump(mode="json"))
 
@@ -341,11 +350,17 @@ class IndexBookUseCase:
             await self._graph_db_port.upsert_mentions(chunk_index, book_id, entity_ids)
 
     def _write_dead_letter(self, chunk: KnowledgeGraphChunk, error: Exception) -> None:
+        redacted = redacted_error(error, key_id=self._hmac_key_id, secret=self._hmac_secret)
         record = {
             "chunk_index": chunk.chunk_index,
             "page_ref": {"start": chunk.page_ref.start, "end": chunk.page_ref.end},
-            "error_type": type(error).__name__,
-            "error_message": str(error),
+            "error_type": redacted.error_type,
+            "error_length": redacted.error_length,
+            "error_fingerprint": (
+                redacted.error_fingerprint.model_dump(mode="json")
+                if redacted.error_fingerprint is not None
+                else None
+            ),
             "timestamp": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
         }
         with self._dead_letter_path.open("a", encoding="utf-8") as f:

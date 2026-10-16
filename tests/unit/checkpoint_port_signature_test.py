@@ -8,7 +8,12 @@ from typing import Any
 
 import pytest
 
-from book_graph_rag.domain.checkpoint_models import Checkpoint, LeaseResult, VersionDimensions
+from book_graph_rag.domain.checkpoint_models import (
+    Checkpoint,
+    LeaseResult,
+    RedactedError,
+    VersionDimensions,
+)
 from book_graph_rag.ports.checkpoint_port import CheckpointPort
 
 _REQUIRED_METHODS: dict[str, dict[str, Any]] = {
@@ -21,8 +26,7 @@ _REQUIRED_METHODS: dict[str, dict[str, Any]] = {
     "release_lease_to_failed": {
         "source_id": str,
         "chunk_index": int,
-        "error_type": str,
-        "error_message": str,
+        "error": RedactedError,
         "attempt": int,
         "return": Checkpoint,
     },

@@ -5,7 +5,12 @@ from __future__ import annotations
 import abc
 from datetime import datetime
 
-from book_graph_rag.domain.checkpoint_models import Checkpoint, LeaseResult, VersionDimensions
+from book_graph_rag.domain.checkpoint_models import (
+    Checkpoint,
+    LeaseResult,
+    RedactedError,
+    VersionDimensions,
+)
 
 
 class CheckpointPort(abc.ABC):
@@ -27,11 +32,14 @@ class CheckpointPort(abc.ABC):
         self,
         source_id: str,
         chunk_index: int,
-        error_type: str,
-        error_message: str,
+        error: RedactedError,
         attempt: int,
     ) -> Checkpoint:
-        """Transition a PROCESSING chunk to FAILED and store error metadata."""
+        """Transition a PROCESSING chunk to FAILED and store redacted error metadata.
+
+        The raw exception text never crosses this boundary (R5): what is stored is the
+        exception class name, the message length and a keyed fingerprint.
+        """
         ...
 
     @abc.abstractmethod

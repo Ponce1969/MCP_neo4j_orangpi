@@ -15,6 +15,7 @@ from book_graph_rag.domain.checkpoint_models import (
     ReplayableChunk,
     VersionDimensions,
     parse_failed_chunk,
+    redacted_error,
 )
 from book_graph_rag.domain.models import KnowledgeGraphChunk
 from book_graph_rag.ports.checkpoint_port import CheckpointPort
@@ -43,6 +44,8 @@ class ReplayDeadLetterUseCase:
         chunk_loader: Callable[[str, int], Awaitable[KnowledgeGraphChunk]],
         dead_letter_path: Path,
         max_attempts: int = 3,
+        hmac_key_id: str = "",
+        hmac_secret: str = "",
     ) -> None:
         self._checkpoint_port = checkpoint_port
         self._graph_db_port = graph_db_port
@@ -52,6 +55,8 @@ class ReplayDeadLetterUseCase:
         self._chunk_loader = chunk_loader
         self._dead_letter_path = dead_letter_path
         self._max_attempts = max_attempts
+        self._hmac_key_id = hmac_key_id
+        self._hmac_secret = hmac_secret
         self._logger = logging.getLogger(__name__)
 
     async def execute(
@@ -191,14 +196,12 @@ class ReplayDeadLetterUseCase:
         error: Exception,
     ) -> None:
         """Transition the chunk back to FAILED and append a fresh dead-letter record."""
-        error_type = type(error).__name__
-        error_message = str(error)
+        redacted = redacted_error(error, key_id=self._hmac_key_id, secret=self._hmac_secret)
         with contextlib.suppress(Exception):
             await self._checkpoint_port.release_lease_to_failed(
                 record.source_id,
                 record.chunk_index,
-                error_type,
-                error_message,
+                redacted,
                 attempt,
             )
 
@@ -212,7 +215,8 @@ class ReplayDeadLetterUseCase:
             schema_version=self._versions.schema_version,
             attempt=attempt,
             checkpoint_status=CheckpointStatus.FAILED,
-            error_type=error_type,
-            error_message=error_message,
+            error_type=redacted.error_type,
+            error_length=redacted.error_length,
+            error_fingerprint=redacted.error_fingerprint,
         )
         await self._dead_letter_port.write_failed_chunk(dead_letter_record.model_dump(mode="json"))

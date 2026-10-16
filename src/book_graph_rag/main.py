@@ -318,6 +318,8 @@ def index(
                 max_attempts=getattr(settings, "checkpoint_max_attempts", 3),
                 stale_lease_seconds=getattr(settings, "checkpoint_stale_lease_seconds", 300),
                 force_reprocess=command.force_reprocess,
+                hmac_key_id=settings.mcp_hmac_key_id,
+                hmac_secret=settings.mcp_hmac_key.get_secret_value(),
             )
         else:
             index_use_case = IndexBookUseCase(
@@ -327,6 +329,8 @@ def index(
                 max_concurrency=settings.llm_max_concurrency,
                 batch_size=settings.processing_batch_size,
                 dead_letter_path=settings.dead_letter_path,
+                hmac_key_id=settings.mcp_hmac_key_id,
+                hmac_secret=settings.mcp_hmac_key.get_secret_value(),
             )
 
         asyncio.run(index_use_case.execute(str(pdf_path)))
@@ -358,6 +362,8 @@ def index(
             chunk_loader=chunk_loader,
             dead_letter_path=settings.dead_letter_path_chunks,
             max_attempts=getattr(settings, "checkpoint_max_attempts", 3),
+            hmac_key_id=settings.mcp_hmac_key_id,
+            hmac_secret=settings.mcp_hmac_key.get_secret_value(),
         )
 
         async def _run_replay() -> int:

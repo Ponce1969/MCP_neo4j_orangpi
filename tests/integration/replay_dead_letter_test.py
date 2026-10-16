@@ -12,6 +12,7 @@ from book_graph_rag.config import Settings
 from book_graph_rag.domain.checkpoint_models import (
     CheckpointStatus,
     FailedChunkRecord,
+    RedactedError,
     VersionDimensions,
 )
 from book_graph_rag.domain.models import Book, Entity, KnowledgeGraphChunk, PageRef
@@ -121,8 +122,7 @@ async def test_replay_dead_letter_moves_failed_chunks_to_processed(
             await checkpoint_adapter.release_lease_to_failed(
                 _SOURCE_ID,
                 index,
-                error_type="LLMExtractionError",
-                error_message="simulated failure",
+                RedactedError(error_type="LLMExtractionError", error_length=17),
                 attempt=2,
             )
     finally:

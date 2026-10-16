@@ -41,6 +41,8 @@ def fake_settings(monkeypatch: pytest.MonkeyPatch) -> Any:
         checkpoint_enabled = True
         checkpoint_max_attempts = 3
         checkpoint_stale_lease_seconds = 300
+        mcp_hmac_key_id = "mcp-log-v1"
+        mcp_hmac_key = FakeSecret()
         pipeline_version = "1.0.0"
         schema_version = "1.0.0"
         graph_llm_model_date = "2026-09-01"

@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from book_graph_rag.domain.mcp_security import QueryFingerprint, effective_token
 from book_graph_rag.domain.models import PageRef
 
 # argparse.ArgumentError is raised when exit_on_error=False and a mutually
@@ -51,7 +52,8 @@ class Checkpoint(BaseModel):
     processed_at: datetime | None = None
     failed_at: datetime | None = None
     error_type: str | None = None
-    error_message: str | None = None
+    error_length: int | None = Field(default=None, ge=0)
+    error_fingerprint: QueryFingerprint | None = None
     updated_at: datetime
 
 
@@ -74,8 +76,59 @@ class ReplayableChunk(BaseModel):
     versions: VersionDimensions
 
 
+class RedactedError(BaseModel):
+    """What is safe to persist about a failure: class name, length, keyed fingerprint.
+
+    R5 of the security register: the raw text of an exception is never stored, because an
+    adapter's error can carry prompts, URLs, corpus text or credentials. ``error_type`` and
+    ``error_length`` keep the failure classifiable and measurable, and ``error_fingerprint``
+    correlates repetitions of the same message without revealing it.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    error_type: str = Field(min_length=1)
+    error_length: int = Field(ge=0)
+    error_fingerprint: QueryFingerprint | None = None
+
+
+def redacted_error(
+    error: BaseException,
+    *,
+    key_id: str,
+    secret: str | None,
+) -> RedactedError:
+    """Reduce a failure to type, length and a keyed fingerprint — never its text.
+
+    One rule for every writer (the checkpoint transition, the dead-letter record and the legacy
+    JSONL sink), so no path can keep persisting the message.
+
+    The fingerprint uses the same key and the same shape rule as the MCP query log
+    (``MCP_HMAC_KEY`` through :func:`~book_graph_rag.domain.mcp_security.effective_token`), which
+    is what keeps it from being decorative: a plain digest of guessable driver text would be
+    reversible. When the key is missing, weak or unnamed the fingerprint is simply absent — the
+    text is dropped either way, and an indexing run is never aborted for want of a logging key
+    (unlike the MCP log path, whose key is validated at boot).
+    """
+    raw = str(error)
+    key = effective_token(secret)
+    fingerprint: QueryFingerprint | None = None
+    if key and key_id:
+        fingerprint = QueryFingerprint.from_canonical(key_id, key, {"error_message": raw})
+    return RedactedError(
+        error_type=type(error).__name__,
+        error_length=len(raw),
+        error_fingerprint=fingerprint,
+    )
+
+
 class FailedChunkRecord(BaseModel):
-    """Re-addressable dead-letter record for a failed chunk."""
+    """Re-addressable dead-letter record for a failed chunk.
+
+    ``error_message`` is legacy: records written before R5 carry the raw exception text and are
+    still read (and replayed) unchanged, but this code never writes it again — the error is
+    described by ``error_type``, ``error_length`` and ``error_fingerprint``.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -89,7 +142,9 @@ class FailedChunkRecord(BaseModel):
     attempt: int = Field(ge=0)
     checkpoint_status: CheckpointStatus
     error_type: str
-    error_message: str
+    error_length: int | None = Field(default=None, ge=0)
+    error_fingerprint: QueryFingerprint | None = None
+    error_message: str | None = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

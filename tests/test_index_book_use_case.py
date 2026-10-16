@@ -12,6 +12,7 @@ from typing import get_type_hints
 
 from book_graph_rag.application.index_book_use_case import IndexBookUseCase
 from book_graph_rag.domain.checkpoint_models import Checkpoint, VersionDimensions
+from book_graph_rag.domain.mcp_security import QueryFingerprint
 from book_graph_rag.domain.models import (
     Book,
     Chapter,
@@ -348,14 +349,48 @@ async def test_use_case_skips_failed_chunks_to_dead_letter(tmp_path: Path) -> No
     failed_indices = {record["chunk_index"] for record in records}
     assert failed_indices == {3, 7}
     for record in records:
-        assert "page_ref" in record
-        assert "error_type" in record
-        assert "error_message" in record
-        assert "timestamp" in record
+        assert set(record) == {
+            "chunk_index",
+            "page_ref",
+            "error_type",
+            "error_length",
+            "error_fingerprint",
+            "timestamp",
+        }
+        assert record["error_type"] == "ValueError"
+        assert record["error_length"] > 0
 
     all_entity_ids = {entity.id for batch in graph.entity_batches_upserted for entity in batch}
     assert "ent-3" not in all_entity_ids
     assert "ent-7" not in all_entity_ids
+
+
+async def test_dead_letter_error_is_redacted_with_the_configured_key(tmp_path: Path) -> None:
+    """R5: the keyed fingerprint identifies the failure without storing its text."""
+    chunks = _make_chunks(4, book=_make_book())
+    llm = _FakeLLMPort(fail_indices={2})
+    dl_path = tmp_path / "dead_letter.log"
+    secret = "a" * 64
+    use_case = IndexBookUseCase(
+        pdf_port=_FakePDFPort(chunks),
+        llm_port=llm,
+        graph_db_port=_FakeGraphDBPort(),
+        max_concurrency=1,
+        batch_size=1,
+        dead_letter_path=dl_path,
+        hmac_key_id="mcp-log-v1",
+        hmac_secret=secret,
+    )
+
+    await use_case.execute("dummy.pdf")
+
+    message = "Simulated LLM failure for chunk 2"
+    record = json.loads(dl_path.read_text(encoding="utf-8").strip().splitlines()[0])
+    assert record["error_length"] == len(message)
+    assert record["error_fingerprint"] == QueryFingerprint.from_canonical(
+        "mcp-log-v1", secret, {"error_message": message}
+    ).model_dump(mode="json")
+    assert message not in json.dumps(record)
 
 
 async def test_use_case_flushes_partial_batch_at_end(tmp_path: Path) -> None:

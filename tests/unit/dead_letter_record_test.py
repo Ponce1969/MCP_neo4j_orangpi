@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -47,7 +48,6 @@ def valid_record() -> dict[str, Any]:
         "attempt",
         "checkpoint_status",
         "error_type",
-        "error_message",
     ],
 )
 def test_failed_chunk_record_requires_all_fields(
@@ -67,6 +67,28 @@ def test_failed_chunk_record_accepts_complete_shape(valid_record: dict[str, Any]
     assert record.page_ref == PageRef(start=87, end=88)
     assert record.checkpoint_status == CheckpointStatus.FAILED
     assert record.attempt == 3
+
+
+def test_a_legacy_record_carrying_the_raw_message_still_reads(valid_record: dict[str, Any]) -> None:
+    """R5 drops the message from new records, but an existing file must keep replaying."""
+    record = FailedChunkRecord.model_validate(valid_record)
+
+    assert record.error_message == "model returned malformed JSON after retries"
+    assert parse_failed_chunk(valid_record) == parse_failed_chunk(
+        {k: v for k, v in valid_record.items() if k != "error_message"}
+    )
+
+
+def test_the_redacted_shape_carries_no_raw_text(valid_record: dict[str, Any]) -> None:
+    """What this code writes from now on: type, length and a keyed fingerprint only."""
+    payload = {k: v for k, v in valid_record.items() if k != "error_message"} | {"error_length": 41}
+    record = FailedChunkRecord.model_validate(payload)
+    dumped = record.model_dump(mode="json")
+
+    assert dumped["error_message"] is None
+    assert dumped["error_length"] == 41
+    assert dumped["error_fingerprint"] is None
+    assert "model returned malformed JSON after retries" not in json.dumps(dumped)
 
 
 def test_parse_failed_chunk_extracts_identity(valid_record: dict[str, Any]) -> None:
