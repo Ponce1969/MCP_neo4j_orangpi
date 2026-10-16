@@ -195,9 +195,52 @@ all.
 
 - Feature document: `odd/tasks/retrieval-reranker-port.md` (L9/L10 — the A/B that killed the
   reranker, and the ceiling arithmetic) and `odd/tasks/eval-question-aware-global-retrieval.md`.
-- Probes: `scripts/eval_fulltext_recall.py` (recall@N + A/B), `scripts/verify_retrieval_references.py`
-  (labels exist and are indexed).
+- Probes: `scripts/eval_fulltext_recall.py` (recall@N + A/B + the phase-0 hybrid simulation),
+  `scripts/verify_retrieval_references.py` (labels exist and are indexed).
 - Dormant entity infrastructure: `infrastructure/_neo4j_vector_cypher.py`,
   `infrastructure/neo4j_vector_candidate_retrieval.py`, `config.py::candidate_retrieval_strategy`.
 - Live facts: `SHOW INDEXES`, `SHOW PROCEDURES`, the `Chunk` property census, the corpus census —
   all read-only, run 2026-10-16 against production through an SSH tunnel.
+
+## 9. Phase 0 result (2026-10-16): the mechanism is real but does not pay for itself
+
+The simulation of section 5 ran read-only against production: 3 468 chunks embedded locally with
+`paraphrase-multilingual-MiniLM-L12-v2` (**~2 minutes on CPU**, no LLM cost), exact cosine over
+the whole corpus, the real fulltext query, and RRF (`k = 60`, over-fetch 40). The control and the
+hybrid are measured in the same run, with the same chunk-only denominator.
+
+| fusion weights (vector, lexical) | `precision@10` | delta vs the in-run control |
+|---|---|---|
+| **(0.0, 1.0)** — sanity control: no vector weight | **0.1250** | **0.0000** (reproduces the fulltext exactly, so the fusion is not inventing hits) |
+| (1.0, 1.0) — the value pre-registered before any result | **0.1083** | **-0.0167** |
+| (0.3, 1.0) | **0.1333** | **+0.0083** |
+| (1.0, 3.0) | **0.1333** | **+0.0083** |
+
+What the numbers say, including the part that is inconvenient:
+
+1. **The equal-weight fusion loses** (-0.0167): it promotes one reference and degrades three
+   (ret-003 `…:1417`, ret-008 `…:60`, ret-013 `…:113`).
+2. **A lexical-heavy fusion gains exactly one reference** — `+1/120 = +0.0083`, the smallest
+   non-zero delta the metric can even express — and **degrades none**: per question, ret-011 goes
+   from 0 to 1 hits and every other question keeps its count (`ret-005` and `ret-018` stay at
+   0/2 and 0/1). That one reference is ret-011's `…:1453`: the mechanism works, cleanly, for
+   precisely the case A was proposed for.
+3. **Even the best case stays under the objective**: `0.1333 < 0.15`. In its most favourable
+   measured configuration the vector branch does not close the gap the ADR set out to close.
+4. **`ret-005` and `ret-018` are not rescued by vectors either.** Exact cosine over every chunk
+   in the corpus still does not bring their references into the top-10, so those two are not a
+   lexical limitation that a vector branch can repair.
+5. **The passing rows come from weights chosen after seeing the loss.** Only 3 of the 4 rows were
+   tried, and the two that "pass" sit exactly at the metric's minimum granularity — the
+   multiple-comparison hazard the pre-agreed criterion exists to prevent. The pre-registered
+   value is the one that failed.
+
+**Consequence.** Investing in A means: embedding and **writing 3468 vectors to production**, a
+vector index bound to 384 dimensions, a query-time embedding, a fusion with a weight
+hyperparameter to tune and defend, and one more query of latency in the user-facing `search_rag`
+— to gain **one** reference, still under target. **Recommendation: do not build A.** The honest
+next cheap experiment is section 3's **B**: a query-shape variant (phrase/proximity) needs no data
+write and no DDL and can be measured with this same script; an analyzer change needs one index
+recreation (a DDL write, no data write). If B does not reach the objective either, **C** — keeping
+`0.1250` with the objective declared unmet — is the evidence-backed answer, and retrieval remains
+the optional, non-blocking layer it already is.
