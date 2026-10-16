@@ -298,7 +298,88 @@ Until 2026-10-04 the file carried leading spaces before the keys; they are gone 
 whitespace first: `sed -E 's/^[[:space:]]+//' .env`. Python-dotenv and `bash` `source` never needed that, but
 anchored parsers do.
 
-## 8. Related rules
+## 8. The read-only Neo4j credential (R2)
+
+The MCP's read paths authenticate with a **server-side read-only credential**, so a bug — or a
+compromised process — cannot write even by opening its own session. The code-level guards stay as
+they were (`READ_ACCESS` routing plus the managed `execute_read` transaction); this adds the boundary
+the server enforces. In production the service **refuses to start** without it, with the same shape as
+the token and fingerprint-key checks, so the order below matters: role first, then environment, then
+the code that requires it.
+
+### 8.1 Create the role (operator, on the host)
+
+Run as an administrator against the **system** database:
+
+    docker exec -it bookgraph-neo4j cypher-shell -d system
+
+```cypher
+CREATE ROLE bookgraph_reader;
+GRANT ACCESS ON DATABASE neo4j TO bookgraph_reader;
+GRANT MATCH {*} ON GRAPH neo4j NODE * TO bookgraph_reader;
+GRANT MATCH {*} ON GRAPH neo4j RELATIONSHIP * TO bookgraph_reader;
+DENY WRITE ON GRAPH neo4j TO bookgraph_reader;
+GRANT SHOW INDEX ON DATABASE neo4j TO bookgraph_reader;
+GRANT SHOW CONSTRAINT ON DATABASE neo4j TO bookgraph_reader;
+GRANT EXECUTE PROCEDURE * ON DBMS TO bookgraph_reader;
+GRANT EXECUTE BOOSTED PROCEDURE db.labels, db.relationshipTypes, db.propertyKeys ON DBMS TO bookgraph_reader;
+CREATE USER bookgraph_reader SET PASSWORD '<a real password>' CHANGE NOT REQUIRED;
+GRANT ROLE bookgraph_reader TO bookgraph_reader;
+```
+
+Why each grant matters — a missing one fails *one* tool, not everything, which is why the table doubles
+as the diagnostic:
+
+| grant | what needs it |
+|-------|---------------|
+| `ACCESS` + `MATCH {*}` on nodes and relationships | every read tool |
+| `DENY WRITE` | belt and braces: nothing granted later can turn this role into a writer |
+| `SHOW INDEX` / `SHOW CONSTRAINT` | a read path reporting the index state |
+| `EXECUTE PROCEDURE *` | the fulltext search is a **procedure** (`db.index.fulltext.queryNodes`): without it `search_chunks` fails |
+| `EXECUTE BOOSTED PROCEDURE db.labels, db.relationshipTypes, db.propertyKeys` | the Text2Cypher schema inference sees the whole schema rather than only what the role traverses |
+
+`SHOW ROLE bookgraph_reader PRIVILEGES AS COMMANDS;` prints what was really granted — read it before
+continuing. If schema inference (`query_cypher`) still fails afterwards, add `apoc.meta.schema` to the
+boosted list: APOC's introspection is the one dependency whose elevation requirement is not covered
+above.
+
+### 8.2 Point the service at it
+
+In the host's `.env` (never print the password):
+
+    NEO4J_READONLY_USER=bookgraph_reader
+    NEO4J_READONLY_PASSWORD=<the same password>
+
+Then `sudo systemctl restart mcp-server` (§2 and §3: **never** a manual instance).
+
+The CLI read commands (`audit`, `gate`, `evaluate`) use the same credential when it is configured and
+fall back to the main one otherwise, so a run on a checkout without these variables keeps working.
+
+### 8.3 Verify, per tool
+
+    cd ~/Gonzalo_codigo/Mcp_libro/MCP_neo4j_orangpi
+    set -a; . ./.env; set +a
+    ~/.local/bin/uv run --no-sync python scripts-ops/mcp_smoke_book4.py
+
+And the automated check, which asserts both halves — a read succeeds **and** the server rejects a write
+with that credential:
+
+    NEO4J_READONLY_TEST_URI=bolt://localhost:17687 \
+    NEO4J_READONLY_TEST_USER=bookgraph_reader \
+    NEO4J_READONLY_TEST_PASSWORD=… \
+    uv run pytest tests/integration/test_readonly_neo4j_credential.py -q
+
+The write half must fail with `Neo.ClientError.Security.Forbidden` (or `Unauthorized`). It skips unless
+that URI is set on purpose, so it can never fall back to the application's configured server.
+
+### 8.4 Rolling back
+
+- **Only the role**: `DROP USER bookgraph_reader; DROP ROLE bookgraph_reader;` — but once the code is
+deployed, production **requires** the credential, so this alone leaves the service unable to start.
+- **The feature**: remove the two variables from `.env`, deploy the previous commit, restart. Neither
+  path touches the graph: the role is security configuration, not graph data.
+
+## 9. Related rules
 
 - Graph mutation gate (AGENTS.md §7.2): fresh backup → dry-run → human approval
   → apply → audit. This runbook is read-only with respect to the graph.
