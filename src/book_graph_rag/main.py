@@ -92,6 +92,7 @@ from book_graph_rag.infrastructure.brute_force_candidate_retrieval import (
     BruteForceCandidateRetrieval,
 )
 from book_graph_rag.infrastructure.catalog_loader import CatalogLoader, CatalogLoadError
+from book_graph_rag.infrastructure.code_provenance import current_code_commit
 from book_graph_rag.infrastructure.dead_letter import JSONLDeadLetter
 from book_graph_rag.infrastructure.evaluation_baseline_loader import (
     JsonEvaluationBaselineLoader,
@@ -663,6 +664,16 @@ def _build_evaluate_command_use_case(settings: Settings) -> EvaluateCommandUseCa
         generation_layer=generation_layer,
         retrieval_layer=retrieval_layer,
         extraction_layer=extraction_layer,
+        # The report must name the code that ran: without this the layers inherited the
+        # *baseline's* commit, which names code that did not execute.
+        code_commit=current_code_commit(),
+    )
+
+
+def _configured_model_ids(settings: Settings) -> tuple[str, ...]:
+    """The models a gate run actually uses: the query LLM and the local embedding model."""
+    return tuple(
+        model for model in (settings.query_llm_model_name, settings.embedding_model_id) if model
     )
 
 
@@ -721,6 +732,9 @@ def _build_readiness_gate_evaluator_use_case(
         generation_layer=generation_layer,
         retrieval_layer=retrieval_layer,
         extraction_layer=extraction_layer,
+        # Provenance travels with the report: the commit that ran and the models it used.
+        code_commit=current_code_commit(),
+        model_ids=_configured_model_ids(settings),
     )
 
 
