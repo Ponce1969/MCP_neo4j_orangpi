@@ -95,7 +95,7 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   `Text2CypherResult.schema_source`).
 - **Residual risk:** LOW once schema is catalog-derived and its source is always surfaced.
 
-### R5 — Raw free-text logging (MEDIUM)
+### R5 — Raw free-text logging (mitigated)
 
 - **Evidence `[VERIFIED]`:** MCP query logging is now **metadata-only** — raw
   query/prompt/error text never enters the persisted JSONL. Free-text inputs are
@@ -107,14 +107,36 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   (`config.py::_validate_raw_logging_is_development_only`); secret redaction is
   applied to metadata (`models.py::redact_sensitive_metadata`). Retention is bounded
   (`mcp_log_retention_days`, `json_query_logger_adapter.py`).
-- **Evidence `[VERIFIED]` (residual):** the indexing dead-letter path still writes
-  `error_message = str(error)` verbatim (`index_book_use_case.py::_write_dead_letter`,
-  `::_release_to_failed`).
+- **Evidence `[VERIFIED]`:** indexing failures use the single `redacted_error()` rule
+  (`src/book_graph_rag/domain/checkpoint_models.py`) to persist exception type,
+  raw-message character length and a keyed HMAC-SHA256 `QueryFingerprint`, never raw
+  text. It is called by
+  `IndexBookUseCase._release_to_failed` (checkpoint and dead-letter port record),
+  `IndexBookUseCase._write_dead_letter` (legacy JSONL), and
+  `ReplayDeadLetterUseCase`'s re-fail path. `CheckpointPort.release_lease_to_failed`
+  in `src/book_graph_rag/ports/checkpoint_port.py` accepts one `RedactedError`,
+  preventing raw text from crossing the port boundary. `Neo4jCheckpointAdapter` in
+  `src/book_graph_rag/infrastructure/neo4j_checkpoint_adapter.py` writes flat
+  `error_type`, `error_length`, `error_fingerprint_hex` and
+  `error_fingerprint_key_id` properties and sets `c.error_message = null` on the node
+  it touches; `error_metadata_from_node` in
+  `src/book_graph_rag/infrastructure/checkpoint_error_metadata.py` is the inverse
+  mapping used by both
+  checkpoint readers and does not read `error_message`. Tests:
+  `tests/unit/test_redacted_error.py` (14 cases),
+  `tests/unit/dead_letter_record_test.py`,
+  `tests/unit/checkpoint_port_signature_test.py`,
+  `tests/unit/index_book_use_case_lease_test.py`, and
+  `tests/test_index_book_use_case.py` (exact JSONL keys and keyed-HMAC filtering).
+  Without a valid key, no fingerprint is stored and indexing does not abort.
 - **Mitigation (implemented):** metadata-only query log + HMAC fingerprints +
-  redaction + dev-only raw gate + bounded retention.
-- **Mitigation (target):** bound/sanitize dead-letter `error_message`.
-- **Residual risk:** LOW for the MCP query log (metadata-only); MEDIUM for the
-  dead-letter error messages until bounded/sanitized.
+  redaction + dev-only raw gate + bounded retention; dead-letter/checkpoint errors
+  store `error_type`, `error_length` and, when a valid key is available, a keyed HMAC
+  fingerprint — never raw text.
+- **Residual risk:** LOW — fingerprints are only as private as their key. Dead-letter
+  files and `:Checkpoint` nodes written before this change retain their raw error text.
+  Scrubbing existing checkpoint nodes is a graph write subject to §7.2, so pre-existing
+  records are not silently migrated.
 
 ### R6 — Prompt injection via natural-language tools (MEDIUM)
 
@@ -217,8 +239,12 @@ remains human-gated. Verified complete vs. remaining:
    path is namespace-scoped (R7, code-verified — see §3).
 4. R4 mitigated — **not done:** schema fallback is still the hardcoded constant;
    dynamic schema inference remains the live path (`text2cypher_adapter.py`).
-5. R5 mitigated — **partial:** MCP query log is metadata-only + HMAC + redacted; the
-   dead-letter `error_message` is still raw.
+5. R5 mitigated — **verified complete:** MCP query logs are metadata-only + HMAC +
+   redacted; dead-letter and checkpoint failures use `redacted_error()`
+   (`src/book_graph_rag/domain/checkpoint_models.py`) to store `error_type` and
+   `error_length`, plus a keyed HMAC-SHA256 fingerprint when a valid key is available,
+   never raw text. The three writers are `IndexBookUseCase._release_to_failed`,
+   `IndexBookUseCase._write_dead_letter`, and `ReplayDeadLetterUseCase`'s re-fail path.
 6. Readiness gate (06) passes; audit (04) shows no BLOCKING, no FAILED/UNREACHABLE —
    **run as the Phase 7 exposure checkpoint:** `gate expose-mcp` exit `0` (PASS).
    `gate expose-mcp-readiness` is **runnable again: its two documented blockers are gone.**
@@ -245,7 +271,9 @@ remains human-gated. Verified complete vs. remaining:
   A write-capable credential still exists (R2 residual) — least-privilege separation
   remains target.
 - [x] MCP query logs contain no raw secrets or unbounded raw query text (metadata-only
-  + HMAC fingerprints). Dead-letter `error_message` is still raw (R5 residual).
+  + HMAC fingerprints). Dead-letter/checkpoint error metadata written by current code
+  is redacted: it contains type, length and, when keyed, HMAC fingerprints, never raw
+  text (R5).
 - [x] The exposure gate cannot pass while any CRITICAL residual risk remains — no
   CRITICAL residual remains after R1's mitigation, and the gate stays fail-closed
   against CRITICAL residuals; final exposure still requires the 06/07 gate + human
@@ -257,5 +285,6 @@ remains human-gated. Verified complete vs. remaining:
   production.
 - `[OPEN]` Transport choice (TLS vs. Tailscale-only vs. both) for the first real exposure.
 - `[OPEN]` Logging redaction policy specifics (mask vs. drop vs. hash) for query text.
-  (Decided for the MCP query log: drop + keyed HMAC-SHA256 fingerprints — R5. The
-  dead-letter `error_message` policy remains open.)
+  (Decided for the MCP query log and dead-letter/checkpoint errors: drop + keyed
+  HMAC-SHA256 fingerprints — R5; error metadata also retains `error_type` and
+  `error_length`.)
