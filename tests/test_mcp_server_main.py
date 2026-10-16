@@ -109,6 +109,8 @@ def fake_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
         neo4j_password=SecretStr("fake-password"),  # pragma: allowlist secret
+        neo4j_readonly_user="read-neo4j",
+        neo4j_readonly_password=SecretStr("short-read-password"),  # pragma: allowlist secret
         mcp_access_token=SecretStr(
             "fake-access-token-para-tests-0123456789"
         ),  # pragma: allowlist secret
@@ -243,6 +245,19 @@ def test_serve_command_starts_server(
     )
 
 
+def test_composition_root_uses_readonly_credential_for_read_adapters(
+    fake_settings: Settings, fake_adapters: dict[str, Any]
+) -> None:
+    runner = CliRunner()
+    result = runner.invoke(mcp_cli, ["serve"])
+
+    assert result.exit_code == 0, result.output
+    for name in ("query_adapter", "community_adapter"):
+        settings = fake_adapters[name].settings
+        assert settings.neo4j_user == "read-neo4j"
+        assert settings.neo4j_password.get_secret_value() == "short-read-password"
+
+
 def test_composition_root_creates_components_in_order(
     fake_settings: Settings, fake_adapters: dict[str, Any]
 ) -> None:
@@ -265,6 +280,35 @@ def test_composition_root_creates_components_in_order(
     assert text2cypher_adapter.query_adapter is query_adapter
     assert text2cypher_adapter.llm_adapter is llm_adapter
     assert text2cypher_adapter.settings is fake_settings
+
+
+def test_skill_registry_driver_uses_readonly_credential(
+    fake_settings: Settings,
+    fake_adapters: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_settings.skill_gate_enabled = True
+    driver_calls: list[dict[str, Any]] = []
+    driver = MagicMock()
+    driver.close = AsyncMock()
+
+    def fake_driver(uri: str, *, auth: tuple[str, str]) -> MagicMock:
+        driver_calls.append({"uri": uri, "auth": auth})
+        return driver
+
+    async def resolve_tool_names(_settings: Settings, _registry: Any) -> frozenset[str]:
+        return frozenset()
+
+    monkeypatch.setattr("book_graph_rag.mcp_server_main.AsyncGraphDatabase.driver", fake_driver)
+    monkeypatch.setattr("book_graph_rag.mcp_server_main._resolve_tool_names", resolve_tool_names)
+
+    result = CliRunner().invoke(mcp_cli, ["serve"])
+
+    assert result.exit_code == 0, result.output
+    assert driver_calls == [
+        {"uri": fake_settings.neo4j_uri, "auth": ("read-neo4j", "short-read-password")}
+    ]
+    driver.close.assert_awaited_once()
 
 
 def test_composition_root_passes_hmac_settings_to_adapter(
@@ -450,6 +494,21 @@ def test_composition_root_passes_raw_logging_settings_to_adapter(
     assert server_adapter.raw_logging_enabled is True
 
 
+async def test_production_without_a_readonly_credential_refuses_to_start(
+    fake_settings: Settings, fake_adapters: dict[str, Any]
+) -> None:
+    from book_graph_rag.mcp_server_main import _run_server
+
+    missing_credential = fake_settings.model_copy(
+        update={"neo4j_readonly_user": "", "neo4j_readonly_password": None}
+    )
+
+    with pytest.raises(RuntimeError, match="neo4j_readonly"):
+        await _run_server(missing_credential)
+
+    assert "server_adapter" not in fake_adapters, "it must refuse before wiring anything"
+
+
 async def test_production_without_a_token_refuses_to_start(
     fake_settings: Settings, fake_adapters: dict[str, Any]
 ) -> None:
@@ -468,6 +527,27 @@ async def test_production_without_a_token_refuses_to_start(
         await _run_server(unauthenticated)
 
     assert "server_adapter" not in fake_adapters, "it must refuse before wiring anything"
+
+
+async def test_development_without_a_readonly_credential_warns_and_uses_main_credential(
+    fake_settings: Settings,
+    fake_adapters: dict[str, Any],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from book_graph_rag.mcp_server_main import _run_server
+
+    development = fake_settings.model_copy(
+        update={
+            "app_env": "development",
+            "neo4j_readonly_user": " ",
+            "neo4j_readonly_password": SecretStr(" \t "),
+        }
+    )
+
+    await _run_server(development)
+
+    assert "without a read-only Neo4j credential" in capsys.readouterr().err
+    assert fake_adapters["query_adapter"].settings.neo4j_user == "neo4j"
 
 
 async def test_development_without_a_token_serves_but_says_so_loudly(

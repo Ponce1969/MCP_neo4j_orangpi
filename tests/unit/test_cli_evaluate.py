@@ -27,6 +27,8 @@ def _fake_settings(tmp_path: Path) -> type:
 
         neo4j_uri = "bolt://db:7687"
         neo4j_database = "neo4j"
+        neo4j_readonly_user = ""
+        neo4j_readonly_password = None
         catalog_path = Path("catalog.yaml")
         gates_policy_path = Path("gates.yaml")
         evaluation_dir = Path("data/evaluation")

@@ -113,6 +113,7 @@ from book_graph_rag.infrastructure.neo4j_audit_adapter import Neo4jAuditAdapter
 from book_graph_rag.infrastructure.neo4j_checkpoint_adapter import Neo4jCheckpointAdapter
 from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdapter
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
+from book_graph_rag.infrastructure.neo4j_read_credentials import readonly_settings
 from book_graph_rag.infrastructure.neo4j_retrieval_adapter import Neo4jRetrievalAdapter
 from book_graph_rag.infrastructure.neo4j_retrieval_smoke_adapter import Neo4jRetrievalSmokeAdapter
 from book_graph_rag.infrastructure.neo4j_validation_adapter import Neo4jValidationAdapter
@@ -457,6 +458,7 @@ def audit(target: str, sample_limit: int, scope: str | None, output: Path | None
         click.echo(payload)
         raise click.exceptions.Exit(13) from None
 
+    settings = readonly_settings(settings)
     audit_scope: AuditScope | None = None
     if scope is not None:
         try:
@@ -548,6 +550,7 @@ def gate(
         click.echo(payload)
         raise click.exceptions.Exit(13) from None
 
+    settings = readonly_settings(settings)
     try:
         policy = GatePolicyLoader(settings.gates_policy_path).load()
     except GatePolicyLoadError as exc:
@@ -774,7 +777,7 @@ def evaluate(
         click.echo(f"Configuration error: {exc}", err=True)
         sys.exit(1)
 
-    use_case = _build_evaluate_command_use_case(settings)
+    use_case = _build_evaluate_command_use_case(readonly_settings(settings))
     try:
         report, exit_code = asyncio.run(use_case.execute(layer=layer))
     except ValueError as exc:

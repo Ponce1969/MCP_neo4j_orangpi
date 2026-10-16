@@ -21,6 +21,8 @@ def test_cli_audit_accepts_scope_and_threads_it_through(monkeypatch: Any) -> Non
 
         neo4j_uri = "bolt://db:7687"
         neo4j_database = "neo4j"
+        neo4j_readonly_user = ""
+        neo4j_readonly_password = None
         catalog_path = Path("catalog.yaml")
 
     from book_graph_rag.domain.audit_models import AuditScope
@@ -71,6 +73,8 @@ def test_cli_audit_unknown_scope_fails_fast_exit_2(monkeypatch: Any) -> None:
 
         neo4j_uri = "bolt://db:7687"
         neo4j_database = "neo4j"
+        neo4j_readonly_user = ""
+        neo4j_readonly_password = None
         catalog_path = Path("catalog.yaml")
 
     monkeypatch.setattr("book_graph_rag.main.Settings", Settings)
@@ -101,6 +105,8 @@ def test_cli_audit_malformed_scope_fails_fast_exit_2(monkeypatch: Any) -> None:
 
         neo4j_uri = "bolt://db:7687"
         neo4j_database = "neo4j"
+        neo4j_readonly_user = ""
+        neo4j_readonly_password = None
         catalog_path = Path("catalog.yaml")
 
     monkeypatch.setattr("book_graph_rag.main.Settings", Settings)
