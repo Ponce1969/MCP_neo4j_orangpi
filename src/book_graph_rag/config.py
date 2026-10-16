@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     neo4j_uri: str
     neo4j_user: str
     neo4j_password: SecretStr
+    neo4j_readonly_user: str = ""
+    neo4j_readonly_password: SecretStr | None = None
     neo4j_database: str = "neo4j"
     # Dedicated read database for the MCP query path (least-privilege read role).
     # Routed with READ_ACCESS by Neo4jQueryAdapter; keep decoupled from the

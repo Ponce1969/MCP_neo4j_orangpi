@@ -24,6 +24,10 @@ from book_graph_rag.infrastructure.mcp_resource_budget_adapter import (
     InMemoryResourceBudgetAdapter,
 )
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
+from book_graph_rag.infrastructure.neo4j_read_credentials import (
+    has_readonly_credentials,
+    readonly_settings,
+)
 from book_graph_rag.infrastructure.neo4j_skill_registry_adapter import Neo4jSkillRegistryAdapter
 from book_graph_rag.infrastructure.sentence_transformer_reranker_adapter import (
     reranker_for,
@@ -111,6 +115,20 @@ def _has_access_token(settings: Settings) -> bool:
 
 async def _run_server(settings: Settings) -> None:
     """Composition root: wire dependencies and run the MCP SSE server."""
+    readonly_configured = has_readonly_credentials(settings)
+    if settings.app_env == "production" and not readonly_configured:
+        raise RuntimeError(
+            "neo4j_readonly_user and neo4j_readonly_password must both be set when "
+            "app_env=production: the MCP read paths require a server-side read-only credential"
+        )
+    if not readonly_configured:
+        click.echo(
+            "Warning: serving without a read-only Neo4j credential; MCP read paths use the "
+            "main Neo4j credential outside production",
+            err=True,
+        )
+    read_settings = readonly_settings(settings)
+
     # The bearer middleware is installed only when a token is configured, so a production
     # deployment without one would serve every tool to anyone who can reach the port.
     # docs/ops/mcp-service.md section 7 already says every path requires
@@ -142,9 +160,9 @@ async def _run_server(settings: Settings) -> None:
             "a keyed fingerprint, so a weak key would start cleanly and then break every "
             "tool call after it had already called the graph"
         )
-    query_adapter: Neo4jQueryAdapter = Neo4jQueryAdapter(settings)
+    query_adapter: Neo4jQueryAdapter = Neo4jQueryAdapter(read_settings)
     try:
-        community_adapter: Neo4jCommunityAdapter = Neo4jCommunityAdapter(settings)
+        community_adapter: Neo4jCommunityAdapter = Neo4jCommunityAdapter(read_settings)
         try:
             query_logger: JsonFileQueryLoggerAdapter = JsonFileQueryLoggerAdapter(settings)
             try:
@@ -193,8 +211,8 @@ async def _run_server(settings: Settings) -> None:
                     registry_driver = AsyncGraphDatabase.driver(
                         settings.neo4j_uri,
                         auth=(
-                            settings.neo4j_user,
-                            settings.neo4j_password.get_secret_value(),
+                            read_settings.neo4j_user,
+                            read_settings.neo4j_password.get_secret_value(),
                         ),
                     )
                     try:
