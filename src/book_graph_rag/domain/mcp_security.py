@@ -409,6 +409,22 @@ def canonical_json(value: Any) -> bytes:
 _MIN_TOKEN_CHARACTERS = 32
 
 
+def is_effective_secret_shape(value: str | None) -> bool:
+    """Whether a value is a secret at all: it survives stripping and keeps a printable character.
+
+    The two conditions close measured holes and are shared by every secret this service reads:
+    spaces are guessable, and invisible non-whitespace characters (U+200B zero-width space,
+    U+FEFF BOM) are not whitespace, so ``str.strip`` leaves them behind and a field of only those
+    would look configured. ``effective_token`` adds its length floor on top of this;
+    the Neo4j read credential borrows only this half, because a database password is not a bearer
+    token. One rule per condition, so the boot checks and the wiring cannot drift apart.
+    """
+    if value is None:
+        return False
+    stripped = value.strip()
+    return bool(stripped) and any(character.isprintable() for character in stripped)
+
+
 def effective_token(value: str | None) -> str:
     """Return a secret if it is a real credential, else an empty string.
 
@@ -429,7 +445,7 @@ def effective_token(value: str | None) -> str:
     if value is None:
         return ""
     stripped = value.strip()
-    if not stripped or not any(character.isprintable() for character in stripped):
+    if not is_effective_secret_shape(value):
         return ""
     if len(stripped) < _MIN_TOKEN_CHARACTERS:
         return ""
