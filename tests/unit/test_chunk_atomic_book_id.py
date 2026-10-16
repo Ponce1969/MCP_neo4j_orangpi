@@ -163,6 +163,15 @@ async def test_commit_chunk_atomic_emits_book_id(monkeypatch: pytest.MonkeyPatch
     assert chunk_params["source_id"] == book.id
     assert chunk_params["book_id"] == book.id
     assert checkpoint.status.value == "PROCESSED"
+    # Marking a chunk PROCESSED clears every trace of an earlier failure (R5), including the
+    # redacted fields: a stale fingerprint on a healthy chunk would be worse than none.
+    assert any(
+        "c.error_length = null" in query
+        and "c.error_fingerprint_hex = null" in query
+        and "c.error_fingerprint_key_id = null" in query
+        and "c.error_message = null" in query
+        for query, _ in session.calls
+    )
 
 
 async def test_commit_chunk_atomic_mentions_keeps_source_id_matcher(

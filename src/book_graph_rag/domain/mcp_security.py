@@ -436,7 +436,15 @@ def effective_token(value: str | None) -> str:
     characters (U+200B zero-width space, U+FEFF BOM) are not whitespace, so ``str.strip``
     leaves them behind. And the shortest survivors of both checks are one character long —
     a combining mark, a braille blank, a Hangul filler, or a plain ``"a"`` — which is why a
-    length floor covers that whole class in one rule instead of a patch per character class.
+    length floor rejects that whole class in one rule instead of a patch per character class.
+
+    What the floor does **not** buy is entropy, and it should not be read as if it did: a
+    string of 32 characters made of invisible padding plus a single printable character
+    passes all three checks. This rule cannot tell a generated key from a pasted one, so the
+    key material itself (the documented generator) is the real mitigation and this only
+    removes the obviously unusable values. A reviewer reading a fingerprint should assume
+    exactly this much and no more; changing the rule to count printable characters instead
+    would move the bearer token and the MCP log key with it, which is a decision of its own.
 
     Either way the honest answer is "no secret", which fails closed in production instead of
     pretending to be protected. This is the single rule every reader consults, so no layer

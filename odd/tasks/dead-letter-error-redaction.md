@@ -1,7 +1,7 @@
 # dead-letter-error-redaction — R5 residual: no raw error text in dead-letter, JSONL or checkpoints
 
 The indexing failure paths still persist `error_message = str(error)` verbatim in three places
-(`_release_to_failed`, the legacy `_write_dead_letter` JSONL, and the replay's re-fail path), and that
+(`_fail_chunk`, the legacy `_write_dead_letter` JSONL, and the replay's re-fail path), and that
 string also reaches the graph through `CheckpointPort.release_lease_to_failed`. Exception text from an
 LLM adapter or a driver can carry prompts, URLs, chunks of corpus text or credentials. R5 of
 `docs/spec/07-security-and-operational-risks.md` §5 records exactly this as its residual, and the task
@@ -40,8 +40,10 @@ is to close it without losing the ability to replay a failed chunk.
   closed (`QueryFingerprintError`) because its key is validated at boot: a CLI indexing run must not
   die — and must not lose the retry payload — because a logging key is missing.
 - **S5 — Legacy tolerance on read.** The record model keeps accepting a legacy `error_message` when
-  reading (marked deprecated, never written by this code), so old files keep working; the graph reader
-  stops surfacing the raw message at all. Records written from now on simply have no such field.
+  reading (marked deprecated, never written as text by this code), so old files keep working; the graph
+  reader stops surfacing the raw message at all. The dead-letter port path serializes
+  `FailedChunkRecord.model_dump(mode="json")`, which emits `error_message: null` (no text); only the
+  legacy JSONL dict writer omits the key entirely.
 - **S6 — The register reflects reality.** `docs/spec/07-security-and-operational-risks.md` §5's R5
   residual — which today reads "[VERIFIED] (residual): the indexing dead-letter path still writes
   `error_message = str(error)` verbatim" — moves to the implemented mitigation, naming the code paths
@@ -51,16 +53,16 @@ is to close it without losing the ability to replay a failed chunk.
 
 ## Tasks
 
-- **T1 · S1, S3, S4, S5** — done (commit: pending). `RedactedError` + `redacted_error()` in
+- **T1 · S1, S3, S4, S5** — done (commit: `330f316`). `RedactedError` + `redacted_error()` in
   `domain/checkpoint_models.py` (next to the record it feeds), the record's new fields with the
   legacy field demoted to read-only, the `Checkpoint`/reader shape and the port signature. Unit tests
   first (RED): the fingerprint recomputed independently, the length, the absence of the raw text in
   the serialized form, the no-key and invisible-key cases. Route: parent, inline.
-- **T2 · S2** — done (commit: pending). The three writers and the replay path call the one rule; the
+- **T2 · S2** — done (commit: `330f316`). The three writers and the replay path call the one rule; the
   checkpoint adapter writes the flat node properties and scrubs any legacy `error_message` on the
   node it touches. Tests: the JSONL keys are exactly the new set; a failing chunk leaves no raw text
   in the port call; a **legacy** record still replays end to end. Route: parent, inline.
-- **T3 · S6** — done (commit: pending). The register's R5 section, and the operator-facing note for
+- **T3 · S6** — done (commit: `a215538`). The register's R5 section, and the operator-facing note for
   `.env.example` (that file is the maintainer's: the snippet is handed over, not edited). Route:
   parent, inline.
 
@@ -80,3 +82,24 @@ is to close it without losing the ability to replay a failed chunk.
   import-order errors, and a test fake missing the new settings fields. These were fixed by
   extracting `infrastructure/checkpoint_error_metadata.py` as the single inverse mapping and
   updating the fake.
+- **L3 (independent adversarial verification, read-only):** Six claims were checked and
+  85 focused tests were observed passing. The review falsified two documentation claims:
+  `_release_to_failed` is not a method (the writer is `_fail_chunk`), and S5's statement
+  that new records omit the field was imprecise (the port serializer emits `null`; the
+  legacy JSONL dict writer omits the key). It also found a **MEDIUM** raw-text sink outside
+  the four declared R5 sinks: per-question failures are formatted as
+  `f"{type(exc).__name__}: {exc}"` and collected in
+  `application/evaluate_generation_layer_use_case.py`'s `EvaluationLayerResult.warnings`,
+  written by `main.py --output`; `infrastructure/subprocess_ragas_runner.py` also adds
+  exception text to `notes`, and the readiness gate re-emits the warnings. This remains a
+  recorded next item, outside this change, rather than a silently widened mitigation.
+  The **LOW** success-writer consistency gap (stale `error_length` and
+  `error_fingerprint_*` could remain when a checkpoint becomes `PROCESSED`) was fixed in
+  code follow-up `330f316`; the **LOW** populated-field reader mapping coverage gap (only
+  a live-Neo4j test at review time) was also addressed there. A pre-existing **LOW** key
+  quality question remains separate: `effective_token` accepts 32 invisible padding
+  characters plus one printable character, despite its docstring overstating the length
+  floor for that case. Changing the shared secret rule affects both the bearer token and
+  the MCP log key, so that requires its own decision. The stale dead-letter shape in
+  `docs/spec/01-resumable-indexing.md` and the two documentation claims above are corrected
+  in this documentation follow-up.

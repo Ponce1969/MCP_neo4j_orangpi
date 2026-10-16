@@ -14,9 +14,11 @@
   (`upsert_book`, `upsert_entities`, `upsert_relationships`, `upsert_mentions`,
   `upsert_editorial_structure`).
 - Failed chunks are appended to a **file** dead-letter (`data/dead_letter.log`) with
-  `chunk_index`, `page_ref`, `error_type`, `error_message`, timestamp
-  (`index_book_use_case.py::_write_dead_letter`). Orphan relationships go to a separate
-  JSONL (`infrastructure/dead_letter.py`).
+  `chunk_index`, `page_ref`, `error_type`, `error_length`, an optional keyed
+  `error_fingerprint`, and timestamp (`index_book_use_case.py::_write_dead_letter`). The
+  legacy `error_message` is accepted on read, but raw error text is no longer written:
+  port records serialize the field as `null`, while the legacy JSONL writer omits the key.
+  Orphan relationships go to a separate JSONL (`infrastructure/dead_letter.py`).
 - LLM calls retry with exponential backoff via `tenacity` (`infrastructure/llm_adapter.py`).
 - **Gap:** there is **no per-chunk checkpoint in Neo4j**. A killed run re-processes
   already-extracted chunks (re-spending LLM tokens) and cannot resume at the failure
@@ -87,9 +89,13 @@ A change to any dimension makes previously-checkpointed chunks **stale** (see §
 - Transport retries remain on `tenacity` with exponential backoff and a cap
   (`LLM_MAX_RETRIES`, `LLM_RETRY_WAIT_MAX`). `[VERIFIED]` `config.py`.
 - Dead-letter entries MUST be re-addressable: each record carries `source_id`,
-  `chunk_index`, version dimensions, `error_type`, `error_message`, and timestamp, so a
-  replay command can re-process exactly those chunks. Today the file dead letter lacks
-  `source_id`/version dimensions. `[VERIFIED]` `index_book_use_case.py::_write_dead_letter`.
+  `chunk_index`, version dimensions, `error_type`, `error_length`, and timestamp, plus a
+  keyed `error_fingerprint` when a valid fingerprint key is available, so a replay
+  command can re-process exactly those chunks. Raw error text is never written. The
+  legacy `error_message` is accepted on read but is not written with text; the port
+  serialization emits `null`, while the legacy JSONL writer omits the key. Today the
+  file dead letter lacks `source_id`/version dimensions. `[VERIFIED]`
+  `index_book_use_case.py::_write_dead_letter`.
 - A replay command (`index --resume` / `index --replay-dead-letter`) is required.
 
 ## 3. Invariants
