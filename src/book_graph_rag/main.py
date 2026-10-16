@@ -819,7 +819,7 @@ def query(query_type: str, query_json: str) -> None:
 
     graph_query = _build_graph_query(query_type, params)
 
-    query_adapter = Neo4jQueryAdapter(settings)
+    query_adapter = Neo4jQueryAdapter(readonly_settings(settings))
     use_case = QueryKnowledgeGraphUseCase(port=query_adapter)
 
     async def _run() -> Any:
@@ -879,6 +879,7 @@ def validate(
         sys.exit(1)
 
     evidence_adapter = JSONEvidenceAdapter()
+    settings = readonly_settings(settings)
     try:
         manifest = (
             evidence_adapter.read_smoke_manifest(manifest_path)
