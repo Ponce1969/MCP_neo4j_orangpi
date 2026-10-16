@@ -152,6 +152,9 @@ def _make_use_case(
     policy: GatePolicy,
     audit_result: GateResult,
     layer_results: dict[str, EvaluationLayerResult],
+    *,
+    code_commit: str = "",
+    model_ids: tuple[str, ...] = (),
 ) -> Any:
     from book_graph_rag.application.readiness_gate_evaluator_use_case import (
         ReadinessGateEvaluatorUseCase,
@@ -168,6 +171,36 @@ def _make_use_case(
         generation_layer=FakeLayerUseCase(generation),
         retrieval_layer=FakeLayerUseCase(retrieval),
         extraction_layer=FakeLayerUseCase(extraction),
+        code_commit=code_commit,
+        model_ids=model_ids,
+    )
+
+
+async def test_the_report_names_the_code_and_the_models_that_produced_it() -> None:
+    """A gate report whose commit is empty cannot be tied to the code that ran.
+
+    The generation layer used to fall back to the *baseline's* commit — which names code that did
+    not run — and the report's own metadata carried nothing at all, so the verdict was
+    unattributable. Provenance either travels with the report or the audit is guesswork.
+    """
+    policy = _policy()
+    use_case = _make_use_case(
+        policy,
+        _gate_result(OverallState.PASSED),
+        {
+            "resolution": _layer_result("resolution", LayerStatus.PASSED),
+            "generation": _layer_result("generation", LayerStatus.PASSED),
+        },
+        code_commit="deadbee",
+        model_ids=("deepseek-v4-flash", "paraphrase-multilingual-MiniLM-L12-v2"),
+    )
+
+    result = await use_case.execute("expose-mcp-readiness", _audit_report(OverallState.PASSED))
+
+    assert result.run_metadata.code_commit == "deadbee"
+    assert result.run_metadata.model_ids == (
+        "deepseek-v4-flash",
+        "paraphrase-multilingual-MiniLM-L12-v2",
     )
 
 

@@ -49,6 +49,7 @@ class ReadinessGateEvaluatorUseCase:
         *,
         run_id: str | None = None,
         code_commit: str = "",
+        model_ids: tuple[str, ...] = (),
         evaluated_at: datetime | None = None,
     ) -> None:
         self._gate_policy = gate_policy
@@ -59,6 +60,7 @@ class ReadinessGateEvaluatorUseCase:
         self._extraction_layer = extraction_layer
         self._run_id = run_id or uuid.uuid4().hex
         self._code_commit = code_commit
+        self._model_ids = model_ids
         self._evaluated_at = evaluated_at or datetime.now(UTC)
 
     def _find_gate(self, gate_name: str) -> ReadinessGatePolicy:
@@ -245,6 +247,7 @@ class ReadinessGateEvaluatorUseCase:
                 run_metadata=LayerRunMetadata(
                     run_id=self._run_id,
                     code_commit=self._code_commit,
+                    model_ids=self._model_ids,
                     evaluated_at=self._evaluated_at,
                 ),
             )
@@ -284,6 +287,7 @@ class ReadinessGateEvaluatorUseCase:
             run_metadata=LayerRunMetadata(
                 run_id=self._run_id,
                 code_commit=self._code_commit,
+                model_ids=self._model_ids,
                 evaluated_at=self._evaluated_at,
             ),
             warnings=tuple(warnings),
