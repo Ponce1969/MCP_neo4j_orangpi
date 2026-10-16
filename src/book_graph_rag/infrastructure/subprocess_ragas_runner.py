@@ -145,6 +145,13 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
         fd, output_name = tempfile.mkstemp(suffix=".json")
         os.close(fd)
         output_path = Path(output_name)
+        # The script's own default for --after-output is docs/benchmarks/gr3_after.json: an
+        # untracked artifact that is NOT gitignored, so leaving it to the script made every gate
+        # run dirty the repo and break test_gr3_after_removed_or_distinct until someone deleted
+        # the file by hand (odd/backlog.md, E1). It is scratch, so it gets a scratch path.
+        fd, after_name = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        after_path = Path(after_name)
         try:
             subprocess.run(
                 [
@@ -155,6 +162,8 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
                     "--no-compare",
                     "--json-output",
                     str(output_path),
+                    "--after-output",
+                    str(after_path),
                 ],
                 check=True,
                 capture_output=True,
@@ -167,9 +176,10 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
                 notes=f"subprocess ragas failed: {exc}",
             )
         finally:
-            # Only the temporary metrics JSON is removed: the inputs are kept so a failing
-            # per-question score can be traced back to the answer and contexts that produced it.
+            # Both scratch artifacts are removed: the inputs are kept so a failing per-question
+            # score can be traced back to the answer and contexts that produced it.
             output_path.unlink(missing_ok=True)
+            after_path.unlink(missing_ok=True)
         logger.info("RAGAS inputs kept at %s", jsonl_path)
         return self._apply_drop_warning(metrics, previous_metrics)
 
