@@ -22,6 +22,7 @@ from book_graph_rag.domain.models import (
     Section,
 )
 from book_graph_rag.domain.provenance import resolve_chunk_provenance
+from book_graph_rag.infrastructure.checkpoint_error_metadata import error_metadata_from_node
 from book_graph_rag.infrastructure.dead_letter import JSONLDeadLetter
 from book_graph_rag.ports.dead_letter_port import DeadLetterPort
 from book_graph_rag.ports.graph_db_port import GraphDatabasePort
@@ -596,6 +597,7 @@ class Neo4jCommandAdapter(GraphDatabasePort):
             if record is None:
                 raise RuntimeError("commit_chunk_atomic did not return a checkpoint")
             node = record["c"]
+            error_type, error_length, error_fingerprint = error_metadata_from_node(node)
             checkpoint = Checkpoint(
                 source_id=node["source_id"],
                 chunk_index=node["chunk_index"],
@@ -610,8 +612,9 @@ class Neo4jCommandAdapter(GraphDatabasePort):
                 leased_at=self._to_datetime(node.get("leased_at")),
                 processed_at=self._to_datetime(node.get("processed_at")),
                 failed_at=self._to_datetime(node.get("failed_at")),
-                error_type=node.get("error_type"),
-                error_message=node.get("error_message"),
+                error_type=error_type,
+                error_length=error_length,
+                error_fingerprint=error_fingerprint,
                 updated_at=self._to_datetime(node["updated_at"]) or datetime.now(UTC),
             )
             return checkpoint, orphans

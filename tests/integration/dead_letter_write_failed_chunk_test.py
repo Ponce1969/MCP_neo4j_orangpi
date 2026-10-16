@@ -26,7 +26,8 @@ async def test_write_failed_chunk_appends_re_addressable_record(tmp_path: Path) 
         "attempt": 3,
         "checkpoint_status": "FAILED",
         "error_type": "LLMExtractionError",
-        "error_message": "model returned malformed JSON after retries",
+        "error_length": len("model returned malformed JSON after retries"),
+        "error_fingerprint": None,
     }
 
     await dead_letter.write_failed_chunk(record)

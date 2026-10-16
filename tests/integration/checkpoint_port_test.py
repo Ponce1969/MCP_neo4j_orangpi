@@ -10,6 +10,7 @@ import pytest
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.checkpoint_models import (
     CheckpointStatus,
+    RedactedError,
     VersionDimensions,
 )
 from book_graph_rag.infrastructure.neo4j_checkpoint_adapter import (
@@ -58,13 +59,14 @@ async def test_checkpoint_port_lifecycle(
         failed = await adapter.release_lease_to_failed(
             source_id,
             0,
-            error_type="LLMExtractionError",
-            error_message="malformed JSON",
+            RedactedError(error_type="LLMExtractionError", error_length=14),
             attempt=1,
         )
         assert failed.status == CheckpointStatus.FAILED
         assert failed.attempt == 1
         assert failed.error_type == "LLMExtractionError"
+        assert failed.error_length == 14
+        assert failed.error_fingerprint is None
 
         # Re-acquire a FAILED chunk so we can test reclaim.
         await adapter.acquire_lease(source_id, 1, versions)

@@ -65,7 +65,9 @@ def _checkpoint_record() -> dict[str, Any]:
             "processed_at": None,
             "failed_at": None,
             "error_type": None,
-            "error_message": None,
+            "error_length": None,
+            "error_fingerprint_hex": None,
+            "error_fingerprint_key_id": None,
             "updated_at": datetime(2026, 1, 1, tzinfo=UTC),
         }
     }

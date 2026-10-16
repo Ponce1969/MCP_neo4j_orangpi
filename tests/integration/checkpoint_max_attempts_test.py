@@ -16,6 +16,7 @@ from book_graph_rag.domain.checkpoint_models import (
     Checkpoint,
     CheckpointStatus,
     FailedChunkRecord,
+    RedactedError,
     VersionDimensions,
 )
 from book_graph_rag.domain.models import (
@@ -250,8 +251,7 @@ async def test_replay_dead_letter_skips_chunks_at_max_attempts(
             await checkpoint_adapter.release_lease_to_failed(
                 _SOURCE_ID,
                 index,
-                error_type="LLMExtractionError",
-                error_message="simulated failure",
+                RedactedError(error_type="LLMExtractionError", error_length=17),
                 attempt=attempt,
             )
     finally:

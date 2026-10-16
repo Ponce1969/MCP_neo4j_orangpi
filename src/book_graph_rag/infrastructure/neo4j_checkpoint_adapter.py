@@ -12,8 +12,10 @@ from book_graph_rag.domain.checkpoint_models import (
     Checkpoint,
     CheckpointStatus,
     LeaseResult,
+    RedactedError,
     VersionDimensions,
 )
+from book_graph_rag.infrastructure.checkpoint_error_metadata import error_metadata_from_node
 from book_graph_rag.ports.checkpoint_port import CheckpointPort
 
 
@@ -43,6 +45,7 @@ class Neo4jCheckpointAdapter(CheckpointPort):
     @classmethod
     def _node_to_checkpoint(cls, node: Any) -> Checkpoint:
         """Map a Neo4j :Checkpoint node to the domain model."""
+        error_type, error_length, error_fingerprint = error_metadata_from_node(node)
         return Checkpoint(
             source_id=node["source_id"],
             chunk_index=node["chunk_index"],
@@ -57,8 +60,9 @@ class Neo4jCheckpointAdapter(CheckpointPort):
             leased_at=cls._to_datetime(node.get("leased_at")),
             processed_at=cls._to_datetime(node.get("processed_at")),
             failed_at=cls._to_datetime(node.get("failed_at")),
-            error_type=node.get("error_type"),
-            error_message=node.get("error_message"),
+            error_type=error_type,
+            error_length=error_length,
+            error_fingerprint=error_fingerprint,
             updated_at=cls._to_datetime(node.get("updated_at")) or datetime.now(UTC),
         )
 
@@ -127,18 +131,21 @@ class Neo4jCheckpointAdapter(CheckpointPort):
         self,
         source_id: str,
         chunk_index: int,
-        error_type: str,
-        error_message: str,
+        error: RedactedError,
         attempt: int,
     ) -> Checkpoint:
-        """Transition a PROCESSING chunk to FAILED and store error metadata."""
+        """Transition a PROCESSING chunk to FAILED and store redacted error metadata.
+
+        The raw exception text does not cross this boundary (R5): the node receives the
+        exception class name, the message length and a keyed fingerprint, and any
+        ``error_message`` left on the node by an older writer is cleared here.
+        """
         async with self._driver.session() as session:
             result: Checkpoint = await session.execute_write(
                 self._release_lease_to_failed_tx,
                 source_id=source_id,
                 chunk_index=chunk_index,
-                error_type=error_type,
-                error_message=error_message,
+                error=error,
                 attempt=attempt,
             )
         return result
@@ -149,17 +156,20 @@ class Neo4jCheckpointAdapter(CheckpointPort):
         *,
         source_id: str,
         chunk_index: int,
-        error_type: str,
-        error_message: str,
+        error: RedactedError,
         attempt: int,
     ) -> Checkpoint:
+        fingerprint = error.error_fingerprint
         result = await tx.run(
             """
             MATCH (c:Checkpoint {source_id: $source_id, chunk_index: $chunk_index})
             SET c.status = 'FAILED',
                 c.attempt = $attempt,
                 c.error_type = $error_type,
-                c.error_message = $error_message,
+                c.error_length = $error_length,
+                c.error_fingerprint_hex = $error_fingerprint_hex,
+                c.error_fingerprint_key_id = $error_fingerprint_key_id,
+                c.error_message = null,
                 c.failed_at = datetime(),
                 c.leased_at = null,
                 c.updated_at = datetime()
@@ -169,8 +179,10 @@ class Neo4jCheckpointAdapter(CheckpointPort):
                 "source_id": source_id,
                 "chunk_index": chunk_index,
                 "attempt": attempt,
-                "error_type": error_type,
-                "error_message": error_message,
+                "error_type": error.error_type,
+                "error_length": error.error_length,
+                "error_fingerprint_hex": fingerprint.fingerprint_hex if fingerprint else None,
+                "error_fingerprint_key_id": fingerprint.key_id if fingerprint else None,
             },
         )
         record = await result.single()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,6 +13,7 @@ from book_graph_rag.domain.checkpoint_models import (
     Checkpoint,
     CheckpointStatus,
     LeaseResult,
+    RedactedError,
     VersionDimensions,
 )
 from book_graph_rag.domain.models import (
@@ -134,7 +136,7 @@ class _StubCheckpointPort(CheckpointPort):
     def __init__(self, state: dict[int, Checkpoint] | None = None) -> None:
         self._state = state or {}
         self.acquire_calls: list[tuple[str, int, VersionDimensions]] = []
-        self.release_calls: list[tuple[str, int, str, str, int]] = []
+        self.release_calls: list[tuple[str, int, RedactedError, int]] = []
         self.mark_stale_calls: list[tuple[str, VersionDimensions]] = []
         self.reclaim_calls: list[tuple[str, datetime, int]] = []
         self.fetch_calls: list[tuple[str, list[int]]] = []
@@ -160,11 +162,10 @@ class _StubCheckpointPort(CheckpointPort):
         self,
         source_id: str,
         chunk_index: int,
-        error_type: str,
-        error_message: str,
+        error: RedactedError,
         attempt: int,
     ) -> Checkpoint:
-        self.release_calls.append((source_id, chunk_index, error_type, error_message, attempt))
+        self.release_calls.append((source_id, chunk_index, error, attempt))
         return Checkpoint(
             source_id=source_id,
             chunk_index=chunk_index,
@@ -329,10 +330,12 @@ async def test_simulated_failure_increments_attempt_and_dead_letters() -> None:
 
     assert graph.commit_calls == []
     assert len(checkpoint.release_calls) == 1
-    source_id, chunk_index, error_type, error_message, attempt = checkpoint.release_calls[0]
+    source_id, chunk_index, error, attempt = checkpoint.release_calls[0]
     assert source_id == book.id
     assert chunk_index == 0
-    assert error_type == "ValueError"
+    assert error.error_type == "ValueError"
+    assert error.error_length == len("Simulated LLM failure for chunk 0")
+    assert error.error_fingerprint is None
     assert attempt == 1
 
     assert len(dead_letter.chunk_records) == 1
@@ -342,6 +345,10 @@ async def test_simulated_failure_increments_attempt_and_dead_letters() -> None:
     assert record["attempt"] == 1
     assert record["checkpoint_status"] == "FAILED"
     assert record["error_type"] == "ValueError"
+    assert record["error_length"] == len("Simulated LLM failure for chunk 0")
+    # The legacy field survives in the model so old files keep replaying; it is empty here.
+    assert record["error_message"] is None
+    assert "Simulated LLM failure" not in json.dumps(record)
 
 
 async def test_no_resume_skips_checkpoint_checks() -> None:

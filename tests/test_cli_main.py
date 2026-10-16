@@ -91,6 +91,10 @@ def test_cli_index_composition_correct_order(
     """AC-05.3: Settings -> adapters -> use case -> asyncio.run, in that order."""
 
     class FakeSettings:
+        class FakeSecret:
+            def get_secret_value(self) -> str:
+                return "a" * 64
+
         @classmethod
         def model_validate(cls, data: object) -> FakeSettings:
             return cls()
@@ -105,6 +109,8 @@ def test_cli_index_composition_correct_order(
             self.graph_llm_model_name = "graph-model"
             self.query_llm_base_url = "https://query-provider.test/v1"
             self.query_llm_model_name = "query-model"
+            self.mcp_hmac_key_id = "mcp-log-v1"
+            self.mcp_hmac_key = FakeSettings.FakeSecret()
 
     class FakePDFAdapter:
         def __init__(self, settings: object) -> None:
