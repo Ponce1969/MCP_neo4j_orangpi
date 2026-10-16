@@ -57,8 +57,12 @@ hardening) is deployed and serving.
   that run, not the current baselines.
 - Re-measured baselines (2026-10-15, committed in `data/evaluation/`): retrieval
   `precision@k = 0.1250` against `precision_at_k_min = 0.1175`, and generation
-  `faithfulness = 0.8988` over the gate's 35 questions (593 claims) against a
-  `faithfulness_min` re-derived mechanism-first at `0.85`. The retrieval gain comes from the
+  `faithfulness = 0.8988` over the gate's 35 questions (593 claims) against a `faithfulness_min`
+  of **`0.80`**, calibrated against the **observed** spread of the instrument: a first derivation
+  of `0.85` (from a binomial standard error of `0.012`) failed on the next gate run, which produced
+  `0.8363` on the same code, graph and model, because claim verdicts correlate within an answer.
+  The two observations on record are `0.8363` and `0.8988` (mean `0.868`), while `pairwise_win_rate`
+  and the grounding signals were stable at 34/35 in both. The retrieval gain comes from the
   chunk-only precision denominator; the cross-encoder candidates all measured *below* the
   plain fulltext order (`0.0917` / `0.1083` / `0.1000` vs `0.1250`), so `RERANK_ENABLED`
   ships **off** and the `precision@k >= 0.15` objective of that work is declared unmet.

@@ -140,16 +140,20 @@ destructiva:
   incapaz de pasar; esa versión de esta nota quedó obsoleta.)*
 - **Valores medidos y vigentes (2026-10-15, `data/evaluation/*_baseline.json`):**
   retrieval `precision@k` **0.1250** con umbral 0.1175, y generation `faithfulness`
-  **0.8988** con umbral **0.85**, re-derivado mechanism-first (~5 % debajo del medido). El
-  instrumento de generation ahora es el **path de producción**: selección question-aware de
-  `ask_global_top_n` resúmenes más el composer de `ask_global`, en vez de los 164 resúmenes del
-  nivel en orden de base. El `precision@k`
+  **0.8988** con umbral **0.80**, calibrado contra la **dispersión observada** del instrumento
+  (no contra una estimada): una primera derivación de `0.85`, a ~3.9σ de una SE binomial de
+  0.012, **falló en la corrida siguiente** (0.8363 con 623 claims, mismo código, grafo y modelo)
+  porque los veredictos de claims correlacionan dentro de una respuesta. Las dos observaciones
+  registradas son `0.8363` y `0.8988` (media `0.868`), con `pairwise_win_rate` **estable** en
+  34/35 en ambas. El instrumento de generation ahora es el **path de producción**: selección
+  question-aware de `ask_global_top_n` resúmenes más el composer de `ask_global`, en vez de los
+  164 resúmenes del nivel en orden de base. El `precision@k`
   subió por el fix del denominador (los contextos sólo-chunk), **no** por el reranker: los
   tres cross-encoders probados quedaron por debajo del orden fulltext puro (0.0917 /
   0.1083 / 0.1000 vs 0.1250) ⇒ `RERANK_ENABLED` vive en `false` y **no debe habilitarse sin
   una medición nueva**; el cuello de botella medido es el recall del pool, no el orden.
   El detalle está en `odd/tasks/retrieval-reranker-port.md` (L1-L14),
-  `odd/tasks/eval-question-aware-global-retrieval.md` y `odd/backlog.md`.
+  `odd/tasks/eval-question-aware-global-retrieval.md` (L1-L12) y `odd/backlog.md`.
 - Corrida de referencia (2026-10-09, `gate expose-mcp-readiness --target bookgraph-neo4j`
   con `--output data/evaluation/gate_report.json`): **exit 0 (pass)** — structure,
   resolution y generation `passed`, extraction `pending` ("deferred per R6.1"),

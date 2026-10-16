@@ -269,3 +269,22 @@ Gates before any "done": `uv run ruff check .` · `uv run mypy .` · `uv run pyt
   explanation of why the threshold moved, and `README.md`, `AGENTS.md` and `data/evaluation/README.md`
   carry the new pair plus the instrument change. `odd/backlog.md` E2 is marked resolved (`4ed3c96`)
   with the measured effect, and its pool-recall half remains the README's retrieval-quality step.
+- **L12 (correction, 2026-10-16 — the threshold came from an assumed spread and the observation
+  refuted it).** The phase-7 pre-validation (`gate expose-mcp-readiness`, read-only, 2 h 12 m
+  against production through the tunnel) returned **exit 10, failed layers: generation**:
+  `faithfulness = 0.8363` over **623 claims** against the `0.85` committed in L11. Everything else
+  passed: structure (`expose-mcp` audit), resolution (f1 `0.6410` ≥ 0.6, over-merge `0.0`),
+  retrieval (`0.1250` ≥ `0.1175`), extraction `pending` as designed, and the **pairwise win rate was
+  `34/35` in both runs**, so the noise lives in the claims metric and not in the system. The same
+  instrument on the same code, graph and model therefore measured **0.8988** (L11) and **0.8363**
+  (this run): the binomial standard error of `0.012` L11 quoted understated the real spread by about
+  five times, because claim verdicts correlate within one answer.
+
+  The owner calibrated `faithfulness_min` to **`0.80`** from those two observations (mean `0.868`,
+  range `0.836–0.899`) instead of buying a third run, and the same change propagates provenance: the
+  gate report's metadata was empty (`code_commit`, `model_ids`) while the generation layer inherited
+  the *baseline's* stale commit `03406ee`, so the composition root now resolves the checkout's commit
+  (`infrastructure/code_provenance.py`, explicit `unknown` outside a repo) and records the models the
+  run uses. The pre-validation paid for itself by catching this **before** a 2.5 h host run and a
+  phase-7 approval decision — the third time in the same day that measuring first changed the call
+  (the reranker, the hybrid pool, and now the threshold).
