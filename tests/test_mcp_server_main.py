@@ -506,7 +506,11 @@ async def test_production_without_a_readonly_credential_refuses_to_start(
     with pytest.raises(RuntimeError, match="neo4j_readonly"):
         await _run_server(missing_credential)
 
-    assert "server_adapter" not in fake_adapters, "it must refuse before wiring anything"
+    # Stronger than a missing server adapter: the refusal is the first statement, so *nothing* was
+    # constructed. Moving the guard after any adapter would fail here.
+    assert fake_adapters == {}, (
+        f"it must refuse before building any adapter, got {sorted(fake_adapters)}"
+    )
 
 
 async def test_production_without_a_token_refuses_to_start(
@@ -526,7 +530,9 @@ async def test_production_without_a_token_refuses_to_start(
     with pytest.raises(RuntimeError, match="mcp_access_token"):
         await _run_server(unauthenticated)
 
-    assert "server_adapter" not in fake_adapters, "it must refuse before wiring anything"
+    assert fake_adapters == {}, (
+        f"it must refuse before building any adapter, got {sorted(fake_adapters)}"
+    )
 
 
 async def test_development_without_a_readonly_credential_warns_and_uses_main_credential(

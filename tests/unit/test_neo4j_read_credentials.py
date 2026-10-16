@@ -36,6 +36,12 @@ def test_settings_exposes_optional_readonly_credential_fields() -> None:
         ("reader", None, False),
         ("   ", SecretStr("short-pass"), False),
         ("reader", SecretStr(" \t\n "), False),
+        # Invisible non-whitespace survivors: ``str.strip`` leaves them behind, so a password of
+        # only these is not a credential — production would start with something unusable and
+        # fail later at query time instead of refusing to boot (the hole the token rule closes).
+        ("reader", SecretStr("\u200b"), False),
+        ("reader", SecretStr("\ufeff"), False),
+        ("\u200b", SecretStr("short-pass"), False),
     ],
 )
 def test_has_readonly_credentials_requires_both_nonblank_values(
