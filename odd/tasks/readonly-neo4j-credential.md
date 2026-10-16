@@ -1,4 +1,4 @@
-# readonly-neo4j-credential — a distinct read-only Neo4j credential for every read path
+# readonly-neo4j-credential — the MCP and the read-only commands authenticate separately
 
 Risk register **R2** of `docs/spec/07-security-and-operational-risks.md` §5, still open: "read-only
 `READ_ACCESS` + managed `execute_read` proven (T-C.4), but **a distinct read-only credential/role is
@@ -43,9 +43,14 @@ an independent verifier checks it (credentials are a high-risk surface).
   credential; outside production it warns. The CLI read commands use the read credential **when
   configured** and fall back to the main one otherwise (a local checkout must keep working).
 - **S6 — The 32-character floor does not apply.** That floor exists for the bearer token and the
-  HMAC key. A database password is not a token: the host's current one is 15 characters. The rule for
-  the read credential is "user non-empty **and** password non-empty after trimming", in **one** place
-  so the boot check and the wiring cannot drift.
+  HMAC key. A database password is not a token: the writer credential on this host measures 15
+  characters (read-only check on 2026-10-16). The rule for the read credential is "survives
+  stripping **and keeps at least one printable character**" for both the user and the password, in
+  **one** place so the boot check and the wiring cannot drift. That shape check is shared with the
+  token rule (`domain.mcp_security.is_effective_secret_shape`), because the hole it closes is the
+  same one: `str.strip` leaves invisible non-whitespace characters (U+200B, U+FEFF) behind, so a
+  field made only of those looks configured, and production would boot with a credential that cannot
+  authenticate.
 - **S7 — Operators create the role; the code does not.** Creating a role/user and granting
   privileges is a **production write on the security surface**, so it is a documented, human-run step
   with a rollback (`DROP USER` / `DROP ROLE`), and the migration order is: role → environment →
@@ -74,13 +79,14 @@ Format: ID · specs · route · commit.
 - **T2 · S3, S4, S5** — the MCP composition root uses the read credential for `Neo4jQueryAdapter`,
   `Neo4jCommunityAdapter` and the registry driver, and `_run_server` refuses to start in production
   without it (warning outside production). Test-first. Route: worker.
-- **T3 · S4, S5** — the CLI read commands (`audit`, `gate`, `evaluate`) build their read adapters
-  from the read view when configured, falling back to the main credential. Test-first. Route: worker.
+- **T3 · S4, S5** — the CLI read commands (`audit`, `gate`, `evaluate`, `query`, `validate`) build
+  their read adapters from the read view when configured, falling back to the main credential.
+  Test-first. Route: worker (the first three), parent (the last two, found by the verifier).
 - **T4 · S8** — tests: unit coverage for the rule module (present, absent, whitespace-only,
-  trimming), the MCP boot refusing in production and accepting with the credential, the wiring
-  actually receiving the read user, and an integration test (skipped when the read credential is not
-  configured) that a **write statement is rejected by the server** while a read succeeds. Route:
-  worker.
+  invisible-only, trimming), the MCP boot refusing in production and accepting with the credential,
+  the wiring actually receiving the read user, and an integration test (skipped when the read
+  credential is not configured) that a **write statement is rejected by the server** while a read
+  succeeds. Route: worker, extended by the parent after verification.
 - **T5 · S7** — the human-facing runbook: the exact Cypher for the role and grants (validated against
   Neo4j 5.23 documentation, with a verification step that proves the grants), the environment
   variables, the migration order, the smoke and the rollback. Route: parent.
@@ -102,3 +108,34 @@ Gates before any "done": `uv run ruff check .` · `uv run mypy .` ·
   called anywhere in the live tree; the production fail-fast precedent for secrets lives in
   `_run_server` (`mcp_server_main.py:120`), not in `Settings`, because `app_env` defaults to
   `production` (`config.py:164`) and a rule there would break every test that builds settings.
+
+  **Follow-up, out of this feature's declared scope but part of the same least-privilege intent**: the
+  read-only ops scripts still authenticate with the writer credential
+  (`scripts/eval_fulltext_recall.py`, `scripts/verify_retrieval_references.py`,
+  `scripts/run_ragas_evaluation.py`, `scripts/run_evaluation_harness.py`,
+  `scripts/build_namespace_profiles.py`, `scripts-ops/diagnose_generation_layer.py`) and so does the
+  `ledger rollback` **plan** reader (`resolution_wiring.py` wires `Neo4jRollbackPlanAdapter` from the
+  main settings). They are operator/dev tools whose runs happen outside the exposed surface, so they
+  are recorded here rather than changed in this feature; each is a one-line swap when someone wants it.
+- **L3 (verification, 2026-10-16 — an independent verifier found four real defects, all fixed).** The
+  read-only verification of `185ab77` + `234f432` confirmed the design and falsified four claims:
+  1. **A bypass** (falsified S5/S6): a password of *invisible non-whitespace* characters (U+200B,
+     U+FEFF) survived `str.strip`, so `has_readonly_credentials` said yes and production would boot
+     with an unusable credential — failing at query time instead of refusing to start. Fixed by
+     sharing the token rule's shape check (`domain.mcp_security.is_effective_secret_shape`), applied
+     to the user and the password; RED observed as `assert True is False`.
+  2. **Incomplete split** (falsified the title): `query` and `validate` are read-only commands and
+     still used the writer credential. Fixed (both now use the read view) with wiring tests that
+     fail if the swap regresses.
+  3. **A silently skipping verification command**: the runbook exported `NEO4J_READONLY_TEST_USER` /
+     `..._TEST_PASSWORD` while the test reads `NEO4J_READONLY_USER` / `NEO4J_READONLY_PASSWORD`, so
+     following it verbatim verified nothing. Fixed in the runbook, which now also names the three
+     server error codes the test accepts (it did not include `Unauthorized`).
+  4. **A test that could not catch the drift it claimed**: the boot-refusal tests asserted only that
+     the *server adapter* was missing, so moving the guard after the adapter construction would have
+     passed. Now they assert that **nothing** was constructed (`fake_adapters == {}`).
+  Also corrected: S6's premise is now attributed to the host (15 characters, checked read-only), and
+  `.env.example` has no `NEO4J_READONLY_*` template — that file belongs to the maintainer and was not
+  touched, so it is reported instead of edited. Verified after the fixes: the five CLI wiring tests,
+  the boot tests, the rule tests (invisible characters included), `ruff`, `ruff format --check`,
+  `mypy --strict` over 463 files and the architecture validator.
