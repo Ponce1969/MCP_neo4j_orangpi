@@ -244,3 +244,14 @@ write and no DDL and can be measured with this same script; an analyzer change n
 recreation (a DDL write, no data write). If B does not reach the objective either, **C** — keeping
 `0.1250` with the objective declared unmet — is the evidence-backed answer, and retrieval remains
 the optional, non-blocking layer it already is.
+
+**Owner decision (2026-10-16).** **A is not built and B is not pursued for now.** The reasoning,
+verbatim in substance: adding 3468 vector writes to production, a rigid 384-dimension index, extra
+latency and a weight hyperparameter tuned against a single hit (+0.0083) violates parsimony. The
+retrieval objective therefore stays **declared unmet at `0.1250`**, which passes its committed
+threshold (`0.1175`), keeps the readiness gate green and blocks nothing — retrieval is an optional
+layer. Option **C** is the adopted state of this document. The experiment, its numbers and its
+negative result stay here and in `scripts/eval_fulltext_recall.py --simulate-hybrid` so the
+question can be reopened with evidence rather than intuition; a future revisit needs a *different
+measured premise* (a larger corpus, a different embedding model, or an objective that justifies
+the production write).
