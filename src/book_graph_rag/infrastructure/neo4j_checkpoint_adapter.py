@@ -310,6 +310,9 @@ class Neo4jCheckpointAdapter(CheckpointPort):
                 c.processed_at = datetime(),
                 c.leased_at = null,
                 c.error_type = null,
+                c.error_length = null,
+                c.error_fingerprint_hex = null,
+                c.error_fingerprint_key_id = null,
                 c.error_message = null,
                 c.updated_at = datetime()
             RETURN c

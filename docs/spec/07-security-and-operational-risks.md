@@ -111,7 +111,7 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   (`src/book_graph_rag/domain/checkpoint_models.py`) to persist exception type,
   raw-message character length and a keyed HMAC-SHA256 `QueryFingerprint`, never raw
   text. It is called by
-  `IndexBookUseCase._release_to_failed` (checkpoint and dead-letter port record),
+  `IndexBookUseCase._fail_chunk` (checkpoint and dead-letter port record),
   `IndexBookUseCase._write_dead_letter` (legacy JSONL), and
   `ReplayDeadLetterUseCase`'s re-fail path. `CheckpointPort.release_lease_to_failed`
   in `src/book_graph_rag/ports/checkpoint_port.py` accepts one `RedactedError`,
@@ -133,10 +133,18 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   redaction + dev-only raw gate + bounded retention; dead-letter/checkpoint errors
   store `error_type`, `error_length` and, when a valid key is available, a keyed HMAC
   fingerprint — never raw text.
-- **Residual risk:** LOW — fingerprints are only as private as their key. Dead-letter
-  files and `:Checkpoint` nodes written before this change retain their raw error text.
-  Scrubbing existing checkpoint nodes is a graph write subject to §7.2, so pre-existing
-  records are not silently migrated.
+- **Residual risk:** LOW for the dead-letter/checkpoint sinks closed by this change —
+  fingerprints are only as private as their key. Dead-letter files and `:Checkpoint`
+  nodes written before this change retain their raw error text. Scrubbing existing
+  checkpoint nodes is a graph write subject to §7.2, so pre-existing records are not
+  silently migrated. **MEDIUM, recorded as the next item and not silently widened into
+  this change:** evaluation and readiness reports still persist raw exception text for
+  per-question failures (`f"{type(exc).__name__}: {exc}"`).
+  `application/evaluate_generation_layer_use_case.py` collects these in
+  `EvaluationLayerResult.warnings`, written to disk by `main.py --output`;
+  `infrastructure/subprocess_ragas_runner.py` also adds `notes=f"... {exc}"`, and the
+  readiness gate re-emits the same warnings. These report sinks need the same redaction
+  rule in a follow-up.
 
 ### R6 — Prompt injection via natural-language tools (MEDIUM)
 
@@ -243,7 +251,7 @@ remains human-gated. Verified complete vs. remaining:
    redacted; dead-letter and checkpoint failures use `redacted_error()`
    (`src/book_graph_rag/domain/checkpoint_models.py`) to store `error_type` and
    `error_length`, plus a keyed HMAC-SHA256 fingerprint when a valid key is available,
-   never raw text. The three writers are `IndexBookUseCase._release_to_failed`,
+   never raw text. The three writers are `IndexBookUseCase._fail_chunk`,
    `IndexBookUseCase._write_dead_letter`, and `ReplayDeadLetterUseCase`'s re-fail path.
 6. Readiness gate (06) passes; audit (04) shows no BLOCKING, no FAILED/UNREACHABLE —
    **run as the Phase 7 exposure checkpoint:** `gate expose-mcp` exit `0` (PASS).
