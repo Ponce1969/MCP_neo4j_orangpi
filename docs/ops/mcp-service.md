@@ -365,12 +365,16 @@ And the automated check, which asserts both halves — a read succeeds **and** t
 with that credential:
 
     NEO4J_READONLY_TEST_URI=bolt://localhost:17687 \
-    NEO4J_READONLY_TEST_USER=bookgraph_reader \
-    NEO4J_READONLY_TEST_PASSWORD=… \
+    NEO4J_READONLY_USER=bookgraph_reader \
+    NEO4J_READONLY_PASSWORD=<the read password> \
     uv run pytest tests/integration/test_readonly_neo4j_credential.py -q
 
-The write half must fail with `Neo.ClientError.Security.Forbidden` (or `Unauthorized`). It skips unless
-that URI is set on purpose, so it can never fall back to the application's configured server.
+The write half must be denied by the server with `Neo.ClientError.Security.Forbidden`,
+`Neo.ClientError.Statement.AccessMode` or `Neo.ClientError.General.ForbiddenOnReadOnlyDatabase` —
+those are the three codes the test accepts. **Use those variable names**: the test reads
+`NEO4J_READONLY_USER` and `NEO4J_READONLY_PASSWORD` (the same ones the service uses), so a different
+name makes it skip silently instead of verifying anything. It skips unless the URI is set on purpose,
+so it can never fall back to the application's configured server.
 
 ### 8.4 Rolling back
 
