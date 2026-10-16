@@ -221,12 +221,17 @@ remains human-gated. Verified complete vs. remaining:
    dead-letter `error_message` is still raw.
 6. Readiness gate (06) passes; audit (04) shows no BLOCKING, no FAILED/UNREACHABLE —
    **run as the Phase 7 exposure checkpoint:** `gate expose-mcp` exit `0` (PASS).
-   `gate expose-mcp-readiness` remains `INCOMPLETE` (exit `11`) by design while
-   `data/evaluation/*_baseline.json` carry `thresholds_finalized: false` (mechanism-first,
-   06 §11) — pending the later Phase 5 threshold delta. (Local checkpoint note: the
-   readiness gate's generation layer requires a live `QUERY_LLM`; the configured model
-   is end-of-life, so the local run surfaced an environment failure instead of the
-   mechanism-first `INCOMPLETE` — re-run after the model is updated.)
+   `gate expose-mcp-readiness` is **runnable again: its two documented blockers are gone.**
+   The mechanism-first threshold delta landed on 2026-10-15 and every committed baseline now
+   carries `thresholds_finalized: true` with a numeric threshold (retrieval
+   `precision_at_k_min = 0.1175`, generation `faithfulness_min = 0.85`, resolution
+   `f1_min = 0.6` + `hard_over_merge_max = 0.0`), so the gate **passes or fails on its own
+   numbers** instead of reporting `INCOMPLETE` by design. The dead `QUERY_LLM` is no longer an
+   obstacle either: production runs `deepseek-v4-flash` (verified read-only on the host), the
+   host's checkout carries the current `main` after the 2026-10-16 deploy, and a local run
+   points the query role at that model with per-run environment overrides — never editing
+   `.env`. What remains is recording the checkpoint verdict with those baselines: a read-only
+   run, since the gate never mutates the graph.
 7. Explicit human approval recorded; production graph untouched by validation —
    **not yet granted (production exposure is a human decision).**
 
