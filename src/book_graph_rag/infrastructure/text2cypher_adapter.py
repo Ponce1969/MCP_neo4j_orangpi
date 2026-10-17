@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.mcp_security import ScopeContext, ScopeProof
@@ -14,6 +14,7 @@ from book_graph_rag.domain.models import (
     Text2CypherTimeoutError,
     UnsafeCypherQueryError,
 )
+from book_graph_rag.infrastructure.neo4j_schema_reader import Neo4jSchemaReader
 from book_graph_rag.infrastructure.structural_cypher_policy import StructuralCypherPolicy
 from book_graph_rag.ports.cypher_generator_port import (
     CypherFailureContext,
@@ -21,15 +22,6 @@ from book_graph_rag.ports.cypher_generator_port import (
 )
 from book_graph_rag.ports.mcp_security_port import StructuralCypherValidator
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort, Text2CypherResult
-
-_HARDCODED_SCHEMA = """\
-Node labels:
-- Entity: {id, name, type, description, source_page}
-- Chunk: {id, text, page_start, page_end}
-
-Relationship types:
-- (:Entity)-[:RELATED {type, description, source_page}]->(:Entity)
-"""
 
 # Read-only guard: reject any write/admin keyword before EXPLAIN/execute.
 _WRITE_KEYWORDS_RE = re.compile(
@@ -102,14 +94,15 @@ class _SchemaInfo:
     """Internal schema description with its provenance."""
 
     description: str
-    source: str
+    source: Literal["apoc", "native", "manifest"]
+    metadata: dict[str, Any]
 
 
 class Text2CypherAdapter(Text2CypherPort):
     """End-to-end text-to-Cypher pipeline with schema inference and safety guards.
 
     Pipeline:
-        1. Infer schema via APOC or fall back to a hardcoded schema.
+        1. Infer schema through APOC, native procedures/sampling, then the manifest.
         2. Ask the ``CypherGeneratorPort`` to generate a query.
         3. Reject queries that contain write/admin keywords.
         4. Run ``EXPLAIN``; retry up to 2 times on failure.
@@ -128,6 +121,7 @@ class Text2CypherAdapter(Text2CypherPort):
     ) -> None:
         self._executor = executor
         self._generator = generator
+        self._settings = settings
         self._timeout = settings.text2cypher_timeout
         # The structural allowlist is the security decision for the dynamic path;
         # it defaults to the fail-closed policy when no validator is injected.
@@ -156,43 +150,19 @@ class Text2CypherAdapter(Text2CypherPort):
             question=question,
             cypher=cypher,
             rows=rows,
-            schema_source=schema_info.source,  # type: ignore[arg-type]
+            schema_source=schema_info.source,
             retries=retries,
+            metadata=schema_info.metadata,
         )
 
     async def _infer_schema(self) -> _SchemaInfo:
-        """Try APOC schema inference; fall back to hardcoded schema on any error."""
-        try:
-            records = await self._executor.execute_read("CALL apoc.meta.data()")
-        except Exception:  # noqa: BLE001 - APOC absence is expected fallback
-            return _SchemaInfo(_HARDCODED_SCHEMA, "hardcoded")
-
-        if not records:
-            return _SchemaInfo(_HARDCODED_SCHEMA, "hardcoded")
-
-        description = self._format_schema(records)
-        return _SchemaInfo(description, "apoc")
-
-    @staticmethod
-    def _format_schema(records: list[dict[str, Any]]) -> str:
-        """Build a concise schema string from APOC meta.data records."""
-        labels: set[str] = set()
-        rels: set[str] = set()
-        for record in records:
-            if record.get("type") == "node":
-                label = record.get("label")
-                if label:
-                    labels.add(str(label))
-            elif record.get("type") == "relationship":
-                rel_type = record.get("name")
-                if rel_type:
-                    rels.add(str(rel_type))
-
-        lines = ["Node labels:"]
-        lines.extend(f"- {label}" for label in sorted(labels))
-        lines.append("Relationship types:")
-        lines.extend(f"- ()-[:{rel}]->()" for rel in sorted(rels))
-        return "\n".join(lines) if labels or rels else _HARDCODED_SCHEMA
+        """Use the shared graph/manifest reader and retain its provenance metadata."""
+        result = await Neo4jSchemaReader(self._executor, self._settings).read()
+        return _SchemaInfo(
+            description=result.schema.describe(),
+            source=result.source,
+            metadata=result.metadata,
+        )
 
     async def _generate_and_validate(
         self, schema: str, question: str, scope: ScopeContext | None
