@@ -429,29 +429,62 @@ def test_ragas_unavailable_yields_warning_not_block() -> None:
     assert any("RAGAS unavailable" in w for w in result.warnings)
 
 
-def test_ragas_drop_yields_warning_not_block() -> None:
-    """RAGAS drop adds a warning but does not block PASSED."""
+def test_no_drop_is_attributed_to_ragas_when_the_secondary_runner_is_unavailable() -> None:
+    """The Phase 7 provenance defect, pinned: no drop may claim RAGAS measured when it did
+    not, and the drop the numbers justify must still reach the operator — sourced from the
+    layer's own claim-verified faithfulness, the instrument the baseline committed.
+
+    The 2026-10-16 readiness run printed `RAGAS drop in faithfulness vs baseline:
+    0.8988 -> 0.7143` while the same report said RAGAS was unavailable. The left number
+    was the committed PRIMARY faithfulness, the right one a RAGAS score over a fabricated
+    input (empty answers, question = question id); neither could source that warning."""
     baseline = EvaluationBaselineReport(
         layer="generation",
         dataset_id="generation_dataset",
         dataset_sha256="0" * 64,
         thresholds_finalized=True,
         faithfulness_min=0.5,
-        metrics={"faithfulness": 0.8},
+        metrics={"faithfulness": 0.8988},
     )
-    ragas = RAGASSecondaryMetrics(
-        faithfulness=0.7,
-        available=True,
-        drop_warning=True,
+    claims = {
+        "q1": tuple(
+            AtomicClaim(
+                claim_id=f"c{i}",
+                text=f"claim {i}",
+                evidence_refs=("ctx1",),
+                verdict="support" if i <= 5 else "contradict",
+            )
+            for i in range(1, 8)
+        ),
+    }
+    uc = _make_use_case(
+        baseline=baseline,
+        claims=claims,
+        verdict=None,
+        ragas_metrics=RAGASSecondaryMetrics(
+            available=False,
+            notes="subprocess ragas failed: CalledProcessError('exited with 1')",
+        ),
     )
-    uc = _make_use_case(baseline=baseline, ragas_metrics=ragas)
     result = asyncio.run(uc.execute())
-    assert result.status == LayerStatus.PASSED
-    assert any("RAGAS drop" in w for w in result.warnings)
+
+    assert result.project_owned_metrics[0].value == 5 / 7
+    # Nothing may claim RAGAS measured a drop in this run.
+    assert not any("RAGAS drop" in w for w in result.warnings)
+    # The real drop still arrives, with its true source and its true numbers.
+    assert any(
+        "faithfulness drop vs baseline (project-owned metric): 0.8988 -> 0.7143" in w
+        for w in result.warnings
+    )
+    assert any("RAGAS unavailable" in w for w in result.warnings)
 
 
-def test_ragas_drop_warning_names_the_metric_and_delta() -> None:
-    """The warning must carry WHAT dropped and by how much, not just that something did."""
+def test_a_runner_flagged_ragas_drop_is_never_relabelled_as_the_layer_signal() -> None:
+    """A runner-supplied drop flag must not be printed as a drop 'vs baseline'.
+
+    The committed baseline's faithfulness is the claim-verified primary instrument, not a
+    RAGAS measurement; a previous/current pair computed by the runner cannot source a
+    comparison against it, however its numbers look."""
     baseline = EvaluationBaselineReport(
         layer="generation",
         dataset_id="generation_dataset",
@@ -469,11 +502,13 @@ def test_ragas_drop_warning_names_the_metric_and_delta() -> None:
     uc = _make_use_case(baseline=baseline, ragas_metrics=ragas)
     result = asyncio.run(uc.execute())
 
-    assert any("0.8000 -> 0.7100" in w for w in result.warnings)
+    assert result.status == LayerStatus.PASSED
+    assert not any("RAGAS drop" in w for w in result.warnings)
+    assert not any("0.8000 -> 0.7100" in w for w in result.warnings)
 
 
-def test_ragas_drop_warning_without_previous_value_stays_safe() -> None:
-    """A drop flag with no previous value must not raise while formatting the message."""
+def test_primary_faithfulness_drop_warns_but_does_not_block() -> None:
+    """A real drop in the gated metric adds a warning but does not block PASSED."""
     baseline = EvaluationBaselineReport(
         layer="generation",
         dataset_id="generation_dataset",
@@ -482,11 +517,76 @@ def test_ragas_drop_warning_without_previous_value_stays_safe() -> None:
         faithfulness_min=0.5,
         metrics={"faithfulness": 0.8},
     )
-    ragas = RAGASSecondaryMetrics(faithfulness=0.71, available=True, drop_warning=True)
-    uc = _make_use_case(baseline=baseline, ragas_metrics=ragas)
+    claims = {
+        "q1": (
+            AtomicClaim(
+                claim_id="c1",
+                text="supported",
+                evidence_refs=("ctx1",),
+                verdict="support",
+            ),
+            AtomicClaim(
+                claim_id="c2",
+                text="contradicted",
+                evidence_refs=("ctx1",),
+                verdict="contradict",
+            ),
+        ),
+    }
+    uc = _make_use_case(baseline=baseline, claims=claims, verdict=None)
     result = asyncio.run(uc.execute())
 
-    assert any("values unavailable" in w for w in result.warnings)
+    assert result.status == LayerStatus.PASSED
+    assert result.project_owned_metrics[0].value == 0.5
+    assert any("faithfulness drop vs baseline (project-owned metric)" in w for w in result.warnings)
+
+
+def test_primary_drop_warning_names_the_metric_and_delta() -> None:
+    """The warning must carry WHAT dropped and by how much, not just that something did."""
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={"faithfulness": 0.8},
+    )
+    claims = {
+        "q1": tuple(
+            AtomicClaim(
+                claim_id=f"c{i}",
+                text=f"claim {i}",
+                evidence_refs=("ctx1",),
+                verdict="support" if i <= 3 else "contradict",
+            )
+            for i in range(1, 6)
+        ),
+    }
+    uc = _make_use_case(baseline=baseline, claims=claims, verdict=None)
+    result = asyncio.run(uc.execute())
+
+    assert any(
+        "faithfulness drop vs baseline (project-owned metric): 0.8000 -> 0.6000" in w
+        for w in result.warnings
+    )
+
+
+def test_missing_baseline_faithfulness_metric_yields_no_drop_warning() -> None:
+    """Without a committed faithfulness number there is no drop to source: say nothing,
+    crash nowhere."""
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={},
+    )
+    uc = _make_use_case(baseline=baseline)
+    result = asyncio.run(uc.execute())
+
+    assert result.status == LayerStatus.PASSED
+    assert not any("drop vs baseline" in w for w in result.warnings)
 
 
 def test_exception_text_is_redacted_from_report_with_keyed_fingerprint(

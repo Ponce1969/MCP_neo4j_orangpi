@@ -266,7 +266,13 @@ class ReadinessGateEvaluatorUseCase:
 
         warnings: list[str] = []
         for result in layer_results:
-            warnings.extend(result.warnings)
+            # Attribute every warning to the layer that emitted it. The gate flattens the
+            # layers' warnings into one list, and an unattributed pair from two layers
+            # (2026-10-16: generation's "RAGAS drop …" next to retrieval's "RAGAS
+            # unavailable …", two different subprocess invocations) reads as one
+            # self-contradicting runner. Same provenance rule the numbers follow: a
+            # warning must name the source it speaks for.
+            warnings.extend(f"{result.layer}: {warning}" for warning in result.warnings)
 
         evaluation_status = EvaluationReport.derive_overall_status(
             tuple(layer_results), required_names

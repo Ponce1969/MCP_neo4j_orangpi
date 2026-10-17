@@ -173,12 +173,14 @@ def _layer_result(
     *,
     baseline_path: str | None = None,
     metrics: tuple[LayerMetricValue, ...] = (),
+    warnings: tuple[str, ...] = (),
 ) -> EvaluationLayerResult:
     return EvaluationLayerResult(
         layer=layer,
         status=status,
         project_owned_metrics=metrics,
         rationale=rationale,
+        warnings=warnings,
         source_dataset_id=f"{layer}_dataset",
         baseline_report_path=baseline_path,
         run_metadata=LayerRunMetadata(run_id="run-1", code_commit="abc123"),
@@ -350,7 +352,8 @@ async def test_unknown_gate_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_optional_layer_warnings_folded_without_blocking() -> None:
-    """Optional-layer WARNINGs appear in result.warnings but do not fail the gate."""
+    """Optional-layer WARNINGs appear in result.warnings, attributed to their layer, without
+    failing the gate."""
     policy = _policy()
     retrieval = EvaluationLayerResult(
         layer="retrieval",
@@ -371,9 +374,48 @@ async def test_optional_layer_warnings_folded_without_blocking() -> None:
     result = await use_case.execute("expose-mcp-readiness", _audit_report())
     assert result.exit_code == 0
     assert result.passed is True
-    assert "low precision" in result.warnings
+    assert "retrieval: low precision" in result.warnings
     breakdown = {b.layer: b for b in result.layer_breakdown}
     assert breakdown["retrieval"].status == LayerStatus.WARNING
+
+
+@pytest.mark.asyncio
+async def test_warnings_are_attributed_to_the_layer_that_emitted_them() -> None:
+    """A warning that does not name its layer turns two layers into one contradicting run.
+
+    The 2026-10-16 readiness report showed `RAGAS drop in faithfulness vs baseline: …`
+    next to `RAGAS unavailable: subprocess ragas failed: …`. The two came from two
+    different layers' two different subprocess invocations — generation's drop and
+    retrieval's deterministic empty-input failure — but the flattened list hid who spoke,
+    so the pair read as one self-contradicting runner. Attribution is the same provenance
+    rule the numbers follow: a warning must name its source."""
+    policy = _policy()
+    generation = _layer_result(
+        "generation",
+        LayerStatus.PASSED,
+        warnings=("faithfulness drop vs baseline (project-owned metric): 0.8988 -> 0.7143",),
+    )
+    retrieval = _layer_result(
+        "retrieval",
+        LayerStatus.WARNING,
+        warnings=("RAGAS unavailable: subprocess ragas failed: CalledProcessError(...)",),
+    )
+    use_case = _make_use_case(
+        policy,
+        _gate_result(OverallState.PASSED),
+        {"generation": generation, "retrieval": retrieval},
+    )
+
+    result = await use_case.execute("expose-mcp-readiness", _audit_report())
+
+    # Each warning carries its layer, and the pair is distinguishable in the report.
+    assert result.warnings == (
+        "generation: faithfulness drop vs baseline (project-owned metric): 0.8988 -> 0.7143",
+        "retrieval: RAGAS unavailable: subprocess ragas failed: CalledProcessError(...)",
+    )
+    # Attribution changes neither the verdict nor the exit code.
+    assert result.exit_code == 0
+    assert result.passed is True
 
 
 @pytest.mark.asyncio
