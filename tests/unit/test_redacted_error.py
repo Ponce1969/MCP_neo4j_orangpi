@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from book_graph_rag.domain.checkpoint_models import redacted_error
+from book_graph_rag.domain.checkpoint_models import format_redacted_error, redacted_error
 from book_graph_rag.domain.mcp_security import QueryFingerprint
 
 _RAW = "LLM returned 401 for api_key=secret-token-abc on https://example.invalid/v1"
@@ -111,3 +111,68 @@ def test_a_missing_key_id_also_yields_no_fingerprint() -> None:
 
     assert redacted.error_fingerprint is None
     assert _RAW not in redacted.model_dump_json()
+
+
+def test_a_raising_str_falls_back_to_an_empty_message() -> None:
+    """A pathological exception renderer cannot abort redaction or expose its own error."""
+
+    class BrokenStringError(Exception):
+        def __str__(self) -> str:
+            raise RuntimeError("string renderer leaked this marker")
+
+    redacted = redacted_error(BrokenStringError(), key_id=_KEY_ID, secret=_SECRET)
+
+    assert redacted.error_type == "BrokenStringError"
+    assert redacted.error_length == 0
+    assert redacted.error_fingerprint == QueryFingerprint.from_canonical(
+        _KEY_ID, _SECRET, {"error_message": ""}
+    )
+    assert "string renderer leaked this marker" not in redacted.model_dump_json()
+
+
+def test_an_empty_sanitized_exception_name_uses_a_valid_fallback() -> None:
+    """A dynamic exception with no class name cannot break Pydantic redaction."""
+    nameless_error = type("", (Exception,), {})(_RAW)
+
+    redacted = redacted_error(nameless_error, key_id=_KEY_ID, secret=_SECRET)
+
+    assert redacted.error_type == "UnknownError"
+    assert redacted.error_length == len(_RAW)
+
+
+def test_format_sanitizes_and_bounds_exception_and_key_labels() -> None:
+    """Untrusted labels stay printable, whitespace-collapsed and short in reports.
+
+    The exception class name is reduced further, to identifier characters only, because that is
+    what a class name is — punctuation in it would only help a secret stay readable. The key id is
+    a label the operator reads (``mcp-log-v1``), so it keeps its punctuation and is only bounded.
+    """
+    error_type = "Provider\nFailure" + "X" * 100
+    key_id = "evaluation\nkey\x00" + "Y" * 100
+    dynamic_error = type(error_type, (Exception,), {})
+
+    formatted = format_redacted_error(
+        dynamic_error(_RAW),
+        key_id=key_id,
+        secret=_SECRET,
+    )
+
+    assert "\n" not in formatted
+    assert "\x00" not in formatted
+    assert "ProviderFailure" in formatted
+    assert "evaluation key" in formatted
+    assert len(formatted.split(" (", 1)[0]) <= 80
+    fingerprint_key = formatted.split("fingerprint=", 1)[1].split(":", 1)[0]
+    assert len(fingerprint_key) <= 80
+
+
+def test_a_hostile_class_name_is_reduced_to_an_identifier() -> None:
+    """A class name is an identifier: punctuation only helps a secret stay readable."""
+    marker = "provider said 401 for api-key=secret-marker-xyz"
+    hostile = type(marker, (Exception,), {})
+
+    rendered = format_redacted_error(hostile("benign"), key_id=_KEY_ID, secret=_SECRET)
+
+    assert marker not in rendered
+    assert "=" not in rendered.split(" (")[0]
+    assert " " not in rendered.split(" (")[0]

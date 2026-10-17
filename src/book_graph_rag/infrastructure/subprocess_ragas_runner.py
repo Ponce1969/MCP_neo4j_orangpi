@@ -162,24 +162,35 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
         fd, after_name = tempfile.mkstemp(suffix=".json")
         os.close(fd)
         after_path = Path(after_name)
+        script_path = Path(self._script_path)
+        if not script_path.is_absolute():
+            script_path = Path.cwd() / script_path
+        dataset_path = jsonl_path.resolve()
+        # Environment avoids exposing the HMAC secret in argv, which is visible in process lists.
+        child_env = os.environ.copy()
+        child_env["MCP_HMAC_KEY_ID"] = self._hmac_key_id
+        child_env["MCP_HMAC_KEY"] = self._hmac_secret
         try:
-            subprocess.run(
-                [
-                    sys.executable,
-                    self._script_path,
-                    "--dataset",
-                    str(jsonl_path),
-                    "--no-compare",
-                    "--json-output",
-                    str(output_path),
-                    "--after-output",
-                    str(after_path),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            metrics = self._parse_output(output_path)
+            with tempfile.TemporaryDirectory(prefix="ragas-subprocess-") as working_dir:
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(script_path),
+                        "--dataset",
+                        str(dataset_path),
+                        "--no-compare",
+                        "--json-output",
+                        str(output_path),
+                        "--after-output",
+                        str(after_path),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    cwd=working_dir,
+                    env=child_env,
+                )
+                metrics = self._parse_output(output_path)
         except Exception as exc:  # noqa: BLE001
             redacted = format_redacted_error(
                 exc,
