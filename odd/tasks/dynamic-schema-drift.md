@@ -78,14 +78,19 @@ can see — loudly where it can be acted on, quietly where it must not break a q
 - **T1 · S1, S2, S5, S6** — the ladder, the typed fail and the source type in `text2cypher_adapter.py`
   and the port, test-first with a fake executor per tier (APOC present, APOC absent but `db.schema.*`
   present, both absent with only `db.labels()` available, everything failing, and an empty graph).
-  Route: worker. `commit: pending`
+  Route: worker. `commit: 18a5ad4`
 - **T2 · S3, S4** — the manifest model and its provenance, the drift comparison, the runtime surfacing
   (metadata + warning) and the `graph_version` it is reported at. Test-first. Route: worker.
-  `commit: pending`
+  `commit: 18a5ad4`
 - **T3 · S9** — the two CLI commands with their exit codes, plus the integration test that fails on
-  drift and skips without a live graph. Test-first. Route: worker. `commit: pending`
+  drift and skips without a live graph. Test-first. Route: worker. `commit: a2ee0b6`
 - **T4 · S7, S8** — the register, the docs and the tests that still assert `"hardcoded"`. Route: parent.
-  `commit: pending`
+  `commit: (this document's own commit)`
+
+Note on the commit split: T1 and T2 landed together because they are coupled — the adapter's ladder
+needs the reader, and the fixture that asserts the new `schema_source` literal cannot be compiled
+against the old port. The pre-commit hook checks the staged snapshot, so a partial commit that does
+not compile is impossible; the work units are therefore "the mechanism" and "the commands".
 
 ## Log
 
@@ -119,3 +124,18 @@ can see — loudly where it can be acted on, quietly where it must not break a q
   1313`) and is reused rather than reinvented. Recorded for a later step: when the SSH tunnel is opened
   for R2's operator step, the same read-only session can inspect the live schema and generate the first
   manifest from production data instead of from what the documentation promises.
+- **L4 (implementation, 2026-10-17).** The mechanism and the commands landed as two commits
+  (`18a5ad4`, `a2ee0b6`) plus this documentation. RED was observed per task: the tier tests failed with
+  `"hardcoded"` where `"native"` was expected and with `DID NOT RAISE` where the typed fail belongs,
+  and the CLI tests failed with `No such command 'schema'` and exit 2. One honest limitation of that
+  evidence: the drift test's RED was a `ModuleNotFoundError` for the new module, so the drift
+  assertion itself was never seen failing — the module has to exist for the import to succeed — and it
+  was verified in GREEN only. The pre-commit hook also decided the commit split for us: it checks the
+  **staged** snapshot, so a partial commit that does not compile is impossible, and T1 and T2 are
+  coupled (the adapter's ladder needs the reader, and the fixture asserting the new `schema_source`
+  literal cannot compile against the old port). The worker flagged two pre-existing reds in
+  `tests/integration/test_query_cypher_scope.py` and left them alone; the parent reproduced them on the
+  base commit before touching them — the same two tests fail identically on `main` with the same
+  `QueryFingerprintError`, caused by a fifteen-character fixture key against the thirty-two-character
+  floor the fingerprint rule enforces — and fixed them here because this change modifies that file.
+  Suite after the change: **2175 passed, 3 skipped, 0 failed**.
