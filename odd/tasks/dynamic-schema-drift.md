@@ -257,3 +257,27 @@ not compile is impossible; the work units are therefore "the mechanism" and "the
   when no live view is available, report `unknown` rather than compare the manifest with itself. This
   closes stochastic drift under normal native availability without degrading model descriptions;
   the fallback remains explicitly lower-confidence.
+- **L8 (production verification, 2026-10-17 — R4 graded complete).** The operator ran the deployed
+  `schema verify` on the production host after the policy-A change was deployed. Verbatim output:
+
+  ```json
+  {"state": "passed", "schema_source": "apoc", "graph_version": "gv-c00459a74b39",
+   "drift": {"state": "match", "graph_version": "gv-c00459a74b39", "reason": null,
+             "comparison_basis": {"source": "native", "fallback_reason": null},
+             "added_labels": [], "removed_labels": [],
+             "added_relationship_types": [], "removed_relationship_types": [],
+             "added_label_properties": {}, "removed_label_properties": {},
+             "added_relationship_properties": {}, "removed_relationship_properties": {},
+             "truncated": false}}
+  ```
+
+  What it closes: R4's last "partial" reason. The policy is deployed and production-verified — the
+  description came from the first rung (`schema_source: apoc`), the comparison ran against the
+  deterministic native catalogue (`comparison_basis.source: native`, no fallback), the frozen
+  manifest matched the live schema (`drift.state: match`), and the measured `graph_version`
+  `gv-c00459a74b39` matches the manifest's. `docs/spec/07-security-and-operational-risks.md` §5
+  item 4 moves from partial to **verified complete**. The residual unchanged by this evidence:
+  relationship endpoints remain out of the schema body. The same run surfaced a DBMS deprecation
+  for the census subquery (`CALL subquery without a variable scope clause is now deprecated`),
+  fixed in this closure by switching `_CATALOG_STATS_CYPHER` to the `CALL () { ... }` form the
+  notification prescribes.

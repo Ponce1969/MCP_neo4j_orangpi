@@ -125,6 +125,14 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   error or `13` for another read failure. A query is **never** blocked by drift. `schema snapshot`
   can write a refreshed manifest, but the post-deploy action is `schema verify`: the committed
   schema view remains the contract.
+- **Evidence `[VERIFIED]` (production):** the deployed `schema verify` was run on the production
+  host after the comparison-policy change (native-catalogue basis, policy A) was deployed. Exit `0`,
+  `state: passed`: the description came from the first rung (`schema_source: "apoc"`), the
+  comparison ran against the deterministic native catalogue (`drift.comparison_basis.source:
+  "native"`, `fallback_reason: null` — no fallback), the drift was `match` (no added/removed
+  labels, relationship types, or label/relationship properties), and the measured `graph_version`
+  `gv-c00459a74b39` matched the frozen manifest's. This is the production verification the
+  entry previously lacked.
 - **Impact:** invalid Cypher, wrong field assumptions, and silent degradation of `query_cypher`.
 - **Residual risk:** LOW, with limits stated rather than implied. The description carries names
   (labels, relationship types, properties) and relationship endpoints remain out of scope; the old
@@ -329,17 +337,19 @@ remains human-gated. Verified complete vs. remaining:
 3. R3 mitigated — **verified complete:** structural allowlist + `EXPLAIN` + disabled-by-default
    verified; the scope-parameter binding gap (R8) is now closed. `ask_global`'s community read
    path is namespace-scoped (R7, code-verified — see §3).
-4. R4 mitigated — **partial:** the schema-view policy and parser correction are implemented:
-   APOC rows use real `elementType` values, and unparseable native output is rejected as a trusted
-   empty schema. The hardcoded fallback is gone; the schema comes from the graph through the ladder
-   (APOC → `db.schema.*` → bounded labels/sample → manifest → typed fail), and the source label
-   identifies the tier that produced it. The manifest is committed but absent on the production host
-   until this branch is deployed. Runtime and CLI/MCP drift reports now state `comparison_basis`;
-   tests reproduce the sparse `Checkpoint.failed_at` case and retain a genuine-native-drift guard.
-   It remains partial because the policy is not yet deployed or production-verified with
-   `schema verify`; relationship endpoints also remain outside the schema body. Snapshot metadata is
-   still stamped per run,
-   so a fresh snapshot is not byte-for-byte identical.
+4. R4 mitigated — **verified complete:** the schema-view policy and parser correction are
+   implemented: APOC rows use real `elementType` values, and unparseable native output is rejected as
+   a trusted empty schema. The hardcoded fallback is gone; the schema comes from the graph through the
+   ladder (APOC → `db.schema.*` → bounded labels/sample → manifest → typed fail), and the source
+   label identifies the tier that produced it. Runtime and CLI/MCP drift reports now state
+   `comparison_basis`; tests reproduce the sparse `Checkpoint.failed_at` case and retain a
+   genuine-native-drift guard. The policy is now deployed and production-verified: the operator's
+   `schema verify` on the host returned exit `0` with `state: passed`, the description from APOC
+   (`schema_source: "apoc"`), the comparison against the native catalogue
+   (`comparison_basis.source: "native"`, `fallback_reason: null`), drift `match`, and the measured
+   `graph_version` `gv-c00459a74b39` matching the frozen manifest. Residual (stated, not implied):
+   relationship endpoints also remain outside the schema body, and snapshot metadata is still
+   stamped per run, so a fresh snapshot is not byte-for-byte identical.
 5. R5 mitigated — **verified complete:** MCP query logs are metadata-only + HMAC +
    redacted; dead-letter and checkpoint failures use `redacted_error()`
    (`src/book_graph_rag/domain/checkpoint_models.py`) to store `error_type` and
