@@ -141,6 +141,93 @@ async def test_unparseable_native_rows_fall_through_to_bounded_samples(tmp_path:
     assert node_sample in executor.calls
 
 
+def test_native_parser_normalizes_live_colon_backtick_schema_names() -> None:
+    schema = Neo4jSchemaReader._schema_from_native(
+        node_records=[{"nodeLabels": [":`Book`"], "propertyName": "title"}],
+        rel_records=[{"relType": ":`CONTAINS`", "propertyName": "source"}],
+    )
+
+    assert schema is not None
+    assert schema.labels == {"Book": ("title",)}
+    assert schema.relationship_types == {"CONTAINS": ("source",)}
+
+
+async def test_sample_tier_uses_the_same_clean_names_as_native(tmp_path: Path) -> None:
+    native = Neo4jSchemaReader._schema_from_native(
+        node_records=[{"nodeLabels": [":`Book`"], "propertyName": "title"}],
+        rel_records=[{"relType": ":`CONTAINS`", "propertyName": "source"}],
+    )
+    node_sample = "MATCH (n:`Book`) WITH n LIMIT 1 RETURN keys(n) AS properties"
+    rel_sample = "MATCH ()-[r:`CONTAINS`]-() WITH r LIMIT 1 RETURN keys(r) AS properties"
+    executor = _SchemaExecutor(
+        {
+            "CALL db.labels()": [{"label": "Book"}],
+            "CALL db.relationshipTypes()": [{"relationshipType": "CONTAINS"}],
+            node_sample: [{"properties": ["title"]}],
+            rel_sample: [{"properties": ["source"]}],
+        }
+    )
+
+    sampled = await Neo4jSchemaReader(executor, _settings(tmp_path))._sample_schema([], [False])
+
+    assert native is not None
+    assert sampled is not None
+    assert sampled.labels == native.labels
+    assert sampled.relationship_types == native.relationship_types
+
+
+def test_apoc_parser_ignores_relationship_endpoint_labels_as_properties() -> None:
+    schema = Neo4jSchemaReader._schema_from_apoc(
+        [
+            {
+                "label": "RELATED",
+                "elementType": "relationship",
+                "type": "RELATIONSHIP",
+                "property": "Entity",
+            },
+            {
+                "label": "RELATED",
+                "elementType": "relationship",
+                "type": "INTEGER",
+                "property": "source_page",
+            },
+            {
+                "label": "RELATED",
+                "elementType": "relationship",
+                "type": "STRING",
+                "property": "type",
+            },
+            {
+                "label": "HAS_CHUNK",
+                "elementType": "relationship",
+                "type": "RELATIONSHIP",
+                "property": "Chapter",
+            },
+            {
+                "label": "CONTAINS",
+                "elementType": "relationship",
+                "type": "RELATIONSHIP",
+                "property": "Book",
+            },
+            {
+                "label": "MENTIONS",
+                "elementType": "relationship",
+                "type": "INTEGER",
+                "property": "chunk_index",
+            },
+        ]
+    )
+
+    assert schema is not None
+    assert schema.labels == {}
+    assert schema.relationship_types == {
+        "CONTAINS": (),
+        "HAS_CHUNK": (),
+        "MENTIONS": ("chunk_index",),
+        "RELATED": ("source_page", "type"),
+    }
+
+
 def test_apoc_parser_uses_element_type_and_real_property_columns() -> None:
     schema = Neo4jSchemaReader._schema_from_apoc(
         [
