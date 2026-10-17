@@ -87,6 +87,7 @@ from book_graph_rag.domain.rollback_plan_models import (
     compare_census,
 )
 from book_graph_rag.domain.s4_band_assignment import BandThresholds
+from book_graph_rag.domain.schema_manifest import SchemaManifest
 from book_graph_rag.domain.validation_models import BookScope, SmokeManifest, TargetScope
 from book_graph_rag.infrastructure.brute_force_candidate_retrieval import (
     BruteForceCandidateRetrieval,
@@ -116,6 +117,11 @@ from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.infrastructure.neo4j_read_credentials import readonly_settings
 from book_graph_rag.infrastructure.neo4j_retrieval_adapter import Neo4jRetrievalAdapter
 from book_graph_rag.infrastructure.neo4j_retrieval_smoke_adapter import Neo4jRetrievalSmokeAdapter
+from book_graph_rag.infrastructure.neo4j_schema_reader import (
+    Neo4jSchemaReader,
+    SchemaInferenceError,
+    SchemaReadResult,
+)
 from book_graph_rag.infrastructure.neo4j_validation_adapter import Neo4jValidationAdapter
 from book_graph_rag.infrastructure.pdf_adapter import PDFAdapter
 from book_graph_rag.infrastructure.resolution_wiring import (
@@ -620,6 +626,127 @@ def gate(
     if output is not None:
         output.write_text(payload + "\n", encoding="utf-8")
     raise click.exceptions.Exit(result.exit_code)
+
+
+@cli.group("schema")
+def schema_group() -> None:
+    """Inspect and snapshot the graph's observed schema."""
+
+
+async def _read_graph_schema(settings: Settings) -> SchemaReadResult:
+    """Read the schema through the same read-only adapter path used at runtime."""
+    read_settings = readonly_settings(settings)
+    adapter = Neo4jQueryAdapter(read_settings)
+    try:
+        return await Neo4jSchemaReader(adapter, settings).read()
+    finally:
+        await adapter.close()
+
+
+def _schema_settings_or_exit() -> Settings:
+    try:
+        return Settings.model_validate({})
+    except Exception:
+        click.echo(
+            json.dumps({"state": "failed", "reason": "configuration_error"}),
+            err=True,
+        )
+        raise click.exceptions.Exit(13) from None
+
+
+def _schema_read_or_exit(settings: Settings) -> SchemaReadResult:
+    try:
+        return asyncio.run(_read_graph_schema(settings))
+    except SchemaInferenceError as exc:
+        state = "unreachable" if exc.unreachable else "failed"
+        code = 12 if exc.unreachable else 13
+        click.echo(json.dumps({"state": state, "reason": str(exc)}))
+        raise click.exceptions.Exit(code) from None
+    except Exception:
+        click.echo(json.dumps({"state": "failed", "reason": "schema_read_failed"}))
+        raise click.exceptions.Exit(13) from None
+
+
+@schema_group.command("verify")
+def schema_verify() -> None:
+    """Compare the live graph schema to the frozen manifest without writing."""
+    settings = _schema_settings_or_exit()
+    result = _schema_read_or_exit(settings)
+    if result.graph_unreachable:
+        state, code = "unreachable", 12
+    elif not result.live_schema_available:
+        state, code = "failed", 13
+    elif result.drift.state == "match":
+        state, code = "passed", 0
+    elif result.drift.state == "drift":
+        state, code = "drift", 10
+    elif result.drift.reason == "manifest_missing":
+        state, code = "incomplete", 11
+    else:
+        state, code = "failed", 13
+    click.echo(
+        json.dumps(
+            {
+                "state": state,
+                "schema_source": result.source,
+                "graph_version": result.graph_version,
+                "drift": result.drift.model_dump(mode="json"),
+            },
+            indent=2,
+        )
+    )
+    raise click.exceptions.Exit(code)
+
+
+@schema_group.command("snapshot")
+@click.option(
+    "--output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Manifest destination (defaults to data/schema/graph_schema.json).",
+)
+def schema_snapshot(output: Path | None) -> None:
+    """Write a manifest file from the live graph; never writes to Neo4j."""
+    settings = _schema_settings_or_exit()
+    result = _schema_read_or_exit(settings)
+    if result.graph_unreachable:
+        click.echo(json.dumps({"state": "unreachable", "reason": "graph_unreachable"}))
+        raise click.exceptions.Exit(12)
+    if not result.live_schema_available or result.source not in {"apoc", "native"}:
+        click.echo(json.dumps({"state": "failed", "reason": "live_schema_unavailable"}))
+        raise click.exceptions.Exit(13)
+    if result.graph_version is None:
+        click.echo(json.dumps({"state": "failed", "reason": "graph_version_unavailable"}))
+        raise click.exceptions.Exit(13)
+
+    manifest = SchemaManifest(
+        schema_version=settings.schema_version,
+        committed_at=datetime.now(tz=UTC),
+        code_commit=current_code_commit(),
+        graph_version=result.graph_version,
+        source="apoc" if result.source == "apoc" else "native",
+        labels=result.schema.labels,
+        relationship_types=result.schema.relationship_types,
+    )
+    destination = output or settings.schema_manifest_path
+    try:
+        if not destination.parent.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(manifest.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    except Exception:
+        click.echo(json.dumps({"state": "failed", "reason": "manifest_write_failed"}))
+        raise click.exceptions.Exit(13) from None
+    click.echo(
+        json.dumps(
+            {
+                "state": "snapshotted",
+                "path": str(destination),
+                "source": manifest.source,
+                "graph_version": manifest.graph_version,
+            },
+            indent=2,
+        )
+    )
 
 
 def _build_evaluate_command_use_case(settings: Settings) -> EvaluateCommandUseCase:
