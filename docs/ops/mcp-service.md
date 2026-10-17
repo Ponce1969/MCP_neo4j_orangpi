@@ -182,6 +182,23 @@ A good run shows:
   `query_cypher`, `search_chunks`, `search_rag`, `traverse_relationships` —
   exactly **8 tools**.
 
+### Check the frozen schema after deploy
+
+After deploying the code and committed manifest, run this from the repository root:
+
+```bash
+~/.local/bin/uv run --no-sync book-graph-rag schema verify
+```
+
+This is read-only: it reads the live schema and manifest without writing Neo4j or the manifest. It
+compares the schema body — labels, relationship types, and properties — not manifest provenance such
+as `committed_at`, `code_commit`, `graph_version`, or `source`. Exit codes are **0** (match), **10**
+(drift), **11** (incomplete), **12** (unreachable), and **13** (failed).
+
+Do not use `schema snapshot` as this verification step. Snapshot writes the manifest; on this server,
+where APOC answers first in the ladder, it would replace the frozen body with a fresh APOC snapshot
+instead of checking that body against the live schema.
+
 ### Reading the outcome
 
 | Outcome | Meaning | Action |

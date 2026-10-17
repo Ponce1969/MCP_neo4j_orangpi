@@ -96,8 +96,9 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   part of this PR; the previous parser skipped every real APOC row. Next are the built-in
   `db.schema.nodeTypeProperties` and `db.schema.relTypeProperties`, whose availability is probed with
   `SHOW PROCEDURES` instead of by catching an exception per call, with a bounded fallback to
-  `db.labels()` + `db.relationshipTypes()` plus a one-row per-label sample; then the generated
-  manifest at `data/schema/graph_schema.json`; and finally a typed `SchemaInferenceError`, so no Cypher
+  `db.labels()` + `db.relationshipTypes()` plus a one-row per-label sample; then the committed
+  manifest assembled from the operator's live inspection at `data/schema/graph_schema.json`; and
+  finally a typed `SchemaInferenceError`, so no Cypher
   is ever generated against a guess. The constant `_HARDCODED_SCHEMA` is deleted and `schema_source`
   is `Literal["apoc", "native", "manifest"]`. The source label is returned with the schema from the
   same successful tier; an unparseable native result is not accepted as a trusted empty schema, so a

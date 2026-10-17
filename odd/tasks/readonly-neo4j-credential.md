@@ -151,12 +151,14 @@ Gates before any "done": `uv run ruff check .` · `uv run mypy .` ·
   configured and verified restricted role. The operator's verification step changed shape rather
   than failed: read and smoke checks pass, while a `roles: NULL` detection must skip only the
   impossible server-denial assertion and state that enforcement is application-level on Community.
-- **L5 (live schema inspection and committed manifest).** APOC `relationship` rows use
-  `elementType` for the kind and `type` for the property datatype (or literal `RELATIONSHIP`). On a
-  `RELATIONSHIP` row, `property` holds an endpoint node label, not a relationship property; the
-  endpoint data remains an explicit follow-up, and the APOC parser now ignores those rows as
-  properties. Native `db.schema.relTypeProperties()` names with `:` plus backticks normalize to the
-  same clean names as the sample tier.
+- **L5 (live schema inspection and committed manifest).** APOC rows are read by `type` first, then
+  `elementType`: scalar rows use `label` for the owner and `property` for its property. For
+  `type=RELATIONSHIP`, `elementType=relationship` maps `label` to relationship type and `property` to
+  endpoint node label; `elementType=node` maps `label` to node label and `property` to relationship
+  type. The parser registers those names, then skips scalar-property handling; `other` carries
+  destination labels, while endpoint modeling remains out of the schema body. Native
+  `db.schema.relTypeProperties()` names with `:` plus backticks normalize to the same clean names as
+  the sample tier.
 
   The committed `data/schema/graph_schema.json` has `source: native` and
   `graph_version: gv-c00459a74b39`. It was assembled by feeding the operator's live inspection
