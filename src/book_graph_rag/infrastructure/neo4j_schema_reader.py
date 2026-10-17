@@ -31,6 +31,15 @@ _REL_SCHEMA_PROCEDURE = "db.schema.relTypeProperties"
 _MAX_SCHEMA_SAMPLES = 100
 _MAX_DRIFT_ITEMS = 100
 
+
+def _normalize_schema_name(raw_name: str) -> str:
+    """Remove Neo4j's schema-token prefix and optional identifier quoting."""
+    name = raw_name.lstrip(":")
+    if len(name) >= 2 and name.startswith("`") and name.endswith("`"):
+        name = name[1:-1].replace("``", "`")
+    return name
+
+
 # Keep this census aligned with mcp_server_main._CATALOG_STATS_CYPHER. These are
 # the same counts graph_version_from already uses for the MCP's graph identity.
 _CATALOG_STATS_CYPHER = """
@@ -232,10 +241,18 @@ class Neo4jSchemaReader:
             self._record_failure("db.relationshipTypes", exc, failures, unreachable)
             return None
 
-        labels = sorted({str(row["label"]) for row in label_rows if row.get("label") is not None})
+        labels = sorted(
+            {
+                _normalize_schema_name(str(row["label"]))
+                for row in label_rows
+                if row.get("label") is not None
+            }
+        )
         relationships = sorted(
             {
-                str(row.get("relationshipType", row.get("relationship_type")))
+                _normalize_schema_name(
+                    str(row.get("relationshipType", row.get("relationship_type")))
+                )
                 for row in rel_rows
                 if row.get("relationshipType", row.get("relationship_type")) is not None
             }
@@ -295,8 +312,14 @@ class Neo4jSchemaReader:
             if not isinstance(raw_name, str) or not raw_name:
                 continue
             destination = labels if kind == "node" else relationships
-            name = raw_name.lstrip(":")
+            name = _normalize_schema_name(raw_name)
+            if not name:
+                continue
             properties = destination.setdefault(name, set())
+            if record.get("type") == "RELATIONSHIP":
+                # APOC stores the opposite node label in `property` on these rows;
+                # relationship endpoints are intentionally not part of GraphSchema.
+                continue
             property_name = record.get("property")
             if not isinstance(property_name, str) or not property_name:
                 property_name = record.get("propertyName")
@@ -328,7 +351,9 @@ class Neo4jSchemaReader:
                 return None
             property_name = record.get("propertyName")
             for raw_label in valid_labels:
-                label = raw_label.lstrip(":")
+                label = _normalize_schema_name(raw_label)
+                if not label:
+                    continue
                 properties = labels.setdefault(label, set())
                 if isinstance(property_name, str) and property_name:
                     properties.add(property_name)
@@ -337,7 +362,9 @@ class Neo4jSchemaReader:
             if not isinstance(raw_type, str) or not raw_type:
                 return None
             property_name = record.get("propertyName")
-            rel_type = raw_type.lstrip(":")
+            rel_type = _normalize_schema_name(raw_type)
+            if not rel_type:
+                return None
             properties = relationships.setdefault(rel_type, set())
             if isinstance(property_name, str) and property_name:
                 properties.add(property_name)
