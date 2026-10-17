@@ -8,7 +8,11 @@ import pytest
 from click.testing import CliRunner
 
 from book_graph_rag.config import Settings as AppSettings
-from book_graph_rag.domain.schema_manifest import GraphSchema, SchemaDriftReport
+from book_graph_rag.domain.schema_manifest import (
+    GraphSchema,
+    SchemaComparisonBasis,
+    SchemaDriftReport,
+)
 from book_graph_rag.infrastructure.neo4j_schema_reader import (
     SchemaInferenceError,
     SchemaReadResult,
@@ -33,7 +37,12 @@ def _read_result(
         schema=GraphSchema(labels={"Document": ("title",)}),
         source="native",
         graph_version="gv-0123456789ab",
-        drift=SchemaDriftReport(state=state, graph_version="gv-0123456789ab", reason=reason),
+        drift=SchemaDriftReport(
+            state=state,
+            graph_version="gv-0123456789ab",
+            reason=reason,
+            comparison_basis=SchemaComparisonBasis(source="native"),
+        ),
         live_schema_available=True,
     )
 
@@ -98,6 +107,12 @@ def test_schema_verify_uses_fail_closed_exit_codes(
     result = CliRunner().invoke(cli, ["schema", "verify"])
 
     assert result.exit_code == expected_exit, result.output
+    if isinstance(outcome, SchemaReadResult):
+        payload = json.loads(result.output)
+        assert payload["drift"]["comparison_basis"] == {
+            "source": "native",
+            "fallback_reason": None,
+        }
     assert created["reads"] == 1
     assert created["closed"] is True
 
