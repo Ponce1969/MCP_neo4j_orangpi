@@ -153,6 +153,31 @@ async def test_passing_metrics_returns_passed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dataset_failure_never_persists_exception_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resolution has a dataset-load failure sink but no RAGAS path."""
+    marker = "provider said 401 for api-key=secret-marker-xyz"
+    dataset_port = _FakeDatasetPort()
+
+    def fail_dataset(_dataset_id: str) -> Any:
+        raise RuntimeError(marker)
+
+    monkeypatch.setattr(dataset_port, "load", fail_dataset)
+    use_case = EvaluateResolutionLayerUseCase(
+        dataset_port=dataset_port,
+        baseline_port=_FakeBaselinePort(_baseline()),
+        harness=_FakeHarness(f1=0.8, hard_over_merge=0.0),
+    )
+    report_json = (await use_case.execute()).model_dump_json()
+
+    assert marker not in report_json
+    assert "RuntimeError" in report_json
+    assert f"message_length={len(marker)}" in report_json
+    assert "fingerprint=" not in report_json
+
+
+@pytest.mark.asyncio
 async def test_dataset_load_failure_yields_unreachable() -> None:
     """A dataset load failure maps to UNREACHABLE."""
     use_case = EvaluateResolutionLayerUseCase(

@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from book_graph_rag.domain.checkpoint_models import format_redacted_error
 from book_graph_rag.domain.evaluation_models import RAGASQuestionScore, RAGASSecondaryMetrics
 from book_graph_rag.ports.ragas_runner_port import RAGASRunnerPort
 
@@ -43,9 +44,13 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
         *,
         json_output_path: str | None = None,
         answers_dir: str | None = None,
+        hmac_key_id: str = "",
+        hmac_secret: str = "",
     ) -> None:
         self._script_path = script_path or "scripts/run_ragas_evaluation.py"
         self._json_output_path = json_output_path
+        self._hmac_key_id = hmac_key_id
+        self._hmac_secret = hmac_secret
         #: Where the dataset sent to RAGAS is kept. It carries the answer and the contexts per
         #: question, which is what makes a failing score diagnosable; the temporary output JSON
         #: is still deleted. Defaults under ``data/`` (gitignored ops artifacts).
@@ -129,9 +134,14 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
                 try:
                     metrics = self._parse_output(path)
                 except Exception as exc:  # noqa: BLE001
+                    redacted = format_redacted_error(
+                        exc,
+                        key_id=self._hmac_key_id,
+                        secret=self._hmac_secret,
+                    )
                     return RAGASSecondaryMetrics(
                         available=False,
-                        notes=f"failed to parse json output: {exc}",
+                        notes=f"failed to parse json output: {redacted}",
                     )
                 return self._apply_drop_warning(metrics, previous_metrics)
             return RAGASSecondaryMetrics(
@@ -171,9 +181,14 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
             )
             metrics = self._parse_output(output_path)
         except Exception as exc:  # noqa: BLE001
+            redacted = format_redacted_error(
+                exc,
+                key_id=self._hmac_key_id,
+                secret=self._hmac_secret,
+            )
             return RAGASSecondaryMetrics(
                 available=False,
-                notes=f"subprocess ragas failed: {exc}",
+                notes=f"subprocess ragas failed: {redacted}",
             )
         finally:
             # Both scratch artifacts are removed: the inputs are kept so a failing per-question

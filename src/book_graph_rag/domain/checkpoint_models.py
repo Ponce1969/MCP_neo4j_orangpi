@@ -122,6 +122,21 @@ def redacted_error(
     )
 
 
+def format_redacted_error(
+    error: BaseException,
+    *,
+    key_id: str,
+    secret: str | None,
+) -> str:
+    """Render the safe error metadata for persisted evaluation and readiness warnings."""
+    redacted = redacted_error(error, key_id=key_id, secret=secret)
+    details = [f"message_length={redacted.error_length}"]
+    if redacted.error_fingerprint is not None:
+        fingerprint = redacted.error_fingerprint
+        details.append(f"fingerprint={fingerprint.key_id}:{fingerprint.fingerprint_hex}")
+    return f"{redacted.error_type} ({', '.join(details)})"
+
+
 class FailedChunkRecord(BaseModel):
     """Re-addressable dead-letter record for a failed chunk.
 
