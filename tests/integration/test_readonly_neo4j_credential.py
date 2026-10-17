@@ -1,4 +1,11 @@
-"""Server-side read-only credential verification against an explicitly selected test graph."""
+"""Read-only credential verification against an explicitly selected test graph.
+
+On a server that has RBAC this asserts both halves: the credential reads, and the server refuses a
+write. On Community Edition, which has no DBMS roles, the write assertion cannot hold by design, so
+the denial is asserted only where privileges are enforced and the read half is asserted everywhere -
+the enforcement that remains on this deployment is the application's read routing, not the
+database's.
+"""
 
 from __future__ import annotations
 

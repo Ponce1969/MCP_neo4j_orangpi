@@ -382,8 +382,9 @@ In the host's `.env` (never print the password):
 
 Then `sudo systemctl restart mcp-server` (§2 and §3: **never** a manual instance).
 
-The CLI read commands (`audit`, `gate`, `evaluate`) use the same credential when it is configured and
-fall back to the main one otherwise, so a run on a checkout without these variables keeps working.
+The CLI read commands (`audit`, `gate`, `evaluate`, `query`, `validate`, and `schema verify`) use the
+same credential when it is configured and fall back to the main one otherwise, so a run on a checkout
+without these variables keeps working.
 
 ### 8.3 Verify, per tool
 
@@ -413,9 +414,10 @@ purpose, so it can never fall back to the application's configured server.
 
 ### 8.4 Rolling back
 
-- **Only the role (Enterprise/RBAC only)**: `DROP USER bookgraph_reader; DROP ROLE bookgraph_reader;` —
-but once the code is deployed, production **requires** the credential, so this alone leaves the service
-unable to start. Community has no role to drop.
+- **RBAC role and user (Enterprise only)**: `DROP USER bookgraph_reader; DROP ROLE bookgraph_reader;` —
+  but once the code is deployed, production **requires** the credential, so this alone leaves the service
+  unable to start.
+- **Community user**: `DROP USER bookgraph_reader;` — there is no role to drop on Community.
 - **The feature**: remove the two variables from `.env`, deploy the previous commit, restart. Neither
   path touches the graph: the role is security configuration, not graph data.
 

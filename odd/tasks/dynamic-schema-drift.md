@@ -49,11 +49,13 @@ quietly where it must not break a query.
     cannot be read, the report is also `unknown`, not drift; a present stale manifest remains the
     runtime description fallback.
 - **S4 — The frozen manifest lives at `data/schema/graph_schema.json`.** Verbatim: **"Ubicación:
-  `data/schema/graph_schema.json`."** It is **generated** by a command, never hand-written, and it
-  carries the schema body plus its provenance in the shape this repository already uses for committed
-  artifacts (`data/evaluation/*_baseline.json`: `schema_version`, `committed_at`, `code_commit`), with
-  `graph_version` taken from `domain/graph_version.py` and the tier that produced it in `source`. The
-  body holds labels, relationship types and the properties of each, as names.
+  `data/schema/graph_schema.json`."** The `schema snapshot` command can write a manifest, but the
+  committed artifact was assembled by feeding the operator's live inspection through the same models
+  the runtime validates against; it was not produced by running `schema snapshot`. The manifest
+  carries the schema body plus provenance in the shape this repository uses for committed artifacts
+  (`data/evaluation/*_baseline.json`: `schema_version`, `committed_at`, `code_commit`), with
+  `graph_version` taken from `domain/graph_version.py` and the producing tier in `source`. The body
+  holds labels, relationship types, and their properties, as names.
 - **S5 — The source identifies the producing tier, not completeness.** Today
   `_format_schema` can return the hardcoded constant while the caller labels the
   result `"apoc"`: a result can claim a source it did not use. The redesign returns
@@ -63,25 +65,28 @@ quietly where it must not break a query.
   mechanism, but a consumer comparing against `"hardcoded"` would see something new —
   say so in the PR's risk line rather than letting it pass silently.
 - **S6 — Never depend on `propertyTypes`.** Its meaning changed between Neo4j versions ("potential Java
-  types" became "possible Cypher types"). Use `nodeLabels`, `propertyName` and `relType`; types are
-  informational at most, and no code may branch on their content. APOC rows are classified by
-  `elementType`, not the property `type` column; the prior parser's `type` branch was incorrect and is
-  corrected in this PR.
+  types" became "possible Cypher types"). Use `nodeLabels`, `propertyName` and `relType`; property
+  types are not used to build the description. The APOC parser uses `elementType` as the primary kind
+  discriminator and also reads the `type` column as an endpoint discriminator and kind fallback, but
+  never branches on a property's type value. The prior parser's use of `type` as the kind discriminator
+  was incorrect and is corrected in this PR.
 - **S7 — The register and the docs stop claiming the old behaviour.** `docs/spec/07` §5's R4 item and
   any other document that describes the schema source (grep `hardcoded`, `schema_source`,
   `_HARDCODED_SCHEMA` across `docs/` and `README.md`) are updated to what the code does, including the
-  residual: the description is derived from the graph's *shape*, and relationship **endpoints** are not
-  part of it — the previous description never had them either, so that stays a recorded limitation
-  rather than an invented feature.
+  residual: the description is derived from the graph's *shape* and omits relationship **endpoints**
+  by decision; the old hardcoded constant asserted one endpoint pair,
+  `(:Entity)-[:RELATED ...]->(:Entity)`.
 - **S8 — Nothing else moves.** The text2cypher pipeline keeps its timeouts, retries, structural
   validator, `EXPLAIN` self-heal and error types. The MCP payload stays additive. Golden captions and
   metric-derived warnings are untouched.
-- **S9 — Two commands, read-only and fail-closed.** `book-graph-rag schema verify` (read-only: it never
-  writes the graph or the manifest) exits with the same codes this project already uses for
-  `audit`/`gate` — **0** pass, **10** drift, **11** incomplete (no manifest), **12** unreachable,
-  **13** failed — and `book-graph-rag schema snapshot --output data/schema/graph_schema.json` writes the
-  manifest file (never the graph). Both go through the same ladder, so a snapshot taken with APOC
-  missing is still true about its tier.
+- **S9 — Two commands, read-only verification and file-writing snapshot.** The `schema verify`
+  subcommand never writes the graph or manifest. It exits with the project codes — **0** pass,
+  **10** drift, **11** incomplete (no manifest), **12** unreachable for a connection-class read
+  error, and **13** failed for another live-read failure. The `schema snapshot` subcommand writes
+  the manifest file, never the graph. Both use the same ladder; snapshots stamp fresh metadata on
+  each run, so compare the schema body (labels, relationship types, and properties), not the whole
+  file. Where APOC is available and answers, the snapshot source is APOC because that rung is tried
+  first.
 
 ## Tasks
 
@@ -127,9 +132,10 @@ not compile is impossible; the work units are therefore "the mechanism" and "the
   type is `Literal["apoc", "hardcoded"]` (`ports/text2cypher_port.py:20,27`); the MCP surfaces it
   (`mcp_server_adapter.py:934`); tests asserting `"hardcoded"`:
   `tests/test_text2cypher_adapter.py:61,98,244,262`, `tests/test_mcp_server_adapter.py:179,1023,1035`,
-  `tests/integration/test_query_cypher_scope.py:42`. **No schema snapshot or manifest exists anywhere in
-  the repository** (`catalog.yaml` is the corpus catalog, not the graph schema; `config.py`'s
-  `schema_version` is a label, not a contract), so T2 introduces it. **`graph_version` already exists**
+  `tests/integration/test_query_cypher_scope.py:42`. **At the time of this exploration, no schema
+  snapshot or manifest existed in the repository** (`catalog.yaml` is the corpus catalog, not the graph
+  schema; `config.py`'s `schema_version` is a label, not a contract), so T2 introduced it.
+  **`graph_version` already exists**
   (`domain/graph_version.py::graph_version_from`, exposed by the MCP at `mcp_server_adapter.py:992,1088,
   1313`) and is reused rather than reinvented. Recorded for a later step: when the SSH tunnel is opened
   for R2's operator step, the same read-only session can inspect the live schema and generate the first
@@ -166,29 +172,50 @@ not compile is impossible; the work units are therefore "the mechanism" and "the
   in `docs/spec/07-security-and-operational-risks.md`, `docs/ops/mcp-service.md`, this task
   file and `.agents/skills/book-graph-mcp-usage/SKILL.md` are documentation-only; this
   worker changed no code or tests.
-- **L6 (live inspection, 2026-10-17 — the operator's production run, and what real data changed).** The
-  operator ran R2's operator step and this change's schema inspection on the host. Confirmed live:
-  `apoc.meta.data()` is available and executable by the read-only user, and its rows carry the kind in
-  `elementType`, the property type or the literal `RELATIONSHIP` in `type`, and — when `type` is
-  `RELATIONSHIP` — a **node label** in `property`. That last shape is a third defect of the same family as
-  D1 (call it D11): the parser would have recorded `CONTAINS: [Book, Chapter]` as if those were
-  relationship properties, so it now filters those rows with the same discriminator the installed
-  consumer uses (`WHERE NOT type = "RELATIONSHIP"`). Those filtered rows are precisely where relationship
-  **endpoints** live, which is the follow-up this document already declares out of scope — so that
-  follow-up now has an address instead of a wish. Also confirmed live:
-  `db.schema.relTypeProperties()` returns relationship names quoted as `` :`CONTAINS` `` while
-  `db.relationshipTypes()` returns them clean, so the two tiers used to describe the same graph
-  differently; both now normalize to the clean name, pinned by a test built from the live shape. The
-  native tier (the four `db.*` procedures) ran clean as the read-only user, which is the rung that carries
-  the load on this server.
-  **The manifest's `graph_version` is `gv-c00459a74b39`**, computed by `graph_version_from(1, stats)` over
-  the operator's census: `knowledge:agentic-architectural-patterns` 1520 chunks / 6899 entities,
+- **L6 (live inspection, 2026-10-17 — operator's production run; authority for this deployment).** The
+  operator's live inspection is the authority for this deployment. Its schema body contains these
+  eight labels and properties:
+  - `Book {id, title, author, pdf_path, page_count}`; `Chapter {title, number, page_start, book_id}`;
+    `Chunk {page_start, chunk_index, book_id, text, page_end, source_id}`.
+  - `Entity {id, name, type, description, source_page, merged_at, aliases, merged_into,
+    canonical_name}`; `Section {title, page_start, book_id, chapter_number, level}`;
+    `CommunitySummary {id, level, summary, entity_ids, parent_id}`.
+  - `Checkpoint {chunk_index, pipeline_version, source_id, attempt, model_version, failed_at,
+    processed_at, status, schema_version, created_at, source_version, updated_at}`.
+  - `Skill {completeness, cost_awareness, executability, id, maintainability, name, provenance,
+    quality_score, safety, status, tool_names, updated_at, version, weight_completeness,
+    weight_cost_awareness, weight_executability, weight_maintainability, weight_safety}`.
+  Its six relationship types and properties are `CONTAINS {}`, `HAS_CHUNK {}`, `HAS_SECTION {}`,
+  `HAS_SUBSECTION {}`, `MENTIONS {chunk_index, source_page}`, and
+  `RELATED {chunk_index, type, description, source_page}`.
+
+  `apoc.meta.data()` is available and executable by the read-only user. Its rows carry the kind in
+  `elementType`, the property type or literal `RELATIONSHIP` in `type`, and — when `type` is
+  `RELATIONSHIP` — an endpoint node label in `property`. The parser filters those endpoint rows with
+  `WHERE NOT type = "RELATIONSHIP"` rather than treating their labels as relationship properties.
+  The native tier also ran clean as the read-only user, proving that it works against production; it
+  does not carry the load there because APOC is available and tried first. Native
+  `db.schema.relTypeProperties()` names quoted as `` :`CONTAINS` `` normalize to the clean names
+  returned by `db.relationshipTypes()`.
+
+  The committed `data/schema/graph_schema.json` has 8 labels, 6 relationship types, clean names,
+  `source: native`, `graph_version: gv-c00459a74b39`, 1904 bytes, and LF line endings. It was assembled
+  by feeding the operator's live inspection through the same models the runtime validates against,
+  not by running `schema snapshot`. Its `code_commit` is `2940839`, predating the name normalization
+  and endpoint filter in `ae1700a`. The manifest is absent on the host until this branch is deployed.
+
+  The graph version was computed by `graph_version_from(1, stats)` over the operator's runtime census:
+  `knowledge:agentic-architectural-patterns` 1520 chunks / 6899 entities,
   `knowledge:ai-engineering-huyen` 989 / 6526, `knowledge:essential-graphrag` 302 / 1103,
   `knowledge:graphrag-agentic` 657 / 5900 — totals 3468 chunks and 20428 entities. Three independent
-  computations agreed on the value: the operator ran the census, the worker called `_stats_from_rows` plus
+  computations agreed: the operator ran the census, the worker called `_stats_from_rows` plus
   `graph_version_from`, and the parent read the census Cypher and computed it by hand. The census
-  **excludes merged entities** and requires a colon in the entity id, which is why the direct node count
-  (21393) is 965 higher: a manifest built from the direct count would carry a version the runtime never
-  computes, and the post-deploy byte comparison would fail for a reason nobody could read. After the
-  deploy, `schema snapshot` must reproduce `data/schema/graph_schema.json` byte for byte; if it differs
-  only in `graph_version`, this paragraph is the explanation.
+  excludes merged entities and requires a colon in the entity id. Direct node count is 21393, 965
+  higher because it includes merged entities. The earlier `gv-f900644fdb83` was computed from those
+  direct node counts; `gv-c00459a74b39` comes from the census, which is what the runtime uses.
+
+  After deployment, run `schema verify`; do not regenerate the frozen manifest. Verification compares
+  the schema body (labels, relationship types, and properties). A fresh `schema snapshot` stamps
+  `committed_at` as `now`, `code_commit` from the current checkout, and `source: apoc` on this server
+  because APOC is available and tried first, so whole-file byte-for-byte comparison is impossible;
+  those metadata differences are expected.

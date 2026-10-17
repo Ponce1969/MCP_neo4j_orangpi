@@ -108,7 +108,8 @@ traverse_relationships(source_id=..., scope_source_id=...)
   (CREATE/DELETE/SET/MERGE/DETACH/REMOVE/DROP rejected), structural allowlist
   requiring a scope proof, an `EXPLAIN` gate, 2 retries, 10 s budget.
 - Never reach for it first: the structured tools in §1 cover normal queries.
-- The response's `metadata` carries the schema-drift report and its `graph_version`.
+- The response's `metadata` carries the schema-drift report and its `graph_version`; it is absent from
+  the disabled-tool response, which reports the error instead.
 
 ## 7. `ask_global` bounds
 
