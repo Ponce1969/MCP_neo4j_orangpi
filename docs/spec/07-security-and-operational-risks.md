@@ -132,23 +132,45 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
 - **Mitigation (implemented):** metadata-only query log + HMAC fingerprints +
   redaction + dev-only raw gate + bounded retention; dead-letter/checkpoint errors
   store `error_type`, `error_length` and, when a valid key is available, a keyed HMAC
-  fingerprint — never raw text.
+  fingerprint — never raw text. Evaluation/readiness exception strings, including those
+  emitted by the RAGAS subprocess, use the same redacted rendering; the gate copies the
+  resulting warnings.
 - **Residual risk:** LOW — fingerprints are only as private as their key, and this rule cannot tell
   a generated key from a pasted one (see `mcp_security.effective_token`). Dead-letter files and
   `:Checkpoint` nodes written before this change retain their raw error text: scrubbing existing
   checkpoint nodes is a graph write subject to §7.2, so pre-existing records are not silently
-  migrated.
-- **Evidence `[VERIFIED]` (closed):** the evaluation and readiness reports no longer persist raw
-  exception text either. `format_redacted_error`, defined beside the rule so the producers cannot
-  drift into several formats, renders the exception class, the message length and the keyed
-  fingerprint for every producer that turns an exception into an artifact string: the generation
-  layer's dataset-load rationale and per-question failure tuple (the question id is kept on purpose,
-  so the report stays actionable), the retrieval and resolution dataset-load rationales, and both
-  `subprocess_ragas_runner` failure notes. The readiness gate needs no code change — it copies
-  `result.warnings` — and that transitivity is proven by a test rather than assumed. Artifacts are
-  written by `main.py --output`. Tests: `tests/unit/test_evaluate_generation_layer.py`,
-  `test_evaluate_retrieval_layer.py`, `test_evaluate_resolution_layer.py`,
-  `test_subprocess_ragas_runner.py`, `test_readiness_gate_evaluator.py`.
+  migrated. Pre-change evaluation files may also retain raw errors: an escaped
+  `evaluation_results.jsonl` existed in the checkout and was removed; copies elsewhere are not
+  scrubbed. A standalone manual run of the RAGAS script still writes its local results file, now
+  redacted. The fingerprint's key id is a configuration label and keeps its punctuation by design
+  (the operator reads it to interpret the digest): a key id shaped like a secret is a configuration
+  mistake that the 80-character bound only limits, and it is recorded here rather than papered
+  over with a filter that would make every key id unreadable.
+- **Evidence `[VERIFIED]` (closed):** evaluation and readiness reports no longer persist raw
+  exception text. `format_redacted_error`, defined beside the rule so producers share one format,
+  renders `ErrorType (message_length=N, fingerprint=<key_id>:<hex>)` when keyed. Both labels keep
+  printable characters only, collapse whitespace and are capped at 80 characters, and the class
+  name — an identifier by construction — is reduced further to identifier characters, so nothing a
+  dynamically created class carries stays readable; an empty class becomes `UnknownError`, and a
+  raising `str(error)` yields length 0. Without a usable key, errors remain redacted but have no
+  fingerprint. Converted producers are the generation
+  layer's dataset-load rationale and per-question failure tuple (the question id is preserved), the
+  retrieval and resolution dataset-load rationales, both `subprocess_ragas_runner` failure notes,
+  and `scripts/run_ragas_evaluation.py`: it redacts the per-question `error` persisted in
+  `evaluation_results.jsonl` and forwarded into `--json-output` and `--after-output` (including the
+  `failed_questions` list, which uses the same value). The runner passes `MCP_HMAC_KEY_ID` and
+  `MCP_HMAC_KEY` through the child environment, never argv, and runs the script in a per-run
+  temporary working directory; it resolves the script and dataset paths and gives `--json-output`
+  and `--after-output` absolute temporary paths, so the fixed-name artifact is removed with that
+  directory. The gate needs no code change: it copies `result.warnings` verbatim. A strengthened
+  test drives a marker-carrying exception through the real generation producer into the gate's
+  serialized result, asserting the marker is absent while the class, message length, question id
+  and fingerprint remain. Artifacts are written by `main.py --output`, the RAGAS subprocess
+  (`evaluation_results.jsonl` and its `--json-output`/`--after-output` outputs), and the evaluation
+  harness (`data/evaluation/resolution_metrics.json`). Tests:
+  `tests/unit/test_evaluate_generation_layer.py`, `test_evaluate_retrieval_layer.py`,
+  `test_evaluate_resolution_layer.py`, `test_subprocess_ragas_runner.py`,
+  `test_readiness_gate_evaluator.py`, `tests/unit/test_run_ragas_evaluation_script.py`.
 
 ### R6 — Prompt injection via natural-language tools (MEDIUM)
 
@@ -257,6 +279,9 @@ remains human-gated. Verified complete vs. remaining:
    `error_length`, plus a keyed HMAC-SHA256 fingerprint when a valid key is available,
    never raw text. The three writers are `IndexBookUseCase._fail_chunk`,
    `IndexBookUseCase._write_dead_letter`, and `ReplayDeadLetterUseCase`'s re-fail path.
+   Evaluation/readiness errors use `format_redacted_error`, including the RAGAS subprocess
+   fields in `evaluation_results.jsonl`, `--json-output` and `--after-output`; the gate
+   copies those warnings. The strengthened gate test covers the real generation producer.
 6. Readiness gate (06) passes; audit (04) shows no BLOCKING, no FAILED/UNREACHABLE —
    **run as the Phase 7 exposure checkpoint:** `gate expose-mcp` exit `0` (PASS).
    `gate expose-mcp-readiness` is **runnable again: its two documented blockers are gone.**
@@ -285,7 +310,10 @@ remains human-gated. Verified complete vs. remaining:
 - [x] MCP query logs contain no raw secrets or unbounded raw query text (metadata-only
   + HMAC fingerprints). Dead-letter/checkpoint error metadata written by current code
   is redacted: it contains type, length and, when keyed, HMAC fingerprints, never raw
-  text (R5).
+  text (R5). Evaluation/readiness errors use the same redacted rendering, including the
+  RAGAS script's `evaluation_results.jsonl` and `--json-output`/`--after-output` fields;
+  the gate copies the warnings, and a test carries a marker exception through the real
+  generation producer into the serialized gate result.
 - [x] The exposure gate cannot pass while any CRITICAL residual risk remains — no
   CRITICAL residual remains after R1's mitigation, and the gate stays fail-closed
   against CRITICAL residuals; final exposure still requires the 06/07 gate + human
