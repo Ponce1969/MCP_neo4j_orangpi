@@ -300,16 +300,27 @@ anchored parsers do.
 
 ## 8. The read-only Neo4j credential (R2)
 
-The MCP's read paths authenticate with a **server-side read-only credential**, so a bug — or a
-compromised process — cannot write even by opening its own session. The code-level guards stay as
-they were (`READ_ACCESS` routing plus the managed `execute_read` transaction); this adds the boundary
-the server enforces. In production the service **refuses to start** without it, with the same shape as
-the token and fingerprint-key checks, so the order below matters: role first, then environment, then
-the code that requires it.
+**First check the server edition; do not assume this credential is server-enforced.** The production
+host currently runs Neo4j Community Edition 5.6. On Community, DBMS RBAC is unavailable: every
+authenticated user has the same reach, and a distinct credential does not prevent a raw write. The
+credential is nevertheless configured and used by the MCP for attribution and forward-compatibility.
+The only write boundary on this edition is the application's managed read path (`READ_ACCESS` routing
+plus `Neo4jQueryAdapter.execute_read`). In production the service **refuses to start** without the
+separate credential, but that startup requirement does not create server-side privileges.
 
-### 8.1 Create the role (operator, on the host)
+As an administrator, inspect the edition on the host:
 
-Run as an administrator against the **system** database:
+    docker exec -it bookgraph-neo4j cypher-shell -d system
+
+```cypher
+CALL dbms.components() YIELD name, versions, edition
+RETURN name, versions, edition;
+```
+
+### 8.1 Create the role (Enterprise/RBAC only, operator on the host)
+
+Use this path only when the edition supports RBAC. Run as an administrator against the **system**
+database:
 
     docker exec -it bookgraph-neo4j cypher-shell -d system
 
@@ -345,7 +356,22 @@ continuing. The APOC introspection call is `apoc.meta.data` (not `apoc.meta.sche
 this procedure needs to be added to the boosted list for the live role. The native schema tier probes
 `db.schema.*` availability with `SHOW PROCEDURES`. Whether `bookgraph_reader` may run that command is
 still an open question, not a verified grant; check it against the live server before treating schema
-inference as covered.
+inference as covered. On an RBAC-capable server, keep the migration order: create and verify the role,
+set the environment, then deploy the code that requires the credential.
+
+**Community Edition path:** do not run the role/grant statements above. `CREATE ROLE` and `GRANT ROLE`
+are unsupported, and `SHOW USERS` reports `roles: NULL`; `DENY WRITE` therefore cannot be applied. If
+a separate login does not already exist, create its identity on the **system** database (this does not
+restrict its privileges on Community):
+
+```cypher
+CREATE USER bookgraph_reader SET PASSWORD '<a real password>' CHANGE NOT REQUIRED;
+```
+
+Then continue with §8.2 to configure the distinct credential. This remains useful for attribution and
+forward-compatibility, but it is not read-only at the DBMS: a process using it can still issue a raw
+write. On Community, the application's `READ_ACCESS` + managed `execute_read` path is the only write
+boundary. Read §8.3 with that limitation in mind.
 
 ### 8.2 Point the service at it
 
@@ -365,25 +391,31 @@ fall back to the main one otherwise, so a run on a checkout without these variab
     set -a; . ./.env; set +a
     ~/.local/bin/uv run --no-sync python scripts-ops/mcp_smoke_book4.py
 
-And the automated check, which asserts both halves — a read succeeds **and** the server rejects a write
-with that credential:
+The smoke test confirms that the service is reachable and its read path works; it does not prove
+server-side write denial. The automated check runs the read assertion separately and checks whether a
+raw write is denied with that credential:
 
     NEO4J_READONLY_TEST_URI=bolt://localhost:17687 \
     NEO4J_READONLY_USER=bookgraph_reader \
     NEO4J_READONLY_PASSWORD=<the read password> \
     uv run pytest tests/integration/test_readonly_neo4j_credential.py -q
 
-The write half must be denied by the server with `Neo.ClientError.Security.Forbidden`,
+On an RBAC-capable server, the write must be denied with `Neo.ClientError.Security.Forbidden`,
 `Neo.ClientError.Statement.AccessMode` or `Neo.ClientError.General.ForbiddenOnReadOnlyDatabase` —
-those are the three codes the test accepts. **Use those variable names**: the test reads
-`NEO4J_READONLY_USER` and `NEO4J_READONLY_PASSWORD` (the same ones the service uses), so a different
-name makes it skip silently instead of verifying anything. It skips unless the URI is set on purpose,
-so it can never fall back to the application's configured server.
+those are the three codes the test accepts. If a write succeeds, the test checks `SHOW USERS` for the
+credential: non-NULL roles mean the server has RBAC and write acceptance is a failure; `roles: NULL`
+identifies the Community path and skips only the server-denial assertion. The read test still runs on
+Community, but its pass does **not** mean the server rejected a write; the application boundary
+(`READ_ACCESS` + managed `execute_read`) remains the only one there. **Use those variable names**: the
+test reads `NEO4J_READONLY_USER` and `NEO4J_READONLY_PASSWORD` (the same ones the service uses), so a
+different name makes it skip silently instead of verifying anything. It skips unless the URI is set on
+purpose, so it can never fall back to the application's configured server.
 
 ### 8.4 Rolling back
 
-- **Only the role**: `DROP USER bookgraph_reader; DROP ROLE bookgraph_reader;` — but once the code is
-deployed, production **requires** the credential, so this alone leaves the service unable to start.
+- **Only the role (Enterprise/RBAC only)**: `DROP USER bookgraph_reader; DROP ROLE bookgraph_reader;` —
+but once the code is deployed, production **requires** the credential, so this alone leaves the service
+unable to start. Community has no role to drop.
 - **The feature**: remove the two variables from `.env`, deploy the previous commit, restart. Neither
   path touches the graph: the role is security configuration, not graph data.
 
