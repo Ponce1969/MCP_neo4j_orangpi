@@ -133,18 +133,22 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   redaction + dev-only raw gate + bounded retention; dead-letter/checkpoint errors
   store `error_type`, `error_length` and, when a valid key is available, a keyed HMAC
   fingerprint — never raw text.
-- **Residual risk:** LOW for the dead-letter/checkpoint sinks closed by this change —
-  fingerprints are only as private as their key. Dead-letter files and `:Checkpoint`
-  nodes written before this change retain their raw error text. Scrubbing existing
-  checkpoint nodes is a graph write subject to §7.2, so pre-existing records are not
-  silently migrated. **MEDIUM, recorded as the next item and not silently widened into
-  this change:** evaluation and readiness reports still persist raw exception text for
-  per-question failures (`f"{type(exc).__name__}: {exc}"`).
-  `application/evaluate_generation_layer_use_case.py` collects these in
-  `EvaluationLayerResult.warnings`, written to disk by `main.py --output`;
-  `infrastructure/subprocess_ragas_runner.py` also adds `notes=f"... {exc}"`, and the
-  readiness gate re-emits the same warnings. These report sinks need the same redaction
-  rule in a follow-up.
+- **Residual risk:** LOW — fingerprints are only as private as their key, and this rule cannot tell
+  a generated key from a pasted one (see `mcp_security.effective_token`). Dead-letter files and
+  `:Checkpoint` nodes written before this change retain their raw error text: scrubbing existing
+  checkpoint nodes is a graph write subject to §7.2, so pre-existing records are not silently
+  migrated.
+- **Evidence `[VERIFIED]` (closed):** the evaluation and readiness reports no longer persist raw
+  exception text either. `format_redacted_error`, defined beside the rule so the producers cannot
+  drift into several formats, renders the exception class, the message length and the keyed
+  fingerprint for every producer that turns an exception into an artifact string: the generation
+  layer's dataset-load rationale and per-question failure tuple (the question id is kept on purpose,
+  so the report stays actionable), the retrieval and resolution dataset-load rationales, and both
+  `subprocess_ragas_runner` failure notes. The readiness gate needs no code change — it copies
+  `result.warnings` — and that transitivity is proven by a test rather than assumed. Artifacts are
+  written by `main.py --output`. Tests: `tests/unit/test_evaluate_generation_layer.py`,
+  `test_evaluate_retrieval_layer.py`, `test_evaluate_resolution_layer.py`,
+  `test_subprocess_ragas_runner.py`, `test_readiness_gate_evaluator.py`.
 
 ### R6 — Prompt injection via natural-language tools (MEDIUM)
 
