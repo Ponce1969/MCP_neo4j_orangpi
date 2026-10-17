@@ -86,7 +86,7 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   scope-parameter binding gap (R8) is now closed; the keyword denylist remains only as
   a diagnostic prefilter.
 
-### R4 — Hardcoded schema drift (mitigated)
+### R4 — Schema description/comparison drift (mitigated)
 
 - **Evidence `[IMPLEMENTED]` (inference):** inference walks a ladder and returns the tier that
   produced the schema (`infrastructure/neo4j_schema_reader.py::Neo4jSchemaReader`): APOC first because
@@ -106,31 +106,39 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   `format_redacted_error`, because a driver error can carry a URL or a credential.
 - **Evidence `[IMPLEMENTED]` (drift):** `domain/schema_manifest.py` contains the comparison
   mechanism for a bounded, sorted diff in result metadata and a warning log, together with the
-  `graph_version` it was measured at (reused from `domain/graph_version.py`). The manifest is
-  committed at `data/schema/graph_schema.json`, but absent on the production host until this branch
-  is deployed. After deployment, runtime compares the live schema body with the frozen manifest and
-  reports drift; the comparable body is labels, relationship types, and their properties. Before
-  deployment, no live drift result has been verified. With no manifest, comparison is `unknown` and
+  `graph_version` it was measured at (reused from `domain/graph_version.py`). The committed
+  `data/schema/graph_schema.json` is the frozen schema view. Runtime keeps the existing description
+  order (APOC first because it can be richer), but compares against the deterministic native
+  `db.schema.*` catalogue whenever those procedures answer. `SchemaDriftReport.comparison_basis`
+  records `{source, fallback_reason}` and is included in both the `query_cypher` MCP metadata and
+  `schema verify` output. If native procedures are unavailable or fail, the comparison uses the
+  ladder's available APOC or bounded-sample view and records the fallback source and reason; if no
+  live schema is available, comparison remains `unknown` rather than comparing the manifest with
+  itself. APOC may sample the graph and omit sparse properties, so an APOC fallback is explicitly
+  identified as such rather than presented as a deterministic comparison. The live drift test runs
+  only when `NEO4J_URI` is exported and fails on drift. With no manifest, comparison is `unknown` and
   `schema verify` returns `11` (incomplete). Snapshot metadata is stamped on every run
   (`committed_at` is `now`, `code_commit` is the current checkout, and `source` is APOC where that
   first probe succeeds), so a fresh snapshot is not expected to match the committed file byte for
   byte. If a live read fails, the result is `unknown`, not drift; runtime may still use the manifest
   as its description fallback, while `schema verify` fails closed with `12` for a connection-class
-  error or `13` for another read failure. A query is **never** blocked by drift. The live drift test
-  runs only when `NEO4J_URI` is exported and fails on drift. `schema snapshot` can write a refreshed
-  manifest, but the post-deploy action is `schema verify`: the committed manifest is the contract.
+  error or `13` for another read failure. A query is **never** blocked by drift. `schema snapshot`
+  can write a refreshed manifest, but the post-deploy action is `schema verify`: the committed
+  schema view remains the contract.
 - **Impact:** invalid Cypher, wrong field assumptions, and silent degradation of `query_cypher`.
-- **Residual risk:** LOW, with three limits stated rather than implied. The description carries names
-  (labels, relationship types, properties) and omits relationship endpoints by decision; the old
-  hardcoded constant asserted one endpoint pair, `(:Entity)-[:RELATED]->(:Entity)`. The bounded
-  fallback samples one node per label, so it is lossy when properties vary between nodes with the
-  same label. `propertyTypes` remains deliberately ignored because its meaning changed across Neo4j
+- **Residual risk:** LOW, with limits stated rather than implied. The description carries names
+  (labels, relationship types, properties) and relationship endpoints remain out of scope; the old
+  hardcoded constant asserted one endpoint pair, `(:Entity)-[:RELATED]->(:Entity)`. If the native
+  procedures are unavailable, the comparison falls back to APOC (which may sample) or the bounded
+  one-node-per-label sample (which is lossy when properties vary between nodes with the same label);
+  `comparison_basis` exposes that reduced confidence and the native-tier fallback reason. The
+  `propertyTypes` column remains deliberately ignored because its meaning changed across Neo4j
   versions ("potential Java types" became "possible Cypher types"). The APOC parser reads the
   `type` column as an endpoint discriminator and kind fallback, but never branches on a property's
   type value; property types are not used to build the description. The manifest is committed and
-  frozen as the contract, but is absent on the production host until this branch is deployed. After
-  deployment, `schema verify` compares the live schema body; regenerating with `schema snapshot`
-  would stamp fresh metadata and, where APOC is available, select that first rung.
+  frozen as the contract, but the policy still requires a post-deploy `schema verify` against the
+  production graph; regenerating with `schema snapshot` would stamp fresh metadata and, where APOC
+  is available, select that first rung for the description.
 
 ### R5 — Raw free-text logging (mitigated)
 
@@ -321,14 +329,17 @@ remains human-gated. Verified complete vs. remaining:
 3. R3 mitigated — **verified complete:** structural allowlist + `EXPLAIN` + disabled-by-default
    verified; the scope-parameter binding gap (R8) is now closed. `ask_global`'s community read
    path is namespace-scoped (R7, code-verified — see §3).
-4. R4 mitigated — **partial:** the inference mechanism is implemented, and this pull request fixes
-   the APOC parser to read real `elementType` rows and rejects unparseable native output as a trusted
+4. R4 mitigated — **partial:** the schema-view policy and parser correction are implemented:
+   APOC rows use real `elementType` values, and unparseable native output is rejected as a trusted
    empty schema. The hardcoded fallback is gone; the schema comes from the graph through the ladder
    (APOC → `db.schema.*` → bounded labels/sample → manifest → typed fail), and the source label
    identifies the tier that produced it. The manifest is committed but absent on the production host
-   until this branch is deployed. After deployment, `schema verify` must compare the live schema body
-   with the frozen manifest, and runtime will report any drift; a fresh snapshot is not a byte-for-byte
-   comparison because its metadata is stamped per run.
+   until this branch is deployed. Runtime and CLI/MCP drift reports now state `comparison_basis`;
+   tests reproduce the sparse `Checkpoint.failed_at` case and retain a genuine-native-drift guard.
+   It remains partial because the policy is not yet deployed or production-verified with
+   `schema verify`; relationship endpoints also remain outside the schema body. Snapshot metadata is
+   still stamped per run,
+   so a fresh snapshot is not byte-for-byte identical.
 5. R5 mitigated — **verified complete:** MCP query logs are metadata-only + HMAC +
    redacted; dead-letter and checkpoint failures use `redacted_error()`
    (`src/book_graph_rag/domain/checkpoint_models.py`) to store `error_type` and

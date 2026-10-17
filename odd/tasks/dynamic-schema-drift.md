@@ -241,3 +241,19 @@ not compile is impossible; the work units are therefore "the mechanism" and "the
   `committed_at` as `now`, `code_commit` from the current checkout, and `source: apoc` on this server
   because APOC is available and tried first, so whole-file byte-for-byte comparison is impossible;
   those metadata differences are expected.
+
+- **L7 (production drift evidence and approved comparison policy).** Production `schema verify`
+  returned exit `10` with a matching `graph_version`, no added or removed labels, and no added or
+  removed relationship types; the only diff was
+  `removed_label_properties: {"Checkpoint": ["failed_at"]}`. The operator verified the data with
+  `MATCH (c:Checkpoint) WHERE c.failed_at IS NOT NULL RETURN count(c)`, which returned `2`. APOC is
+  the runtime's first description rung, and `apoc.meta.data()` samples statistically, so sparse
+  properties can be omitted; deriving a frozen contract from that data view would make comparison
+  stochastic. The native `db.schema.nodeTypeProperties()` / `db.schema.relTypeProperties()` catalogue
+  is deterministic and reports the property. Approved policy: keep APOC as the description source
+  when it answers first, but compare the frozen schema view against the native catalogue whenever it
+  is available. If native procedures cannot be read, compare against the live view already produced
+  by the ladder and expose `comparison_basis` (`source` plus `fallback_reason`) in drift reports;
+  when no live view is available, report `unknown` rather than compare the manifest with itself. This
+  closes stochastic drift under normal native availability without degrading model descriptions;
+  the fallback remains explicitly lower-confidence.
