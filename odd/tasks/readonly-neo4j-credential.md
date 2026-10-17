@@ -139,3 +139,36 @@ Gates before any "done": `uv run ruff check .` · `uv run mypy .` ·
   touched, so it is reported instead of edited. Verified after the fixes: the five CLI wiring tests,
   the boot tests, the rule tests (invisible characters included), `ruff`, `ruff format --check`,
   `mypy --strict` over 463 files and the architecture validator.
+- **L4 (operator live production inspection; date not specified).** The deployed server is Neo4j
+  Community Edition 5.6. `CREATE ROLE` and `GRANT ROLE` fail with `Unsupported administration
+  command`; `SHOW USERS` reports `roles: NULL` for every user. The raw write transaction under the
+  configured read credential was accepted, while the read half (`RETURN 1`) passed and the MCP smoke
+  test passes 100%. This confirms Community has no DBMS RBAC: **delivered** are the separate
+  credential, its use by the MCP/read consumers, the production configuration requirement, consumer
+  attribution, and the existing application-level `READ_ACCESS` + managed `execute_read` boundary.
+  **Not delivered on this edition** is server-side denial of raw writes; the credential remains able
+  to write outside the managed application path. That half requires an edition with RBAC plus a
+  configured and verified restricted role. The operator's verification step changed shape rather
+  than failed: read and smoke checks pass, while a `roles: NULL` detection must skip only the
+  impossible server-denial assertion and state that enforcement is application-level on Community.
+- **L5 (follow-up live schema inspection and provisional manifest).** APOC `relationship` rows use
+  `elementType` for the kind and `type` for the property datatype (or literal `RELATIONSHIP`). On a
+  `RELATIONSHIP` row, `property` holds an endpoint node label, not a relationship property; the
+  endpoint data remains an explicit follow-up, and the APOC parser now ignores those rows as
+  properties. Native `db.schema.relTypeProperties()`'s `:` plus backtick names normalize to the same
+  clean names as the sample tier.
+
+  `data/schema/graph_schema.json` records the operator-supplied schema with `source: native` and
+  `graph_version: gv-f900644fdb83`. That digest is **computed from the operator's direct node counts,
+  pending the census**, with `catalog_version = 1` and these runtime-shaped keys/counts
+  (`chunks/entities`): `knowledge:agentic-architectural-patterns` 1520/7111;
+  `knowledge:ai-engineering-huyen` 989/6963; `knowledge:essential-graphrag` 302/1241;
+  `knowledge:graphrag-agentic` 657/6078. Runtime keys are namespaced: chunks use `c.book_id`, and
+  entity IDs are grouped by their first two colon-separated parts; `_stats_from_rows` preserves those
+  keys. The runtime census filters entity IDs containing `:` and excludes entities whose
+  `merged_into` is non-null/non-empty, unlike the operator's direct node counts, so this graph version
+  is provisional and not authoritative. The deployed `schema snapshot` census is the arbiter; any
+  graph-version difference should expose the merged-entity count difference. Note that the current
+  snapshot command also regenerates `committed_at` and records `current_code_commit()`, so a later
+  whole-file byte-for-byte comparison cannot succeed without stabilizing those metadata fields; the
+  schema body and graph version can still be compared independently.

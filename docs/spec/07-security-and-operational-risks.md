@@ -20,7 +20,7 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
 | # | Asset / flow | Trust boundary | Threat |
 |---|--------------|----------------|--------|
 | T1 | MCP SSE endpoint | untrusted network → server | Unauthenticated read access to the graph over plaintext |
-| T2 | Neo4j credentials | app process → DB | Single read/write credential reused across adapters; lateral write risk |
+| T2 | Neo4j credentials | app process → DB | Separate read/write credentials are configured, but production Community has no RBAC; lateral write risk remains |
 | T3 | Text2Cypher `query_cypher` | LLM-generated string → DB | Write/admin statement escaping the denylist |
 | T4 | Schema description fed to LLM | graph-derived schema (APOC → native → manifest) → LLM | Readable mismatch reports drift; live-read failure is `unknown`; a stale manifest may still describe the graph; `schema verify` fails closed |
 | T5 | Logs (dead-letter + query log) | app → disk | Raw query text / errors persist, may contain sensitive content |
@@ -47,22 +47,26 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
 - **Residual risk:** LOW on a private Tailscale-only bind; TLS/auth are still absent,
   so exposure beyond the private network stays HIGH until the transport is hardened.
 
-### R2 — Shared Neo4j read/write credentials (HIGH)
+### R2 — Neo4j write boundary unavailable on the deployed edition (HIGH)
 
-- **Evidence `[VERIFIED]`:** all Neo4j adapters still construct drivers from the same
-  `settings.neo4j_user`/`settings.neo4j_password` (`config.py`); `neo4j_read_database`
-  defaults to the same `"neo4j"` database. Credential separation (a distinct
-  read-only role) is **not yet done**.
-- **Mitigation (implemented):** the MCP read path enforces read-only authority via
-  `READ_ACCESS` routing + managed `execute_read` transactions; write statements are
-  rejected with a typed `UnsupportedQueryError` (`neo4j_query_adapter.py::_read_session`,
-  `_read_records`, `_raise_typed_driver_error`). Proven by a write-rejection
-  integration test asserting graph-snapshot equality (T-C.4).
-- **Mitigation (target):** least-privilege — a separate read-only Neo4j role/credential
-  for the MCP/query path; write credential confined to the CLI index/validate path.
-- **Residual risk:** MEDIUM until a distinct read-only credential/role exists — the
-  read path is restricted by access mode, but a compromised write credential could
-  still reach the DB directly.
+- **Evidence `[VERIFIED]`:** the MCP uses a distinct read credential, and the production
+  service is configured with it; its smoke test passes. The live DBMS is Neo4j Community
+  Edition 5.6: `CREATE ROLE`/`GRANT ROLE` are unsupported and `SHOW USERS` reports
+  `roles: NULL`. A raw write transaction under the read credential succeeded, while
+  `RETURN 1` succeeded as well. Community has no DBMS RBAC, so credential separation
+  does not make that credential read-only.
+- **Mitigation (implemented):** the application-managed MCP read path uses
+  `READ_ACCESS` routing + managed `execute_read` transactions, and the separate
+  credential provides consumer attribution and forward-compatibility. These controls
+  protect the managed read path; they are not a server-side boundary against a process
+  opening its own write session.
+- **Mitigation (target):** use an edition with RBAC and configure/test a distinct
+  least-privilege role for the MCP/query path; confine the write credential to CLI
+  index/validate paths.
+- **Residual risk:** HIGH on the deployed Community edition: the server accepted a raw
+  write, so a compromised process using the read credential can still write directly.
+  Server-side enforcement becomes available only on an edition with RBAC and after its
+  role is configured and verified.
 
 ### R3 — Dynamic Text2Cypher escaping the guard (HIGH)
 
@@ -75,7 +79,8 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   (`text2cypher_adapter.py::_generate_and_validate`). `query_cypher` is disabled by
   default (`mcp_enable_query_cypher=False`).
 - **Mitigation (implemented):** structural allowlist (the security decision) +
-  `EXPLAIN` gate + disabled-by-default + read-only session (R2).
+  `EXPLAIN` gate + disabled-by-default + application-managed read session
+  (`READ_ACCESS` + `execute_read`, R2); Community does not add a DBMS write boundary.
 - **Mitigation (target):** close the scope-parameter binding gap (see R8 — closed).
 - **Residual risk:** LOW — the allowlist blocks write/admin vectors structurally and the
   scope-parameter binding gap (R8) is now closed; the keyword denylist remains only as
@@ -209,8 +214,9 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
 - **Evidence `[VERIFIED]`:** `query_cypher` and `ask_global` accept free-text questions
   and feed them to an LLM; `query_cypher` (when enabled) then executes generated Cypher
   under the structural allowlist.
-- **Mitigation (implemented):** server-side structural allowlist + `READ_ACCESS`
-  read-only session (R3/R2) — enforcement does not rely on the LLM's compliance;
+- **Mitigation (implemented):** application-side structural allowlist + managed
+  `READ_ACCESS` read path (`execute_read`, R2/R3) — enforcement does not rely on the
+  LLM's compliance;
   fail-closed scope is required for all structured tools and per-tier budgets bound
   every tool.
 - **Mitigation (target):** scope `ask_global`'s community read path to the caller's
@@ -278,9 +284,10 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
 
 - **Secrets:** never in code, docs, or logs; `.env` gitignored; `SecretStr` at rest
   (`[VERIFIED]` `config.py`). Inject via environment/secret manager in production.
-- **Least privilege:** read-only Neo4j credential for the query/MCP surface; write
-  credential for CLI ingest/validate. (Read-only access mode is `[VERIFIED]`; the
-  distinct credential is still target — R2.)
+- **Least privilege:** a distinct credential is configured for the query/MCP surface
+  and the writer credential is used for CLI ingest/validate. On production Community
+  this provides attribution, not server-enforced read-only access; DBMS least privilege
+  requires an edition with RBAC and a configured role (R2).
 - **Network:** private transport (Tailscale-only), no `0.0.0.0` on untrusted networks,
   TLS/auth where required. (Loopback default + production wildcard rejection
   `[VERIFIED]` — R1.)
@@ -298,8 +305,11 @@ remains human-gated. Verified complete vs. remaining:
 1. ~~R1 mitigated~~ — **verified complete:** loopback default + production wildcard
    rejection + Tailscale bind in the systemd unit (`config.py`,
    `deploy/mcp-server.service`).
-2. R2 mitigated — **partial:** read-only `READ_ACCESS` + managed `execute_read` proven
-   (T-C.4), but a distinct read-only credential/role is not yet in place.
+2. R2 mitigated — **partial:** the separate credential exists and is in use, and the
+   application-managed `READ_ACCESS` + `execute_read` path remains in place. Production
+   is Community Edition 5.6 (`roles: NULL`; role commands unsupported), where the server
+   accepted a raw write under that credential; the server-side half is unavailable until
+   an edition with RBAC is used and a restricted role is configured.
 3. R3 mitigated — **verified complete:** structural allowlist + `EXPLAIN` + disabled-by-default
    verified; the scope-parameter binding gap (R8) is now closed. `ask_global`'s community read
    path is namespace-scoped (R7, code-verified — see §3).
@@ -339,10 +349,12 @@ remains human-gated. Verified complete vs. remaining:
 - [x] R1/R2/R3/R5/R6 mitigations are verified in code with evidence (see register);
   R7/R8 are mitigated (code-verified, audit-verified) with the scope-aware community
   read and the scope-parameter binding wired end-to-end.
-- [x] The MCP path cannot execute a write statement (`READ_ACCESS` + managed
-  `execute_read` + structural allowlist, proven by write-rejection integration test).
-  A write-capable credential still exists (R2 residual) — least-privilege separation
-  remains target.
+- [x] The managed MCP read path uses `READ_ACCESS` + managed `execute_read` and the
+  structural allowlist. On production Community Edition 5.6, however, a raw write under
+  the separate read credential was accepted; the integration test therefore verifies
+  the read and skips only server-denial assertion when `SHOW USERS` reports `roles: NULL`.
+  Credential separation is delivered for attribution; server-side least privilege remains
+  target until an edition with RBAC and a configured role are used (R2).
 - [x] MCP query logs contain no raw secrets or unbounded raw query text (metadata-only
   + HMAC fingerprints). Dead-letter/checkpoint error metadata written by current code
   is redacted: it contains type, length and, when keyed, HMAC fingerprints, never raw
