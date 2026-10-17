@@ -151,24 +151,29 @@ Gates before any "done": `uv run ruff check .` · `uv run mypy .` ·
   configured and verified restricted role. The operator's verification step changed shape rather
   than failed: read and smoke checks pass, while a `roles: NULL` detection must skip only the
   impossible server-denial assertion and state that enforcement is application-level on Community.
-- **L5 (follow-up live schema inspection and provisional manifest).** APOC `relationship` rows use
+- **L5 (live schema inspection and committed manifest).** APOC `relationship` rows use
   `elementType` for the kind and `type` for the property datatype (or literal `RELATIONSHIP`). On a
   `RELATIONSHIP` row, `property` holds an endpoint node label, not a relationship property; the
   endpoint data remains an explicit follow-up, and the APOC parser now ignores those rows as
-  properties. Native `db.schema.relTypeProperties()`'s `:` plus backtick names normalize to the same
-  clean names as the sample tier.
+  properties. Native `db.schema.relTypeProperties()` names with `:` plus backticks normalize to the
+  same clean names as the sample tier.
 
-  `data/schema/graph_schema.json` records the operator-supplied schema with `source: native` and
-  `graph_version: gv-f900644fdb83`. That digest is **computed from the operator's direct node counts,
-  pending the census**, with `catalog_version = 1` and these runtime-shaped keys/counts
-  (`chunks/entities`): `knowledge:agentic-architectural-patterns` 1520/7111;
-  `knowledge:ai-engineering-huyen` 989/6963; `knowledge:essential-graphrag` 302/1241;
-  `knowledge:graphrag-agentic` 657/6078. Runtime keys are namespaced: chunks use `c.book_id`, and
-  entity IDs are grouped by their first two colon-separated parts; `_stats_from_rows` preserves those
-  keys. The runtime census filters entity IDs containing `:` and excludes entities whose
-  `merged_into` is non-null/non-empty, unlike the operator's direct node counts, so this graph version
-  is provisional and not authoritative. The deployed `schema snapshot` census is the arbiter; any
-  graph-version difference should expose the merged-entity count difference. Note that the current
-  snapshot command also regenerates `committed_at` and records `current_code_commit()`, so a later
-  whole-file byte-for-byte comparison cannot succeed without stabilizing those metadata fields; the
-  schema body and graph version can still be compared independently.
+  The committed `data/schema/graph_schema.json` has `source: native` and
+  `graph_version: gv-c00459a74b39`. It was assembled by feeding the operator's live inspection
+  through the same models the runtime validates against, not by running `schema snapshot`. The earlier
+  `gv-f900644fdb83` was computed from direct node counts: `knowledge:agentic-architectural-patterns`
+  1520/7111, `knowledge:ai-engineering-huyen` 989/6963, `knowledge:essential-graphrag` 302/1241,
+  and `knowledge:graphrag-agentic` 657/6078 (`chunks/entities`). The runtime census uses namespaced
+  chunks (`c.book_id`) and entity IDs grouped by their first two colon-separated parts; it excludes
+  entities whose `merged_into` is non-null/non-empty. Its counts are 1520/6899, 989/6526, 302/1103,
+  and 657/5900 respectively: 3468 chunks and 20428 entities total. The direct node count is 21393,
+  965 higher because it includes merged entities. The census is what the runtime uses, so
+  `gv-c00459a74b39` is the committed, authoritative version; the earlier direct-count digest is not.
+
+  The manifest is absent on the host until this branch is deployed. After deployment, `schema verify`
+  compares the schema body: labels, relationship types, and their properties. A whole-file byte
+  comparison with a fresh snapshot cannot succeed: each run stamps `committed_at` as `now`, uses the
+  current checkout for `code_commit`, and selects `source: apoc` on this server because APOC is
+  available and tried first. The committed file's `code_commit` is `2940839`, predating the name
+  normalization and endpoint filter in `ae1700a`; this is metadata, not a reason to regenerate the
+  frozen contract.
