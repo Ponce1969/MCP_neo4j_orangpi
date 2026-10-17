@@ -41,16 +41,22 @@ def _expected_fingerprint(message: str) -> str:
     return hmac.new(_TEST_SECRET.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
 
 
-def _fake_subprocess_run(captured: list[list[str]]) -> Any:
-    """Record the argv and write a parseable metrics file where the runner asked for it."""
+def _fake_subprocess_run(captured: list[tuple[list[str], dict[str, Any]]]) -> Any:
+    """Record argv/environment and emulate the script's cwd-local raw-results artifact."""
 
-    def fake_run(args: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
-        captured.append(list(args))
+    def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        captured.append((list(args), dict(kwargs)))
         output = Path(args[args.index("--json-output") + 1])
         output.write_text(
             json.dumps({"metrics": {"faithfulness": 0.75}, "per_question": []}),
             encoding="utf-8",
         )
+        cwd = kwargs.get("cwd")
+        if cwd is not None:
+            (Path(cwd) / "evaluation_results.jsonl").write_text(
+                '{"error":"subprocess artifact"}',
+                encoding="utf-8",
+            )
         return subprocess.CompletedProcess(args, 0, "", "")
 
     return fake_run
@@ -58,10 +64,14 @@ def _fake_subprocess_run(captured: list[list[str]]) -> Any:
 
 async def test_the_subprocess_cannot_dirty_the_repo(tmp_path: Path, monkeypatch: Any) -> None:
     """Every artifact the script writes goes to a scratch path the runner deletes."""
-    captured: list[list[str]] = []
+    captured: list[tuple[list[str], dict[str, Any]]] = []
     monkeypatch.setattr(subprocess, "run", _fake_subprocess_run(captured))
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    runner = SubprocessRAGASRunner(answers_dir=str(tmp_path / "answers"))
+    runner = SubprocessRAGASRunner(
+        answers_dir=str(tmp_path / "answers"),
+        hmac_key_id=_TEST_KEY_ID,
+        hmac_secret=_TEST_SECRET,
+    )
     monkeypatch.setattr(
         runner,
         "_write_generation_jsonl",
@@ -75,7 +85,7 @@ async def test_the_subprocess_cannot_dirty_the_repo(tmp_path: Path, monkeypatch:
 
     assert metrics.available, metrics.notes
     assert captured, "the subprocess must have run"
-    argv = captured[0]
+    argv, kwargs = captured[0]
     assert "--after-output" in argv, (
         "without it the script writes docs/benchmarks/gr3_after.json, the file that breaks "
         "the repo's own guard"
@@ -84,6 +94,16 @@ async def test_the_subprocess_cannot_dirty_the_repo(tmp_path: Path, monkeypatch:
     assert after_path != _REPO_ARTIFACT
     assert not after_path.exists(), "the scratch artifact must be deleted, like the metrics json"
     assert not _REPO_ARTIFACT.exists(), "the repo's benchmarks dir must be untouched by a run"
+
+    # evaluation_results.jsonl is fixed by the script and follows cwd, so isolate that cwd in a
+    # runner-owned temporary directory instead of deleting a caller-owned file after the run.
+    workdir = Path(kwargs["cwd"])
+    assert workdir != Path.cwd()
+    assert not workdir.exists(), "the runner-owned cwd and its JSONL artifact must be removed"
+    child_env = kwargs["env"]
+    assert child_env["MCP_HMAC_KEY_ID"] == _TEST_KEY_ID
+    assert child_env["MCP_HMAC_KEY"] == _TEST_SECRET
+    assert _TEST_SECRET not in argv, "the secret must never be visible in process arguments"
 
 
 async def test_json_parse_failure_notes_are_redacted(

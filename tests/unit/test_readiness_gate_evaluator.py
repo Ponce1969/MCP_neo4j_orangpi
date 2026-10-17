@@ -11,6 +11,10 @@ from typing import Any
 
 import pytest
 
+from book_graph_rag.application.evaluate_generation_layer_use_case import (
+    EvaluateGenerationLayerUseCase,
+)
+from book_graph_rag.config import Settings
 from book_graph_rag.domain.audit_models import (
     AuditExecution,
     AuditReport,
@@ -18,10 +22,13 @@ from book_graph_rag.domain.audit_models import (
     OverallState,
 )
 from book_graph_rag.domain.evaluation_models import (
+    EvaluationBaselineReport,
+    EvaluationDataset,
     EvaluationLayerResult,
     LayerMetricValue,
     LayerRunMetadata,
     LayerStatus,
+    RAGASSecondaryMetrics,
     ReadinessGatePolicy,
     ReadinessLayerStatus,
     RequiredLayer,
@@ -50,6 +57,60 @@ class FakeLayerUseCase:
     async def execute(self, **kwargs: object) -> EvaluationLayerResult:
         self.calls.append(kwargs)
         return self._result
+
+
+class _ProviderFailureError(Exception):
+    """Marker-carrying failure thrown through the real generation producer."""
+
+
+class _MarkerGenerationDataset:
+    def load(self, dataset_id: str) -> EvaluationDataset:
+        return EvaluationDataset(
+            dataset_id=dataset_id,
+            records=(
+                {
+                    "question_id": "question-secret-17",
+                    "question": "marker question",
+                    "qtype": "global",
+                    "reference_answer": "answer",
+                    "contexts_hint": [],
+                },
+            ),
+        )
+
+
+class _MarkerGenerationRetrieval:
+    async def answer_global(self, *, question: str, detail_level: int) -> Any:
+        _ = question, detail_level
+        raise _ProviderFailureError(_GATE_ERROR_MARKER)
+
+
+class _MarkerGenerationBaseline:
+    def load(self, layer: str) -> EvaluationBaselineReport:
+        assert layer == "generation"
+        return EvaluationBaselineReport(
+            layer="generation",
+            dataset_id="generation_dataset",
+            dataset_sha256="0" * 64,
+            thresholds_finalized=True,
+            faithfulness_min=0.5,
+            metrics={"faithfulness": 0.8},
+        )
+
+
+class _UnavailableRagas:
+    async def run(
+        self,
+        *,
+        dataset_id: str,
+        generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
+        previous_metrics: RAGASSecondaryMetrics | None = None,
+    ) -> RAGASSecondaryMetrics:
+        _ = dataset_id, generation_results, previous_metrics
+        return RAGASSecondaryMetrics(available=False)
+
+
+_GATE_ERROR_MARKER = "provider said 401 for api-key=secret-marker-xyz"
 
 
 def _audit_report(state: OverallState = OverallState.PASSED) -> AuditReport:
@@ -370,44 +431,57 @@ async def test_audit_gate_is_delegated_not_reimplemented() -> None:
 
 @pytest.mark.asyncio
 async def test_gate_reemits_redacted_warning_without_raw_exception_text() -> None:
-    """The readiness gate copies the safe warning without reintroducing its source text."""
-    marker = "provider said 401 for api-key=secret-marker-xyz"
+    """A producer exception stays redacted when the real generation path reaches the gate."""
     key_id = "evaluation-test-v1"
     secret = "independent-test-key-that-is-long-enough"
     canonical = json.dumps(
-        {"error_message": marker},
+        {"error_message": _GATE_ERROR_MARKER},
         sort_keys=True,
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
     fingerprint = hmac.new(secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
-    safe_warning = (
-        "question question-secret-17 could not be evaluated: "
-        f"_ProviderFailureError (message_length={len(marker)}, "
-        f"fingerprint={key_id}:{fingerprint})"
+    generation = EvaluateGenerationLayerUseCase(
+        dataset_port=_MarkerGenerationDataset(),
+        retrieval_port=_MarkerGenerationRetrieval(),
+        claim_port=object(),
+        pairwise_port=object(),
+        ragas_port=_UnavailableRagas(),
+        baseline_port=_MarkerGenerationBaseline(),
+        settings=Settings.model_validate(
+            {
+                "neo4j_uri": "bolt://localhost:7687",
+                "neo4j_user": "neo4j",
+                "neo4j_password": "password",
+            }
+        ),
+        run_id="run-1",
+        code_commit="abc123",
+        hmac_key_id=key_id,
+        hmac_secret=secret,
     )
-    generation = EvaluationLayerResult(
-        layer="generation",
-        status=LayerStatus.UNREACHABLE,
-        project_owned_metrics=(),
-        warnings=(safe_warning,),
-        rationale="partial generation result",
-        source_dataset_id="generation_dataset",
-        run_metadata=LayerRunMetadata(run_id="run-1", code_commit="abc123"),
+
+    from book_graph_rag.application.readiness_gate_evaluator_use_case import (
+        ReadinessGateEvaluatorUseCase,
     )
-    use_case = _make_use_case(
-        _policy(),
-        _gate_result(OverallState.PASSED),
-        {"generation": generation},
+
+    use_case = ReadinessGateEvaluatorUseCase(
+        gate_policy=_policy(),
+        audit_evaluator=FakeAuditEvaluator(_gate_result(OverallState.PASSED)),
+        resolution_layer=FakeLayerUseCase(_layer_result("resolution", LayerStatus.PASSED)),
+        generation_layer=generation,
+        retrieval_layer=FakeLayerUseCase(_layer_result("retrieval", LayerStatus.PASSED)),
+        extraction_layer=FakeLayerUseCase(_layer_result("extraction", LayerStatus.PENDING)),
+        run_id="run-1",
+        code_commit="abc123",
     )
 
     result = await use_case.execute("expose-mcp-readiness", _audit_report())
     gate_json = result.model_dump_json()
 
-    assert result.warnings == (safe_warning,)
-    assert marker not in gate_json
-    assert "_ProviderFailure" in gate_json
-    assert f"message_length={len(marker)}" in gate_json
+    assert _GATE_ERROR_MARKER not in gate_json
+    assert "_ProviderFailureError" in gate_json
+    assert f"message_length={len(_GATE_ERROR_MARKER)}" in gate_json
     assert "question-secret-17" in gate_json
     assert fingerprint in gate_json
 

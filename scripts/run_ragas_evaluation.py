@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import warnings
 from pathlib import Path
@@ -35,6 +36,7 @@ from pydantic import BaseModel
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.config import Settings, validate_llm_provider_settings
+from book_graph_rag.domain.checkpoint_models import format_redacted_error
 from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
 from book_graph_rag.infrastructure.llm_adapter import (
     LLMAdapter,
@@ -481,13 +483,18 @@ def main(
                         llm_adapter,
                     )
             except Exception as exc:  # noqa: BLE001 — one bad question must not kill the batch
-                click.echo(f"  FAILED: {type(exc).__name__}: {exc}", err=True)
+                redacted = format_redacted_error(
+                    exc,
+                    key_id=os.getenv("MCP_HMAC_KEY_ID", ""),
+                    secret=os.getenv("MCP_HMAC_KEY"),
+                )
+                click.echo(f"  FAILED: {redacted}", err=True)
                 results.append(
                     {
                         **sample,
                         "answer": None,
                         "contexts": [],
-                        "error": str(exc),
+                        "error": redacted,
                     }
                 )
                 continue

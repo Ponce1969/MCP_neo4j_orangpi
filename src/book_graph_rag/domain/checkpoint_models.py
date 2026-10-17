@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import suppress
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal
@@ -92,6 +93,28 @@ class RedactedError(BaseModel):
     error_fingerprint: QueryFingerprint | None = None
 
 
+_ERROR_LABEL_MAX_LENGTH = 80
+
+
+def _sanitize_error_label(value: str, *, fallback: str = "", identifier_only: bool = False) -> str:
+    """Keep emitted labels printable, whitespace-collapsed, and short.
+
+    80 characters keeps report labels compact while bounding attacker-controlled exception and
+    key names. ``identifier_only`` is used for the exception class name, which **is** an
+    identifier by construction (``type(error).__name__`` cannot contain a space, a dash or an
+    equals sign), so keeping only identifier characters is lossless there and strips the
+    punctuation a secret would need to stay readable if a dynamically created class ever carried
+    one. The key id is a label the operator reads (``mcp-log-v1``) and keeps its dashes.
+    """
+    printable = "".join(character if character.isprintable() else " " for character in value)
+    collapsed = " ".join(printable.split())
+    if identifier_only:
+        collapsed = "".join(
+            character for character in collapsed if character.isalnum() or character == "_"
+        )
+    return collapsed[:_ERROR_LABEL_MAX_LENGTH].strip() or fallback
+
+
 def redacted_error(
     error: BaseException,
     *,
@@ -110,13 +133,26 @@ def redacted_error(
     text is dropped either way, and an indexing run is never aborted for want of a logging key
     (unlike the MCP log path, whose key is validated at boot).
     """
-    raw = str(error)
+    try:
+        raw = str(error)
+    except BaseException:  # noqa: BLE001 - exception stringification is untrusted
+        raw = ""
+
+    error_type = _sanitize_error_label(
+        type(error).__name__, fallback="UnknownError", identifier_only=True
+    )
+    safe_key_id = _sanitize_error_label(key_id)
     key = effective_token(secret)
     fingerprint: QueryFingerprint | None = None
-    if key and key_id:
-        fingerprint = QueryFingerprint.from_canonical(key_id, key, {"error_message": raw})
+    if key and safe_key_id:
+        with suppress(Exception):
+            fingerprint = QueryFingerprint.from_canonical(
+                safe_key_id,
+                key,
+                {"error_message": raw},
+            )
     return RedactedError(
-        error_type=type(error).__name__,
+        error_type=error_type,
         error_length=len(raw),
         error_fingerprint=fingerprint,
     )
@@ -128,7 +164,7 @@ def format_redacted_error(
     key_id: str,
     secret: str | None,
 ) -> str:
-    """Render the safe error metadata for persisted evaluation and readiness warnings."""
+    """Render safe metadata with printable, whitespace-collapsed labels capped at 80 chars."""
     redacted = redacted_error(error, key_id=key_id, secret=secret)
     details = [f"message_length={redacted.error_length}"]
     if redacted.error_fingerprint is not None:
