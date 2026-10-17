@@ -166,3 +166,29 @@ not compile is impossible; the work units are therefore "the mechanism" and "the
   in `docs/spec/07-security-and-operational-risks.md`, `docs/ops/mcp-service.md`, this task
   file and `.agents/skills/book-graph-mcp-usage/SKILL.md` are documentation-only; this
   worker changed no code or tests.
+- **L6 (live inspection, 2026-10-17 — the operator's production run, and what real data changed).** The
+  operator ran R2's operator step and this change's schema inspection on the host. Confirmed live:
+  `apoc.meta.data()` is available and executable by the read-only user, and its rows carry the kind in
+  `elementType`, the property type or the literal `RELATIONSHIP` in `type`, and — when `type` is
+  `RELATIONSHIP` — a **node label** in `property`. That last shape is a third defect of the same family as
+  D1 (call it D11): the parser would have recorded `CONTAINS: [Book, Chapter]` as if those were
+  relationship properties, so it now filters those rows with the same discriminator the installed
+  consumer uses (`WHERE NOT type = "RELATIONSHIP"`). Those filtered rows are precisely where relationship
+  **endpoints** live, which is the follow-up this document already declares out of scope — so that
+  follow-up now has an address instead of a wish. Also confirmed live:
+  `db.schema.relTypeProperties()` returns relationship names quoted as `` :`CONTAINS` `` while
+  `db.relationshipTypes()` returns them clean, so the two tiers used to describe the same graph
+  differently; both now normalize to the clean name, pinned by a test built from the live shape. The
+  native tier (the four `db.*` procedures) ran clean as the read-only user, which is the rung that carries
+  the load on this server.
+  **The manifest's `graph_version` is `gv-c00459a74b39`**, computed by `graph_version_from(1, stats)` over
+  the operator's census: `knowledge:agentic-architectural-patterns` 1520 chunks / 6899 entities,
+  `knowledge:ai-engineering-huyen` 989 / 6526, `knowledge:essential-graphrag` 302 / 1103,
+  `knowledge:graphrag-agentic` 657 / 5900 — totals 3468 chunks and 20428 entities. Three independent
+  computations agreed on the value: the operator ran the census, the worker called `_stats_from_rows` plus
+  `graph_version_from`, and the parent read the census Cypher and computed it by hand. The census
+  **excludes merged entities** and requires a colon in the entity id, which is why the direct node count
+  (21393) is 965 higher: a manifest built from the direct count would carry a version the runtime never
+  computes, and the post-deploy byte comparison would fail for a reason nobody could read. After the
+  deploy, `schema snapshot` must reproduce `data/schema/graph_schema.json` byte for byte; if it differs
+  only in `graph_version`, this paragraph is the explanation.
