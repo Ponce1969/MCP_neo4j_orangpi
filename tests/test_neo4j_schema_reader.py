@@ -152,6 +152,29 @@ def test_native_parser_normalizes_live_colon_backtick_schema_names() -> None:
     assert schema.relationship_types == {"CONTAINS": ("source",)}
 
 
+def test_native_parser_preserves_propertyless_relationship_types() -> None:
+    propertyless_relationships = [
+        "CONTAINS",
+        "HAS_CHUNK",
+        "HAS_SECTION",
+        "HAS_SUBSECTION",
+    ]
+    schema = Neo4jSchemaReader._schema_from_native(
+        node_records=[],
+        rel_records=[
+            {"relType": f":`{name}`", "propertyName": None} for name in propertyless_relationships
+        ],
+    )
+
+    assert schema is not None
+    assert schema.relationship_types == {
+        "CONTAINS": (),
+        "HAS_CHUNK": (),
+        "HAS_SECTION": (),
+        "HAS_SUBSECTION": (),
+    }
+
+
 async def test_sample_tier_uses_the_same_clean_names_as_native(tmp_path: Path) -> None:
     native = Neo4jSchemaReader._schema_from_native(
         node_records=[{"nodeLabels": [":`Book`"], "propertyName": "title"}],
@@ -311,14 +334,14 @@ _APOC_SHAPE_B_RELATIONSHIP_ROWS = [
         "property": "CONTAINS",
     },
     {
-        "label": "Book",
+        "label": "Chapter",
         "other": ["Chunk"],
         "elementType": "node",
         "type": "RELATIONSHIP",
         "property": "HAS_CHUNK",
     },
     {
-        "label": "Book",
+        "label": "Chapter",
         "other": ["Section"],
         "elementType": "node",
         "type": "RELATIONSHIP",
@@ -326,7 +349,7 @@ _APOC_SHAPE_B_RELATIONSHIP_ROWS = [
     },
     {
         "label": "Section",
-        "other": ["Subsection"],
+        "other": ["Section"],
         "elementType": "node",
         "type": "RELATIONSHIP",
         "property": "HAS_SUBSECTION",
@@ -360,7 +383,7 @@ def test_apoc_parser_preserves_propertyless_relationship_types_from_consumer_sha
         "HAS_SECTION": (),
         "HAS_SUBSECTION": (),
     }
-    assert schema.labels == {"Book": (), "Section": ()}
+    assert schema.labels == {"Book": (), "Chapter": (), "Section": ()}
 
 
 def test_apoc_endpoint_labels_are_never_relationship_properties_in_either_shape() -> None:
@@ -374,7 +397,7 @@ def test_apoc_endpoint_labels_are_never_relationship_properties_in_either_shape(
         for values in (*schema.labels.values(), *schema.relationship_types.values())
         for property_name in values
     }
-    assert properties.isdisjoint({"Book", "Chapter", "Chunk", "Entity", "Section", "Subsection"})
+    assert properties.isdisjoint({"Book", "Chapter", "Chunk", "Entity", "Section"})
 
 
 def test_apoc_parser_uses_element_type_and_real_property_columns() -> None:

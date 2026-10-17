@@ -15,9 +15,10 @@ quietly where it must not break a query.
 - **S1 — The ladder, in this order.** Verbatim from the approved decision: **"Ladder: APOC primero ->
   Nativo (`db.schema.*` + fallback a `db.labels()`/muestra) -> Manifiesto -> Fail tipado."**
   1. **APOC** — `CALL apoc.meta.data()` → `schema_source = "apoc"`. It can expose richer schema
-     metadata; classify rows by `elementType` (`node` or `relationship`), not `type` (property type or
-     the literal `RELATIONSHIP`). This parser correction is part of this PR; the prior parser skipped
-     real APOC rows and was not proven in production.
+     metadata; `elementType` (`node` or `relationship`) identifies the row view, while `type` tells
+     scalar-property rows from endpoint rows marked `RELATIONSHIP`. The four-cell mapping is recorded
+     in L6. This parser correction is part of this PR; the prior parser skipped real APOC rows and was
+     not proven in production.
   2. **Native** — `CALL db.schema.nodeTypeProperties()` and `CALL db.schema.relTypeProperties()` →
      `schema_source = "native"`. They are built-in, **do not require APOC**, and give the
      label→properties mapping in one call each. If they are unavailable, fall back to
@@ -189,10 +190,31 @@ not compile is impossible; the work units are therefore "the mechanism" and "the
   `HAS_SUBSECTION {}`, `MENTIONS {chunk_index, source_page}`, and
   `RELATED {chunk_index, type, description, source_page}`.
 
-  `apoc.meta.data()` is available and executable by the read-only user. Its rows carry the kind in
-  `elementType`, the property type or literal `RELATIONSHIP` in `type`, and — when `type` is
-  `RELATIONSHIP` — an endpoint node label in `property`. The parser filters those endpoint rows with
-  `WHERE NOT type = "RELATIONSHIP"` rather than treating their labels as relationship properties.
+  `apoc.meta.data()` is available and executable by the read-only user. Parse its rows by `type` first,
+  then `elementType`:
+
+  | `type` | `elementType` | `label` column | `property` column |
+  | --- | --- | --- | --- |
+  | scalar datatype | `node` | node label | node property |
+  | scalar datatype | `relationship` | relationship type | relationship property |
+  | `RELATIONSHIP` | `relationship` | relationship type | endpoint node label |
+  | `RELATIONSHIP` | `node` | node label | relationship type |
+
+  Endpoint rows also carry destination labels in `other`; endpoint modeling is not part of the schema
+  body. The parser consumes endpoint rows to register the relationship type and node label, then skips
+  them only for scalar-attribute handling. These are representative rows quoted from the operator's
+  live dump, including its `other` column:
+
+  ```text
+  {"label":"Book", "elementType":"node", "type":"STRING", "property":"author", "other":[]}
+  {"label":"RELATED", "elementType":"relationship", "type":"INTEGER",
+   "property":"source_page", "other":[]}
+  {"label":"CONTAINS", "elementType":"relationship", "type":"RELATIONSHIP",
+   "property":"Book", "other":["Chapter"]}
+  {"label":"Book", "elementType":"node", "type":"RELATIONSHIP", "property":"CONTAINS",
+   "other":["Chapter"]}
+  ```
+
   The native tier also ran clean as the read-only user, proving that it works against production; it
   does not carry the load there because APOC is available and tried first. Native
   `db.schema.relTypeProperties()` names quoted as `` :`CONTAINS` `` normalize to the clean names
