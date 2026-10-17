@@ -337,11 +337,15 @@ as the diagnostic:
 | `SHOW INDEX` / `SHOW CONSTRAINT` | a read path reporting the index state |
 | `EXECUTE PROCEDURE *` | the fulltext search is a **procedure** (`db.index.fulltext.queryNodes`): without it `search_chunks` fails |
 | `EXECUTE BOOSTED PROCEDURE db.labels, db.relationshipTypes, db.propertyKeys` | the Text2Cypher schema inference sees the whole schema rather than only what the role traverses |
+| `EXECUTE BOOSTED PROCEDURE apoc.meta.data` | APOC schema introspection; verify whether this grant is required for the live role |
+| `SHOW PROCEDURES` | Native `db.schema.*` availability probe; permission for this role is unverified on the live server |
 
 `SHOW ROLE bookgraph_reader PRIVILEGES AS COMMANDS;` prints what was really granted — read it before
-continuing. If schema inference (`query_cypher`) still fails afterwards, add `apoc.meta.schema` to the
-boosted list: APOC's introspection is the one dependency whose elevation requirement is not covered
-above.
+continuing. The APOC introspection call is `apoc.meta.data` (not `apoc.meta.schema`); verify whether
+this procedure needs to be added to the boosted list for the live role. The native schema tier probes
+`db.schema.*` availability with `SHOW PROCEDURES`. Whether `bookgraph_reader` may run that command is
+still an open question, not a verified grant; check it against the live server before treating schema
+inference as covered.
 
 ### 8.2 Point the service at it
 
