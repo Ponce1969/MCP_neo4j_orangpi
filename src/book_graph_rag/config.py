@@ -96,6 +96,7 @@ class Settings(BaseSettings):
 
     # ── Catálogo de namespaces (STAGE 1) ────────────────────────────────
     catalog_path: Path = Path("catalog.yaml")
+    schema_manifest_path: Path = Path("data/schema/graph_schema.json")
 
     # ── Readiness gate policy (Phase 4) ──────────────────────────────────
     gates_policy_path: Path = Path("gates.yaml")

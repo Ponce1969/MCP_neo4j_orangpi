@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import abc
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from book_graph_rag.domain.mcp_security import ScopeContext
@@ -17,15 +17,17 @@ class Text2CypherResult:
         question: The original natural-language question.
         cypher: The Cypher query that was validated and executed (or last attempted).
         rows: Structured records returned by the query, or empty on failure.
-        schema_source: Whether the schema came from APOC or the hardcoded fallback.
+        schema_source: The tier that supplied the schema description.
         retries: Number of self-healing retries consumed (0..2).
+        metadata: Versioned schema-drift metadata for this graph observation.
     """
 
     question: str
     cypher: str
     rows: list[dict[str, Any]]
-    schema_source: Literal["apoc", "hardcoded"]
+    schema_source: Literal["apoc", "native", "manifest"]
     retries: int
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class Text2CypherPort(abc.ABC):

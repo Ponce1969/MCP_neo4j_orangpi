@@ -39,7 +39,7 @@ class _RecordingText2CypherPort(Text2CypherPort):
             question=question,
             cypher="MATCH (c:Chunk) WHERE c.book_id = $book_id RETURN c LIMIT 100",
             rows=[],
-            schema_source="hardcoded",
+            schema_source="manifest",
             retries=0,
         )
 
@@ -142,7 +142,10 @@ def _adapter(
         enable_query_cypher=enable,
         budget_port=budget,
         hmac_key_id="test-v1",
-        hmac_key=SecretStr("test-hmac-secret"),
+        # The fingerprint rule rejects a key shorter than 32 characters (or one without a
+        # printable character), so a short literal here fails every test in this file at
+        # fingerprint time - which is what "test-hmac-secret" did.
+        hmac_key=SecretStr("test-hmac-secret-that-is-long-enough"),
     )
 
 

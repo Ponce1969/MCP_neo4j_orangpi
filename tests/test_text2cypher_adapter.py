@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -58,7 +59,7 @@ class _FakeText2CypherPort(Text2CypherPort):
             question=question,
             cypher="MATCH (n) RETURN n LIMIT 100",
             rows=[{"n": {}}],
-            schema_source="hardcoded",
+            schema_source="manifest",
             retries=0,
         )
 
@@ -95,7 +96,7 @@ async def test_text2cypher_port_fake_returns_result() -> None:
     assert result.question == "what is graph rag?"
     assert result.cypher == "MATCH (n) RETURN n LIMIT 100"
     assert result.rows == [{"n": {}}]
-    assert result.schema_source == "hardcoded"
+    assert result.schema_source == "manifest"
     assert result.retries == 0
 
 
@@ -124,6 +125,16 @@ def test_settings_text2cypher_timeout_default_is_10() -> None:
         neo4j_password=SecretStr("secret"),
     )
     assert settings.text2cypher_timeout == 10
+
+
+def test_settings_schema_manifest_path_defaults_to_data_schema_manifest() -> None:
+    settings = Settings(
+        neo4j_uri="bolt://localhost",
+        neo4j_user="neo4j",
+        neo4j_password=SecretStr("secret"),
+    )
+
+    assert settings.schema_manifest_path == Path("data/schema/graph_schema.json")
 
 
 def test_settings_text2cypher_timeout_must_be_within_range() -> None:
@@ -182,7 +193,12 @@ class _FakeExecutor:
         self, cypher: str, parameters: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         self.execute_read_calls.append((cypher, parameters))
-        if "apoc.meta.data" in cypher:
+        if "SHOW PROCEDURES" in cypher:
+            procedure = cypher.split("'")[1]
+            if procedure == "apoc.meta.data" and not isinstance(self.apoc_result, Exception):
+                return [{"name": procedure}]
+            return []
+        if cypher == "CALL apoc.meta.data()":
             if isinstance(self.apoc_result, Exception):
                 raise self.apoc_result
             return self.apoc_result
@@ -232,7 +248,10 @@ async def test_text2cypher_happy_path_returns_rows_and_apoc_schema(
     """APOC schema succeeds, cypher passes EXPLAIN, executes, returns rows."""
     generator = _FakeCypherGenerator(["MATCH (e:Entity) WHERE e.id = $id RETURN e LIMIT 100"])
     executor = _FakeExecutor()
-    executor.apoc_result = [{"label": "Entity", "relationships": ["RELATED"], "property": "name"}]
+    executor.apoc_result = [
+        {"type": "node", "label": "Entity", "property": "name"},
+        {"type": "relationship", "name": "RELATED", "property": "type"},
+    ]
     executor.rows = [{"e": {"name": "MCP"}}]
 
     adapter = Text2CypherAdapter(executor, generator, settings)
@@ -245,22 +264,258 @@ async def test_text2cypher_happy_path_returns_rows_and_apoc_schema(
     assert result.retries == 0
 
 
-async def test_text2cypher_apoc_failure_falls_back_to_hardcoded_schema(
+class _TieredExecutor:
+    """Scripted schema probes used to prove each rung independently."""
+
+    def __init__(self, responses: dict[str, list[dict[str, Any]] | Exception]) -> None:
+        self.responses = responses
+        self.calls: list[str] = []
+
+    async def explain(self, cypher: str, parameters: dict[str, Any] | None = None) -> None:
+        return None
+
+    async def execute_read(
+        self, cypher: str, parameters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        self.calls.append(cypher)
+        response = self.responses.get(cypher, [])
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def _proc(name: str, available: bool) -> list[dict[str, Any]]:
+    return [{"name": name}] if available else []
+
+
+async def test_schema_ladder_uses_apoc_and_includes_observed_properties(
     settings: Settings,
 ) -> None:
-    """When APOC raises, the adapter uses the hardcoded schema."""
-    generator = _FakeCypherGenerator(
-        ["MATCH (c:Chunk) WHERE c.book_id = $book_id RETURN c LIMIT 100"]
+    generator = _FakeCypherGenerator()
+    apoc_probe = "SHOW PROCEDURES YIELD name WHERE name = 'apoc.meta.data'"
+    apoc_call = "CALL apoc.meta.data()"
+    executor = _TieredExecutor(
+        {
+            apoc_probe: _proc("apoc.meta.data", True),
+            apoc_call: [
+                {"type": "node", "label": "Document", "property": "title"},
+                {"type": "relationship", "name": "CITES", "property": "since"},
+            ],
+        }
     )
-    executor = _FakeExecutor()
-    executor.apoc_result = RuntimeError("APOC unavailable")
-    executor.rows = [{"c": {"text": "chunk"}}]
 
+    schema = await Text2CypherAdapter(executor, generator, settings)._infer_schema()
+
+    assert schema.source == "apoc"
+    assert "Document {title}" in schema.description
+    assert "CITES {since}" in schema.description
+    assert executor.calls[:2] == [apoc_probe, apoc_call]
+
+
+async def test_schema_ladder_uses_native_procedures_without_apoc(
+    settings: Settings,
+) -> None:
+    generator = _FakeCypherGenerator()
+    apoc_probe = "SHOW PROCEDURES YIELD name WHERE name = 'apoc.meta.data'"
+    node_probe = "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.nodeTypeProperties'"
+    rel_probe = "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.relTypeProperties'"
+    node_call = "CALL db.schema.nodeTypeProperties()"
+    rel_call = "CALL db.schema.relTypeProperties()"
+    executor = _TieredExecutor(
+        {
+            apoc_probe: [],
+            node_probe: _proc("db.schema.nodeTypeProperties", True),
+            rel_probe: _proc("db.schema.relTypeProperties", True),
+            node_call: [
+                {
+                    "nodeLabels": ["Document"],
+                    "propertyName": "title",
+                    "propertyTypes": ["not-a-schema-property"],
+                }
+            ],
+            rel_call: [
+                {
+                    "relType": "CITES",
+                    "propertyName": "since",
+                    "propertyTypes": ["not-a-schema-property"],
+                }
+            ],
+        }
+    )
+
+    schema = await Text2CypherAdapter(executor, generator, settings)._infer_schema()
+
+    assert schema.source == "native"
+    assert "Document {title}" in schema.description
+    assert "CITES {since}" in schema.description
+    assert "not-a-schema-property" not in schema.description
+
+
+async def test_schema_ladder_samples_labels_when_native_procedures_are_absent(
+    settings: Settings,
+) -> None:
+    generator = _FakeCypherGenerator()
+    apoc_probe = "SHOW PROCEDURES YIELD name WHERE name = 'apoc.meta.data'"
+    node_probe = "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.nodeTypeProperties'"
+    rel_probe = "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.relTypeProperties'"
+    node_sample = "MATCH (n:`Document`) WITH n LIMIT 1 RETURN keys(n) AS properties"
+    rel_sample = "MATCH ()-[r:`CITES`]-() WITH r LIMIT 1 RETURN keys(r) AS properties"
+    executor = _TieredExecutor(
+        {
+            apoc_probe: [],
+            node_probe: [],
+            rel_probe: [],
+            "CALL db.labels()": [{"label": "Document"}],
+            "CALL db.relationshipTypes()": [{"relationshipType": "CITES"}],
+            node_sample: [{"properties": ["title"]}],
+            rel_sample: [{"properties": ["since"]}],
+        }
+    )
+
+    schema = await Text2CypherAdapter(executor, generator, settings)._infer_schema()
+
+    assert schema.source == "native"
+    assert "Document {title}" in schema.description
+    assert "CITES {since}" in schema.description
+    assert node_sample in executor.calls
+    assert rel_sample in executor.calls
+
+
+async def test_schema_ladder_preserves_an_empty_graph_as_native(
+    settings: Settings,
+) -> None:
+    generator = _FakeCypherGenerator()
+    apoc_probe = "SHOW PROCEDURES YIELD name WHERE name = 'apoc.meta.data'"
+    node_probe = "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.nodeTypeProperties'"
+    rel_probe = "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.relTypeProperties'"
+    executor = _TieredExecutor(
+        {
+            apoc_probe: [],
+            node_probe: _proc("db.schema.nodeTypeProperties", True),
+            rel_probe: _proc("db.schema.relTypeProperties", True),
+            "CALL db.schema.nodeTypeProperties()": [],
+            "CALL db.schema.relTypeProperties()": [],
+        }
+    )
+
+    schema = await Text2CypherAdapter(executor, generator, settings)._infer_schema()
+
+    assert schema.source == "native"
+    assert "(empty graph)" in schema.description
+
+
+async def test_schema_ladder_fails_closed_without_leaking_driver_error(
+    settings: Settings,
+) -> None:
+    generator = _FakeCypherGenerator()
+    sensitive_error = RuntimeError("bolt://neo4j:private-password@db.internal")
+    probes = (
+        "SHOW PROCEDURES YIELD name WHERE name = 'apoc.meta.data'",
+        "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.nodeTypeProperties'",
+        "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.relTypeProperties'",
+        "CALL db.labels()",
+        "CALL db.relationshipTypes()",
+    )
+    executor = _TieredExecutor(dict.fromkeys(probes, sensitive_error))
     adapter = Text2CypherAdapter(executor, generator, settings)
-    result = await adapter.generate_and_run("find chunks")
 
-    assert result.schema_source == "hardcoded"
-    assert result.rows == [{"c": {"text": "chunk"}}]
+    with pytest.raises(CypherGenerationError, match="Schema inference failed") as raised:
+        await adapter.generate_and_run("find records")
+
+    assert "apoc.meta.data" in str(raised.value)
+    assert "db.labels" in str(raised.value)
+    assert "private-password" not in str(raised.value)
+    assert generator.calls == []
+
+
+async def test_text2cypher_uses_manifest_when_live_schema_is_unavailable(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import UTC, datetime
+
+    from book_graph_rag.domain.schema_manifest import SchemaManifest
+
+    manifest = SchemaManifest(
+        schema_version="1.0.0",
+        committed_at=datetime(2026, 10, 17, tzinfo=UTC),
+        code_commit="abc1234",
+        graph_version="gv-snapshot",
+        source="native",
+        labels={"Document": ("title",)},
+        relationship_types={"CITES": ("since",)},
+    )
+    original_read_text = Path.read_text
+
+    def read_manifest(path: Path, *args: Any, **kwargs: Any) -> str:
+        if path == settings.schema_manifest_path:
+            return manifest.model_dump_json()
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_manifest)
+    failing_probes: dict[str, list[dict[str, Any]] | Exception] = {
+        "SHOW PROCEDURES YIELD name WHERE name = 'apoc.meta.data'": RuntimeError("offline"),
+        "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.nodeTypeProperties'": RuntimeError(
+            "offline"
+        ),
+        "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.relTypeProperties'": RuntimeError(
+            "offline"
+        ),
+        "CALL db.labels()": RuntimeError("offline"),
+        "CALL db.relationshipTypes()": RuntimeError("offline"),
+    }
+    generator = _FakeCypherGenerator()
+    executor = _TieredExecutor(failing_probes)
+    result = await Text2CypherAdapter(executor, generator, settings).generate_and_run(
+        "find records"
+    )
+
+    assert result.schema_source == "manifest"
+    assert "Document {title}" in generator.calls[0][0]
+    assert result.metadata["schema_drift"]["state"] == "unknown"
+    assert result.metadata["schema_drift"]["reason"] == "live_schema_unavailable"
+
+
+async def test_runtime_schema_drift_is_metadata_warning_and_does_not_block_query(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    from book_graph_rag.domain.schema_manifest import SchemaManifest
+
+    manifest = SchemaManifest(
+        schema_version="1.0.0",
+        committed_at=datetime(2026, 10, 17, tzinfo=UTC),
+        code_commit="abc1234",
+        graph_version="gv-old",
+        source="native",
+        labels={"Expected": ("name",)},
+        relationship_types={},
+    )
+    original_read_text = Path.read_text
+
+    def read_manifest(path: Path, *args: Any, **kwargs: Any) -> str:
+        if path == settings.schema_manifest_path:
+            return manifest.model_dump_json()
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_manifest)
+    generator = _FakeCypherGenerator()
+    executor = _FakeExecutor()
+    adapter = Text2CypherAdapter(executor, generator, settings)
+
+    with caplog.at_level("WARNING"):
+        result = await adapter.generate_and_run("find records")
+
+    assert result.schema_source == "native"
+    assert result.metadata["schema_drift"]["state"] == "drift"
+    assert result.metadata["graph_version"].startswith("gv-")
+    assert result.rows == []
+    assert generator.calls
+    assert "schema drift" in caplog.text.lower()
 
 
 async def test_text2cypher_rejects_write_query_before_explain(

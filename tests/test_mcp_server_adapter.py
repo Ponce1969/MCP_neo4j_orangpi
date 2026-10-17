@@ -176,7 +176,7 @@ class _FakeText2CypherPort(Text2CypherPort):
             question="",
             cypher="MATCH (n) RETURN n LIMIT 100",
             rows=[],
-            schema_source="hardcoded",
+            schema_source="manifest",
             retries=0,
         )
         self.calls: list[str] = []
@@ -1022,6 +1022,10 @@ async def test_query_cypher_returns_text2cypher_result(
         rows=[{"e": {"name": "MCP"}}],
         schema_source="apoc",
         retries=0,
+        metadata={
+            "schema_drift": {"state": "drift", "graph_version": "gv-live"},
+            "graph_version": "gv-live",
+        },
     )
 
     result = await adapter.query_cypher(
@@ -1034,6 +1038,10 @@ async def test_query_cypher_returns_text2cypher_result(
         "rows": [{"e": {"name": "MCP"}}],
         "schema_source": "apoc",
         "retries": 0,
+        "metadata": {
+            "schema_drift": {"state": "drift", "graph_version": "gv-live"},
+            "graph_version": "gv-live",
+        },
     }
     assert text2cypher_port.calls == ["what patterns mitigate security risks?"]
 

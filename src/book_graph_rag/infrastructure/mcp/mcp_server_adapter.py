@@ -933,6 +933,7 @@ class McpServerAdapter:
             "rows": result.rows,
             "schema_source": result.schema_source,
             "retries": result.retries,
+            "metadata": result.metadata,
         }
 
     async def ask_global(
