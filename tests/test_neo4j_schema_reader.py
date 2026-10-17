@@ -219,13 +219,162 @@ def test_apoc_parser_ignores_relationship_endpoint_labels_as_properties() -> Non
     )
 
     assert schema is not None
-    assert schema.labels == {}
+    assert schema.labels == {"Book": (), "Chapter": (), "Entity": ()}
     assert schema.relationship_types == {
         "CONTAINS": (),
         "HAS_CHUNK": (),
         "MENTIONS": ("chunk_index",),
         "RELATED": ("source_page", "type"),
     }
+
+
+# Exact rows from the operator's production dump (label | elementType | type | property | other).
+_APOC_LIVE_PRODUCTION_ROWS = [
+    {
+        "label": "CONTAINS",
+        "elementType": "relationship",
+        "type": "RELATIONSHIP",
+        "property": "Book",
+        "other": ["Chapter"],
+    },
+    {
+        "label": "HAS_CHUNK",
+        "elementType": "relationship",
+        "type": "RELATIONSHIP",
+        "property": "Chapter",
+        "other": ["Chunk"],
+    },
+    {
+        "label": "RELATED",
+        "elementType": "relationship",
+        "type": "INTEGER",
+        "property": "source_page",
+        "other": [],
+    },
+    {
+        "label": "RELATED",
+        "elementType": "relationship",
+        "type": "STRING",
+        "property": "description",
+        "other": [],
+    },
+    {
+        "label": "MENTIONS",
+        "elementType": "relationship",
+        "type": "RELATIONSHIP",
+        "property": "Chunk",
+        "other": ["Entity"],
+    },
+    {
+        "label": "Book",
+        "elementType": "node",
+        "type": "RELATIONSHIP",
+        "property": "CONTAINS",
+        "other": ["Chapter"],
+    },
+    {
+        "label": "Book",
+        "elementType": "node",
+        "type": "STRING",
+        "property": "author",
+        "other": [],
+    },
+]
+
+
+def test_apoc_shape_a_endpoint_routes_relationship_type_and_node_label() -> None:
+    schema = Neo4jSchemaReader._schema_from_apoc([_APOC_LIVE_PRODUCTION_ROWS[0]])
+
+    assert schema is not None
+    assert schema.labels == {"Book": ()}
+    assert schema.relationship_types == {"CONTAINS": ()}
+
+
+def test_apoc_shape_a_scalar_type_routes_relationship_property() -> None:
+    schema = Neo4jSchemaReader._schema_from_apoc([_APOC_LIVE_PRODUCTION_ROWS[2]])
+
+    assert schema is not None
+    assert schema.labels == {}
+    assert schema.relationship_types == {"RELATED": ("source_page",)}
+
+
+# Shape B mirrors the relationship extraction query in the installed consumer:
+# .venv/Lib/site-packages/langchain_community/graphs/neo4j_graph.py:37-44
+# (CALL apoc.meta.data(), WHERE type = "RELATIONSHIP" AND elementType = "node",
+# then RETURN {start: label, type: property, end: toString(other_node)}).
+_APOC_SHAPE_B_RELATIONSHIP_ROWS = [
+    {
+        "label": "Book",
+        "other": ["Chapter"],
+        "elementType": "node",
+        "type": "RELATIONSHIP",
+        "property": "CONTAINS",
+    },
+    {
+        "label": "Book",
+        "other": ["Chunk"],
+        "elementType": "node",
+        "type": "RELATIONSHIP",
+        "property": "HAS_CHUNK",
+    },
+    {
+        "label": "Book",
+        "other": ["Section"],
+        "elementType": "node",
+        "type": "RELATIONSHIP",
+        "property": "HAS_SECTION",
+    },
+    {
+        "label": "Section",
+        "other": ["Subsection"],
+        "elementType": "node",
+        "type": "RELATIONSHIP",
+        "property": "HAS_SUBSECTION",
+    },
+]
+
+
+def test_apoc_shape_b_endpoint_routes_node_label_and_relationship_type() -> None:
+    schema = Neo4jSchemaReader._schema_from_apoc([_APOC_LIVE_PRODUCTION_ROWS[5]])
+
+    assert schema is not None
+    assert schema.labels == {"Book": ()}
+    assert schema.relationship_types == {"CONTAINS": ()}
+
+
+def test_apoc_shape_b_scalar_type_routes_node_property() -> None:
+    schema = Neo4jSchemaReader._schema_from_apoc([_APOC_LIVE_PRODUCTION_ROWS[6]])
+
+    assert schema is not None
+    assert schema.labels == {"Book": ("author",)}
+    assert schema.relationship_types == {}
+
+
+def test_apoc_parser_preserves_propertyless_relationship_types_from_consumer_shape() -> None:
+    schema = Neo4jSchemaReader._schema_from_apoc(_APOC_SHAPE_B_RELATIONSHIP_ROWS)
+
+    assert schema is not None
+    assert schema.relationship_types == {
+        "CONTAINS": (),
+        "HAS_CHUNK": (),
+        "HAS_SECTION": (),
+        "HAS_SUBSECTION": (),
+    }
+    assert schema.labels == {"Book": (), "Section": ()}
+
+
+def test_apoc_endpoint_labels_are_never_relationship_properties_in_either_shape() -> None:
+    schema = Neo4jSchemaReader._schema_from_apoc(
+        [*_APOC_LIVE_PRODUCTION_ROWS[:5], *_APOC_SHAPE_B_RELATIONSHIP_ROWS]
+    )
+
+    assert schema is not None
+    properties = {
+        property_name
+        for values in (*schema.labels.values(), *schema.relationship_types.values())
+        for property_name in values
+    }
+    assert properties.isdisjoint({"Book", "Chapter", "Chunk", "Entity", "Section", "Subsection"})
 
 
 def test_apoc_parser_uses_element_type_and_real_property_columns() -> None:

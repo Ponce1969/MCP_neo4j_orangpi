@@ -298,14 +298,50 @@ class Neo4jSchemaReader:
         labels: dict[str, set[str]] = {}
         relationships: dict[str, set[str]] = {}
         for record in records:
-            kind_value = (
-                record.get("elementType") if "elementType" in record else record.get("type")
-            )
+            if "elementType" in record:
+                kind_value = record.get("elementType")
+            else:
+                kind_value = record.get("type")
             if not isinstance(kind_value, str):
                 continue
             kind = kind_value.lower()
             if kind not in {"node", "relationship"}:
                 continue
+
+            type_value = record.get("type")
+            is_relationship_row = (
+                isinstance(type_value, str) and type_value.upper() == "RELATIONSHIP"
+            )
+            if is_relationship_row:
+                # Both layouts were observed on production, and they swap the name columns:
+                # elementType=relationship -> label=relationship type, property=node label;
+                # elementType=node -> label=node label, property=relationship type.
+                # `other` contains destination labels in both layouts; endpoint modeling is
+                # deferred, but this is where those relationship endpoints live.
+                if kind == "relationship":
+                    raw_relationship_name = record.get("label")
+                    if not isinstance(raw_relationship_name, str) or not raw_relationship_name:
+                        raw_relationship_name = record.get("name")
+                    raw_node_label = record.get("property")
+                else:
+                    raw_node_label = record.get("label")
+                    if not isinstance(raw_node_label, str) or not raw_node_label:
+                        raw_node_label = record.get("name")
+                    raw_relationship_name = record.get("property")
+
+                for destination, raw_name in (
+                    (relationships, raw_relationship_name),
+                    (labels, raw_node_label),
+                ):
+                    if not isinstance(raw_name, str) or not raw_name:
+                        continue
+                    name = _normalize_schema_name(raw_name)
+                    if name:
+                        destination.setdefault(name, set())
+                continue
+
+            # Scalar `type` values are property rows in either layout: `label` names
+            # the owning node/relationship, while `property` names the property.
             raw_name = record.get("label")
             if not isinstance(raw_name, str) or not raw_name:
                 raw_name = record.get("name")
@@ -316,10 +352,6 @@ class Neo4jSchemaReader:
             if not name:
                 continue
             properties = destination.setdefault(name, set())
-            if record.get("type") == "RELATIONSHIP":
-                # APOC stores the opposite node label in `property` on these rows;
-                # relationship endpoints are intentionally not part of GraphSchema.
-                continue
             property_name = record.get("property")
             if not isinstance(property_name, str) or not property_name:
                 property_name = record.get("propertyName")
