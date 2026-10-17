@@ -400,3 +400,14 @@ to the project-owned claims metric, which is what T8 measured.
   by `ENDPOINT_MENTIONS_MERGED_INVALID` and `ENDPOINT_RELATED_MERGED_INVALID`. See
   `odd/specs/tech-debt-essential-graphrag-endpoints.md` and
   `evidence-bundles/repoint-break-cycles-20261002.json`.
+
+- **E3 The readiness gate's warnings told two stories and read as one.** Two defects the
+  warning-provenance fix deliberately left open, recorded rather than folded into it.
+  **(a)** The retrieval layer invokes the secondary RAGAS scorer with an empty result set, which
+  makes the script exit non-zero and the layer report `RAGAS unavailable: subprocess ragas failed`
+  on **every** run - a warning that cries in every report is one operators learn to skip, the same
+  failure mode as noisy drift. **(b)** The generation layer feeds that scorer a phantom dataset
+  (`question` = the question id, empty answers and contexts) and the script re-answers every
+  `local` question from the graph, so the secondary number measures something that never touched
+  the evaluated answers. Both need their own decision: (a) is a skip-when-empty in the layer;
+  (b) is a feature, and it is the reason the drop warning was misattributed in the first place.
