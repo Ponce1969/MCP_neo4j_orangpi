@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import json
 from collections.abc import Mapping
 from typing import Any
+
+import pytest
 
 from book_graph_rag.application.evaluate_generation_layer_use_case import (
     EvaluateGenerationLayerUseCase,
@@ -187,6 +192,8 @@ def _build_use_case(
     qtype: str = "global",
     records: tuple[dict[str, Any], ...] | None = None,
     fail_for: set[str] | None = None,
+    hmac_key_id: str = "",
+    hmac_secret: str = "",
 ) -> tuple[EvaluateGenerationLayerUseCase, _FakeRetrievalPort]:
     """The use case plus its retrieval double, for tests that assert how it was called."""
     retrieval_port = _FakeRetrievalPort(answers=answers, fail_for=fail_for)
@@ -217,6 +224,8 @@ def _build_use_case(
         settings=_settings(),
         run_id="run-1",
         code_commit="abc123",
+        hmac_key_id=hmac_key_id,
+        hmac_secret=hmac_secret,
     ), retrieval_port
 
 
@@ -480,6 +489,76 @@ def test_ragas_drop_warning_without_previous_value_stays_safe() -> None:
     assert any("values unavailable" in w for w in result.warnings)
 
 
+def test_exception_text_is_redacted_from_report_with_keyed_fingerprint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep the failing question and classify the exception without persisting its text."""
+    marker = "provider said 401 for api-key=secret-marker-xyz"
+    key_id = "evaluation-test-v1"
+    secret = "independent-test-key-that-is-long-enough"
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={"faithfulness": 0.8},
+    )
+    use_case, _ = _build_use_case(
+        baseline=baseline,
+        records=(
+            {
+                "question_id": "question-secret-17",
+                "question": "What failed?",
+                "qtype": "global",
+                "reference_answer": "",
+            },
+        ),
+        hmac_key_id=key_id,
+        hmac_secret=secret,
+    )
+
+    async def fail_question(**_: Any) -> Any:
+        raise _ProviderFailureError(marker)
+
+    monkeypatch.setattr(use_case, "_evaluate_one", fail_question)
+    result = asyncio.run(use_case.execute(run_ragas=False))
+    report_json = result.model_dump_json()
+
+    canonical = json.dumps(
+        {"error_message": marker},
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    expected_fingerprint = hmac.new(secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+
+    assert marker not in report_json
+    assert "_ProviderFailure" in report_json
+    assert f"message_length={len(marker)}" in report_json
+    assert "question-secret-17" in report_json
+    assert expected_fingerprint in report_json
+
+
+def test_dataset_failure_never_persists_text_without_fingerprint_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing keys omit only the fingerprint; the exception text is still dropped."""
+    marker = "provider said 401 for api-key=secret-marker-xyz"
+    use_case, _ = _build_use_case(baseline=None)
+
+    def fail_dataset(_dataset_id: str) -> Any:
+        raise _ProviderFailureError(marker)
+
+    monkeypatch.setattr(use_case._dataset_port, "load", fail_dataset)
+    report_json = asyncio.run(use_case.execute()).model_dump_json()
+
+    assert marker not in report_json
+    assert "_ProviderFailure" in report_json
+    assert f"message_length={len(marker)}" in report_json
+    assert "fingerprint=" not in report_json
+
+
 def test_pairwise_recorded_as_evidence_never_blocks() -> None:
     """Pairwise verdict is recorded in metrics but never causes FAILED."""
     baseline = EvaluationBaselineReport(
@@ -495,6 +574,10 @@ def test_pairwise_recorded_as_evidence_never_blocks() -> None:
     metric_names = {m.name for m in result.project_owned_metrics}
     assert "pairwise_win_rate" in metric_names
     assert result.status == LayerStatus.PASSED
+
+
+class _ProviderFailureError(Exception):
+    """Provider failure used to prove the persisted report cannot disclose its message."""
 
 
 def test_claims_auditable() -> None:

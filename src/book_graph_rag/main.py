@@ -627,6 +627,8 @@ def _build_evaluate_command_use_case(settings: Settings) -> EvaluateCommandUseCa
     dataset_port = JsonlManifestEvaluationDatasetLoader(settings.evaluation_manifest_path)
     baseline_port = JsonEvaluationBaselineLoader(settings.evaluation_baseline_dir)
 
+    hmac_key_id = settings.mcp_hmac_key_id
+    hmac_secret = settings.mcp_hmac_key.get_secret_value()
     harness = EvaluationHarness(
         embedding=SentenceTransformerAdapter(settings),
         retrieval=BruteForceCandidateRetrieval(),
@@ -640,18 +642,22 @@ def _build_evaluate_command_use_case(settings: Settings) -> EvaluateCommandUseCa
         dataset_port=dataset_port,
         baseline_port=baseline_port,
         harness=harness,
+        hmac_key_id=hmac_key_id,
+        hmac_secret=hmac_secret,
     )
 
     # The reranker is flag-gated through ONE rule shared with the MCP composition
     # root: the A/B measured every candidate cross-encoder below the plain fulltext
     # order on the committed dataset, so the evaluation path ships it off too.
     retrieval_port = Neo4jRetrievalAdapter(settings, reranker=reranker_for(settings))
-    ragas_port = SubprocessRAGASRunner()
+    ragas_port = SubprocessRAGASRunner(hmac_key_id=hmac_key_id, hmac_secret=hmac_secret)
     retrieval_layer = EvaluateRetrievalLayerUseCase(
         dataset_port=dataset_port,
         retrieval_port=retrieval_port,
         ragas_port=ragas_port,
         baseline_port=baseline_port,
+        hmac_key_id=hmac_key_id,
+        hmac_secret=hmac_secret,
     )
 
     claim_port = LLMClaimValidator(settings)
@@ -664,6 +670,8 @@ def _build_evaluate_command_use_case(settings: Settings) -> EvaluateCommandUseCa
         ragas_port=ragas_port,
         baseline_port=baseline_port,
         settings=settings,
+        hmac_key_id=hmac_key_id,
+        hmac_secret=hmac_secret,
     )
 
     extraction_layer = EvaluateExtractionLayerUseCase()
@@ -693,6 +701,8 @@ def _build_readiness_gate_evaluator_use_case(
     dataset_port = JsonlManifestEvaluationDatasetLoader(settings.evaluation_manifest_path)
     baseline_port = JsonEvaluationBaselineLoader(settings.evaluation_baseline_dir)
 
+    hmac_key_id = settings.mcp_hmac_key_id
+    hmac_secret = settings.mcp_hmac_key.get_secret_value()
     harness = EvaluationHarness(
         embedding=SentenceTransformerAdapter(settings),
         retrieval=BruteForceCandidateRetrieval(),
@@ -706,18 +716,22 @@ def _build_readiness_gate_evaluator_use_case(
         dataset_port=dataset_port,
         baseline_port=baseline_port,
         harness=harness,
+        hmac_key_id=hmac_key_id,
+        hmac_secret=hmac_secret,
     )
 
     # The reranker is flag-gated through ONE rule shared with the MCP composition
     # root: the A/B measured every candidate cross-encoder below the plain fulltext
     # order on the committed dataset, so the evaluation path ships it off too.
     retrieval_port = Neo4jRetrievalAdapter(settings, reranker=reranker_for(settings))
-    ragas_port = SubprocessRAGASRunner()
+    ragas_port = SubprocessRAGASRunner(hmac_key_id=hmac_key_id, hmac_secret=hmac_secret)
     retrieval_layer = EvaluateRetrievalLayerUseCase(
         dataset_port=dataset_port,
         retrieval_port=retrieval_port,
         ragas_port=ragas_port,
         baseline_port=baseline_port,
+        hmac_key_id=hmac_key_id,
+        hmac_secret=hmac_secret,
     )
 
     claim_port = LLMClaimValidator(settings)
@@ -730,6 +744,8 @@ def _build_readiness_gate_evaluator_use_case(
         ragas_port=ragas_port,
         baseline_port=baseline_port,
         settings=settings,
+        hmac_key_id=hmac_key_id,
+        hmac_secret=hmac_secret,
     )
 
     extraction_layer = EvaluateExtractionLayerUseCase()

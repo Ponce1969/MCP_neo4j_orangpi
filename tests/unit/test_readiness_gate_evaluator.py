@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 from typing import Any
 
 import pytest
@@ -366,6 +369,49 @@ async def test_audit_gate_is_delegated_not_reimplemented() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gate_reemits_redacted_warning_without_raw_exception_text() -> None:
+    """The readiness gate copies the safe warning without reintroducing its source text."""
+    marker = "provider said 401 for api-key=secret-marker-xyz"
+    key_id = "evaluation-test-v1"
+    secret = "independent-test-key-that-is-long-enough"
+    canonical = json.dumps(
+        {"error_message": marker},
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    fingerprint = hmac.new(secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+    safe_warning = (
+        "question question-secret-17 could not be evaluated: "
+        f"_ProviderFailureError (message_length={len(marker)}, "
+        f"fingerprint={key_id}:{fingerprint})"
+    )
+    generation = EvaluationLayerResult(
+        layer="generation",
+        status=LayerStatus.UNREACHABLE,
+        project_owned_metrics=(),
+        warnings=(safe_warning,),
+        rationale="partial generation result",
+        source_dataset_id="generation_dataset",
+        run_metadata=LayerRunMetadata(run_id="run-1", code_commit="abc123"),
+    )
+    use_case = _make_use_case(
+        _policy(),
+        _gate_result(OverallState.PASSED),
+        {"generation": generation},
+    )
+
+    result = await use_case.execute("expose-mcp-readiness", _audit_report())
+    gate_json = result.model_dump_json()
+
+    assert result.warnings == (safe_warning,)
+    assert marker not in gate_json
+    assert "_ProviderFailure" in gate_json
+    assert f"message_length={len(marker)}" in gate_json
+    assert "question-secret-17" in gate_json
+    assert fingerprint in gate_json
+
+
 async def test_layer_breakdown_includes_required_and_optional() -> None:
     """The per-layer breakdown lists every required and optional layer."""
     policy = _policy()

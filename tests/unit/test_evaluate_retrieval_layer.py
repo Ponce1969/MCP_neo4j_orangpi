@@ -6,9 +6,12 @@ import asyncio
 from collections.abc import Mapping
 from typing import Any
 
+import pytest
+
 from book_graph_rag.application.evaluate_retrieval_layer_use_case import (
     EvaluateRetrievalLayerUseCase,
 )
+from book_graph_rag.domain.checkpoint_models import format_redacted_error
 from book_graph_rag.domain.evaluation_models import (
     EvaluationBaselineReport,
     EvaluationDataset,
@@ -457,6 +460,50 @@ def test_finalized_baseline_sets_threshold_and_path() -> None:
     metric = next(m for m in result.project_owned_metrics if m.name == "precision_at_k")
     assert metric.threshold == 0.45
     assert result.warnings == ()
+
+
+def test_ragas_unavailable_warning_forwards_only_sanitized_runner_notes() -> None:
+    """The report warning forwards runner notes after the runner has redacted its exception."""
+    marker = "provider said 401 for api-key=secret-marker-xyz"
+    key_id = "evaluation-test-v1"
+    secret = "independent-test-key-that-is-long-enough"
+    runner_note = "subprocess ragas failed: " + format_redacted_error(
+        RuntimeError(marker),
+        key_id=key_id,
+        secret=secret,
+    )
+    uc = _make_use_case(
+        records=({"question_id": "ret-001", "question": "q", "qtype": "local"},),
+        contexts={},
+        ragas_metrics=RAGASSecondaryMetrics(available=False, notes=runner_note),
+    )
+
+    result = asyncio.run(uc.execute())
+    report_json = result.model_dump_json()
+
+    assert marker not in report_json
+    assert "RuntimeError" in report_json
+    assert f"message_length={len(marker)}" in report_json
+    assert any(warning == f"RAGAS unavailable: {runner_note}" for warning in result.warnings)
+
+
+def test_dataset_failure_never_persists_exception_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dataset failures retain safe metadata instead of the adapter message."""
+    marker = "provider said 401 for api-key=secret-marker-xyz"
+    uc = _make_use_case(records=(), contexts={})
+
+    def fail_dataset(_dataset_id: str) -> Any:
+        raise RuntimeError(marker)
+
+    monkeypatch.setattr(uc._dataset_port, "load", fail_dataset)
+    report_json = asyncio.run(uc.execute()).model_dump_json()
+
+    assert marker not in report_json
+    assert "RuntimeError" in report_json
+    assert f"message_length={len(marker)}" in report_json
+    assert "fingerprint=" not in report_json
 
 
 def test_regression_below_baseline_threshold_warns() -> None:

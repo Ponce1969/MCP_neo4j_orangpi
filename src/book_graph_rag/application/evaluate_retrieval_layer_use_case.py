@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import uuid
 
+from book_graph_rag.domain.checkpoint_models import format_redacted_error
 from book_graph_rag.domain.evaluation_models import (
     EvaluationBaselineReport,
     EvaluationDataset,
@@ -58,6 +59,8 @@ class EvaluateRetrievalLayerUseCase:
         *,
         run_id: str | None = None,
         code_commit: str = "",
+        hmac_key_id: str = "",
+        hmac_secret: str = "",
     ) -> None:
         self._dataset_port = dataset_port
         self._retrieval_port = retrieval_port
@@ -65,6 +68,8 @@ class EvaluateRetrievalLayerUseCase:
         self._baseline_port = baseline_port
         self._run_id = run_id or uuid.uuid4().hex
         self._code_commit = code_commit
+        self._hmac_key_id = hmac_key_id
+        self._hmac_secret = hmac_secret
 
     async def execute(
         self,
@@ -99,9 +104,14 @@ class EvaluateRetrievalLayerUseCase:
         try:
             dataset = self._dataset_port.load(dataset_id)
         except Exception as exc:  # noqa: BLE001
+            redacted = format_redacted_error(
+                exc,
+                key_id=self._hmac_key_id,
+                secret=self._hmac_secret,
+            )
             return self._result(
                 status=LayerStatus.UNREACHABLE,
-                rationale=f"dataset load failed: {exc}",
+                rationale=f"dataset load failed: {redacted}",
                 precision=0.0,
                 ragas=None,
                 baseline=baseline,
