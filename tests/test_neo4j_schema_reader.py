@@ -95,6 +95,12 @@ def _checkpoint_executor(
     return _SchemaExecutor(responses)
 
 
+def test_catalog_stats_census_uses_variable_scope_call_form() -> None:
+    """The scope-less CALL subquery form is deprecated and warns on every census read."""
+    assert "CALL () {" in _CATALOG_STATS_CYPHER
+    assert "\nCALL {" not in _CATALOG_STATS_CYPHER
+
+
 async def test_apoc_description_uses_native_catalog_for_frozen_schema_comparison(
     tmp_path: Path,
 ) -> None:

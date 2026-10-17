@@ -41,10 +41,14 @@ def _normalize_schema_name(raw_name: str) -> str:
     return name
 
 
-# Keep this census aligned with mcp_server_main._CATALOG_STATS_CYPHER. These are
-# the same counts graph_version_from already uses for the MCP's graph identity.
+# Single source of truth for the catalog census. Both the graph-version identity
+# below and the MCP's bookgraph://catalog resource (mcp_server_main) run this
+# exact query object — the server imports it from here rather than keeping a
+# second literal, which had already drifted back to the deprecated CALL { form.
+# These are the same counts graph_version_from already uses for the MCP's graph
+# identity.
 _CATALOG_STATS_CYPHER = """
-CALL {
+CALL () {
   MATCH (c:Chunk)
   WHERE c.book_id IS NOT NULL
   WITH c.book_id AS source_id, count(*) AS chunks

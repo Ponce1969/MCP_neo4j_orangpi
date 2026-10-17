@@ -214,6 +214,31 @@ def fake_adapters(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     return created
 
 
+def test_server_catalog_census_is_the_schema_reader_census() -> None:
+    """One source of truth: the catalog resource must run the reader's census.
+
+    The server used to keep its own literal copy. When the reader moved to the
+    non-deprecated ``CALL () {`` form, the server's copy still opened with
+    ``CALL {`` — the deprecation warning the operator saw in production, on every
+    ``query_cypher`` (the census feeds the graph version). Identity, not just
+    string equality, pins the server to the reader so the copies cannot diverge.
+    """
+    from book_graph_rag import mcp_server_main
+    from book_graph_rag.infrastructure import neo4j_schema_reader
+
+    assert mcp_server_main._CATALOG_STATS_CYPHER is neo4j_schema_reader._CATALOG_STATS_CYPHER
+    assert "CALL () {" in mcp_server_main._CATALOG_STATS_CYPHER
+    assert "\nCALL {" not in mcp_server_main._CATALOG_STATS_CYPHER
+
+
+def test_server_catalog_stats_rows_mapping_is_the_reader_mapping() -> None:
+    """The rows-to-stats mapping is census logic too: one copy, in the reader."""
+    from book_graph_rag import mcp_server_main
+    from book_graph_rag.infrastructure import neo4j_schema_reader
+
+    assert mcp_server_main._stats_from_rows is neo4j_schema_reader._stats_from_rows
+
+
 def test_main_entrypoint_is_callable() -> None:
     """main() is the script entrypoint for the MCP console command."""
     assert callable(main)

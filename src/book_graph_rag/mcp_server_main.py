@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Any
 
 import click
 from neo4j import AsyncGraphDatabase
@@ -28,6 +27,12 @@ from book_graph_rag.infrastructure.neo4j_read_credentials import (
     has_readonly_credentials,
     readonly_settings,
 )
+from book_graph_rag.infrastructure.neo4j_schema_reader import (
+    _CATALOG_STATS_CYPHER as _CATALOG_STATS_CYPHER,
+)
+from book_graph_rag.infrastructure.neo4j_schema_reader import (
+    _stats_from_rows as _stats_from_rows,
+)
 from book_graph_rag.infrastructure.neo4j_skill_registry_adapter import Neo4jSkillRegistryAdapter
 from book_graph_rag.infrastructure.sentence_transformer_reranker_adapter import (
     reranker_for,
@@ -39,38 +44,12 @@ from book_graph_rag.ports.skill_registry_port import SkillRegistryPort
 #: entity counts, executed as a single round trip at resource-read time. The
 #: entity branch applies the same soft-delete predicate the query adapter uses,
 #: so the resource can never report a different count than ``count_entities``
-#: for the same graph.
-_CATALOG_STATS_CYPHER = """
-CALL {
-  MATCH (c:Chunk)
-  WHERE c.book_id IS NOT NULL
-  WITH c.book_id AS source_id, count(*) AS chunks
-  RETURN source_id, chunks, 0 AS entities
-  UNION ALL
-  MATCH (e:Entity)
-  WHERE e.id IS NOT NULL AND e.id CONTAINS ':'
-    AND (e.merged_into IS NULL OR e.merged_into = '')
-  WITH split(e.id, ':') AS parts, count(*) AS entities
-  WHERE size(parts) >= 2
-  RETURN parts[0] + ':' + parts[1] AS source_id, 0 AS chunks, entities
-}
-RETURN source_id, sum(chunks) AS chunks, sum(entities) AS entities
-"""
-
-
-def _stats_from_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
-    """Map ``execute_read`` rows to ``{source_id: {chunks, entities}}``."""
-    stats: dict[str, dict[str, int]] = {}
-    for row in rows:
-        source_id = row.get("source_id")
-        if isinstance(source_id, str) and source_id:
-            chunks = row.get("chunks")
-            entities = row.get("entities")
-            stats[source_id] = {
-                "chunks": chunks if isinstance(chunks, int) else 0,
-                "entities": entities if isinstance(entities, int) else 0,
-            }
-    return stats
+#: for the same graph. The census itself lives in the schema reader (it is the
+#: same query the graph-version identity uses) and is imported from there, not
+#: copied here: a second literal already drifted once and kept emitting the
+#: deprecated ``CALL {`` deprecation warning on every census read. The test
+#: ``test_server_catalog_census_is_the_schema_reader_census`` pins this to be
+#: the very same object, so the two paths can never diverge again.
 
 
 async def _resolve_tool_names(
