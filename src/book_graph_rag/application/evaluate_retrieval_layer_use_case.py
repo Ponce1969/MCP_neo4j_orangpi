@@ -147,7 +147,7 @@ class EvaluateRetrievalLayerUseCase:
 
         precision = sum(precisions) / len(precisions) if precisions else 0.0
 
-        ragas = await self._run_ragas(dataset, run_ragas=run_ragas)
+        ragas, ragas_skip_note = await self._run_ragas(dataset, run_ragas=run_ragas)
         warnings: list[str] = []
         threshold = baseline.precision_at_k_min
         if threshold is not None and precision < threshold:
@@ -173,6 +173,10 @@ class EvaluateRetrievalLayerUseCase:
             rationale = f"retrieval layer informative (precision@k={precision:.4f})"
             if skipped_future:
                 rationale += f" (skipped {skipped_future} future-corpus records)"
+        if ragas_skip_note:
+            # The "nothing to score" fact goes to the rationale, not the warnings: a
+            # warning that fires on every run is one operators learn to skip (E3a).
+            rationale += f"; {ragas_skip_note}"
 
         return self._result(
             status=LayerStatus.PASSED,
@@ -188,15 +192,47 @@ class EvaluateRetrievalLayerUseCase:
         dataset: EvaluationDataset,
         *,
         run_ragas: bool,
-    ) -> RAGASSecondaryMetrics | None:
+    ) -> tuple[RAGASSecondaryMetrics | None, str | None]:
+        """Return ``(metrics, skip_note)``: a note without metrics means nothing to score.
+
+        ``skip_note`` is a fact for the rationale (nothing to do), never a warning: the
+        "RAGAS unavailable" warning channel in ``execute`` stays reserved for real
+        scorer failures on a non-empty input set (E3a in ``odd/backlog.md``).
+        """
         if not run_ragas:
-            return None
-        generation_results: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
-        return await self._ragas_port.run(
-            dataset_id=dataset.dataset_id,
-            generation_results=generation_results,
-            previous_metrics=None,
+            return None, None
+        generation_results = self._generation_results()
+        if not generation_results:
+            # Nothing to score is not a failure: the runner would write a 0-line input
+            # JSONL, and the script fails loudly on an empty dataset by design
+            # (``_ensure_questions`` in scripts/run_ragas_evaluation.py), which surfaced
+            # as "RAGAS unavailable: subprocess ragas failed" in EVERY readiness report.
+            return None, (
+                "no secondary RAGAS metrics: nothing to score, the retrieval layer "
+                "produces no generation answers (giving it its own inputs is the E3 "
+                "feature, odd/backlog.md)"
+            )
+        return (
+            await self._ragas_port.run(
+                dataset_id=dataset.dataset_id,
+                generation_results=generation_results,
+                previous_metrics=None,
+            ),
+            None,
         )
+
+    def _generation_results(self) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
+        """The inputs this layer hands the secondary scorer. Empty on purpose.
+
+        The retrieval layer measures retrieval; it composes no answers, so it has
+        nothing RAGAS could score today. Giving it real inputs — its own retrieved
+        contexts (and composed answers) per question — is a FEATURE, not a wiring fix:
+        it changes what the secondary number measures. It is recorded as E3 in
+        ``odd/backlog.md`` and is deliberately NOT built here. When it is, the non-empty
+        path in ``_run_ragas`` already exists and real scorer failures keep reporting
+        ``RAGAS unavailable`` with the runner's redacted reason.
+        """
+        return ()
 
     def _result(
         self,
