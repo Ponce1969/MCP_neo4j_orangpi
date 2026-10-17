@@ -35,6 +35,11 @@ from book_graph_rag.ports.ragas_runner_port import RAGASRunnerPort
 class EvaluateGenerationLayerUseCase:
     """Run layer 5: claim validation, pairwise judge, RAGAS secondary (R5)."""
 
+    #: A faithfulness drop larger than this margin vs the committed baseline is worth an
+    #: operator's attention even while the gate still passes — the same 0.05 the drop logic
+    #: used when it compared RAGAS run-to-run.
+    _FAITHFULNESS_DROP_THRESHOLD: float = 0.05
+
     def __init__(
         self,
         dataset_port: EvaluationDatasetPort,
@@ -138,17 +143,24 @@ class EvaluateGenerationLayerUseCase:
         ]
         if not ragas.available:
             warnings.append(f"RAGAS unavailable: {ragas.notes}")
-        elif ragas.drop_warning:
-            # The gate report keeps only this string, so name the metric and the delta: the previous
-            # generic message left the reader unable to tell what dropped or by how much.
-            previous = ragas.previous_faithfulness
-            current = ragas.faithfulness
-            detail = (
-                f"{previous:.4f} -> {current:.4f}"
-                if previous is not None and current is not None
-                else "values unavailable"
+        # The drop signal is the layer's OWN claim-verified faithfulness vs the committed
+        # baseline's faithfulness — the same instrument on both sides. It must not be
+        # routed through the RAGAS secondary: the runner scores a dataset this layer fills
+        # with empty answers keyed by question id (the script re-answers the ids itself),
+        # and the committed baseline carries no RAGAS number at all. Comparing the two
+        # under one name produced the 2026-10-16 gate warning
+        # "RAGAS drop in faithfulness vs baseline: 0.8988 -> 0.7143" whose two numbers
+        # came from two different instruments while the same report called RAGAS
+        # unavailable.
+        baseline_faithfulness = baseline.metrics.get("faithfulness")
+        if (
+            baseline_faithfulness is not None
+            and baseline_faithfulness - faithfulness > self._FAITHFULNESS_DROP_THRESHOLD
+        ):
+            warnings.append(
+                "faithfulness drop vs baseline (project-owned metric): "
+                f"{baseline_faithfulness:.4f} -> {faithfulness:.4f}"
             )
-            warnings.append(f"RAGAS drop in faithfulness vs baseline: {detail}")
 
         if not baseline.thresholds_finalized:
             return self._result(
@@ -330,16 +342,14 @@ class EvaluateGenerationLayerUseCase:
         if not run_ragas:
             return RAGASSecondaryMetrics(available=False, notes="skipped")
         generation_results = tuple((r.question_id, "", ()) for r in per_question_results)
-        previous = RAGASSecondaryMetrics(
-            faithfulness=baseline.metrics.get("faithfulness"),
-            answer_relevancy=baseline.metrics.get("answer_relevancy"),
-            context_precision=baseline.metrics.get("context_precision"),
-            available=True,
-        )
+        # No ``previous_metrics`` snapshot: the committed baseline's faithfulness is the
+        # claim-verified primary number, not a RAGAS measurement, so handing it to the
+        # runner as a "previous RAGAS value" made the runner compute a cross-instrument
+        # comparison that the layer then printed under RAGAS's name. The secondary result
+        # now carries only what RAGAS itself measured.
         return await self._ragas_port.run(
             dataset_id=baseline.dataset_id,
             generation_results=generation_results,
-            previous_metrics=previous,
         )
 
     def _result(
