@@ -100,11 +100,14 @@ def _sanitize_error_label(value: str, *, fallback: str = "", identifier_only: bo
     """Keep emitted labels printable, whitespace-collapsed, and short.
 
     80 characters keeps report labels compact while bounding attacker-controlled exception and
-    key names. ``identifier_only`` is used for the exception class name, which **is** an
-    identifier by construction (``type(error).__name__`` cannot contain a space, a dash or an
-    equals sign), so keeping only identifier characters is lossless there and strips the
-    punctuation a secret would need to stay readable if a dynamically created class ever carried
-    one. The key id is a label the operator reads (``mcp-log-v1``) and keeps its dashes.
+    key names. A class name is normally an identifier, but ``type()`` accepts any string as
+    ``__name__``, so ``identifier_only`` is a lossy filter rather than a lossless one: it strips
+    the punctuation a secret would need to stay readable and leaves an **alphanumeric** secret
+    intact, which is the declared residual for this label. It is still worth applying — a real
+    class name never contains a space, a dash or an equals sign, so the filter costs nothing for
+    the honest case while removing the readable case for the hostile one. The key id is a label the
+    operator reads (``mcp-log-v1``) and keeps its dashes; the 80-character bound is what protects
+    it.
     """
     printable = "".join(character if character.isprintable() else " " for character in value)
     collapsed = " ".join(printable.split())

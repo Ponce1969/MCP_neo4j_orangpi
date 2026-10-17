@@ -123,7 +123,7 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   `src/book_graph_rag/infrastructure/checkpoint_error_metadata.py` is the inverse
   mapping used by both
   checkpoint readers and does not read `error_message`. Tests:
-  `tests/unit/test_redacted_error.py` (14 cases),
+  `tests/unit/test_redacted_error.py` (18 cases),
   `tests/unit/dead_letter_record_test.py`,
   `tests/unit/checkpoint_port_signature_test.py`,
   `tests/unit/index_book_use_case_lease_test.py`, and
@@ -132,9 +132,12 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
 - **Mitigation (implemented):** metadata-only query log + HMAC fingerprints +
   redaction + dev-only raw gate + bounded retention; dead-letter/checkpoint errors
   store `error_type`, `error_length` and, when a valid key is available, a keyed HMAC
-  fingerprint — never raw text. Evaluation/readiness exception strings, including those
-  emitted by the RAGAS subprocess, use the same redacted rendering; the gate copies the
-  resulting warnings.
+  fingerprint — never raw text. Evaluation/readiness exception strings that reach a
+  **persisted artifact** use the same redacted rendering, including the fields the RAGAS
+  subprocess writes itself; the gate copies the resulting warnings. The child's stderr is
+  the deliberate exception: dependency-fault messages there keep their text, because the
+  runner captures and discards that stream and a human running the script standalone needs
+  it to diagnose a missing dependency.
 - **Residual risk:** LOW — fingerprints are only as private as their key, and this rule cannot tell
   a generated key from a pasted one (see `mcp_security.effective_token`). Dead-letter files and
   `:Checkpoint` nodes written before this change retain their raw error text: scrubbing existing
@@ -145,15 +148,20 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   redacted. The fingerprint's key id is a configuration label and keeps its punctuation by design
   (the operator reads it to interpret the digest): a key id shaped like a secret is a configuration
   mistake that the 80-character bound only limits, and it is recorded here rather than papered
-  over with a filter that would make every key id unreadable.
+  over with a filter that would make every key id unreadable. The exception class name is the same
+  shape of gap: the identifier filter strips punctuation, so an **alphanumeric** secret carried in a
+  dynamically created class name survives intact — `type("sk_live_abc123", (Exception,), {})`
+  renders it verbatim — and reaching that state already requires the attacker to be creating
+  classes, which means running code. Bounding is what this rule guarantees for those two labels;
+  hiding their content is not.
 - **Evidence `[VERIFIED]` (closed):** evaluation and readiness reports no longer persist raw
   exception text. `format_redacted_error`, defined beside the rule so producers share one format,
   renders `ErrorType (message_length=N, fingerprint=<key_id>:<hex>)` when keyed. Both labels keep
-  printable characters only, collapse whitespace and are capped at 80 characters, and the class
-  name — an identifier by construction — is reduced further to identifier characters, so nothing a
-  dynamically created class carries stays readable; an empty class becomes `UnknownError`, and a
-  raising `str(error)` yields length 0. Without a usable key, errors remain redacted but have no
-  fingerprint. Converted producers are the generation
+  printable characters only, collapse whitespace and are capped at 80 characters; the class name is
+  reduced further to identifier characters, which strips the punctuation a secret would need to stay
+  readable but does **not** stop an alphanumeric one (see the residual below); an empty class becomes
+  `UnknownError`, and a raising `str(error)` yields length 0. Without a usable key, errors remain
+  redacted but have no fingerprint. Converted producers are the generation
   layer's dataset-load rationale and per-question failure tuple (the question id is preserved), the
   retrieval and resolution dataset-load rationales, both `subprocess_ragas_runner` failure notes,
   and `scripts/run_ragas_evaluation.py`: it redacts the per-question `error` persisted in

@@ -69,6 +69,9 @@ closes those sinks, including the RAGAS subprocess added by adversarial verifica
   `commit: c7303aa`
 - **T4 · Adversarial follow-up** — formatter hardening, subprocess sinks and end-to-end/test
   isolation fixes. Route: parent. `commit: 406724b`
+- **T5 · S5, docs alignment** — the register aligned with the code after the formatter hardening
+  (identifier-only class name, the subprocess sink, the environment hand-off, the caveats) and with
+  the second verification pass's findings. Route: parent. `commit: c61fb62`
 
 ## Log
 
@@ -124,3 +127,23 @@ closes those sinks, including the RAGAS subprocess added by adversarial verifica
   serialized report and runner output before wiring.
   Parent verification: **2159 passed, 3 skipped, 0 failed**; `ruff`, `ruff format`, `mypy --strict`
   over 466 files, and the architecture validator were clean.
+- **L4 (second verification pass, 2026-10-17 — no exploitable code defect survived; four
+  documentation claims did).** The bounded re-verification over `ce98853..HEAD` attacked six points.
+  **Not falsified:** the subprocess sink is closed for every persisted artifact (the per-question
+  error is rendered once and feeds stderr, the JSONL and the `after` dict; the compare branch only
+  copies baseline metrics); the secret reaches the child **only** through the environment, and the
+  repo has exactly one spawn with `env=`; the temporary working directory breaks nothing (the package
+  is installed editable, the dataset and both outputs are absolute, and `--no-compare` never reads
+  the baseline); the sanitizer's guards hold (`str()` raising or returning non-text yields length 0,
+  non-printables are replaced, labels are capped); the rewritten line anchors all match the code.
+  The artifact check reproduced clean, and the verifier explained why the escaped file survived the
+  first pass: **`.gitignore` hides that name, so `git status` cannot see it — `find` is the right
+  instrument.** **Falsified, all of them documentation-level:** (1) the claim that the identifier
+  filter neutralises a dynamically created class name — it strips punctuation only, so an
+  alphanumeric secret survives verbatim, now declared as a residual beside the key id's; (2) the
+  child's stderr keeps raw dependency-fault text, so the umbrella sentence was narrowed instead of
+  degrading a tool whose stderr the runner captures and discards; (3) the strengthened gate test
+  proves producer-side redaction plus verbatim copying, **not** a gate-side control, because the
+  layer swallows the exception before the gate sees it; (4) a stale test count. Plus a docstring
+  asserting something false about `type()` and the missing task record for the register's final
+  commit. All addressed in this pass.
