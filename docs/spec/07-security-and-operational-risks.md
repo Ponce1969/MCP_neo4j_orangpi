@@ -3,7 +3,9 @@
 > **Status: Active (normative).** This risk register binds before any production
 > exposure. Findings are `[VERIFIED]` against the current code/config. Mitigations
 > marked implemented are verified against the code; a non-empty residual risk means
-> the exposure gate (00 §3) is not yet passable.
+> the exposure gate (00 §3) is not yet passable (the readiness gate is a different
+> gate: it has been run and passed — run id `3a04b15de3fa416b90e69bac17809373`,
+> §5 item 6; the exposure gate remains the ungranted human decision, §5 item 7).
 
 ## 1. Scope and method
 
@@ -12,7 +14,8 @@ CLI, the Neo4j connection, Text2Cypher, and logging. It does **not** cover the O
 host itself, other projects' containers, or the OS — those are out of scope and governed
 by `AGENTS.md` §7. Severity uses: **CRITICAL / HIGH / MEDIUM / LOW**. "Residual risk" is
 what remains after the listed mitigations; a non-empty residual risk means the exposure
-gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks: **R7**
+gate (00 §3) is not yet passable (a different gate from the readiness gate, which has
+been run and passed — §5 item 6). Phase 6 (MCP hardening) added two open risks: **R7**
 (`ask_global` community-scope gap) and **R8** (Text2Cypher scope-parameter binding).
 
 ## 2. Threat model (summary)
@@ -361,7 +364,7 @@ remains human-gated. Verified complete vs. remaining:
    copies those warnings. The strengthened gate test covers the real generation producer.
 6. Readiness gate (06) passes; audit (04) shows no BLOCKING, no FAILED/UNREACHABLE —
    **run as the Phase 7 exposure checkpoint:** `gate expose-mcp` exit `0` (PASS).
-   `gate expose-mcp-readiness` is **runnable again: its two documented blockers are gone.**
+   `gate expose-mcp-readiness` is **run and passed: its two documented blockers are gone.**
    The mechanism-first threshold delta landed on 2026-10-15 and every committed baseline now
    carries `thresholds_finalized: true` with a numeric threshold (retrieval
    `precision_at_k_min = 0.1175`, generation `faithfulness_min = 0.8`, resolution
@@ -370,8 +373,36 @@ remains human-gated. Verified complete vs. remaining:
    obstacle either: production runs `deepseek-v4-flash` (verified read-only on the host), the
    host's checkout carries the current `main` after the 2026-10-16 deploy, and a local run
    points the query role at that model with per-run environment overrides — never editing
-   `.env`. What remains is recording the checkpoint verdict with those baselines: a read-only
-   run, since the gate never mutates the graph.
+   `.env`. The checkpoint verdict is now recorded (the gate is read-only: it never mutates the
+   graph). The operator ran `gate expose-mcp-readiness --target bookgraph-neo4j --output
+   data/evaluation/gate_report.json` on the production host: **exit `0`**, `passed: true`,
+   `overall_state: "passed"`, `audit_gate_status: "passed"`, `evaluation_status: "passed"`,
+   rationale `readiness gate passed; all required layers satisfied` (run id
+   `3a04b15de3fa416b90e69bac17809373`, `code_commit: 3699807`, models `deepseek-v4-flash`
+   and `paraphrase-multilingual-MiniLM-L12-v2`). Per layer, against `gates.yaml`:
+   - `structure` (blocking): passed — audit gate `expose-mcp` passed.
+   - `resolution` (blocking): passed — `f1 = 0.641025641025641` (threshold `>= 0.6`) and
+     `hard_over_merge = 0.0` (threshold `<= 0.0`; 0.0 is the ideal value, not a fragile
+     margin).
+   - `generation` (blocking): passed — `faithfulness = 0.8502495840266223` (threshold
+     `>= 0.8`) and `pairwise_win_rate = 1.0` (35/35, no threshold); rationale
+     `generation layer passed baseline checks (claims=601, pairwise=35/35)`.
+   - `extraction` (optional, `blocking: false`): `pending` (deferred per R6.1).
+   - `retrieval` (optional, `blocking: false`): passed — `precision@k = 0.1175` against a
+     threshold of `0.1175`, i.e. exactly at the line; the layer is optional and the zero
+     margin is recorded here as a fact rather than hidden.
+   Two caveats belong in this record. (1) **RAGAS did not measure**: the secondary runner
+   failed (`CalledProcessError`, `available: false`), so the secondary metrics are absent;
+   the R5 redaction worked as designed on that path — the failure was recorded as
+   `message_length=438` with a keyed fingerprint, no raw text and no aborted gate.
+   (2) **Open provenance defect** — an unexplained number: the run also emitted `RAGAS drop
+   in faithfulness vs baseline: 0.8988 -> 0.7143` while RAGAS reports itself unavailable,
+   so a figure attributed to RAGAS must have come from somewhere else, or two metrics share
+   one name; 0.7143 is **not** presented here as a RAGAS measurement. The metric the gate
+   itself compares (0.8503) passed, so this does not block the checkpoint; it is a
+   follow-up. The gate verdict is now recorded while the explicit human approval for
+   exposure remains a separate item and is still not granted: an exit `0` is not that
+   decision.
 7. Explicit human approval recorded; production graph untouched by validation —
    **not yet granted (production exposure is a human decision).**
 
@@ -395,8 +426,10 @@ remains human-gated. Verified complete vs. remaining:
   generation producer into the serialized gate result.
 - [x] The exposure gate cannot pass while any CRITICAL residual risk remains — no
   CRITICAL residual remains after R1's mitigation, and the gate stays fail-closed
-  against CRITICAL residuals; final exposure still requires the 06/07 gate + human
-  approval.
+  against CRITICAL residuals. The 06/07 gate part is now recorded: readiness run id
+  `3a04b15de3fa416b90e69bac17809373` (`code_commit: 3699807`) exited `0` with
+  `overall_state: "passed"` (§5); final exposure still requires the separate human
+  approval, which remains not granted.
 
 ## 7. Open decisions
 
