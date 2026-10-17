@@ -249,8 +249,20 @@ async def test_text2cypher_happy_path_returns_rows_and_apoc_schema(
     generator = _FakeCypherGenerator(["MATCH (e:Entity) WHERE e.id = $id RETURN e LIMIT 100"])
     executor = _FakeExecutor()
     executor.apoc_result = [
-        {"type": "node", "label": "Entity", "property": "name"},
-        {"type": "relationship", "name": "RELATED", "property": "type"},
+        {
+            "label": "Entity",
+            "other": None,
+            "elementType": "node",
+            "type": "STRING",
+            "property": "name",
+        },
+        {
+            "label": "RELATED",
+            "other": "Entity",
+            "elementType": "relationship",
+            "type": "STRING",
+            "property": "type",
+        },
     ]
     executor.rows = [{"e": {"name": "MCP"}}]
 
@@ -298,8 +310,20 @@ async def test_schema_ladder_uses_apoc_and_includes_observed_properties(
         {
             apoc_probe: _proc("apoc.meta.data", True),
             apoc_call: [
-                {"type": "node", "label": "Document", "property": "title"},
-                {"type": "relationship", "name": "CITES", "property": "since"},
+                {
+                    "label": "Document",
+                    "other": None,
+                    "elementType": "node",
+                    "type": "STRING",
+                    "property": "title",
+                },
+                {
+                    "label": "CITES",
+                    "other": "Document",
+                    "elementType": "relationship",
+                    "type": "STRING",
+                    "property": "since",
+                },
             ],
         }
     )
