@@ -441,6 +441,17 @@ async def test_schema_ladder_fails_closed_without_leaking_driver_error(
         "CALL db.relationshipTypes()",
     )
     executor = _TieredExecutor(dict.fromkeys(probes, sensitive_error))
+    # The repository ships a frozen manifest at the default path, and a manifest is a
+    # legitimate schema source, so this test must point at one that is absent to reach the
+    # fail-closed path at all: that coupling is why this assertion broke the day the manifest
+    # was committed, and pinning it here keeps the assertion honest instead of deleting it.
+    settings = settings.model_copy(
+        update={
+            "schema_manifest_path": settings.schema_manifest_path.with_name(
+                "absent-manifest-for-fail-closed.json"
+            )
+        }
+    )
     adapter = Text2CypherAdapter(executor, generator, settings)
 
     with pytest.raises(CypherGenerationError, match="Schema inference failed") as raised:
