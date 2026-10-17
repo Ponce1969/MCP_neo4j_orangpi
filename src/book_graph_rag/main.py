@@ -732,7 +732,7 @@ def schema_snapshot(output: Path | None) -> None:
     try:
         if not destination.parent.exists():
             destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(manifest.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        destination.write_bytes((manifest.model_dump_json(indent=2) + "\n").encode("utf-8"))
     except Exception:
         click.echo(json.dumps({"state": "failed", "reason": "manifest_write_failed"}))
         raise click.exceptions.Exit(13) from None

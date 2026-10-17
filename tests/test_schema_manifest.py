@@ -72,7 +72,21 @@ def test_schema_drift_is_sorted_versioned_bounded_and_unknown_without_manifest()
     assert bounded_items <= 2
     assert bounded.truncated is True
 
+    zero_cap = compare_schema(live, manifest, graph_version="gv-live", max_items=0)
+    assert zero_cap.state == "drift"
+    assert zero_cap.added_labels == ()
+    assert zero_cap.truncated is True
+
     unknown = compare_schema(live, None, graph_version="gv-current")
     assert unknown.state == "unknown"
     assert unknown.graph_version == "gv-current"
     assert unknown.reason == "manifest_missing"
+
+
+def test_relationship_only_schema_is_not_described_as_an_empty_graph() -> None:
+    from book_graph_rag.domain.schema_manifest import GraphSchema
+
+    description = GraphSchema(relationship_types={"CITES": ()}).describe()
+
+    assert "- (empty graph)" not in description
+    assert "- ()-[:CITES {}]->()" in description

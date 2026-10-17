@@ -6,7 +6,6 @@ from typing import Any, Literal
 
 import pytest
 from click.testing import CliRunner
-from pydantic import SecretStr
 
 from book_graph_rag.config import Settings as AppSettings
 from book_graph_rag.domain.schema_manifest import GraphSchema, SchemaDriftReport
@@ -18,10 +17,12 @@ from book_graph_rag.main import cli
 
 
 def _settings() -> AppSettings:
-    return AppSettings(
-        neo4j_uri="bolt://localhost:7687",
-        neo4j_user="neo4j",
-        neo4j_password=SecretStr("not-a-real-secret"),
+    return AppSettings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "not-a-real-secret",
+        }
     )
 
 
@@ -103,22 +104,19 @@ def test_schema_verify_uses_fail_closed_exit_codes(
 
 def test_schema_snapshot_writes_manifest_and_uses_same_reader(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     created = _patch_cli(monkeypatch, _read_result("match"))
-    writes: dict[Path, str] = {}
-
-    def capture_write(path: Path, content: str, *, encoding: str | None = None) -> int:
-        writes[path] = content
-        return len(content)
-
-    monkeypatch.setattr(Path, "write_text", capture_write)
-    result = CliRunner().invoke(cli, ["schema", "snapshot", "--output", "snapshot.json"])
+    output_path = tmp_path / "snapshot.json"
+    result = CliRunner().invoke(cli, ["schema", "snapshot", "--output", str(output_path)])
 
     assert result.exit_code == 0, result.output
     assert created["reads"] == 1
     assert created["closed"] is True
-    assert Path("snapshot.json") in writes
-    manifest = json.loads(writes[Path("snapshot.json")])
+    content = output_path.read_bytes()
+    assert content.endswith(b"\n")
+    assert b"\r" not in content
+    manifest = json.loads(content)
     assert manifest["schema_version"] == "1.0.0"
     assert manifest["committed_at"]
     assert manifest["code_commit"] == "abc1234"

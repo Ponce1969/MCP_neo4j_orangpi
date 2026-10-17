@@ -142,9 +142,8 @@ def _adapter(
         enable_query_cypher=enable,
         budget_port=budget,
         hmac_key_id="test-v1",
-        # The fingerprint rule rejects a key shorter than 32 characters (or one without a
-        # printable character), so a short literal here fails every test in this file at
-        # fingerprint time - which is what "test-hmac-secret" did.
+        # The 16-character key "test-hmac-secret" is below the 32-character fingerprint
+        # minimum, but only the two tests that reach query logging would fail with it.
         hmac_key=SecretStr("test-hmac-secret-that-is-long-enough"),
     )
 

@@ -46,7 +46,7 @@ class GraphSchema(BaseModel):
             lines.extend(
                 f"- {name} {{{', '.join(properties)}}}" for name, properties in self.labels.items()
             )
-        else:
+        elif not self.relationship_types:
             lines.append("- (empty graph)")
         lines.append("Relationship types:")
         lines.extend(
@@ -145,6 +145,20 @@ def compare_schema(
     frozen_labels = set(frozen.labels)
     live_relationships = set(live.relationship_types)
     frozen_relationships = set(frozen.relationship_types)
+
+    def properties_differ(
+        left: dict[str, tuple[str, ...]], right: dict[str, tuple[str, ...]]
+    ) -> bool:
+        return any(
+            set(left.get(name, ())) != set(right.get(name, ())) for name in set(left) | set(right)
+        )
+
+    has_drift = (
+        live_labels != frozen_labels
+        or live_relationships != frozen_relationships
+        or properties_differ(live.labels, frozen.labels)
+        or properties_differ(live.relationship_types, frozen.relationship_types)
+    )
     remaining = max_items
     truncated = False
 
@@ -192,18 +206,6 @@ def compare_schema(
     )
     removed_relationship_properties = take_properties(
         frozen.relationship_types, live.relationship_types
-    )
-    has_drift = any(
-        (
-            added_labels,
-            removed_labels,
-            added_relationship_types,
-            removed_relationship_types,
-            added_label_properties,
-            removed_label_properties,
-            added_relationship_properties,
-            removed_relationship_properties,
-        )
     )
     return SchemaDriftReport(
         state="drift" if has_drift else "match",

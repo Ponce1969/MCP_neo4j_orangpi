@@ -92,6 +92,12 @@ class Neo4jSchemaReader:
         self._settings = settings
 
     async def read(self) -> SchemaReadResult:
+        """Read schema tiers; only failed live reads decide whether the graph is unreachable.
+
+        A successful live schema read overrides connection-like failures from other probes,
+        including the graph-version census. If no live schema is available, those failures
+        still mark the result unreachable, even when a manifest can supply a fallback schema.
+        """
         failures: list[str] = []
         unreachable = [False]
         live_result = await self._read_live_schema(failures, unreachable)
@@ -123,7 +129,7 @@ class Neo4jSchemaReader:
                 graph_version=graph_version,
                 drift=drift,
                 live_schema_available=True,
-                graph_unreachable=unreachable[0],
+                graph_unreachable=False,
             )
 
         if manifest is not None:
@@ -158,7 +164,10 @@ class Neo4jSchemaReader:
                 schema = self._schema_from_apoc(records)
                 if schema is not None:
                     return schema, "apoc"
-                failures.append("apoc.meta.data returned no schema records")
+                if records:
+                    failures.append("apoc.meta.data returned rows but no usable schema records")
+                else:
+                    failures.append("apoc.meta.data returned no schema records")
             except Exception as exc:  # noqa: BLE001 - continue to the next schema tier
                 self._record_failure("apoc.meta.data", exc, failures, unreachable)
 
@@ -200,7 +209,10 @@ class Neo4jSchemaReader:
                 )
                 # Empty property rows are valid for an empty graph; propertyTypes
                 # deliberately has no role in deciding whether this tier worked.
-                return self._schema_from_native(node_records, rel_records)
+                schema = self._schema_from_native(node_records, rel_records)
+                if schema is not None:
+                    return schema
+                failures.append("db.schema.* returned rows but no usable schema records")
             except Exception as exc:  # noqa: BLE001 - use bounded samples next
                 self._record_failure("db.schema.*", exc, failures, unreachable)
 
@@ -269,16 +281,25 @@ class Neo4jSchemaReader:
         labels: dict[str, set[str]] = {}
         relationships: dict[str, set[str]] = {}
         for record in records:
-            kind = record.get("type")
+            kind_value = (
+                record.get("elementType") if "elementType" in record else record.get("type")
+            )
+            if not isinstance(kind_value, str):
+                continue
+            kind = kind_value.lower()
             if kind not in {"node", "relationship"}:
                 continue
-            raw_name = record.get("label") if kind == "node" else record.get("name")
+            raw_name = record.get("label")
+            if not isinstance(raw_name, str) or not raw_name:
+                raw_name = record.get("name")
             if not isinstance(raw_name, str) or not raw_name:
                 continue
             destination = labels if kind == "node" else relationships
             name = raw_name.lstrip(":")
             properties = destination.setdefault(name, set())
-            property_name = record.get("propertyName", record.get("property"))
+            property_name = record.get("property")
+            if not isinstance(property_name, str) or not property_name:
+                property_name = record.get("propertyName")
             if isinstance(property_name, str) and property_name:
                 properties.add(property_name)
         if not labels and not relationships:
@@ -293,28 +314,33 @@ class Neo4jSchemaReader:
     @staticmethod
     def _schema_from_native(
         node_records: list[dict[str, Any]], rel_records: list[dict[str, Any]]
-    ) -> GraphSchema:
+    ) -> GraphSchema | None:
         labels: dict[str, set[str]] = {}
         relationships: dict[str, set[str]] = {}
         for record in node_records:
             raw_labels = record.get("nodeLabels", [])
             if isinstance(raw_labels, str):
                 raw_labels = [raw_labels]
+            if not isinstance(raw_labels, (list, tuple, set, frozenset)):
+                return None
+            valid_labels = [label for label in raw_labels if isinstance(label, str) and label]
+            if not valid_labels:
+                return None
             property_name = record.get("propertyName")
-            for raw_label in raw_labels:
-                if isinstance(raw_label, str) and raw_label:
-                    label = raw_label.lstrip(":")
-                    properties = labels.setdefault(label, set())
-                    if isinstance(property_name, str) and property_name:
-                        properties.add(property_name)
-        for record in rel_records:
-            raw_type = record.get("relType")
-            property_name = record.get("propertyName")
-            if isinstance(raw_type, str) and raw_type:
-                rel_type = raw_type.lstrip(":")
-                properties = relationships.setdefault(rel_type, set())
+            for raw_label in valid_labels:
+                label = raw_label.lstrip(":")
+                properties = labels.setdefault(label, set())
                 if isinstance(property_name, str) and property_name:
                     properties.add(property_name)
+        for record in rel_records:
+            raw_type = record.get("relType")
+            if not isinstance(raw_type, str) or not raw_type:
+                return None
+            property_name = record.get("propertyName")
+            rel_type = raw_type.lstrip(":")
+            properties = relationships.setdefault(rel_type, set())
+            if isinstance(property_name, str) and property_name:
+                properties.add(property_name)
         return GraphSchema(
             labels={name: tuple(properties) for name, properties in labels.items()},
             relationship_types={
