@@ -1,0 +1,105 @@
+{
+  "schema_version": "1.0.0",
+  "committed_at": "2026-10-17T02:27:21.864594Z",
+  "code_commit": "2940839",
+  "graph_version": "gv-c00459a74b39",
+  "source": "native",
+  "labels": {
+    "Book": [
+      "author",
+      "id",
+      "page_count",
+      "pdf_path",
+      "title"
+    ],
+    "Chapter": [
+      "book_id",
+      "number",
+      "page_start",
+      "title"
+    ],
+    "Checkpoint": [
+      "attempt",
+      "chunk_index",
+      "created_at",
+      "failed_at",
+      "model_version",
+      "pipeline_version",
+      "processed_at",
+      "schema_version",
+      "source_id",
+      "source_version",
+      "status",
+      "updated_at"
+    ],
+    "Chunk": [
+      "book_id",
+      "chunk_index",
+      "page_end",
+      "page_start",
+      "source_id",
+      "text"
+    ],
+    "CommunitySummary": [
+      "entity_ids",
+      "id",
+      "level",
+      "parent_id",
+      "summary"
+    ],
+    "Entity": [
+      "aliases",
+      "canonical_name",
+      "description",
+      "id",
+      "merged_at",
+      "merged_into",
+      "name",
+      "source_page",
+      "type"
+    ],
+    "Section": [
+      "book_id",
+      "chapter_number",
+      "level",
+      "page_start",
+      "title"
+    ],
+    "Skill": [
+      "completeness",
+      "cost_awareness",
+      "executability",
+      "id",
+      "maintainability",
+      "name",
+      "provenance",
+      "quality_score",
+      "safety",
+      "status",
+      "tool_names",
+      "updated_at",
+      "version",
+      "weight_completeness",
+      "weight_cost_awareness",
+      "weight_executability",
+      "weight_maintainability",
+      "weight_safety"
+    ]
+  },
+  "relationship_types": {
+    "CONTAINS": [],
+    "HAS_CHUNK": [],
+    "HAS_SECTION": [],
+    "HAS_SUBSECTION": [],
+    "MENTIONS": [
+      "chunk_index",
+      "source_page"
+    ],
+    "RELATED": [
+      "chunk_index",
+      "description",
+      "source_page",
+      "type"
+    ]
+  }
+}
