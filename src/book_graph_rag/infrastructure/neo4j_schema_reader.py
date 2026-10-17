@@ -17,6 +17,7 @@ from book_graph_rag.domain.models import CypherGenerationError
 from book_graph_rag.domain.namespaces import Catalog
 from book_graph_rag.domain.schema_manifest import (
     GraphSchema,
+    SchemaComparisonBasis,
     SchemaDriftReport,
     SchemaManifest,
     compare_schema,
@@ -75,6 +76,14 @@ class SchemaInferenceError(CypherGenerationError):
 
 
 @dataclass(frozen=True)
+class _LiveSchemaRead:
+    schema: GraphSchema
+    source: Literal["apoc", "native"]
+    comparison_schema: GraphSchema
+    comparison_basis: SchemaComparisonBasis
+
+
+@dataclass(frozen=True)
 class SchemaReadResult:
     """Selected schema plus the runtime comparison metadata."""
 
@@ -115,20 +124,22 @@ class Neo4jSchemaReader:
         manifest, manifest_error = self._load_manifest()
 
         if live_result is not None:
-            live_schema, source = live_result
+            live_schema, source = live_result.schema, live_result.source
             if manifest_error is not None:
                 drift = SchemaDriftReport(
                     state="unknown",
                     graph_version=graph_version,
                     reason="manifest_invalid",
+                    comparison_basis=live_result.comparison_basis,
                 )
                 failures.append(manifest_error)
             else:
                 drift = compare_schema(
-                    live_schema,
+                    live_result.comparison_schema,
                     manifest,
                     graph_version=graph_version,
                     max_items=_MAX_DRIFT_ITEMS,
+                    comparison_basis=live_result.comparison_basis,
                 )
             if drift.state != "match":
                 logger.warning(drift.summary())
@@ -146,6 +157,9 @@ class Neo4jSchemaReader:
                 state="unknown",
                 graph_version=graph_version,
                 reason="live_schema_unavailable",
+                comparison_basis=SchemaComparisonBasis(
+                    source="unavailable", fallback_reason="live_schema_unavailable"
+                ),
             )
             logger.warning(drift.summary())
             return SchemaReadResult(
@@ -165,14 +179,34 @@ class Neo4jSchemaReader:
 
     async def _read_live_schema(
         self, failures: list[str], unreachable: list[bool]
-    ) -> tuple[GraphSchema, Literal["apoc", "native"]] | None:
+    ) -> _LiveSchemaRead | None:
         apoc = await self._procedure_available(_APOC_PROCEDURE, failures, unreachable)
         if apoc:
             try:
                 records = await self._executor.execute_read("CALL apoc.meta.data()")
                 schema = self._schema_from_apoc(records)
                 if schema is not None:
-                    return schema, "apoc"
+                    # The description remains APOC-first, but drift uses the deterministic
+                    # native catalogue whenever it is available. When both procedures answer,
+                    # this adds 4 execute_read calls per query_cypher (2 probes + 2 db.schema.*
+                    # reads); if unavailable, only the probes run. There is deliberately no
+                    # cache, so the report reflects the live view.
+                    native, fallback_reason = await self._read_native_schema(failures, unreachable)
+                    if native is not None:
+                        basis = SchemaComparisonBasis(source="native")
+                        comparison_schema = native
+                    else:
+                        basis = SchemaComparisonBasis(
+                            source="apoc",
+                            fallback_reason=fallback_reason or "native_procedures_unavailable",
+                        )
+                        comparison_schema = schema
+                    return _LiveSchemaRead(
+                        schema=schema,
+                        source="apoc",
+                        comparison_schema=comparison_schema,
+                        comparison_basis=basis,
+                    )
                 if records:
                     failures.append("apoc.meta.data returned rows but no usable schema records")
                 else:
@@ -180,9 +214,26 @@ class Neo4jSchemaReader:
             except Exception as exc:  # noqa: BLE001 - continue to the next schema tier
                 self._record_failure("apoc.meta.data", exc, failures, unreachable)
 
-        native = await self._read_native_schema(failures, unreachable)
+        native, fallback_reason = await self._read_native_schema(failures, unreachable)
         if native is not None:
-            return native, "native"
+            return _LiveSchemaRead(
+                schema=native,
+                source="native",
+                comparison_schema=native,
+                comparison_basis=SchemaComparisonBasis(source="native"),
+            )
+
+        sample = await self._sample_schema(failures, unreachable)
+        if sample is not None:
+            return _LiveSchemaRead(
+                schema=sample,
+                source="native",
+                comparison_schema=sample,
+                comparison_basis=SchemaComparisonBasis(
+                    source="sample",
+                    fallback_reason=fallback_reason or "native_procedures_unavailable",
+                ),
+            )
         return None
 
     async def _procedure_available(
@@ -201,31 +252,36 @@ class Neo4jSchemaReader:
 
     async def _read_native_schema(
         self, failures: list[str], unreachable: list[bool]
-    ) -> GraphSchema | None:
+    ) -> tuple[
+        GraphSchema | None,
+        Literal[
+            "native_procedures_unavailable",
+            "native_schema_read_failed",
+            "native_schema_unusable",
+        ]
+        | None,
+    ]:
         node_available = await self._procedure_available(
             _NODE_SCHEMA_PROCEDURE, failures, unreachable
         )
         rel_available = await self._procedure_available(
             _REL_SCHEMA_PROCEDURE, failures, unreachable
         )
-        if node_available and rel_available:
-            try:
-                node_records = await self._executor.execute_read(
-                    "CALL db.schema.nodeTypeProperties()"
-                )
-                rel_records = await self._executor.execute_read(
-                    "CALL db.schema.relTypeProperties()"
-                )
-                # Empty property rows are valid for an empty graph; propertyTypes
-                # deliberately has no role in deciding whether this tier worked.
-                schema = self._schema_from_native(node_records, rel_records)
-                if schema is not None:
-                    return schema
-                failures.append("db.schema.* returned rows but no usable schema records")
-            except Exception as exc:  # noqa: BLE001 - use bounded samples next
-                self._record_failure("db.schema.*", exc, failures, unreachable)
-
-        return await self._sample_schema(failures, unreachable)
+        if not node_available or not rel_available:
+            return None, "native_procedures_unavailable"
+        try:
+            node_records = await self._executor.execute_read("CALL db.schema.nodeTypeProperties()")
+            rel_records = await self._executor.execute_read("CALL db.schema.relTypeProperties()")
+            # Empty property rows are valid for an empty graph; propertyTypes
+            # deliberately has no role in deciding whether this tier worked.
+            schema = self._schema_from_native(node_records, rel_records)
+            if schema is not None:
+                return schema, None
+            failures.append("db.schema.* returned rows but no usable schema records")
+            return None, "native_schema_unusable"
+        except Exception as exc:  # noqa: BLE001 - use bounded samples next
+            self._record_failure("db.schema.*", exc, failures, unreachable)
+            return None, "native_schema_read_failed"
 
     async def _sample_schema(
         self, failures: list[str], unreachable: list[bool]

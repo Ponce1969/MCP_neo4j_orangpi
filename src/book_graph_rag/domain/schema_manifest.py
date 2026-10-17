@@ -79,6 +79,23 @@ class SchemaManifest(BaseModel):
         return GraphSchema(labels=self.labels, relationship_types=self.relationship_types)
 
 
+class SchemaComparisonBasis(BaseModel):
+    """View used for drift comparison and why a non-native view was selected."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    source: Literal["native", "apoc", "sample", "unavailable"]
+    fallback_reason: (
+        Literal[
+            "native_procedures_unavailable",
+            "native_schema_read_failed",
+            "native_schema_unusable",
+            "live_schema_unavailable",
+        ]
+        | None
+    ) = None
+
+
 class SchemaDriftReport(BaseModel):
     """Bounded, versioned comparison between a live schema and its manifest."""
 
@@ -87,6 +104,7 @@ class SchemaDriftReport(BaseModel):
     state: Literal["unknown", "match", "drift"]
     graph_version: str | None
     reason: str | None = None
+    comparison_basis: SchemaComparisonBasis | None = None
     added_labels: tuple[str, ...] = ()
     removed_labels: tuple[str, ...] = ()
     added_relationship_types: tuple[str, ...] = ()
@@ -100,10 +118,18 @@ class SchemaDriftReport(BaseModel):
     def summary(self) -> str:
         """Return a concise operator-facing description of this comparison."""
         version = self.graph_version or "unknown"
+        basis = ""
+        if self.comparison_basis is not None:
+            basis = f"; comparison_basis={self.comparison_basis.source}"
+            if self.comparison_basis.fallback_reason is not None:
+                basis += f" (fallback: {self.comparison_basis.fallback_reason})"
         if self.state == "unknown":
-            return f"Schema drift unknown at graph_version={version}: {self.reason or 'unknown'}"
+            return (
+                f"Schema drift unknown at graph_version={version}: "
+                f"{self.reason or 'unknown'}{basis}"
+            )
         if self.state == "match":
-            return f"Schema matches manifest at graph_version={version}"
+            return f"Schema matches manifest at graph_version={version}{basis}"
 
         changes = (
             ("added labels", self.added_labels),
@@ -118,7 +144,7 @@ class SchemaDriftReport(BaseModel):
         details = "; ".join(f"{name}={value}" for name, value in changes if value)
         if self.truncated:
             details = f"{details}; diff truncated" if details else "diff truncated"
-        return f"Schema drift at graph_version={version}: {details}"
+        return f"Schema drift at graph_version={version}{basis}: {details}"
 
 
 def compare_schema(
@@ -127,17 +153,24 @@ def compare_schema(
     *,
     graph_version: str | None,
     max_items: int = 100,
+    comparison_basis: SchemaComparisonBasis | None = None,
 ) -> SchemaDriftReport:
     """Compare live graph names/properties with a manifest using a global item cap."""
     if max_items < 0:
         raise ValueError("max_items must be non-negative")
     if manifest is None:
         return SchemaDriftReport(
-            state="unknown", graph_version=graph_version, reason="manifest_missing"
+            state="unknown",
+            graph_version=graph_version,
+            reason="manifest_missing",
+            comparison_basis=comparison_basis,
         )
     if graph_version is None:
         return SchemaDriftReport(
-            state="unknown", graph_version=None, reason="graph_version_unavailable"
+            state="unknown",
+            graph_version=None,
+            reason="graph_version_unavailable",
+            comparison_basis=comparison_basis,
         )
 
     frozen = manifest.to_graph_schema()
@@ -210,6 +243,7 @@ def compare_schema(
     return SchemaDriftReport(
         state="drift" if has_drift else "match",
         graph_version=graph_version,
+        comparison_basis=comparison_basis,
         added_labels=added_labels,
         removed_labels=removed_labels,
         added_relationship_types=added_relationship_types,

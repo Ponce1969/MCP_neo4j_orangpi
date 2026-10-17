@@ -1023,7 +1023,14 @@ async def test_query_cypher_returns_text2cypher_result(
         schema_source="apoc",
         retries=0,
         metadata={
-            "schema_drift": {"state": "drift", "graph_version": "gv-live"},
+            "schema_drift": {
+                "state": "drift",
+                "graph_version": "gv-live",
+                "comparison_basis": {
+                    "source": "native",
+                    "fallback_reason": None,
+                },
+            },
             "graph_version": "gv-live",
         },
     )
@@ -1039,7 +1046,14 @@ async def test_query_cypher_returns_text2cypher_result(
         "schema_source": "apoc",
         "retries": 0,
         "metadata": {
-            "schema_drift": {"state": "drift", "graph_version": "gv-live"},
+            "schema_drift": {
+                "state": "drift",
+                "graph_version": "gv-live",
+                "comparison_basis": {
+                    "source": "native",
+                    "fallback_reason": None,
+                },
+            },
             "graph_version": "gv-live",
         },
     }

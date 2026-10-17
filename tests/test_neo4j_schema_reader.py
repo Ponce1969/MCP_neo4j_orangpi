@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,127 @@ def _settings(tmp_path: Path) -> Settings:
             "schema_manifest_path": tmp_path / "missing-schema.json",
         }
     )
+
+
+def _write_checkpoint_manifest(tmp_path: Path, properties: list[str]) -> None:
+    manifest_path = tmp_path / "missing-schema.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "committed_at": "2026-10-17T00:00:00+00:00",
+                "code_commit": "abc1234",
+                "graph_version": "gv-manifest",
+                "source": "native",
+                "labels": {"Checkpoint": properties},
+                "relationship_types": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _checkpoint_executor(
+    *, native_properties: list[str] | None, apoc_properties: list[str] | None = None
+) -> _SchemaExecutor:
+    apoc_probe = "SHOW PROCEDURES YIELD name WHERE name = 'apoc.meta.data'"
+    node_probe = "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.nodeTypeProperties'"
+    rel_probe = "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.relTypeProperties'"
+    responses: dict[str, list[dict[str, Any]] | Exception] = {
+        apoc_probe: _procedure("apoc.meta.data"),
+        "CALL apoc.meta.data()": [
+            {
+                "label": "Checkpoint",
+                "elementType": "node",
+                "type": "STRING",
+                "property": property_name,
+            }
+            for property_name in (apoc_properties or ["status"])
+        ],
+        _CATALOG_STATS_CYPHER: [],
+    }
+    if native_properties is None:
+        responses[node_probe] = []
+        responses[rel_probe] = []
+    else:
+        responses[node_probe] = _procedure("db.schema.nodeTypeProperties")
+        responses[rel_probe] = _procedure("db.schema.relTypeProperties")
+        responses["CALL db.schema.nodeTypeProperties()"] = [
+            {"nodeLabels": ["Checkpoint"], "propertyName": property_name}
+            for property_name in native_properties
+        ]
+        responses["CALL db.schema.relTypeProperties()"] = []
+    return _SchemaExecutor(responses)
+
+
+async def test_apoc_description_uses_native_catalog_for_frozen_schema_comparison(
+    tmp_path: Path,
+) -> None:
+    _write_checkpoint_manifest(tmp_path, ["status", "failed_at"])
+    executor = _checkpoint_executor(native_properties=["status", "failed_at"])
+
+    result = await Neo4jSchemaReader(executor, _settings(tmp_path)).read()
+
+    assert result.source == "apoc"
+    assert result.schema.labels == {"Checkpoint": ("status",)}
+    assert result.drift.state == "match"
+    assert result.drift.comparison_basis is not None
+    assert result.drift.comparison_basis.model_dump(mode="json") == {
+        "source": "native",
+        "fallback_reason": None,
+    }
+    assert result.metadata["schema_drift"]["comparison_basis"] == {
+        "source": "native",
+        "fallback_reason": None,
+    }
+    assert (
+        executor.calls.count(
+            "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.nodeTypeProperties'"
+        )
+        == 1
+    )
+    assert (
+        executor.calls.count(
+            "SHOW PROCEDURES YIELD name WHERE name = 'db.schema.relTypeProperties'"
+        )
+        == 1
+    )
+    assert executor.calls.count("CALL db.schema.nodeTypeProperties()") == 1
+    assert executor.calls.count("CALL db.schema.relTypeProperties()") == 1
+
+
+async def test_native_unavailable_reports_apoc_fallback_basis(tmp_path: Path) -> None:
+    _write_checkpoint_manifest(tmp_path, ["status", "failed_at"])
+    executor = _checkpoint_executor(native_properties=None)
+
+    result = await Neo4jSchemaReader(executor, _settings(tmp_path)).read()
+
+    assert result.source == "apoc"
+    assert result.drift.state == "drift"
+    assert result.drift.removed_label_properties == {"Checkpoint": ("failed_at",)}
+    assert result.drift.comparison_basis is not None
+    assert result.drift.comparison_basis.model_dump(mode="json") == {
+        "source": "apoc",
+        "fallback_reason": "native_procedures_unavailable",
+    }
+    assert "comparison_basis=apoc" in result.drift.summary()
+    assert "fallback: native_procedures_unavailable" in result.drift.summary()
+
+
+async def test_real_native_schema_difference_still_reports_drift(tmp_path: Path) -> None:
+    _write_checkpoint_manifest(tmp_path, ["status", "failed_at"])
+    executor = _checkpoint_executor(native_properties=["status"])
+
+    result = await Neo4jSchemaReader(executor, _settings(tmp_path)).read()
+
+    assert result.drift.state == "drift"
+    assert result.drift.removed_label_properties == {"Checkpoint": ("failed_at",)}
+    assert result.drift.comparison_basis is not None
+    assert result.drift.comparison_basis.model_dump(mode="json") == {
+        "source": "native",
+        "fallback_reason": None,
+    }
+    assert "comparison_basis=native" in result.drift.summary()
 
 
 async def test_apoc_rows_without_usable_kind_report_unusable_records(tmp_path: Path) -> None:
@@ -138,6 +260,11 @@ async def test_unparseable_native_rows_fall_through_to_bounded_samples(tmp_path:
 
     assert result.source == "native"
     assert result.schema.labels == {"Document": ("title",)}
+    assert result.drift.comparison_basis is not None
+    assert result.drift.comparison_basis.model_dump(mode="json") == {
+        "source": "sample",
+        "fallback_reason": "native_schema_unusable",
+    }
     assert node_sample in executor.calls
 
 
