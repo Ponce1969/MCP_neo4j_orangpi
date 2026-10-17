@@ -29,6 +29,10 @@ htmlcov/
 data/*
 !data/evaluation/
 !data/evaluation/**
+# The frozen graph-schema manifest is a contract, not corpus data: it describes the shape of the
+# graph so drift can be detected, and a contract that cannot be committed cannot be frozen.
+!data/schema/
+!data/schema/**
 neo4j_data/
 *.db
 *.pdf
