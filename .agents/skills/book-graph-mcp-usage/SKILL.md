@@ -23,7 +23,7 @@ valid values. Follow the contracts below; they are fail-closed, not advisory.
 | `list_entities` | paginated browse | `cursor` (default 0), `page_size` (default 50), `source_id` | `{"entities": [...], "next_cursor": int\|None}` |
 | `count_entities` | count entities, optional type filter | `entity_type?`, `source_id` | `{"count": int}` |
 | `search_rag` | unified chunks + entities + relations | `query`, `limit`, `include_relations`, `source_id` | `{"query", "entities", "relationships", "chunks", "entity_not_found", "total_results", "errors"}` |
-| `query_cypher` | natural language → Cypher; **disabled by default** | `question`, `source_id` | `{"question", "error", "error_code", "cypher", "rows", "schema_source", "retries"}` |
+| `query_cypher` | natural language → Cypher; **disabled by default** | `question`, `source_id` | `{"question", "error", "error_code", "cypher", "rows", "schema_source", "retries", "metadata"}` |
 | `ask_global` | community-level answer | `question`, `detail_level` 0–3 (default 1), `source_id` | list of `TextContent` |
 
 ## 2. Scope contract (mandatory)
@@ -108,6 +108,7 @@ traverse_relationships(source_id=..., scope_source_id=...)
   (CREATE/DELETE/SET/MERGE/DETACH/REMOVE/DROP rejected), structural allowlist
   requiring a scope proof, an `EXPLAIN` gate, 2 retries, 10 s budget.
 - Never reach for it first: the structured tools in §1 cover normal queries.
+- The response's `metadata` carries the schema-drift report and its `graph_version`.
 
 ## 7. `ask_global` bounds
 
