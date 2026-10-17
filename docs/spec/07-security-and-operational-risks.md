@@ -22,7 +22,7 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
 | T1 | MCP SSE endpoint | untrusted network → server | Unauthenticated read access to the graph over plaintext |
 | T2 | Neo4j credentials | app process → DB | Single read/write credential reused across adapters; lateral write risk |
 | T3 | Text2Cypher `query_cypher` | LLM-generated string → DB | Write/admin statement escaping the denylist |
-| T4 | Schema description fed to LLM | hardcoded fallback → LLM | Schema drift → invalid/queries or wrong `EXPLAIN` assumptions |
+| T4 | Schema description fed to LLM | graph-derived schema (APOC → native → manifest) → LLM | Stale or absent schema → drift reported, `schema verify` fails closed, no query generated against a guess |
 | T5 | Logs (dead-letter + query log) | app → disk | Raw query text / errors persist, may contain sensitive content |
 | T6 | Prompt injection via natural language | user/agent input → LLM | `query_cypher`/`ask_global` prompts manipulated |
 
@@ -81,19 +81,40 @@ gate (00 §3) is not yet passable. Phase 6 (MCP hardening) added two open risks:
   scope-parameter binding gap (R8) is now closed; the keyword denylist remains only as
   a diagnostic prefilter.
 
-### R4 — Hardcoded schema drift (MEDIUM)
+### R4 — Hardcoded schema drift (mitigated)
 
-- **Evidence `[VERIFIED]`:** `text2cypher_adapter.py::_HARDCODED_SCHEMA` lists only
-  `Entity`/`Chunk` and a `RELATED` edge. When `apoc.meta.data()` is unavailable it falls
-  back to this stale schema, so the LLM generates against a schema that may not match the
-  actual graph.
-- **Impact:** Invalid Cypher, wrong field assumptions, and silent degradation of
-  `query_cypher`.
-- **Mitigation (target):** keep the schema source dynamic (APOC) and, when unavailable,
-  derive a minimal schema from the catalog (02) or a committed schema manifest rather than
-  a hand-maintained constant; mark `schema_source` in results (already surfaced in
-  `Text2CypherResult.schema_source`).
-- **Residual risk:** LOW once schema is catalog-derived and its source is always surfaced.
+- **Evidence `[VERIFIED]` (closed):** inference walks a ladder and reports the tier that produced it
+  (`infrastructure/neo4j_schema_reader.py::Neo4jSchemaReader`): APOC first, because it is the richer
+  source already proven in production; then the built-in `db.schema.nodeTypeProperties` and
+  `db.schema.relTypeProperties`, whose availability is probed with `SHOW PROCEDURES` instead of by
+  catching an exception per call, with a bounded fallback to `db.labels()` + `db.relationshipTypes()`
+  plus a one-row per-label sample; then the generated manifest at `data/schema/graph_schema.json`; and
+  finally a typed `SchemaInferenceError`, so no Cypher is ever generated against a guess. The
+  constant `_HARDCODED_SCHEMA` is deleted, `schema_source` is `Literal["apoc", "native",
+  "manifest"]`, and the source can no longer disagree with the description — the old code could return
+  the constant while reporting `apoc`, which meant the provenance an operator reads could lie. The
+  failure message goes through `format_redacted_error`, because a driver error can carry a URL or a
+  credential.
+- **Evidence `[VERIFIED]` (drift):** `domain/schema_manifest.py` compares the live schema against the
+  frozen manifest and reports a bounded, sorted diff in the result metadata and in a warning log,
+  **always together with the `graph_version` it was measured at** (reused from
+  `domain/graph_version.py`, not reinvented), because a drift report without the version it was
+  measured against cannot be read weeks later. A missing manifest reads as `unknown`, which is not
+  drift. A query is **never** blocked by drift: the fail-closed surface is
+  `book-graph-rag schema verify` (exit `0` match, `10` drift, `11` no manifest, `12` unreachable,
+  `13` failed), and `tests/integration/test_schema_drift.py` fails on drift when a graph is
+  configured. `book-graph-rag schema snapshot` generates the manifest from the live schema, file
+  only, through the same reader the runtime uses.
+- **Impact:** invalid Cypher, wrong field assumptions, and silent degradation of `query_cypher`.
+- **Residual risk:** LOW, with two limits stated rather than implied. The description carries names
+  (labels, relationship types, properties) and **not** relationship endpoints — the previous
+  description never had them either, so that remains a recorded limitation and not an invented
+  feature. And `propertyTypes` is deliberately ignored because its meaning changed across Neo4j
+  versions ("potential Java types" became "possible Cypher types"), so nothing branches on types.
+  The manifest itself is generated, never hand-written, and it does not exist yet: until the operator
+  runs `schema snapshot` against the production graph, the runtime reports `manifest` only as a
+  fallback and `schema verify` reports `11` (incomplete) instead of pretending to have a frozen
+  contract.
 
 ### R5 — Raw free-text logging (mitigated)
 
@@ -279,8 +300,10 @@ remains human-gated. Verified complete vs. remaining:
 3. R3 mitigated — **verified complete:** structural allowlist + `EXPLAIN` + disabled-by-default
    verified; the scope-parameter binding gap (R8) is now closed. `ask_global`'s community read
    path is namespace-scoped (R7, code-verified — see §3).
-4. R4 mitigated — **not done:** schema fallback is still the hardcoded constant;
-   dynamic schema inference remains the live path (`text2cypher_adapter.py`).
+4. R4 mitigated — **verified complete:** the hardcoded fallback is gone; the schema comes from the
+   graph through the ladder (APOC → `db.schema.*` → bounded labels/sample → generated manifest →
+   typed fail), the reported source cannot lie, and drift against the frozen manifest is observable
+   in runtime while `schema verify` fails closed.
 5. R5 mitigated — **verified complete:** MCP query logs are metadata-only + HMAC +
    redacted; dead-letter and checkpoint failures use `redacted_error()`
    (`src/book_graph_rag/domain/checkpoint_models.py`) to store `error_type` and
