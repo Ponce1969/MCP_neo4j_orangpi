@@ -89,6 +89,9 @@ class _FakeRetrievalPort(GraphRetrievalPort):
 class _FakeRagasPort(RAGASRunnerPort):
     def __init__(self, metrics: RAGASSecondaryMetrics) -> None:
         self._metrics = metrics
+        #: Every call the layer made to the scorer, so a test can pin that the layer
+        #: does NOT call it when there is nothing to score (E3a).
+        self.calls: list[tuple[str, tuple[tuple[str, str, tuple[str, ...]], ...]]] = []
 
     async def run(
         self,
@@ -97,6 +100,7 @@ class _FakeRagasPort(RAGASRunnerPort):
         generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
         previous_metrics: RAGASSecondaryMetrics | None = None,
     ) -> RAGASSecondaryMetrics:
+        self.calls.append((dataset_id, generation_results))
         return self._metrics
 
 
@@ -462,8 +466,58 @@ def test_finalized_baseline_sets_threshold_and_path() -> None:
     assert result.warnings == ()
 
 
-def test_ragas_unavailable_warning_forwards_only_sanitized_runner_notes() -> None:
-    """The report warning forwards runner notes after the runner has redacted its exception."""
+def test_empty_ragas_input_set_skips_the_scorer_without_warning() -> None:
+    """Pin 1 (E3a): nothing to score is not a failure — no call, no warning.
+
+    The retrieval layer measures contexts; it composes no answers, so its RAGAS
+    input set is empty. Calling the scorer anyway wrote a 0-line input JSONL,
+    made the script exit non-zero via ``_ensure_questions(0)``, and put
+    ``RAGAS unavailable: subprocess ragas failed`` in **every** readiness
+    report — nothing had failed, there was simply nothing to do. The layer must
+    not invoke the scorer at all, and the fact must stay discoverable where it
+    does not cry: the rationale, not a warning.
+    """
+    records = (
+        {
+            "question_id": "ret-001",
+            "question": "ReAct pattern definition",
+            "qtype": "local",
+            "reference_context_ids": ["a:book:1"],
+        },
+    )
+    contexts = {
+        "ReAct pattern definition": (RetrievalContext(chunk_id="a:book:1", text="..."),),
+    }
+    uc = _make_use_case(records=records, contexts=contexts)
+    ragas_port = uc._ragas_port
+    assert isinstance(ragas_port, _FakeRagasPort)
+
+    result = asyncio.run(uc.execute())
+
+    assert result.status == LayerStatus.PASSED
+    assert ragas_port.calls == [], "the scorer must not be invoked when there is nothing to score"
+    assert result.warnings == (), "nothing-to-score must never cry in the warnings"
+    # The fact is recorded where it does not cry: the rationale an operator reads.
+    assert result.ragas_secondary is None
+    assert "RAGAS" in result.rationale
+    assert "nothing to score" in result.rationale
+
+
+def test_ragas_unavailable_warning_forwards_only_sanitized_runner_notes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin 2 (E3a): a REAL scorer failure must stay loud, with the redacted reason.
+
+    Updated to the corrected contract, explicitly: this test previously ran with
+    the layer's (always-empty) input set, which encoded the E3a defect itself —
+    it pinned the warning for a run where nothing had failed. The corrected
+    contract distinguishes *nothing to do* from *something went wrong*: the
+    layer now skips the scorer when the input set is empty, so this test installs
+    a NON-EMPTY input set through the ``_generation_results`` seam and pins that,
+    when the scorer genuinely fails, the report still carries the unavailable
+    warning with the runner's redacted reason. A fix that silenced this too
+    would be worse than the bug.
+    """
     marker = "provider said 401 for api-key=secret-marker-xyz"
     key_id = "evaluation-test-v1"
     secret = "independent-test-key-that-is-long-enough"
@@ -477,10 +531,18 @@ def test_ragas_unavailable_warning_forwards_only_sanitized_runner_notes() -> Non
         contexts={},
         ragas_metrics=RAGASSecondaryMetrics(available=False, notes=runner_note),
     )
+    monkeypatch.setattr(
+        uc,
+        "_generation_results",
+        lambda: (("ret-001", "an answer", ("a:book:1",)),),
+    )
 
     result = asyncio.run(uc.execute())
     report_json = result.model_dump_json()
 
+    ragas_port = uc._ragas_port
+    assert isinstance(ragas_port, _FakeRagasPort)
+    assert len(ragas_port.calls) == 1, "with inputs to score the scorer must actually run"
     assert marker not in report_json
     assert "RuntimeError" in report_json
     assert f"message_length={len(marker)}" in report_json
