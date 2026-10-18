@@ -114,6 +114,121 @@ async def test_the_subprocess_cannot_dirty_the_repo(tmp_path: Path, monkeypatch:
     assert _TEST_SECRET not in argv, "the secret must never be visible in process arguments"
 
 
+async def test_the_child_receives_the_settings_the_parent_resolved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The child must not have to find its configuration in a disposable directory.
+
+    ``scripts/run_ragas_evaluation.py`` builds its own ``Settings``, and pydantic-settings
+    resolves a dotenv **relative to the working directory**. This runner runs it in a
+    temporary directory on purpose, so a child left to resolve the configuration itself
+    dies on the required Neo4j fields: the 438-byte redacted note of the 2026-10-18 run was
+    exactly that ``ValidationError``, and it is what kept the secondary metric
+    unmeasurable through this path ("RAGAS did not measure", spec 07).
+
+    The ambient settings variables are deleted first: that is the hostile environment in
+    which the parent's values are the only ones available, and the only way to prove the
+    child inherits them rather than inheriting a machine that happens to have a ``.env``.
+    """
+    from tests.host_env import clear_ambient_settings_env
+
+    from book_graph_rag.config import Settings
+
+    clear_ambient_settings_env(monkeypatch)
+    captured: list[tuple[list[str], dict[str, Any]]] = []
+    monkeypatch.setattr(subprocess, "run", _fake_subprocess_run(captured))
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://127.0.0.1:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "from-the-parent",  # pragma: allowlist secret
+            "mcp_hmac_key": "a-key-the-caller-did-not-pass-here",
+        }
+    )
+    runner = SubprocessRAGASRunner(
+        settings=settings,
+        answers_dir=str(tmp_path / "answers"),
+        hmac_key_id=_TEST_KEY_ID,
+        hmac_secret=_TEST_SECRET,
+    )
+    monkeypatch.setattr(
+        runner, "_write_generation_jsonl", lambda _results: tmp_path / "answers.jsonl"
+    )
+
+    metrics = await runner.run(
+        dataset_id="generation_dataset",
+        generation_results=(
+            RagasSample(
+                question_id="gen-001",
+                question="q",
+                answer="an answer",
+                contexts=("a context",),
+            ),
+        ),
+    )
+
+    assert metrics.available, metrics.notes
+    child_env = captured[0][1]["env"]
+    assert child_env["NEO4J_URI"] == "bolt://127.0.0.1:7687", (
+        "the child must inherit the values the parent resolved, not look for a .env in a "
+        "temporary directory"
+    )
+    assert child_env["NEO4J_PASSWORD"] == "from-the-parent"
+    assert child_env["MCP_HMAC_KEY"] == _TEST_SECRET, (
+        "the explicit arguments stay authoritative over the settings copy"
+    )
+
+
+async def test_every_settings_field_the_parent_holds_reaches_the_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Derived from the model's fields, so a setting added later cannot be silently absent.
+
+    A hand-written list of variable names is the drift this project keeps paying for — the
+    census Cypher duplicated in two places, the fake that fell behind its port, the two
+    conftests that each grew their own copy. The child inherits what the parent resolved, and
+    the parent already knows the whole set: its own model.
+    """
+    from book_graph_rag.config import Settings
+
+    captured: list[tuple[list[str], dict[str, Any]]] = []
+    monkeypatch.setattr(subprocess, "run", _fake_subprocess_run(captured))
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    settings = Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://127.0.0.1:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "x",  # pragma: allowlist secret
+        }
+    )
+    runner = SubprocessRAGASRunner(
+        settings=settings,
+        answers_dir=str(tmp_path / "answers"),
+        hmac_key_id=_TEST_KEY_ID,
+        hmac_secret=_TEST_SECRET,
+    )
+    monkeypatch.setattr(
+        runner, "_write_generation_jsonl", lambda _results: tmp_path / "answers.jsonl"
+    )
+
+    metrics = await runner.run(
+        dataset_id="d",
+        generation_results=(
+            RagasSample(question_id="gen-001", question="q", answer="a", contexts=("c",)),
+        ),
+    )
+
+    assert metrics.available, metrics.notes
+    child_env = captured[0][1]["env"]
+    missing = [
+        name.upper()
+        for name in Settings.model_fields
+        if getattr(settings, name) is not None and name.upper() not in child_env
+    ]
+    assert not missing, f"these resolved settings never reached the child: {missing}"
+
+
 async def test_json_parse_failure_notes_are_redacted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -13,6 +13,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import SecretStr
+
+from book_graph_rag.config import Settings
 from book_graph_rag.domain.checkpoint_models import format_redacted_error
 from book_graph_rag.domain.evaluation_models import (
     RAGASQuestionScore,
@@ -47,6 +50,7 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
         self,
         script_path: str | None = None,
         *,
+        settings: Settings | None = None,
         json_output_path: str | None = None,
         answers_dir: str | None = None,
         hmac_key_id: str = "",
@@ -54,6 +58,7 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
     ) -> None:
         self._script_path = script_path or "scripts/run_ragas_evaluation.py"
         self._json_output_path = json_output_path
+        self._settings = settings
         self._hmac_key_id = hmac_key_id
         self._hmac_secret = hmac_secret
         #: Where the dataset sent to RAGAS is kept. It carries the answer and the contexts per
@@ -62,6 +67,43 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
         self._answers_dir = (
             Path(answers_dir) if answers_dir is not None else Path("data/evaluation")
         )
+
+    def _child_environment(self) -> dict[str, str]:
+        """The environment the child script runs with: this process's, plus the resolved settings.
+
+        ``scripts/run_ragas_evaluation.py`` builds its own ``Settings``, and pydantic-settings
+        resolves a dotenv **relative to the working directory** while this runner deliberately
+        runs the script in a temporary one. A child left to resolve the configuration itself
+        therefore dies on the required Neo4j fields: the 438-byte redacted note of the
+        2026-10-18 run was exactly that ``ValidationError``, and it is what kept the secondary
+        metric unmeasurable through this path ("RAGAS did not measure", spec 07).
+
+        The child inherits **values**, derived from the settings model's own fields so a setting
+        added later cannot be forgotten, and never the path to a file: the parent has already
+        resolved the configuration, and a path would hand the child a second source of truth to
+        re-read in a directory that exists to be disposable. The explicit HMAC arguments are
+        applied last so they stay authoritative over any copy the settings carry.
+        """
+        env = os.environ.copy()
+        settings = self._settings
+        if settings is not None:
+            for name in type(settings).model_fields:
+                value = getattr(settings, name)
+                if value is None:
+                    continue
+                if isinstance(value, SecretStr):
+                    rendered = value.get_secret_value()
+                elif isinstance(value, dict):
+                    rendered = json.dumps(value)
+                elif isinstance(value, (list, tuple, set)):
+                    rendered = json.dumps(list(value))
+                else:
+                    rendered = str(value)
+                env[name.upper()] = rendered
+        # Environment avoids exposing the HMAC secret in argv, which is visible in process lists.
+        env["MCP_HMAC_KEY_ID"] = self._hmac_key_id
+        env["MCP_HMAC_KEY"] = self._hmac_secret
+        return env
 
     @staticmethod
     def _map_metric_name(name: str) -> str:
@@ -177,10 +219,8 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
         if not script_path.is_absolute():
             script_path = Path.cwd() / script_path
         dataset_path = jsonl_path.resolve()
-        # Environment avoids exposing the HMAC secret in argv, which is visible in process lists.
-        child_env = os.environ.copy()
-        child_env["MCP_HMAC_KEY_ID"] = self._hmac_key_id
-        child_env["MCP_HMAC_KEY"] = self._hmac_secret
+        # The child cannot resolve its own configuration: see _child_environment.
+        child_env = self._child_environment()
         try:
             with tempfile.TemporaryDirectory(prefix="ragas-subprocess-") as working_dir:
                 subprocess.run(

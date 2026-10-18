@@ -408,6 +408,15 @@ to the project-owned claims metric, which is what T8 measured.
   `metrics.faithfulness = 0.8988195615514334` with `faithfulness_min = 0.8`. The fix shape this entry proposed
   — the real question, answer and contexts through the port, no id as the question — is exactly what E3b
   implemented.
+  **Its last live sentence is fixed 2026-10-18.** "The subprocess inside the gate still exits 1" was not a
+  provider problem but a configuration-resolution one: the child script runs in a **temporary directory**, and
+  pydantic-settings resolves a dotenv **relative to the working directory**. The settings the parent had already
+  resolved were never exported into the child's environment, so the child died building its own `Settings`. The
+  runner now passes them as **values derived from the settings model's own fields** — never the path to a file,
+  which would be a second source of truth in a directory that exists to be disposable — so a setting added later
+  cannot be forgotten. Diagnostic evidence: the operator's traceback (`scripts/run_ragas_evaluation.py:422`,
+  `Settings.model_validate` under `cwd=/tmp` ⇒ `ValidationError` on `neo4j_uri` / `neo4j_user` /
+  `neo4j_password`) matched the 438-byte note R5 had redacted, byte for byte.
 - **E2 The layer-5 contexts do not depend on the question.** `fetch_contexts(qtype="global")` returned
   exactly the same **164 contexts, 674 623 chars (659 KiB), zero with a `chunk_id`** for `gen-001`,
   `gen-002` and `gen-003` on production (0.2–0.3 s each, measured 2026-10-15 over the SSH tunnel). Two
