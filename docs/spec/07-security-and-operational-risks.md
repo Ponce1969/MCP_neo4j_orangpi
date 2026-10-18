@@ -395,6 +395,13 @@ remains human-gated. Verified complete vs. remaining:
    failed (`CalledProcessError`, `available: false`), so the secondary metrics are absent;
    the R5 redaction worked as designed on that path — the failure was recorded as
    `message_length=438` with a keyed fingerprint, no raw text and no aborted gate.
+   **Cause identified and fixed 2026-10-18**: that failure was not a provider fault. The child
+   script runs in a **temporary directory** and pydantic-settings resolves a dotenv **relative to
+   the working directory**, so the settings the parent had already resolved never reached the
+   child's environment and it died building its own `Settings` (`ValidationError` on the required
+   Neo4j fields, whose redacted note is the 438 above — the operator's traceback matched it byte
+   for byte). The runner now exports those settings as **values derived from the settings model's
+   own fields**, never the path to a file. See `odd/backlog.md` E1.
    (2) **Open provenance defect** — an unexplained number: the run also emitted `RAGAS drop
    in faithfulness vs baseline: 0.8988 -> 0.7143` while RAGAS reports itself unavailable,
    so a figure attributed to RAGAS must have come from somewhere else, or two metrics share

@@ -777,7 +777,11 @@ def _build_evaluate_command_use_case(settings: Settings) -> EvaluateCommandUseCa
     # root: the A/B measured every candidate cross-encoder below the plain fulltext
     # order on the committed dataset, so the evaluation path ships it off too.
     retrieval_port = Neo4jRetrievalAdapter(settings, reranker=reranker_for(settings))
-    ragas_port = SubprocessRAGASRunner(hmac_key_id=hmac_key_id, hmac_secret=hmac_secret)
+    ragas_port = SubprocessRAGASRunner(
+        settings=settings,
+        hmac_key_id=hmac_key_id,
+        hmac_secret=hmac_secret,
+    )
     retrieval_layer = EvaluateRetrievalLayerUseCase(
         dataset_port=dataset_port,
         retrieval_port=retrieval_port,
@@ -851,7 +855,11 @@ def _build_readiness_gate_evaluator_use_case(
     # root: the A/B measured every candidate cross-encoder below the plain fulltext
     # order on the committed dataset, so the evaluation path ships it off too.
     retrieval_port = Neo4jRetrievalAdapter(settings, reranker=reranker_for(settings))
-    ragas_port = SubprocessRAGASRunner(hmac_key_id=hmac_key_id, hmac_secret=hmac_secret)
+    ragas_port = SubprocessRAGASRunner(
+        settings=settings,
+        hmac_key_id=hmac_key_id,
+        hmac_secret=hmac_secret,
+    )
     retrieval_layer = EvaluateRetrievalLayerUseCase(
         dataset_port=dataset_port,
         retrieval_port=retrieval_port,
