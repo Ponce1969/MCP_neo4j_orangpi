@@ -954,3 +954,80 @@ def test_empty_answers_skip_the_scorer_without_a_loud_warning() -> None:
     assert result.ragas_secondary is None
     assert "RAGAS" in result.rationale
     assert "nothing to score" in result.rationale
+
+
+def test_a_whitespace_only_answer_is_empty_not_something_to_score() -> None:
+    """Blank is empty in substance: scoring a string of spaces measures nothing.
+
+    Python truthiness lets ``"   "`` through, so the skip keys on stripped content.
+    The row is dropped, the scorer is never called, and the fact lands where the
+    other skip facts land: the rationale.
+    """
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={"faithfulness": 0.8},
+    )
+    uc = _make_use_case(baseline=baseline, answers={"what is MCP?": "   \n\t "})
+
+    result = asyncio.run(uc.execute())
+
+    ragas_port = uc._ragas_port
+    assert isinstance(ragas_port, _FakeRagasPort)
+    assert ragas_port.calls == [], "a blank answer is not something to score"
+    assert result.ragas_secondary is None
+    assert "nothing to score" in result.rationale
+
+
+def test_a_partial_skip_is_recorded_in_the_rationale() -> None:
+    """Dropping some questions must be visible: a metric over fewer rows reads like a full one.
+
+    A run that silently skips questions reports a number that looks like it covered
+    the whole benchmark. The count belongs in the rationale, next to the
+    nothing-to-score fact — never in warnings, which must stay free of RAGAS noise.
+    """
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={"faithfulness": 0.8},
+    )
+    use_case, _port = _build_use_case(
+        baseline=baseline,
+        records=(
+            {
+                "question_id": "q1",
+                "question": "what is MCP?",
+                "qtype": "global",
+                "reference_answer": "MCP is a protocol.",
+                "contexts_hint": ["ctx1"],
+            },
+            {
+                "question_id": "q2",
+                "question": "what is RAG?",
+                "qtype": "global",
+                "reference_answer": "Retrieval augmented generation.",
+                "contexts_hint": ["ctx2"],
+            },
+        ),
+        answers={"what is MCP?": "A protocol for tools.", "what is RAG?": ""},
+    )
+
+    result = asyncio.run(use_case.execute())
+
+    ragas_port = use_case._ragas_port
+    assert isinstance(ragas_port, _FakeRagasPort)
+    assert len(ragas_port.calls) == 1, "the scoreable row must still be scored"
+    assert "1 of 2" in result.rationale, (
+        "the skipped question must be counted where the result is read, or a metric over "
+        "fewer rows reads like a measurement over the whole benchmark"
+    )
+    # The skip itself must not cry. A genuine "RAGAS unavailable" warning may still be
+    # present (this fake returns available=False) — that one is a real condition and S5
+    # keeps it loud.
+    assert not any("skip" in warning.lower() for warning in result.warnings)

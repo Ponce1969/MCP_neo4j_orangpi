@@ -194,6 +194,25 @@ def _ensure_questions(total_questions: int) -> None:
         )
 
 
+def _carries_something_to_score(row: dict[str, Any]) -> bool:
+    """Both halves of the scoring contract must be present and non-blank.
+
+    E3a's skip is about having nothing to score, and a string of spaces is nothing:
+    Python truthiness would let it through and the metric would be computed over a
+    blank answer. Types are checked here rather than coerced, so a non-string never
+    slips in as text (``_prepare_row`` rejects those earlier; this is the guard that
+    keeps a hand-fed dataset honest too).
+    """
+    answer = row.get("answer")
+    contexts = row.get("contexts")
+    return (
+        isinstance(answer, str)
+        and bool(answer.strip())
+        and isinstance(contexts, list)
+        and any(isinstance(context, str) and context.strip() for context in contexts)
+    )
+
+
 def _run_ragas(
     results: list[dict[str, Any]],
     settings: Settings,
@@ -202,8 +221,8 @@ def _run_ragas(
 
     E3b: scoring only — every row already carries the answer and the contexts
     the evaluated pipeline produced; nothing here touches the graph. Rows whose
-    answer or contexts are empty are skipped (E3a skip-when-empty), and if that
-    leaves nothing the run fails loudly instead of reporting null metrics that
+    answer or contexts are empty or blank are skipped (E3a skip-when-empty), and if
+    that leaves nothing the run fails loudly instead of reporting null metrics that
     read like a clean measurement (S9). The check runs before any ragas import
     or model construction, so the loud failure needs no dependency and no
     network.
@@ -217,7 +236,7 @@ def _run_ragas(
     Requires ``ragas``, ``langchain-openai`` and ``langchain-huggingface`` in
     the dev group.
     """
-    metric_rows = [r for r in results if r.get("answer") and r.get("contexts")]
+    metric_rows = [row for row in results if _carries_something_to_score(row)]
     if not metric_rows:
         raise click.ClickException(
             f"nothing to score: {len(results)} row(s) received and none carried both "

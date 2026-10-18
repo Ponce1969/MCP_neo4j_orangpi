@@ -353,14 +353,15 @@ class EvaluateGenerationLayerUseCase:
 
         E3b made this layer hand the scorer the real answers, questions and contexts it
         produced (never the old ``(id, "", ())`` phantom), and E3a's invariant then
-        applies to what remains: a question whose answer or contexts are empty is
-        skipped, and when that leaves nothing the scorer is not invoked at all.
+        applies to what remains: a question whose answer or contexts are empty **or
+        blank** is skipped, a partial skip is counted in the rationale, and when that
+        leaves nothing the scorer is not invoked at all.
         Nothing to score is a fact for the rationale, never a warning: a warning that
         fires on every run is one operators learn to skip.
         """
         if not run_ragas:
             return None, None
-        generation_results = tuple(
+        scoreable = tuple(
             RagasSample(
                 question_id=result.question_id,
                 question=result.question,
@@ -369,13 +370,24 @@ class EvaluateGenerationLayerUseCase:
                 ground_truth=result.ground_truth,
             )
             for result in per_question_results
-            if result.answer and result.contexts
+            if result.answer.strip() and any(context.strip() for context in result.contexts)
         )
-        if not generation_results:
+        skipped = len(per_question_results) - len(scoreable)
+        if not scoreable:
             return None, (
-                "no secondary RAGAS metrics: nothing to score, every evaluated question "
-                "lacked an answer or contexts (skip-when-empty, E3a invariant)"
+                "no secondary RAGAS metrics: nothing to score, all "
+                f"{len(per_question_results)} evaluated question(s) lacked an answer or "
+                "contexts (skip-when-empty, E3a invariant)"
             )
+        # A partial skip is recorded too: a metric over fewer rows than the benchmark would
+        # otherwise read like a measurement over all of them. Still a rationale fact, never
+        # a warning — this is not a failure.
+        skip_note = (
+            f"{skipped} of {len(per_question_results)} question(s) skipped: no answer or "
+            "contexts (skip-when-empty, E3a invariant)"
+            if skipped
+            else None
+        )
         # No ``previous_metrics`` snapshot: the committed baseline's faithfulness is the
         # claim-verified primary number, not a RAGAS measurement, so handing it to the
         # runner as a "previous RAGAS value" made the runner compute a cross-instrument
@@ -384,9 +396,9 @@ class EvaluateGenerationLayerUseCase:
         return (
             await self._ragas_port.run(
                 dataset_id=baseline.dataset_id,
-                generation_results=generation_results,
+                generation_results=scoreable,
             ),
-            None,
+            skip_note,
         )
 
     def _result(
