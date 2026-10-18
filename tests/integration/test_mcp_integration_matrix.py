@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import SecretStr
 
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.mcp_security import (
@@ -35,6 +34,7 @@ from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.infrastructure.structural_cypher_policy import StructuralCypherPolicy
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort, Text2CypherResult
+from tests.host_env import TEST_HMAC_KEY
 
 pytestmark = pytest.mark.neo4j_integration
 
@@ -93,7 +93,7 @@ def _mcp_adapter(
         scope_resolver=resolver,
         enable_query_cypher=enable_query_cypher,
         hmac_key_id="test-v1",
-        hmac_key=SecretStr("test-hmac-secret"),
+        hmac_key=TEST_HMAC_KEY,
     )
 
 

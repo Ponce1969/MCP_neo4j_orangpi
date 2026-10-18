@@ -17,6 +17,7 @@ from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
 from book_graph_rag.ports.scope_resolver_port import ScopeResolverPort
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort
+from tests.host_env import TEST_HMAC_KEY
 
 
 class _FakeCommunityReadPort(CommunityReadPort):
@@ -159,6 +160,9 @@ def adapter(global_use_case: _FakeGlobalQueryUseCase) -> McpServerAdapter:
         text2cypher_port=_FakeText2CypherPort(),
         global_query_use_case=global_use_case,
         scope_resolver=_FakeScopeResolverPort(),
+        # R5 fails closed without a real fingerprinting key at log time: the key is
+        # per-test (never ambient), long enough for the effective_token floor.
+        hmac_key=TEST_HMAC_KEY,
     )
 
 

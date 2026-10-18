@@ -34,7 +34,6 @@ from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import TextContent, TextResourceContents
-from pydantic import SecretStr
 
 from book_graph_rag.domain.mcp_security import ScopeContext
 from book_graph_rag.domain.models import (
@@ -52,6 +51,7 @@ from book_graph_rag.infrastructure.mcp.mcp_server_adapter import McpServerAdapte
 from book_graph_rag.ports.graph_query_port import GraphQueryPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort, Text2CypherResult
+from tests.host_env import TEST_HMAC_KEY
 
 _TOKEN = "integration-test-token"
 _CATALOG_PATH = Path(__file__).resolve().parents[2] / "catalog.yaml"
@@ -166,7 +166,7 @@ def _build_adapter() -> McpServerAdapter:
         scope_resolver=CatalogScopeResolver(loader),
         catalog=catalog,
         catalog_stats_reader=_stats_reader,
-        hmac_key=SecretStr("integration-test-hmac-key"),
+        hmac_key=TEST_HMAC_KEY,
         app_env="test",
     )
 
