@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import SecretStr
 
 from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.domain.mcp_security import (
@@ -35,6 +34,7 @@ from book_graph_rag.ports.graph_query_port import GraphQueryPort
 from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
 from book_graph_rag.ports.query_logger_port import QueryLoggerPort
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort, Text2CypherResult
+from tests.host_env import TEST_HMAC_KEY
 
 _NS_A = "askglobal:ns-a"
 _NS_B = "askglobal:ns-b"
@@ -165,7 +165,7 @@ def _adapter(tmp_path: Path) -> tuple[McpServerAdapter, _RecordingGlobalQueryUse
         global_query_use_case=use_case,
         scope_resolver=_resolver(tmp_path),
         hmac_key_id="test-v1",
-        hmac_key=SecretStr("test-hmac-secret"),
+        hmac_key=TEST_HMAC_KEY,
     )
     return adapter, use_case
 
@@ -205,7 +205,7 @@ async def test_ask_global_forwards_resolved_scope_to_community_port(
         global_query_use_case=use_case,
         scope_resolver=_resolver(tmp_path),
         hmac_key_id="test-v1",
-        hmac_key=SecretStr("test-hmac-secret"),
+        hmac_key=TEST_HMAC_KEY,
     )
 
     await adapter.ask_global("question?", source_id=_NS_A)

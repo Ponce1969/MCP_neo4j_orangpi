@@ -33,8 +33,10 @@ _SYSTEMCTL: Final = "system" + "ctl"
 
 # The compose branch only matches a workspace under this host path, so its end-to-end
 # cases run where the host tree exists (the Orange Pi), not on a developer machine.
-_HOST_WORKSPACE_ROOT: Final = Path("/home/gonzalo/Gonzalo_codigo")
-_HOST_WORKSPACE: Final = "cd /home/gonzalo/Gonzalo_codigo/Mcp_libro && "
+# The guard checks the exact directory the commands ``cd`` into — not its parent:
+# a present parent with an absent workspace would run the case and fail on the ``cd``.
+_HOST_WORKSPACE_DIR: Final = Path("/home/gonzalo/Gonzalo_codigo/Mcp_libro")
+_HOST_WORKSPACE: Final = f"cd {_HOST_WORKSPACE_DIR.as_posix()} && "
 _COMPOSE_LOGS: Final = f"{_DOCKER} {_COMPOSE} logs"
 
 _BASH: Final = shutil.which("bash")
@@ -209,24 +211,35 @@ def test_compose_rejects_every_option_outside_the_allowlist(
 
 
 @pytest.mark.skipif(
-    not _HOST_WORKSPACE_ROOT.is_dir(),
-    reason="the compose branch matches a workspace path that only exists on the host",
+    not _HOST_WORKSPACE_DIR.is_dir(),
+    reason=(
+        f"case skipped: deployed workspace {_HOST_WORKSPACE_DIR.as_posix()} does not exist "
+        "here, so the gatekeeper's cd would fail before docker runs — the case is meaningful "
+        "only where that path exists (the production host)"
+    ),
 )
 @pytest.mark.parametrize(
     ("command", "argv"),
     [
         (
             f"{_HOST_WORKSPACE}{_COMPOSE_LOGS} --tail 50 mcp-server",
-            ["logs", "--tail", "50", "mcp-server"],
+            [_COMPOSE, "logs", "--tail", "50", "mcp-server"],
         ),
-        (f"{_HOST_WORKSPACE}{_COMPOSE_LOGS} mcp-server", ["logs", "mcp-server"]),
-        (f"{_HOST_WORKSPACE}{_COMPOSE_LOGS} --tail 50", ["logs", "--tail", "50"]),
+        (f"{_HOST_WORKSPACE}{_COMPOSE_LOGS} mcp-server", [_COMPOSE, "logs", "mcp-server"]),
+        (f"{_HOST_WORKSPACE}{_COMPOSE_LOGS} --tail 50", [_COMPOSE, "logs", "--tail", "50"]),
     ],
 )
 def test_compose_logs_accepts_the_emitted_shapes(
     gatekeeper: tuple[Path, Path], command: str, argv: list[str]
 ) -> None:
-    """compose logs keeps accepting an optional service and --tail."""
+    """compose logs keeps accepting an optional service and --tail.
+
+    The expectation is the shape the deployment actually emits: the gatekeeper
+    re-runs the compose ``logs`` subcommand (built here from ``_DOCKER`` +
+    ``_COMPOSE``), so the stub for the docker binary receives ``compose`` and
+    ``logs`` in front of the parsed arguments — the whole command must arrive
+    unchanged, which is the point of the test.
+    """
     _assert_allowed(gatekeeper, command, *argv)
 
 

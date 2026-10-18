@@ -12,6 +12,11 @@ from pydantic import SecretStr
 
 from book_graph_rag.config import Settings
 from book_graph_rag.mcp_server_main import main, mcp_cli
+from tests.host_env import (
+    HOSTILE_HMAC_KEY,
+    clear_ambient_settings_env,
+    write_hostile_dotenv,
+)
 
 
 class _FakeNeo4jQueryAdapter:
@@ -101,11 +106,76 @@ class _FakeNeo4jCommunityAdapter:
         self.closed = True
 
 
+def _refuse_real_driver(*_args: Any, **_kwargs: Any) -> Any:
+    """Composition-root boundary guard: under test, a real driver is always a bug.
+
+    A test that intends mocks must fail here, loudly and on every machine, instead
+    of opening a socket to whatever Neo4j happens to listen on ``localhost:7687``
+    with whatever credentials happen to be configured.
+    """
+    raise AssertionError(
+        "a composition test tried to create a real Neo4j driver: wire a fake at the "
+        "composition-root boundary instead"
+    )
+
+
 @pytest.fixture
-def fake_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
-    for key in ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD"):
-        monkeypatch.delenv(key, raising=False)
+def fake_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Settings:
+    """A hermetic Settings: the lifecycle tests must not read the host's config.
+
+    ``Settings`` is a ``BaseSettings``: on top of its init kwargs it reads ambient
+    env vars and a dotenv resolved against the working directory. On the production
+    host the real ``.env`` carried ``skill_gate_enabled``, so ``_run_server`` entered
+    the skill-gate branch and ran a registry query on a REAL driver built from this
+    fixture's mock credentials — ``Neo.ClientError.Security.Unauthorized`` against the
+    host's local Neo4j, in nine tests that are about composition and lifecycle, not
+    connectivity.
+
+    The fixture rebuilds that hostile host in-process (hostile dotenv + hostile env
+    vars), shows an un-isolated construction absorbing it — the channel is live — and
+    then constructs the fixture's Settings with both ambient channels cut
+    (``_env_file=None`` plus every field-named env var deleted, via the shared helper
+    in ``tests/host_env.py``). Every ``Settings`` these tests drive is therefore built
+    under a hostile environment, and a regression in either cut fails the absorb or
+    the default assertion here. It also stubs the composition root's driver factory so
+    any code path that ever reaches for a driver under test fails loudly instead of
+    reaching the network.
+    """
+    checkout = Path.cwd()
+    hostile_dir = tmp_path / "hostile"
+    hostile_dir.mkdir()
+    write_hostile_dotenv(
+        hostile_dir,
+        SKILL_GATE_ENABLED="true",
+        RERANK_ENABLED="true",
+        MCP_HMAC_KEY=HOSTILE_HMAC_KEY,
+    )
+    monkeypatch.setenv("SKILL_GATE_ENABLED", "true")
+    monkeypatch.setenv("RERANK_ENABLED", "true")
+    monkeypatch.setenv("MCP_HMAC_KEY", HOSTILE_HMAC_KEY)
+
+    # The channels are live: un-isolated, this is exactly what the host saw.
+    monkeypatch.chdir(hostile_dir)
+    contaminated = Settings(
+        neo4j_uri="bolt://localhost:7687",
+        neo4j_user="neo4j",
+        neo4j_password=SecretStr("fake-password"),  # pragma: allowlist secret
+    )
+    assert contaminated.skill_gate_enabled is True
+    assert contaminated.rerank_enabled is True
+    assert contaminated.mcp_hmac_key.get_secret_value() == HOSTILE_HMAC_KEY
+
+    # Isolated: back to the checkout (catalog.yaml resolves against the cwd), both
+    # ambient channels cut, explicit values and documented defaults only.
+    monkeypatch.chdir(checkout)
+    clear_ambient_settings_env(monkeypatch)
+    monkeypatch.setattr(
+        "book_graph_rag.mcp_server_main.AsyncGraphDatabase.driver", _refuse_real_driver
+    )
     settings = Settings(
+        # pydantic-settings honours ``_env_file`` at runtime; the pydantic mypy plugin
+        # does not model this init-only kwarg, hence the targeted ignore.
+        _env_file=None,  # type: ignore[call-arg]
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
         neo4j_password=SecretStr("fake-password"),  # pragma: allowlist secret
@@ -118,6 +188,9 @@ def fake_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
             "fake-hmac-key-para-tests-0123456789abcdef"
         ),  # pragma: allowlist secret
     )
+    assert settings.skill_gate_enabled is False
+    assert settings.rerank_enabled is False
+    assert settings.mcp_hmac_key.get_secret_value() == "fake-hmac-key-para-tests-0123456789abcdef"
 
     class _FakeSettingsType:
         @classmethod
@@ -459,9 +532,16 @@ async def test_neo4j_connection_failure_raises_clear_error(
 
 
 async def test_logger_creation_uses_settings(
-    fake_settings: Settings, monkeypatch: pytest.MonkeyPatch
+    fake_settings: Settings,
+    fake_adapters: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """JsonFileQueryLoggerAdapter is constructed from the loaded Settings."""
+    """JsonFileQueryLoggerAdapter is constructed from the loaded Settings.
+
+    ``fake_adapters`` replaces every adapter the composition root builds: without
+    it this test constructed the REAL read adapters, whose constructors open a
+    Neo4j driver (the composition-root driver guard caught exactly that).
+    """
     captured: list[Settings] = []
 
     class _CapturingJsonLogger(_FakeJsonFileQueryLoggerAdapter):
@@ -483,6 +563,8 @@ async def test_logger_creation_uses_settings(
     await _run_server(fake_settings)
 
     assert len(captured) == 1
+    # The composition root closed the (faked) read adapter — no real driver existed.
+    assert fake_adapters["query_adapter"].closed is True
     assert captured[0].mcp_log_path == fake_settings.mcp_log_path
     assert captured[0].mcp_log_retention_days == fake_settings.mcp_log_retention_days
 

@@ -25,6 +25,7 @@ from book_graph_rag.infrastructure.catalog_loader import CatalogLoader
 from book_graph_rag.infrastructure.catalog_scope_resolver import CatalogScopeResolver
 from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
 from book_graph_rag.infrastructure.neo4j_retrieval_adapter import Neo4jRetrievalAdapter
+from book_graph_rag.ports.llm_summary_port import LLMSummaryPort
 
 pytestmark = pytest.mark.neo4j_integration
 
@@ -116,8 +117,32 @@ class _DummyQueryAdapter:
     """Stand-in for ``Neo4jQueryAdapter`` (never invoked on the global path)."""
 
 
-class _DummyLLMAdapter:
-    """Stand-in for ``LLMAdapter`` (never invoked on the global path)."""
+class _DummyLLMAdapter(LLMSummaryPort):
+    """Stand-in for ``LLMAdapter`` on the unscoped global-fetch path.
+
+    Subclasses the port (instead of duck-typing it) so the fake cannot fall behind
+    the interface again: ``score_communities`` arrived on the use case via the
+    port's concrete default, and a bare class silently missed it. A new abstract
+    method on ``LLMSummaryPort`` now fails here at instantiation, not at the call
+    site deep inside ``GlobalQueryUseCase``. Scores and texts mirror the sibling
+    fakes (``_FakeLLMSummaryPort``): a constant neutral score, canned text.
+    """
+
+    async def generate_community_summary(
+        self, entities: list[Any], relationships: list[Any], level: int
+    ) -> str:
+        return "summary"
+
+    async def generate_summary_from_children(self, child_summaries: list[str], level: int) -> str:
+        return "summary"
+
+    async def score_community(self, question: str, summary: CommunitySummary) -> int:
+        return 50
+
+    async def compose_answer(
+        self, question: str, ranked: list[tuple[CommunitySummary, int]]
+    ) -> str:
+        return "answer"
 
 
 async def test_retrieval_adapter_global_fetch_stays_unscoped() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -46,6 +47,11 @@ from book_graph_rag.ports.query_logger_port import QueryLoggerPort
 from book_graph_rag.ports.reranker_port import RerankerPort
 from book_graph_rag.ports.scope_resolver_port import ScopeResolverPort
 from book_graph_rag.ports.text2cypher_port import Text2CypherPort, Text2CypherResult
+from tests.host_env import (
+    HOSTILE_HMAC_KEY,
+    clear_ambient_settings_env,
+    write_hostile_dotenv,
+)
 
 
 class _FakeGraphQueryPort(GraphQueryPort):
@@ -1517,8 +1523,36 @@ def test_settings_mcp_require_scope_defaults_true() -> None:
     assert settings.mcp_require_scope is True
 
 
-def test_settings_mcp_hmac_key_defaults_empty_fail_closed() -> None:
-    """The HMAC key defaults to empty so fingerprinting fails closed (R5)."""
+def test_settings_mcp_hmac_key_defaults_empty_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The HMAC key defaults to empty so fingerprinting fails closed (R5).
+
+    Machine-independence pin: the production host's ``.env`` carries a real
+    ``mcp_hmac_key`` — it made this very test report the host's key where it
+    promised the default. The test therefore rebuilds that hostile host (a
+    dotenv in the working directory plus the ambient env var), shows an
+    unisolated construction absorbing it, and then asserts the documented
+    default with both ambient channels cut.
+    """
+    hostile = tmp_path / "hostile"
+    clean = tmp_path / "clean"
+    hostile.mkdir()
+    clean.mkdir()
+    write_hostile_dotenv(hostile, MCP_HMAC_KEY=HOSTILE_HMAC_KEY)
+    monkeypatch.setenv("MCP_HMAC_KEY", HOSTILE_HMAC_KEY)
+    monkeypatch.chdir(hostile)
+
+    # The channel is live: without isolation this is the host's failure.
+    contaminated = Settings(
+        neo4j_uri="bolt://localhost",
+        neo4j_user="neo4j",
+        neo4j_password=SecretStr("secret"),
+    )
+    assert contaminated.mcp_hmac_key.get_secret_value() == HOSTILE_HMAC_KEY
+
+    monkeypatch.chdir(clean)
+    clear_ambient_settings_env(monkeypatch)
     settings = Settings(
         neo4j_uri="bolt://localhost",
         neo4j_user="neo4j",

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, MutableMapping
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 from pydantic import SecretStr
 
+from book_graph_rag.config import Settings
 from book_graph_rag.infrastructure.mcp.bearer_auth import BearerTokenAuthMiddleware
+from tests.host_env import clear_ambient_settings_env
 
 ASGIScope = MutableMapping[str, Any]
 ASGIReceive = Callable[[], Awaitable[MutableMapping[str, Any]]]
@@ -79,10 +82,31 @@ async def test_middleware_passes_non_http_scope() -> None:
     assert sent == [{"type": "lifespan.startup.complete"}]
 
 
-def test_settings_accepts_optional_token() -> None:
-    from book_graph_rag.config import Settings
+def test_settings_accepts_optional_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """mcp_access_token round-trips as a SecretStr and defaults to None.
 
-    with_token = Settings.model_validate({"mcp_access_token": "tok-123"})
+    Machine-independence pin: the production host's env carries a real token, and
+    ``Settings.model_validate`` reads ambient env vars and the checkout's ``.env`` —
+    it made ``without.mcp_access_token is None`` report the host's token. The test
+    therefore rebuilds that hostile host (ambient env var set below), shows an
+    unisolated construction absorbing it, and then asserts with both ambient
+    channels cut: an empty working directory and every field-named env var gone.
+    """
+    hostile_token = "hostile-ambient-token-0123456789abcdef"
+    base = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+    }
+    monkeypatch.setenv("MCP_ACCESS_TOKEN", hostile_token)
+
+    # The channel is live: without isolation this is the host's collision.
+    assert Settings.model_validate(dict(base)).mcp_access_token == SecretStr(hostile_token)
+
+    monkeypatch.chdir(tmp_path)
+    clear_ambient_settings_env(monkeypatch)
+
+    with_token = Settings.model_validate({**base, "mcp_access_token": "tok-123"})
     assert with_token.mcp_access_token == SecretStr("tok-123")
-    without = Settings.model_validate({})
+    without = Settings.model_validate(dict(base))
     assert without.mcp_access_token is None
