@@ -135,7 +135,13 @@ is, so make the graph cheaper **first**.
 1. **Deploy the pending commits** (`git pull --ff-only` + `sudo systemctl restart
    mcp-server`). They include the answer-length limit in the compose prompt, the
    per-question RAGAS scores in the gate report, and the RAGAS inputs kept at
-   `data/evaluation/ragas_input_*.jsonl`. Then **measure**: same three questions,
+   `data/evaluation/ragas_input_*.jsonl`. Those input files are the evidence trail of
+   what the secondary scorer actually measured (E3b, `odd/tasks/e3b-real-answers-to-ragas.md`):
+   one JSON row per question — `{"question_id": …, "question": <real query text, never the
+   id>, "type": "local", "answer": <the text the generation layer produced>, "contexts":
+   [<the summaries/chunks that fed the synthesis>], "ground_truth": <canonical reference
+   when the dataset carries one, evidence for human audit only — no metric reads it>}`.
+   Then **measure**: same three questions,
    expecting ≤ ~800 chars and zero unicode escapes.
 2. **Fix a project-owned RAGAS baseline.** Today's baseline is 67 questions over
    `evaluation_dataset_dedup.jsonl` while the gate evaluates 35 generated answers:
