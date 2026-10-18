@@ -65,9 +65,12 @@ Each item states what it is, the evidence that it exists, and the block it belon
   recorded is closed: `domain/mcp_security.py::is_effective_secret_shape` applies exactly the
   `any(character.isprintable() ...)` guard it asked for, at both read sites, so a token of invisible
   non-whitespace characters can no longer become a credential. Left standing as this entry itself declared:
-  the low-entropy-token gap is a decision, not a bug. **Not verifiable from a checkout**: a names-only diff of
-  the template against the host's `.env` key list (`grep -o '^[A-Za-z_]*=' .env | sort` on that host), which is
-  what would settle the entry's opening claim instead of leaving it inherited.
+  the low-entropy-token gap is a decision, not a bug. **Verified 2026-10-18 on the host**: the names-only diff
+  (whitespace-tolerant on both sides) leaves exactly one variable in production's `.env` absent from the
+  template — `NEO4J_BIND_HOST`, which the compose defaults to `127.0.0.1` — and six template-only variables
+  (`APP_ENV`, `ASK_GLOBAL_*`, `COMMUNITY_*`, `ROUTER_*`) that the code defaults supply. The entry's opening
+  claim is settled, not inherited. *(A first attempt at this diff used a line-anchored pattern, which reads
+  indented keys as empty strings and reported 46 phantom absences; the tolerant form is the one to reuse.)*
 - **O4 `.env` (and its backups) were world-readable on that host.** **Resolved 2026-10-03**: `chmod 600 .env
   .env.bak-*` applied (all five files now `-rw-------`, owner `gonzalo`); the running service was unaffected (the
   environment was already loaded), file stays readable by its owner, and the smoke passed with the token read from
