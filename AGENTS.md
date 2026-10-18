@@ -180,10 +180,13 @@ destructiva:
 ### 7.6 Bindings de red — nunca `0.0.0.0`
 
 - **Neo4j (`bookgraph-neo4j`)**: los puertos `7474`/`7687` se publican SOLO en una
-  interfaz explícita. El host IP sale de `NEO4J_BIND_HOST` en `docker-compose.yml`
-  (default `127.0.0.1` en dev; en el OrangePi el `.env` fija la IP Tailscale
-  `100.106.85.109`). Si la IP no existe al arrancar, docker rechaza el bind:
-  fail-closed, nunca cae al wildcard.
+  interfaz explícita, que sale de `NEO4J_BIND_HOST` en `docker-compose.yml`. En dev el
+  default es `127.0.0.1`, y **en el OrangePi el `.env` del host también fija
+  `127.0.0.1`** (verificado el 2026-10-09: ambos puertos publicados en loopback puro,
+  sin bind al wildcard). Que en producción el grafo quede en loopback es lo correcto y
+  no una limitación: el camino de consumo remoto es el MCP sobre Tailscale, no el
+  puerto crudo. Si la IP no existe al arrancar, docker rechaza el bind: fail-closed,
+  nunca cae al wildcard. Re-verificar con `docker port bookgraph-neo4j` en el host.
 - **MCP SSE (`mcp-server.service`)**: ya usa `Environment=MCP_BIND_HOST=100.106.85.109`
   (R7). Ver §7.5 y `docs/ops/mcp-service.md`.
 - Regla general: ningún servicio de este proyecto publica puertos en `0.0.0.0` ni
