@@ -165,6 +165,25 @@ class PairwiseJudgment(BaseModel):
     judge_model_id: str
 
 
+class RagasSample(BaseModel):
+    """One real generation result handed to the passive RAGAS scorer (E3b).
+
+    The scorer is an auditor: it scores the question, answer and contexts the
+    evaluated pipeline already produced, and regenerates nothing. ``ground_truth``
+    travels for human traceability only — the runner writes it to the input
+    JSONL and never feeds it to a metric (the scored metric is reference-free by
+    design; see S6 in ``odd/tasks/e3b-real-answers-to-ragas.md``).
+    """
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    question_id: str
+    question: str
+    answer: str
+    contexts: tuple[str, ...] = ()
+    ground_truth: str = ""
+
+
 class RAGASQuestionScore(BaseModel):
     """Per-question RAGAS scores: the detail the aggregate metrics average away."""
 

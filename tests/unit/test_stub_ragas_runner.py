@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from book_graph_rag.domain.evaluation_models import RAGASSecondaryMetrics
+from book_graph_rag.domain.evaluation_models import RagasSample, RAGASSecondaryMetrics
 from book_graph_rag.infrastructure.stub_ragas_runner import StubRAGASRunner
 from book_graph_rag.infrastructure.subprocess_ragas_runner import SubprocessRAGASRunner
 
@@ -184,7 +184,12 @@ def test_subprocess_ragas_runner_keeps_the_answers_it_sent(tmp_path: Path) -> No
         runner.run(
             dataset_id="generation_dataset",
             generation_results=(
-                ("gen-001", "ReAct interleaves reasoning and acting.", ("ctx-a", "ctx-b")),
+                RagasSample(
+                    question_id="gen-001",
+                    question="What is the ReAct pattern?",
+                    answer="ReAct interleaves reasoning and acting.",
+                    contexts=("ctx-a", "ctx-b"),
+                ),
             ),
             previous_metrics=None,
         )

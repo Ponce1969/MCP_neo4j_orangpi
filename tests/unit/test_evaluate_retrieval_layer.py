@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pytest
@@ -18,6 +18,7 @@ from book_graph_rag.domain.evaluation_models import (
     EvaluationLayerResult,
     GlobalRetrievalAnswer,
     LayerStatus,
+    RagasSample,
     RAGASSecondaryMetrics,
     RetrievalContext,
 )
@@ -91,16 +92,16 @@ class _FakeRagasPort(RAGASRunnerPort):
         self._metrics = metrics
         #: Every call the layer made to the scorer, so a test can pin that the layer
         #: does NOT call it when there is nothing to score (E3a).
-        self.calls: list[tuple[str, tuple[tuple[str, str, tuple[str, ...]], ...]]] = []
+        self.calls: list[tuple[str, tuple[RagasSample, ...]]] = []
 
     async def run(
         self,
         *,
         dataset_id: str,
-        generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
+        generation_results: Sequence[RagasSample],
         previous_metrics: RAGASSecondaryMetrics | None = None,
     ) -> RAGASSecondaryMetrics:
-        self.calls.append((dataset_id, generation_results))
+        self.calls.append((dataset_id, tuple(generation_results)))
         return self._metrics
 
 
@@ -534,7 +535,14 @@ def test_ragas_unavailable_warning_forwards_only_sanitized_runner_notes(
     monkeypatch.setattr(
         uc,
         "_generation_results",
-        lambda: (("ret-001", "an answer", ("a:book:1",)),),
+        lambda: (
+            RagasSample(
+                question_id="ret-001",
+                question="q",
+                answer="an answer",
+                contexts=("a:book:1",),
+            ),
+        ),
     )
 
     result = asyncio.run(uc.execute())

@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from collections.abc import Sequence
 from typing import Any
 
 import pytest
@@ -28,6 +29,7 @@ from book_graph_rag.domain.evaluation_models import (
     LayerMetricValue,
     LayerRunMetadata,
     LayerStatus,
+    RagasSample,
     RAGASSecondaryMetrics,
     ReadinessGatePolicy,
     ReadinessLayerStatus,
@@ -103,7 +105,7 @@ class _UnavailableRagas:
         self,
         *,
         dataset_id: str,
-        generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
+        generation_results: Sequence[RagasSample],
         previous_metrics: RAGASSecondaryMetrics | None = None,
     ) -> RAGASSecondaryMetrics:
         _ = dataset_id, generation_results, previous_metrics
