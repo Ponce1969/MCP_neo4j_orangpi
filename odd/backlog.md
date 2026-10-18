@@ -57,6 +57,17 @@ Each item states what it is, the evidence that it exists, and the block it belon
   trivially-guessable credential. A one-line guard would be `any(char.isprintable() ...)` on the
   stripped value. It also noted the inherent policy gap that a low-entropy token like `"a"`
   passes: the code does not assess guessability, and that is a decision rather than a bug.
+  **Closed 2026-10-18** (the template by #37 and the read-only-credential work; the guard by R2):
+  (a) the example now points **both** roles at production's provider — `GRAPH_LLM_MODEL_NAME=deepseek-v4-pro`
+  and `QUERY_LLM_MODEL_NAME=deepseek-v4-flash`, the latter with the comment that production runs the same —
+  so a fresh clone no longer lands on NVIDIA/Llama; (b) the template **carries `MCP_ACCESS_TOKEN=`** and its
+  header states that a production server refuses to start without it; and the narrower residual this entry
+  recorded is closed: `domain/mcp_security.py::is_effective_secret_shape` applies exactly the
+  `any(character.isprintable() ...)` guard it asked for, at both read sites, so a token of invisible
+  non-whitespace characters can no longer become a credential. Left standing as this entry itself declared:
+  the low-entropy-token gap is a decision, not a bug. **Not verifiable from a checkout**: a names-only diff of
+  the template against the host's `.env` key list (`grep -o '^[A-Za-z_]*=' .env | sort` on that host), which is
+  what would settle the entry's opening claim instead of leaving it inherited.
 - **O4 `.env` (and its backups) were world-readable on that host.** **Resolved 2026-10-03**: `chmod 600 .env
   .env.bak-*` applied (all five files now `-rw-------`, owner `gonzalo`); the running service was unaffected (the
   environment was already loaded), file stays readable by its owner, and the smoke passed with the token read from
@@ -70,6 +81,10 @@ Each item states what it is, the evidence that it exists, and the block it belon
   merge: the namespace guard lives only in `resolution_policy.decide()` (so a script can bypass it) and
   `ApproveQuarantineUseCase` has no CLI, making the quarantine queue write-only. Adjacent defect: community
   construction does not filter `merged_into`.
+  **Stale as written 2026-10-18, kept for the record.** This is pre-decision narration: the two gaps it lists are
+  closed in the "two gaps before any new merge" entry below, the adjacent `merged_into` defect is closed under
+  the same block header, and the block is declared closed 2026-10-06. Nothing here is pending work; the only
+  live remainder of Block A is the community rebuild noted there.
 - **O3 The repo's systemd unit artifact was not what ran (drift).** `deploy/mcp-server.service` declares
   `EnvironmentFile=<repo>/.env` and `Environment=MCP_BIND_HOST=100.106.85.109` (R7 comment about a fail-closed
   private bind), while the **live** `/etc/systemd/system/mcp-server.service` had neither for months. **Resolved
@@ -264,6 +279,10 @@ Deliberately out of scope, with comments in the code: `scripts/migrate_namespace
   that pinned the old warning were rewritten to the new contract — the `chunk_id` one keeps its `0.0` assertion,
   which is its real point. Residual, noted for whoever finalizes thresholds: the committed `0.045` sits ~6 % below
   the measured `0.0478`, so that check is the fragile one now, and it is the one that matters.
+  **Superseded 2026-10-18**: nobody has to finalize these numbers any more. As of 2026-10-15 the committed
+  retrieval threshold is `precision_at_k_min = 0.1175` against a measured `precision_at_k = 0.1250`, with
+  `thresholds_finalized: true` in `data/evaluation/retrieval_baseline.json`. Both the `0.045` and the `0.0478`
+  this residual worried about are gone from the gate's inputs.
 - **B3 Legacy checkpoints — closed 2026-10-07 as "accepted, nothing to repair".** A read-only census of
   production (`MATCH (c:Checkpoint)` per source, run through the project's own container) settled what this entry
   had guessed:
@@ -374,6 +393,18 @@ to the project-owned claims metric, which is what T8 measured.
   pass the real question, answer and contexts through `RAGASRunnerPort.run` (the port signature already
   carries them), stop writing the id as the question, and let the use case keep the per-question answer
   so the secondary signal becomes a real measurement.
+  **Closed 2026-10-18 by the E3b merge** (`96e2131` + `3ff0382` + `2e77d67`), with **one claim of this entry
+  corrected**. (a) The empty tuple is gone: the layer now builds a typed `RagasSample` from the real
+  per-question question, answer, contexts and reference. (b) The runner writes `sample.question`, never the id,
+  and the script scores what it receives — its re-answering path was removed. (c) **This entry's
+  `gr3_after.json` claim was wrong**: the runner always passes `--after-output` and redirects that write (the
+  redirect is documented in `subprocess_ragas_runner.py`), and a full 26-minute run with integration left
+  `docs/benchmarks/` byte-identical. The file that broke the guard on the host was a residue of a **manual**
+  script run, not of the gate: the guard was reporting real dirt, correctly. (d) The `0.6825` reading is
+  superseded by the 2026-10-15 recalibration: the baseline records
+  `metrics.faithfulness = 0.8988195615514334` with `faithfulness_min = 0.8`. The fix shape this entry proposed
+  — the real question, answer and contexts through the port, no id as the question — is exactly what E3b
+  implemented.
 - **E2 The layer-5 contexts do not depend on the question.** `fetch_contexts(qtype="global")` returned
   exactly the same **164 contexts, 674 623 chars (659 KiB), zero with a `chunk_id`** for `gen-001`,
   `gen-002` and `gen-003` on production (0.2–0.3 s each, measured 2026-10-15 over the SSH tunnel). Two
