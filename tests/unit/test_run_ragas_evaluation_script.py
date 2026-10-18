@@ -259,7 +259,39 @@ def test_an_all_skipped_dataset_fails_loudly_instead_of_looking_clean(
     ]
 
     with pytest.raises(run_ragas_module.click.ClickException):
-        run_ragas_module._run_ragas(rows, Settings.model_validate({}))
+        run_ragas_module._run_ragas(rows, _settings())
+
+
+def _settings() -> Settings:
+    """Settings built from explicit values, never from the machine's environment.
+
+    ``Settings.model_validate({})`` resolves the required fields from the ambient
+    environment and the checkout's ``.env``, so it is valid on a developer machine and
+    a ValidationError on a clean one — the same machine dependence the rest of the suite
+    was cleaned of. Testing a scoring filter needs no real credentials, only a value.
+    """
+    return Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "fake",  # pragma: allowlist secret
+        }
+    )
+
+
+def test_a_whitespace_only_answer_counts_as_nothing_to_score() -> None:
+    """Blank is empty here too: Python truthiness would score a string of spaces.
+
+    Mirrors the layer's rule at the script's own filter, so a hand-fed dataset
+    cannot smuggle a whitespace-only row into the metric either.
+    """
+    rows: list[dict[str, Any]] = [
+        {"type": "local", "question": "q?", "answer": "   ", "contexts": ["ctx"]},
+        {"type": "global", "question": "q2?", "answer": "real", "contexts": [" "]},
+    ]
+
+    with pytest.raises(run_ragas_module.click.ClickException):
+        run_ragas_module._run_ragas(rows, _settings())
 
 
 def test_the_scorer_stays_reference_free_even_though_ground_truth_travels() -> None:
@@ -271,10 +303,23 @@ def test_the_scorer_stays_reference_free_even_though_ground_truth_travels() -> N
     only be exercised with live LLM calls, so this pin holds the source
     contract: the reference-free metric is the one instantiated, and no
     ``reference`` column is ever handed to the scored dataset.
+
+    Its limit, stated rather than implied: this is a *wiring* contract read from
+    the source, not a behavioural pin, and an alias that kept the class name
+    while changing what it wraps would evade it. That is why it also asserts the
+    scored dataset's columns — the half closer to behaviour.
     """
     source = Path(run_ragas_module.__file__).read_text(encoding="utf-8")
 
-    assert "_LLMContextPrecisionWithoutReference" in source
+    assert "_LLMContextPrecisionWithoutReference" in source, (
+        "the instantiated metric must be the reference-free one"
+    )
+    assert "_LLMContextPrecisionWithReference" not in source, (
+        "switching to the reference-based metric would change what the number measures"
+    )
     assert '"reference"' not in source, (
         "the curated dataset carries no reference; feeding one would change what is measured"
+    )
+    assert '"retrieved_contexts"' in source, (
+        "the scored dataset is built from user_input/response/retrieved_contexts only"
     )
