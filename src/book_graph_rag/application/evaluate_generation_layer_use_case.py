@@ -22,6 +22,7 @@ from book_graph_rag.domain.evaluation_models import (
     LayerMetricValue,
     LayerRunMetadata,
     LayerStatus,
+    RagasSample,
     RAGASSecondaryMetrics,
 )
 from book_graph_rag.ports.claim_validator_port import ClaimValidatorPort
@@ -136,22 +137,23 @@ class EvaluateGenerationLayerUseCase:
             ),
         )
 
-        ragas = await self._run_ragas(baseline, per_question_results, run_ragas=run_ragas)
+        ragas, ragas_skip_note = await self._run_ragas(
+            baseline, per_question_results, run_ragas=run_ragas
+        )
         warnings: list[str] = [
             f"question {question_id} could not be evaluated: {message}"
             for question_id, message in failures
         ]
-        if not ragas.available:
+        if ragas is not None and not ragas.available:
             warnings.append(f"RAGAS unavailable: {ragas.notes}")
         # The drop signal is the layer's OWN claim-verified faithfulness vs the committed
         # baseline's faithfulness — the same instrument on both sides. It must not be
-        # routed through the RAGAS secondary: the runner scores a dataset this layer fills
-        # with empty answers keyed by question id (the script re-answers the ids itself),
-        # and the committed baseline carries no RAGAS number at all. Comparing the two
-        # under one name produced the 2026-10-16 gate warning
-        # "RAGAS drop in faithfulness vs baseline: 0.8988 -> 0.7143" whose two numbers
-        # came from two different instruments while the same report called RAGAS
-        # unavailable.
+        # routed through the RAGAS secondary: the committed baseline carries no RAGAS
+        # number at all, so comparing the two under one name produces a warning whose
+        # two numbers come from two different instruments. That is what produced the
+        # 2026-10-16 gate warning "RAGAS drop in faithfulness vs baseline:
+        # 0.8988 -> 0.7143", whose right-hand number came from the re-answered phantom
+        # dataset E3b closed, while the same report called RAGAS unavailable.
         baseline_faithfulness = baseline.metrics.get("faithfulness")
         if (
             baseline_faithfulness is not None
@@ -169,6 +171,7 @@ class EvaluateGenerationLayerUseCase:
                 metrics=metrics,
                 baseline=baseline,
                 ragas=ragas,
+                ragas_skip_note=ragas_skip_note,
                 pairwise_wins=pairwise_wins,
                 pairwise_total=pairwise_total,
                 warnings=tuple(warnings),
@@ -188,6 +191,7 @@ class EvaluateGenerationLayerUseCase:
                 metrics=metrics,
                 baseline=baseline,
                 ragas=ragas,
+                ragas_skip_note=ragas_skip_note,
                 pairwise_wins=pairwise_wins,
                 pairwise_total=pairwise_total,
                 warnings=tuple(warnings),
@@ -206,6 +210,7 @@ class EvaluateGenerationLayerUseCase:
                 metrics=metrics,
                 baseline=baseline,
                 ragas=ragas,
+                ragas_skip_note=ragas_skip_note,
                 pairwise_wins=pairwise_wins,
                 pairwise_total=pairwise_total,
                 warnings=tuple(warnings),
@@ -217,6 +222,7 @@ class EvaluateGenerationLayerUseCase:
             metrics=metrics,
             baseline=baseline,
             ragas=ragas,
+            ragas_skip_note=ragas_skip_note,
             pairwise_wins=pairwise_wins,
             pairwise_total=pairwise_total,
             warnings=tuple(warnings),
@@ -327,6 +333,10 @@ class EvaluateGenerationLayerUseCase:
         )
         return _PerQuestionResult(
             question_id=question_id,
+            question=question,
+            answer=answer,
+            contexts=context_texts,
+            ground_truth=reference_answer,
             claims=verified,
             pairwise=pairwise,
             grounding=evidence_usage,
@@ -338,18 +348,45 @@ class EvaluateGenerationLayerUseCase:
         per_question_results: tuple[_PerQuestionResult, ...],
         *,
         run_ragas: bool,
-    ) -> RAGASSecondaryMetrics:
+    ) -> tuple[RAGASSecondaryMetrics | None, str | None]:
+        """Return ``(metrics, skip_note)``: a note without metrics means nothing to score.
+
+        E3b made this layer hand the scorer the real answers, questions and contexts it
+        produced (never the old ``(id, "", ())`` phantom), and E3a's invariant then
+        applies to what remains: a question whose answer or contexts are empty is
+        skipped, and when that leaves nothing the scorer is not invoked at all.
+        Nothing to score is a fact for the rationale, never a warning: a warning that
+        fires on every run is one operators learn to skip.
+        """
         if not run_ragas:
-            return RAGASSecondaryMetrics(available=False, notes="skipped")
-        generation_results = tuple((r.question_id, "", ()) for r in per_question_results)
+            return None, None
+        generation_results = tuple(
+            RagasSample(
+                question_id=result.question_id,
+                question=result.question,
+                answer=result.answer,
+                contexts=result.contexts,
+                ground_truth=result.ground_truth,
+            )
+            for result in per_question_results
+            if result.answer and result.contexts
+        )
+        if not generation_results:
+            return None, (
+                "no secondary RAGAS metrics: nothing to score, every evaluated question "
+                "lacked an answer or contexts (skip-when-empty, E3a invariant)"
+            )
         # No ``previous_metrics`` snapshot: the committed baseline's faithfulness is the
         # claim-verified primary number, not a RAGAS measurement, so handing it to the
         # runner as a "previous RAGAS value" made the runner compute a cross-instrument
         # comparison that the layer then printed under RAGAS's name. The secondary result
         # now carries only what RAGAS itself measured.
-        return await self._ragas_port.run(
-            dataset_id=baseline.dataset_id,
-            generation_results=generation_results,
+        return (
+            await self._ragas_port.run(
+                dataset_id=baseline.dataset_id,
+                generation_results=generation_results,
+            ),
+            None,
         )
 
     def _result(
@@ -363,6 +400,7 @@ class EvaluateGenerationLayerUseCase:
         pairwise_wins: int,
         pairwise_total: int,
         warnings: tuple[str, ...] = (),
+        ragas_skip_note: str | None = None,
     ) -> EvaluationLayerResult:
         model_ids: tuple[str, ...] = ()
         if baseline is not None:
@@ -381,6 +419,7 @@ class EvaluateGenerationLayerUseCase:
             warnings=warnings,
             rationale=(
                 f"{rationale} (claims={claim_count}, pairwise={pairwise_wins}/{pairwise_total})"
+                + (f"; {ragas_skip_note}" if ragas_skip_note else "")
             ),
             source_dataset_id=baseline.dataset_id if baseline else "generation_dataset",
             baseline_report_path="data/evaluation/generation_baseline.json" if baseline else None,
@@ -429,11 +468,25 @@ class _PerQuestionResult:
         self,
         *,
         question_id: str,
+        question: str,
+        answer: str,
+        contexts: tuple[str, ...],
+        ground_truth: str,
         claims: tuple[AtomicClaim, ...],
         pairwise: Any,
         grounding: AnswerGrounding | None = None,
     ) -> None:
         self.question_id = question_id
+        #: The real query text, the produced answer and the contexts that fed its
+        #: synthesis: exactly what the secondary RAGAS scorer must audit (E3b). They
+        #: were already local variables in ``_evaluate_one`` — retaining them costs
+        #: zero new graph queries.
+        self.question = question
+        self.answer = answer
+        self.contexts = contexts
+        #: The canonical reference when the dataset carries one. Evidence for human
+        #: traceability in the input JSONL only; no metric reads it (S6).
+        self.ground_truth = ground_truth
         self.claims = claims
         self.pairwise = pairwise
         self.grounding = grounding

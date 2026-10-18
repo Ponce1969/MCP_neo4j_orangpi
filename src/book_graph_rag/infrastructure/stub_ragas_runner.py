@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from book_graph_rag.domain.evaluation_models import RAGASSecondaryMetrics
+from book_graph_rag.domain.evaluation_models import RagasSample, RAGASSecondaryMetrics
 from book_graph_rag.ports.ragas_runner_port import RAGASRunnerPort
 
 
@@ -25,7 +26,7 @@ class StubRAGASRunner(RAGASRunnerPort):
         self,
         *,
         dataset_id: str,
-        generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
+        generation_results: Sequence[RagasSample],
         previous_metrics: RAGASSecondaryMetrics | None = None,
     ) -> RAGASSecondaryMetrics:
         """Return fixture metrics or an unavailable warning."""

@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+from book_graph_rag.domain.evaluation_models import RagasSample
 from book_graph_rag.infrastructure.subprocess_ragas_runner import SubprocessRAGASRunner
 
 _REPO_ARTIFACT = Path("docs/benchmarks/gr3_after.json")
@@ -80,7 +81,14 @@ async def test_the_subprocess_cannot_dirty_the_repo(tmp_path: Path, monkeypatch:
 
     metrics = await runner.run(
         dataset_id="generation_dataset",
-        generation_results=(("gen-001", "an answer", ("a context",)),),
+        generation_results=(
+            RagasSample(
+                question_id="gen-001",
+                question="q",
+                answer="an answer",
+                contexts=("a context",),
+            ),
+        ),
     )
 
     assert metrics.available, metrics.notes
@@ -129,6 +137,59 @@ async def test_json_parse_failure_notes_are_redacted(
     assert _expected_fingerprint(_MARKER) in serialized
 
 
+async def test_the_input_jsonl_carries_the_real_answer_textually(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """E3b pin: the intermediate JSONL contains the produced answer verbatim.
+
+    The runner used to write ``"question": question_id`` and received an answer
+    field the layer filled with ``""`` — the scorer's input was a phantom, and
+    the script re-answered the id from the graph. This pin reads the artifact the
+    runner keeps (the dataset the scorer is actually handed) and holds that the
+    real query text, the answer text, the contexts and the evidence-only
+    ``ground_truth`` all survive textually.
+    """
+    captured: list[tuple[list[str], dict[str, Any]]] = []
+    monkeypatch.setattr(subprocess, "run", _fake_subprocess_run(captured))
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    runner = SubprocessRAGASRunner(
+        answers_dir=str(tmp_path / "answers"),
+        hmac_key_id=_TEST_KEY_ID,
+        hmac_secret=_TEST_SECRET,
+    )
+    answer_text = "ReAct interleaves reasoning and acting over the retrieved summaries."
+    ground_truth = "ReAct couples a reasoning trace with tool actions."
+
+    metrics = await runner.run(
+        dataset_id="generation_dataset",
+        generation_results=(
+            RagasSample(
+                question_id="gen-001",
+                question="What is the ReAct pattern?",
+                answer=answer_text,
+                contexts=("ctx-a", "ctx-b"),
+                ground_truth=ground_truth,
+            ),
+        ),
+    )
+
+    assert metrics.available, metrics.notes
+    kept = sorted((tmp_path / "answers").glob("*.jsonl"))
+    assert len(kept) == 1, "the dataset sent to RAGAS must be kept on disk"
+    raw = kept[0].read_text(encoding="utf-8")
+    row = json.loads(raw.splitlines()[0])
+    assert answer_text in raw, "the produced answer must survive textually into the input JSONL"
+    assert row["answer"] == answer_text
+    assert row["question"] == "What is the ReAct pattern?", (
+        "the real query text must be scored, never the question id"
+    )
+    assert row["question_id"] == "gen-001"
+    assert row["contexts"] == ["ctx-a", "ctx-b"]
+    assert row["ground_truth"] == ground_truth, (
+        "the reference travels as evidence for human audit (S6), even though no metric reads it"
+    )
+
+
 async def test_subprocess_failure_notes_are_redacted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -152,7 +213,9 @@ async def test_subprocess_failure_notes_are_redacted(
     )
     metrics = await runner.run(
         dataset_id="generation_dataset",
-        generation_results=(("q1", "answer", ("context",)),),
+        generation_results=(
+            RagasSample(question_id="q1", question="q", answer="answer", contexts=("context",)),
+        ),
     )
     serialized = metrics.model_dump_json()
 

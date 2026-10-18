@@ -8,12 +8,17 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from book_graph_rag.domain.checkpoint_models import format_redacted_error
-from book_graph_rag.domain.evaluation_models import RAGASQuestionScore, RAGASSecondaryMetrics
+from book_graph_rag.domain.evaluation_models import (
+    RAGASQuestionScore,
+    RagasSample,
+    RAGASSecondaryMetrics,
+)
 from book_graph_rag.ports.ragas_runner_port import RAGASRunnerPort
 
 logger = logging.getLogger(__name__)
@@ -99,20 +104,26 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
 
     def _write_generation_jsonl(
         self,
-        generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
+        generation_results: Sequence[RagasSample],
     ) -> Path:
         self._answers_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         answers_path = self._answers_dir / f"ragas_input_{stamp}.jsonl"
         rows: list[dict[str, Any]] = []
-        for question_id, answer, contexts in generation_results:
+        for sample in generation_results:
             rows.append(
                 {
-                    "question_id": question_id,
-                    "question": question_id,
+                    "question_id": sample.question_id,
+                    # The real query text, never the id: the script scores what it
+                    # receives (E3b), so a question written as an id would silently
+                    # become a slug the metric cannot judge.
+                    "question": sample.question,
                     "type": "local",
-                    "answer": answer,
-                    "contexts": list(contexts),
+                    "answer": sample.answer,
+                    "contexts": list(sample.contexts),
+                    # Evidence for human traceability and auditing (S6): the scorer
+                    # never reads a reference — the metric is reference-free by design.
+                    "ground_truth": sample.ground_truth,
                 }
             )
         with answers_path.open("w", encoding="utf-8") as f:
@@ -124,7 +135,7 @@ class SubprocessRAGASRunner(RAGASRunnerPort):
         self,
         *,
         dataset_id: str,
-        generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
+        generation_results: Sequence[RagasSample],
         previous_metrics: RAGASSecondaryMetrics | None = None,
     ) -> RAGASSecondaryMetrics:
         """Run RAGAS via subprocess or parse a pre-generated JSON output file."""

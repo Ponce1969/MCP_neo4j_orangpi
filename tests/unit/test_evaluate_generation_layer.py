@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import hmac
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import pytest
@@ -22,6 +22,7 @@ from book_graph_rag.domain.evaluation_models import (
     GlobalRetrievalAnswer,
     LayerStatus,
     PairwiseJudgment,
+    RagasSample,
     RAGASSecondaryMetrics,
     RetrievalContext,
 )
@@ -153,14 +154,18 @@ class _FakePairwisePort(PairwiseJudgePort):
 class _FakeRagasPort(RAGASRunnerPort):
     def __init__(self, metrics: RAGASSecondaryMetrics) -> None:
         self._metrics = metrics
+        #: Every call the layer made to the scorer, so a test can pin what the
+        #: secondary actually received (E3b: real answers, not the phantom dataset).
+        self.calls: list[tuple[str, tuple[RagasSample, ...]]] = []
 
     async def run(
         self,
         *,
         dataset_id: str,
-        generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
+        generation_results: Sequence[RagasSample],
         previous_metrics: RAGASSecondaryMetrics | None = None,
     ) -> RAGASSecondaryMetrics:
+        self.calls.append((dataset_id, tuple(generation_results)))
         return self._metrics
 
 
@@ -769,7 +774,7 @@ def test_pipeline_orchestration_order() -> None:
             self,
             *,
             dataset_id: str,
-            generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
+            generation_results: Sequence[RagasSample],
             previous_metrics: RAGASSecondaryMetrics | None = None,
         ) -> RAGASSecondaryMetrics:
             calls.append("ragas")
@@ -876,3 +881,76 @@ def test_a_context_set_without_ids_reports_an_undefined_citation_share() -> None
     assert grounding.questions[0].contexts_with_ids == 0
     assert grounding.questions[0].cited_context_share is None
     assert grounding.mean_cited_context_share is None
+
+
+def test_ragas_receives_the_real_answer_it_must_score() -> None:
+    """E3b pin: the secondary scorer audits the answer the pipeline actually produced.
+
+    The layer used to hand the runner a phantom dataset — question = question id,
+    empty answer, empty contexts — and the script re-answered the id from the
+    graph, so the recorded RAGAS numbers never measured these answers (the 0.7143
+    of 2026-10-16 came from re-answered questions). The payload is observed at
+    the port boundary: the real question text, the produced answer verbatim, the
+    contexts that fed the synthesis, and the reference travelling as
+    evidence-only ``ground_truth`` (S6: it never feeds a metric).
+    """
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={"faithfulness": 0.8},
+    )
+    produced = "MCP is a protocol that lets agents expose tools to each other."
+    uc = _make_use_case(baseline=baseline, answers={"what is MCP?": produced})
+
+    result = asyncio.run(uc.execute())
+
+    ragas_port = uc._ragas_port
+    assert isinstance(ragas_port, _FakeRagasPort)
+    assert result.status == LayerStatus.PASSED
+    assert len(ragas_port.calls) == 1, "with real answers the scorer must be called once"
+    dataset_id, samples = ragas_port.calls[0]
+    assert dataset_id == "generation_dataset"
+    assert len(samples) == 1
+    sample = samples[0]
+    assert sample.question_id == "q1"
+    assert sample.question == "what is MCP?", "the real query text must travel, never the id"
+    assert sample.answer == produced, "the produced answer must reach the scorer verbatim"
+    assert sample.contexts == ("ctx1", "ctx2")
+    assert sample.ground_truth == "MCP is a protocol."
+
+
+def test_empty_answers_skip_the_scorer_without_a_loud_warning() -> None:
+    """E3b mirrors E3a: nothing to score is not a failure, and it must not cry.
+
+    When every evaluated question lacks an answer or contexts, calling the scorer
+    anyway writes a dataset of empty rows — the phantom E3b closes. The layer must
+    not invoke the scorer at all, must keep the warnings channel free of RAGAS
+    complaints (a warning on every run is one operators learn to skip), and must
+    record the fact where it does not cry: the rationale, with
+    ``ragas_secondary`` left undefined rather than a clean-looking measurement.
+    """
+    baseline = EvaluationBaselineReport(
+        layer="generation",
+        dataset_id="generation_dataset",
+        dataset_sha256="0" * 64,
+        thresholds_finalized=True,
+        faithfulness_min=0.5,
+        metrics={"faithfulness": 0.8},
+    )
+    uc = _make_use_case(baseline=baseline, answers={"what is MCP?": ""})
+
+    result = asyncio.run(uc.execute())
+
+    ragas_port = uc._ragas_port
+    assert isinstance(ragas_port, _FakeRagasPort)
+    assert result.status == LayerStatus.PASSED
+    assert ragas_port.calls == [], "the scorer must not be invoked when there is nothing to score"
+    assert not any("RAGAS" in w for w in result.warnings), (
+        "nothing-to-score must never cry in the warnings"
+    )
+    assert result.ragas_secondary is None
+    assert "RAGAS" in result.rationale
+    assert "nothing to score" in result.rationale

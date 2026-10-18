@@ -1,17 +1,30 @@
-"""Run RAGAS evaluation against the book-graph-rag system.
+"""Score a RAGAS evaluation dataset the evaluated pipeline already answered.
 
-Two evaluation paths (matching the dataset's ``type`` field):
+Pure scoring, no fabrication (E3b): the script receives one JSON row per
+question — the real benchmark query text, the answer the generation layer
+produced in the evaluated pass, and the contexts that fed its synthesis — and
+computes Faithfulness, AnswerRelevancy and LLMContextPrecisionWithoutReference
+over exactly those payloads. It never answers or re-answers a question: a
+number computed here over self-fabricated answers would audit something that
+never touched the evaluated pipeline (the phantom dataset E3b closed, whose
+recorded ``0.7143`` came from re-answered ids).
 
-* ``global`` → ``GlobalQueryUseCase.ask()`` → NL answer + summary contexts
-  → evaluated by RAGAS directly.
-* ``local``  → ``search_chunks`` + ``find_entity`` → structured contexts
-  → a proxy LLM composes an NL answer → evaluated by RAGAS.
+Contract of each input row, as scored::
 
-The script wires the same adapters as the MCP server (*composition root* pattern)
-so it tests the real retrieval pipeline, not mocks.
+    {"question": <real query text>, "answer": <produced answer>,
+     "contexts": [<retrieved texts>], "ground_truth": <reference or "">}
+
+Rules the row handling enforces:
+
+* A row whose ``answer`` or ``contexts`` are empty is skipped (E3a
+  skip-when-empty): a missing input is not a failure and must not cry.
+* A run in which every row is skipped fails loudly instead of emitting null
+  metrics that read like a clean measurement.
+* A malformed row is persisted as a redacted error row (R5): loud, never a
+  crash, never a fabricated answer.
 
 Produces ``docs/benchmarks/gr3_baseline.json`` with raw metrics and
-per-question results. All intermediate tuples are preserved in
+per-question results. The received rows are preserved in
 ``evaluation_results.jsonl`` for reproducibility.
 
 Usage::
@@ -23,7 +36,6 @@ Usage::
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
@@ -32,25 +44,10 @@ from pathlib import Path
 from typing import Any, cast
 
 import click
-from pydantic import BaseModel
 
-from book_graph_rag.application.global_query_use_case import GlobalQueryUseCase
 from book_graph_rag.config import Settings, validate_llm_provider_settings
 from book_graph_rag.domain.checkpoint_models import format_redacted_error
-from book_graph_rag.infrastructure.community_adapter import Neo4jCommunityAdapter
-from book_graph_rag.infrastructure.llm_adapter import (
-    LLMAdapter,
-    _escape_json_string_control_chars,
-)
-from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
-from book_graph_rag.ports.community_read_port import CommunityReadPort
-
-
-class _ProxyAnswer(BaseModel):
-    """Lightweight model so instructor can return a raw completion as a string."""
-
-    answer: str
-
+from book_graph_rag.infrastructure.llm_adapter import _escape_json_string_control_chars
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
@@ -70,7 +67,7 @@ _EMBEDDINGS_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 def _load_dataset(path: str) -> list[dict[str, str]]:
-    """Load the curated evaluation dataset (one JSON object per line)."""
+    """Load the input dataset: one JSON row per question, already answered (E3b)."""
     samples: list[dict[str, str]] = []
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -110,73 +107,32 @@ def _compute_deltas(current: dict[str, Any], baseline: dict[str, Any]) -> dict[s
     return deltas
 
 
-async def _proxy_compose(llm_adapter: LLMAdapter, question: str, contexts: list[str]) -> str:
-    """Generate a short NL answer from retrieved contexts.
+def _prepare_row(sample: dict[str, Any]) -> dict[str, Any]:
+    """Validate one received row and normalize it to the scoring contract.
 
-    This is the proxy for entity-level questions — the real system returns
-    structured JSON, so a lightweight LLM call bridges the gap for RAGAS.
+    The script scores what it receives (E3b) and fabricates nothing: a row must
+    carry the real benchmark question text, and its answer/contexts — when
+    present — must be a string / list of strings. An EMPTY answer or context
+    list is legal here: the skip rule at scoring time owns that case (E3a), not
+    this validator. Anything else is a malformed row: ``main`` persists the
+    failure as a redacted error row (R5) — loud, never a crash and never a
+    fabricated answer.
     """
-    joined = "\n---\n".join(contexts[:15])  # cap at 15 contexts to stay in window
-    prompt = (
-        f"Question: {question}\n\n"
-        f"Relevant contexts:\n{joined}\n\n"
-        "Answer the question concisely based ONLY on the contexts above. "
-        "If the answer cannot be found, say so."
-    )
-    response = await llm_adapter._query_client.chat.completions.create(  # noqa: SLF001
-        model=llm_adapter._settings.query_llm_model_name,  # noqa: SLF001
-        response_model=_ProxyAnswer,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.answer
-
-
-# ── Evaluation paths ───────────────────────────────────────────────────────
-
-
-async def _evaluate_global(
-    question: str,
-    global_uc: GlobalQueryUseCase,
-    community_read: CommunityReadPort,
-    detail_level: int,
-) -> tuple[str, list[str]]:
-    """Answer a global question via map-reduce community summaries."""
-    result = await global_uc.ask(question, detail_level)
-    answer: str = result["answer"]
-    citation_ids: list[str] = result["citations"]
-
-    # Resolve citation ids to actual summary texts for RAGAS contexts.
-    summaries = await community_read.get_summaries_by_level(detail_level)
-    summary_map = {s.id: s.summary for s in summaries}
-    contexts = [summary_map[cid] for cid in citation_ids if cid in summary_map]
-    return answer, contexts
-
-
-async def _evaluate_local(
-    question: str,
-    query_adapter: Neo4jQueryAdapter,
-    llm_adapter: LLMAdapter,
-    chunk_limit: int = 10,
-) -> tuple[str, list[str]]:
-    """Answer a local question via chunk + entity search + proxy compose."""
-    chunks, entities = await asyncio.gather(
-        query_adapter.search_chunks(question, limit=chunk_limit),
-        query_adapter.find_entity(question, None),
-        return_exceptions=True,
-    )
-
-    contexts: list[str] = []
-    if isinstance(chunks, list):
-        contexts.extend(c.get("text", "") for c in chunks if isinstance(c, dict) and c.get("text"))
-    if isinstance(entities, list):
-        contexts.extend(
-            f"{e.entity.name}: {e.entity.description}"
-            for e in entities
-            if hasattr(e, "entity") and e.entity.description
-        )
-
-    answer = await _proxy_compose(llm_adapter, question, contexts)
-    return answer, contexts
+    question = sample["question"]
+    if not isinstance(question, str) or not question.strip():
+        raise ValueError("row has no benchmark question text")
+    answer = sample.get("answer", "")
+    if not isinstance(answer, str):
+        raise TypeError(f"answer must be a string, got {type(answer).__name__}")
+    contexts = sample.get("contexts", [])
+    if not isinstance(contexts, list) or any(not isinstance(c, str) for c in contexts):
+        raise TypeError("contexts must be a list of strings")
+    return {
+        **sample,
+        "answer": answer,
+        "contexts": list(contexts),
+        "context_count": len(contexts),
+    }
 
 
 # ── RAGAS integration ──────────────────────────────────────────────────────
@@ -241,8 +197,16 @@ def _ensure_questions(total_questions: int) -> None:
 def _run_ragas(
     results: list[dict[str, Any]],
     settings: Settings,
-) -> Any:  # ragas returns EvaluationResult (a dict-like dataclass)
-    """Compute Faithfulness, AnswerRelevancy, and ContextPrecision.
+) -> tuple[dict[str, float], list[dict[str, Any]]]:
+    """Compute Faithfulness, AnswerRelevancy and ContextPrecision over what was received.
+
+    E3b: scoring only — every row already carries the answer and the contexts
+    the evaluated pipeline produced; nothing here touches the graph. Rows whose
+    answer or contexts are empty are skipped (E3a skip-when-empty), and if that
+    leaves nothing the run fails loudly instead of reporting null metrics that
+    read like a clean measurement (S9). The check runs before any ragas import
+    or model construction, so the loud failure needs no dependency and no
+    network.
 
     ragas 0.4.3 note: ``evaluate()`` only accepts v1 ``Metric`` objects — the
     v2 ``collections`` metrics fail its isinstance gate — so we import the v1
@@ -253,6 +217,13 @@ def _run_ragas(
     Requires ``ragas``, ``langchain-openai`` and ``langchain-huggingface`` in
     the dev group.
     """
+    metric_rows = [r for r in results if r.get("answer") and r.get("contexts")]
+    if not metric_rows:
+        raise click.ClickException(
+            f"nothing to score: {len(results)} row(s) received and none carried both "
+            "an answer and contexts; skipping everything must not look like a clean "
+            "measurement"
+        )
     try:
         from datasets import Dataset
         from langchain_huggingface import HuggingFaceEmbeddings as LangchainHFEmbeddings
@@ -340,15 +311,6 @@ def _run_ragas(
         )
         sys.exit(1)
 
-    metric_rows = [r for r in results if r.get("answer") is not None]
-    if not metric_rows:
-        click.echo(
-            f"All {len(results)} questions failed — nothing to score. "
-            "Check the per-question errors above.",
-            err=True,
-        )
-        return None
-
     dataset = Dataset.from_list(
         [
             {
@@ -393,7 +355,7 @@ def _run_ragas(
     "--dataset",
     "-d",
     default=_DEFAULT_DATASET,
-    help="Path to the curated evaluation dataset (JSONL)",
+    help="Path to the scored input dataset (JSONL, one answered row per question)",
 )
 @click.option(
     "--detail-level",
@@ -437,7 +399,7 @@ def main(
     json_output: Path | None,
     after_output: Path | None,
 ) -> None:
-    """Run the RAGAS evaluation pipeline."""
+    """Score the received dataset with RAGAS (E3b: pure scoring, no fabrication)."""
     settings = Settings.model_validate({})
     try:
         validate_llm_provider_settings(settings)
@@ -448,75 +410,32 @@ def main(
     samples = _load_dataset(dataset)
     click.echo(f"  {len(samples)} questions")
 
-    # ── Composition root (same wiring as mcp_server_main.py) ────────────
-    query_adapter = Neo4jQueryAdapter(settings)
-    community_adapter = Neo4jCommunityAdapter(settings)
-    llm_adapter = LLMAdapter(settings)
-    global_uc = GlobalQueryUseCase(
-        read_port=community_adapter,
-        llm_port=llm_adapter,
-        max_concurrency=settings.summary_max_concurrency,
-        top_n=settings.ask_global_top_n,
-        score_batch_size=settings.ask_global_score_batch_size,
-    )
-
-    async def _eval_all() -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
-        total = len(samples)
-        for i, sample in enumerate(samples, 1):
-            qtype = sample["type"]
-            question = sample["question"]
-            click.echo(f"[{i}/{total}] {qtype}: {question[:80]}{'…' if len(question) > 80 else ''}")
-
-            try:
-                if qtype == "global":
-                    answer, contexts = await _evaluate_global(
-                        question,
-                        global_uc,
-                        community_adapter,
-                        detail_level,
-                    )
-                else:
-                    answer, contexts = await _evaluate_local(
-                        question,
-                        query_adapter,
-                        llm_adapter,
-                    )
-            except Exception as exc:  # noqa: BLE001 — one bad question must not kill the batch
-                redacted = format_redacted_error(
-                    exc,
-                    key_id=os.getenv("MCP_HMAC_KEY_ID", ""),
-                    secret=os.getenv("MCP_HMAC_KEY"),
-                )
-                click.echo(f"  FAILED: {redacted}", err=True)
-                results.append(
-                    {
-                        **sample,
-                        "answer": None,
-                        "contexts": [],
-                        "error": redacted,
-                    }
-                )
-                continue
-
+    # ── Row preparation (E3b: score what is received; fabricate nothing) ──
+    results: list[dict[str, Any]] = []
+    total = len(samples)
+    for index, sample in enumerate(samples, 1):
+        question = str(sample.get("question", ""))
+        qtype = str(sample.get("type", "?"))
+        click.echo(f"[{index}/{total}] {qtype}: {question[:80]}{'…' if len(question) > 80 else ''}")
+        try:
+            results.append(_prepare_row(sample))
+        except Exception as exc:  # noqa: BLE001 — one bad row must not kill the batch
+            # R5: a genuine per-row failure is persisted loud AND redacted — never a
+            # crash, never a fabricated answer.
+            redacted = format_redacted_error(
+                exc,
+                key_id=os.getenv("MCP_HMAC_KEY_ID", ""),
+                secret=os.getenv("MCP_HMAC_KEY"),
+            )
+            click.echo(f"  FAILED: {redacted}", err=True)
             results.append(
                 {
                     **sample,
-                    "answer": answer,
-                    "contexts": contexts,
-                    "context_count": len(contexts),
+                    "answer": None,
+                    "contexts": [],
+                    "error": redacted,
                 }
             )
-        return results
-
-    async def _run() -> list[dict[str, Any]]:
-        try:
-            return await _eval_all()
-        finally:
-            await community_adapter.close()
-            await query_adapter.close()
-
-    results = asyncio.run(_run())
     _ensure_questions(len(results))
 
     # Persist raw tuples for reproducibility.
@@ -533,9 +452,11 @@ def main(
         "dataset": dataset,
         "detail_level": detail_level,
         "total_questions": len(results),
-        "global_questions": sum(1 for r in results if r["type"] == "global"),
-        "local_questions": sum(1 for r in results if r["type"] == "local"),
-        "failed_questions": [{"question": r["question"], "error": r["error"]} for r in failed_rows],
+        "global_questions": sum(1 for r in results if r.get("type") == "global"),
+        "local_questions": sum(1 for r in results if r.get("type") == "local"),
+        "failed_questions": [
+            {"question": r.get("question", ""), "error": r["error"]} for r in failed_rows
+        ],
         "metrics": None,
         "per_question": [],
     }

@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts"
 
 import run_ragas_evaluation as run_ragas_module
 
-from book_graph_rag.domain.models import CommunitySummary
+from book_graph_rag.config import Settings
 
 _SCRIPT_ERROR_MARKER = "provider said 401 for api-key=secret-marker-xyz"
 _SCRIPT_KEY_ID = "evaluation-script-test-v1"
@@ -66,51 +66,14 @@ def env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GRAPH_LLM_MODEL_NAME", "model")
 
 
-class _FakeQueryAdapter:
-    def __init__(self, settings: Any) -> None:
-        pass
-
-    async def close(self) -> None:
-        pass
-
-    async def search_chunks(self, question: str, limit: int = 10) -> list[dict[str, Any]]:
-        return [{"text": "chunk"}]
-
-    async def find_entity(self, name: str, entity_type: Any | None) -> list[Any]:
-        return []
-
-
-class _FakeCommunityAdapter:
-    def __init__(self, settings: Any) -> None:
-        pass
-
-    async def close(self) -> None:
-        pass
-
-    async def get_summaries_by_level(self, level: int) -> list[CommunitySummary]:
-        return []
-
-
-class _FakeLLMAdapter:
-    def __init__(self, settings: Any) -> None:
-        pass
-
-
-class _FakeGlobalUC:
-    def __init__(self, **kwargs: Any) -> None:
-        pass
-
-    async def ask(self, question: str, detail_level: int) -> dict[str, Any]:
-        return {"answer": "fake answer", "citations": []}
-
-
 @pytest.fixture
 def patched_module(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Replace infrastructure imports in the script module with fakes."""
-    monkeypatch.setattr(run_ragas_module, "Neo4jQueryAdapter", _FakeQueryAdapter)
-    monkeypatch.setattr(run_ragas_module, "Neo4jCommunityAdapter", _FakeCommunityAdapter)
-    monkeypatch.setattr(run_ragas_module, "LLMAdapter", _FakeLLMAdapter)
-    monkeypatch.setattr(run_ragas_module, "GlobalQueryUseCase", _FakeGlobalUC)
+    """Replace the dataset loader: the script scores what it receives (E3b).
+
+    The answering adapters this fixture used to patch (``Neo4jQueryAdapter``,
+    ``Neo4jCommunityAdapter``, ``LLMAdapter``, ``GlobalQueryUseCase``) are gone:
+    the script no longer wires a composition root, because it no longer answers.
+    """
     monkeypatch.setattr(
         run_ragas_module, "_load_dataset", lambda path: [{"type": "local", "question": "q?"}]
     )
@@ -235,10 +198,10 @@ def test_failed_question_is_redacted_in_all_persisted_script_artifacts(
         monkeypatch.delenv("MCP_HMAC_KEY_ID", raising=False)
         monkeypatch.delenv("MCP_HMAC_KEY", raising=False)
 
-    async def fail_local(*_: Any, **__: Any) -> tuple[str, list[str]]:
+    def fail_row(*_: Any, **__: Any) -> dict[str, Any]:
         raise _ScriptProviderFailureError(_SCRIPT_ERROR_MARKER)
 
-    monkeypatch.setattr(run_ragas_module, "_evaluate_local", fail_local)
+    monkeypatch.setattr(run_ragas_module, "_prepare_row", fail_row)
     after_file = tmp_path / "after.json"
     json_file = tmp_path / "result.json"
     result = cli_runner.invoke(
@@ -276,3 +239,42 @@ def test_ensure_questions_fails_loudly_on_an_empty_dataset() -> None:
         run_ragas_module._ensure_questions(0)
 
     run_ragas_module._ensure_questions(3)
+
+
+def test_an_all_skipped_dataset_fails_loudly_instead_of_looking_clean(
+    env_vars: None,
+) -> None:
+    """E3b/S9: a total skip must never read as a measurement.
+
+    Rows whose answer or contexts are empty are skipped by the scorer's input
+    filter (E3a skip-when-empty); when that filter leaves nothing, the script
+    must fail loudly — a click error, exit != 0 — instead of emitting null
+    metrics that look like a clean run. The check runs before any ragas import
+    or model construction, so an empty dataset fails the same in every
+    environment.
+    """
+    rows: list[dict[str, Any]] = [
+        {"type": "local", "question": "q1?", "answer": "", "contexts": []},
+        {"type": "global", "question": "q2?", "answer": None, "contexts": ["ctx"]},
+    ]
+
+    with pytest.raises(run_ragas_module.click.ClickException):
+        run_ragas_module._run_ragas(rows, Settings.model_validate({}))
+
+
+def test_the_scorer_stays_reference_free_even_though_ground_truth_travels() -> None:
+    """S6: the reference travels as evidence in the input JSONL, never into the metric.
+
+    ``LLMContextPrecisionWithoutReference`` judges contexts against the question
+    alone; feeding a reference column would change what the number measures and
+    invalidate the gate's historical 0.80 calibration. The metric wiring can
+    only be exercised with live LLM calls, so this pin holds the source
+    contract: the reference-free metric is the one instantiated, and no
+    ``reference`` column is ever handed to the scored dataset.
+    """
+    source = Path(run_ragas_module.__file__).read_text(encoding="utf-8")
+
+    assert "_LLMContextPrecisionWithoutReference" in source
+    assert '"reference"' not in source, (
+        "the curated dataset carries no reference; feeding one would change what is measured"
+    )

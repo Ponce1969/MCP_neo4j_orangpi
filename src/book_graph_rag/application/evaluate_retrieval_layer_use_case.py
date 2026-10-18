@@ -32,6 +32,7 @@ from book_graph_rag.domain.evaluation_models import (
     LayerMetricValue,
     LayerRunMetadata,
     LayerStatus,
+    RagasSample,
     RAGASSecondaryMetrics,
 )
 from book_graph_rag.ports.evaluation_baseline_port import EvaluationBaselinePort
@@ -221,7 +222,7 @@ class EvaluateRetrievalLayerUseCase:
             None,
         )
 
-    def _generation_results(self) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
+    def _generation_results(self) -> tuple[RagasSample, ...]:
         """The inputs this layer hands the secondary scorer. Empty on purpose.
 
         The retrieval layer measures retrieval; it composes no answers, so it has

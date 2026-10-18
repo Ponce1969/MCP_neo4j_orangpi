@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 
 import pytest
 
-from book_graph_rag.domain.evaluation_models import RAGASSecondaryMetrics
+from book_graph_rag.domain.evaluation_models import RagasSample, RAGASSecondaryMetrics
 from book_graph_rag.ports.ragas_runner_port import RAGASRunnerPort
 
 
@@ -24,7 +25,7 @@ def test_ragas_runner_port_unavailable_returns_available_false() -> None:
             self,
             *,
             dataset_id: str,
-            generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
+            generation_results: Sequence[RagasSample],
             previous_metrics: RAGASSecondaryMetrics | None = None,
         ) -> RAGASSecondaryMetrics:
             return RAGASSecondaryMetrics(available=False, notes="import failed")
@@ -49,7 +50,7 @@ def test_ragas_runner_port_drop_warning_flag() -> None:
             self,
             *,
             dataset_id: str,
-            generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
+            generation_results: Sequence[RagasSample],
             previous_metrics: RAGASSecondaryMetrics | None = None,
         ) -> RAGASSecondaryMetrics:
             return RAGASSecondaryMetrics(

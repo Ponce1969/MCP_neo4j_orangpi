@@ -29,6 +29,7 @@ from book_graph_rag.application.evaluate_generation_layer_use_case import (
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.evaluation_models import (
     EvaluationDataset,
+    RagasSample,
     RAGASSecondaryMetrics,
 )
 from book_graph_rag.infrastructure.evaluation_baseline_loader import JsonEvaluationBaselineLoader
@@ -63,7 +64,7 @@ class _RagasOff(RAGASRunnerPort):
         self,
         *,
         dataset_id: str,
-        generation_results: tuple[tuple[str, str, tuple[str, ...]], ...],
+        generation_results: Sequence[RagasSample],
         previous_metrics: RAGASSecondaryMetrics | None = None,
     ) -> RAGASSecondaryMetrics:
         return RAGASSecondaryMetrics(available=False, notes="skipped by the diagnostic")
