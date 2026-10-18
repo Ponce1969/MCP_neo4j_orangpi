@@ -400,7 +400,14 @@ remains human-gated. Verified complete vs. remaining:
    so a figure attributed to RAGAS must have come from somewhere else, or two metrics share
    one name; 0.7143 is **not** presented here as a RAGAS measurement. The metric the gate
    itself compares (0.8503) passed, so this does not block the checkpoint; it is a
-   follow-up. The gate verdict is now recorded while the explicit human approval for
+   follow-up. *(Resolved 2026-10-18 by `feat/e3b-real-answers-to-ragas`:
+   `odd/tasks/e3b-real-answers-to-ragas.md` — the generation layer was feeding the secondary
+   scorer a phantom dataset (`question` = question id, empty answers) and the script
+   re-answered those ids from the graph, so 0.7143 measured freshly re-answered questions,
+   not the evaluated pipeline. The runner now scores the real answers, questions and
+   contexts through the typed `RagasSample` payload, with no re-generation anywhere in the
+   script; any RAGAS number recorded from now on audits the pipeline's own answers.)* The
+   gate verdict is now recorded while the explicit human approval for
    exposure remains a separate item and is still not granted: an exit `0` is not that
    decision.
 7. Explicit human approval recorded; production graph untouched by validation —

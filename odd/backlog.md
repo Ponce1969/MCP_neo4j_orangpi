@@ -411,3 +411,12 @@ to the project-owned claims metric, which is what T8 measured.
   `local` question from the graph, so the secondary number measures something that never touched
   the evaluated answers. Both need their own decision: (a) is a skip-when-empty in the layer;
   (b) is a feature, and it is the reason the drop warning was misattributed in the first place.
+  **Closed 2026-10-18, both halves.** (a) by `0f6f4d2` (skip-when-empty in the retrieval layer:
+  no call, no crying warning, the fact in the rationale). (b) by `feat/e3b-real-answers-to-ragas`
+  (`odd/tasks/e3b-real-answers-to-ragas.md`): the port carries a typed `RagasSample` with the
+  real question, the produced answer and the contexts, the generation layer mirrors the E3a
+  skip, and `scripts/run_ragas_evaluation.py` is a pure scorer — the re-answering
+  (`_eval_all`/`_proxy_compose`/`_evaluate_*`) is eradicated, rows missing answer or contexts
+  are skipped, an all-skipped run fails loudly, and the reference travels in the input JSONL as
+  evidence only (never into the metric). The historical `0.7143` stays labelled as measured
+  over re-answered questions; new runs measure the pipeline's own answers.
