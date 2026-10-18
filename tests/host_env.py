@@ -73,3 +73,38 @@ def write_hostile_dotenv(directory: Path, **values: str) -> Path:
         encoding="utf-8",
     )
     return dotenv
+
+
+def require_docker_daemon() -> None:
+    """Skip the test, never error, when no Docker daemon is reachable.
+
+    The Neo4j testcontainers fixtures need a live daemon, and ``Neo4jContainer`` builds
+    its Docker client on construction: without one it raises ``DockerException`` during
+    fixture SETUP, which pytest reports as an ERROR. That is the machine failing, not the
+    code under test — and it makes the suite's verdict depend on what happens to be
+    running, which is the machine dependence this module exists to remove (the same run
+    reported no error with Docker Desktop up and one ERROR with it down).
+
+    A skip with this reason keeps the verdict honest where Docker is absent, while the
+    test keeps running — with every assertion intact — wherever a daemon exists. It is
+    not a weakening: what the test asserts does not change, only whether it can run.
+    """
+    try:
+        import docker
+    except ImportError as exc:  # pragma: no cover - only when the dev group is missing
+        pytest.skip(f"docker SDK not installed ({type(exc).__name__}): testcontainers cannot run")
+
+    try:
+        client = docker.from_env()
+    except Exception as exc:  # noqa: BLE001 - any failure here means "cannot run"
+        pytest.skip(
+            f"Docker daemon unreachable ({type(exc).__name__}): testcontainers needs a live one"
+        )
+    try:
+        client.ping()
+    except Exception as exc:  # noqa: BLE001 - same reason: unreachable is unreachable
+        pytest.skip(
+            f"Docker daemon unreachable ({type(exc).__name__}): testcontainers needs a live one"
+        )
+    finally:
+        client.close()

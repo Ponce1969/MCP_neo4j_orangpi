@@ -11,6 +11,7 @@ from neo4j import AsyncGraphDatabase
 from testcontainers.community.neo4j import Neo4jContainer
 
 from book_graph_rag.config import Settings
+from tests.host_env import require_docker_daemon
 
 
 @pytest.fixture(scope="session")
@@ -21,7 +22,12 @@ def neo4j_image() -> str:
 
 @pytest.fixture
 def neo4j_container(neo4j_image: str) -> Any:
-    """Spin up a throwaway Neo4j container for one test/function."""
+    """Spin up a throwaway Neo4j container for one test/function.
+
+    Needs a live Docker daemon; where there is none this skips with its reason instead of
+    erroring in setup, without touching what the tests assert.
+    """
+    require_docker_daemon()
     container = Neo4jContainer(neo4j_image)
     container.start()
     yield container
