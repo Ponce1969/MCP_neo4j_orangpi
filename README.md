@@ -75,6 +75,18 @@ hardening) is deployed and serving.
   that near-1.0 win rate with care: the judge sees both answers and the production one carries
   citations, so it is a signal, not a verdict. Evidence and the instrument's measured spread
   live in `odd/tasks/eval-question-aware-global-retrieval.md`.
+- The extraction layer is **no longer a placeholder** (2026-10-19, `6062e0b`): where it used to
+  report `pending` with a hard-coded `coverage: 0.0`, `evaluate --layer extraction` now measures
+  the operator-approved :MENTIONS coverage quotient over the **active** entity population
+  (numerator: active entities with at least one incoming `(:Chunk)-[:MENTIONS]`; denominator:
+  active entities, `merged_into`-marked entities excluded from both halves — the audit
+  inventory includes them and is never the denominator). Measured on the live read-only graph:
+  **20720/20720 = 1.0** (per-book 7110 / 6526 / 5906 / 1178), plus `failed_checkpoints = 2` in
+  1 source as a threshold-less diagnostic read through the existing checkpoint port. The layer
+  stays optional and non-blocking (`status = PASSED` even below its 0.95 threshold, which
+  reports as a corpus-diagnosis warning). This is connectivity/provenance (REQ-PROV-03), not
+  semantic fidelity — the spec 06 baseline checkbox stays open for that. Evidence:
+  `odd/tasks/extraction-coverage-instrument.md`.
 
 ## What this is — and what it is **not** yet
 

@@ -471,3 +471,24 @@ to the project-owned claims metric, which is what T8 measured.
   answers and the subprocess configuration fix (PR #49) made the child able to resolve its settings at all.
   Read the band before any delta: the answer-dependent metrics move ~9 points between identical runs, while
   the context metric moved 0.0006.
+
+- **The extraction layer's placeholder is gone; the coverage instrument is measured (2026-10-19,
+  `6062e0b`).** Closed by `feat/extraction-coverage-instrument` (`6062e0b`, docs in the follow-up
+  commit; contract in `odd/tasks/extraction-coverage-instrument.md`). The layer used to be a hard-coded
+  stub reporting `pending` with `coverage: 0.0, threshold=None` — a zero that reads like a measurement.
+  It now reports the operator-approved quotient (S1): numerator `COUNT(DISTINCT e)` of **active**
+  entities (`merged_into IS NULL OR merged_into = ''`) with at least one incoming
+  `(:Chunk)-[:MENTIONS]->(e)`, denominator = the same active population; merged entities are excluded
+  from both halves, so the audit inventory (21393, includes merged) is never the denominator. The
+  rationale prints the raw numbers, the explicit denominator and the per-book breakdown. The dead-letter
+  count (`failed_checkpoints`, no threshold — inventing one would invent a goal) reuses the **existing**
+  `CheckpointPort.fetch_state` over each book's chunk range; the admitted boundary is that a FAILED row
+  outside a book's *current* range is not counted. **Evidence** (live graph, read-only, 2026-10-19,
+  commit `bd6c9e8`): coverage **20720/20720 = 1.0**; per-book mentioned entities 7110 / 6526 / 5906 /
+  1178 (chunks 1515 / 987 / 657 / 299); `failed_checkpoints = 2` in 1 source; `ENTITY_UNMENTIONED = 0`.
+  The instrument is born a **guardian of an invariant** (REQ-PROV-01 ⇒ ratio 1.0 until the pipeline
+  breaks). The layer stays optional/non-blocking: below the 0.95 threshold it keeps `status = PASSED`
+  and reports a corpus-diagnosis warning (a WARNING status on an optional layer would be masked by
+  `derive_overall_status`). Historical records that still say `extraction pending` (spec 07 §5 item 6,
+  README's 2026-10-09 run) are kept as written; the spec 06 baseline checkbox stays open because this
+  measures connectivity/provenance (REQ-PROV-03), never semantic fidelity.
