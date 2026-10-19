@@ -52,6 +52,10 @@ from book_graph_rag.infrastructure.evaluation_baseline_loader import (
 from book_graph_rag.infrastructure.evaluation_dataset_loader import (
     JsonlManifestEvaluationDatasetLoader,
 )
+from book_graph_rag.infrastructure.neo4j_checkpoint_adapter import Neo4jCheckpointAdapter
+from book_graph_rag.infrastructure.neo4j_extraction_coverage_adapter import (
+    Neo4jExtractionCoverageAdapter,
+)
 from book_graph_rag.infrastructure.neo4j_retrieval_adapter import Neo4jRetrievalAdapter
 from book_graph_rag.infrastructure.stub_ragas_runner import StubRAGASRunner
 
@@ -143,7 +147,12 @@ def _build_readiness_use_case(settings: Settings) -> ReadinessGateEvaluatorUseCa
             _FakeLayer("generation", LayerStatus.PENDING),
         ),
         retrieval_layer=_build_retrieval_layer(settings),
-        extraction_layer=EvaluateExtractionLayerUseCase(),
+        # Front d: the extraction layer is wired like the composition roots — real
+        # adapters against the testcontainer URI (never a production endpoint).
+        extraction_layer=EvaluateExtractionLayerUseCase(
+            coverage_port=Neo4jExtractionCoverageAdapter(settings),
+            checkpoint_port=Neo4jCheckpointAdapter(settings),
+        ),
     )
 
 
@@ -162,6 +171,11 @@ async def test_evaluation_readiness_adapters_use_testcontainers_only(
     readiness_adapter = readiness_use_case._retrieval_layer._retrieval_port
     assert isinstance(readiness_adapter, Neo4jRetrievalAdapter)
     assert readiness_adapter._settings.neo4j_uri == neo4j_settings.neo4j_uri
+
+    extraction_adapter = readiness_use_case._extraction_layer._coverage_port
+    assert isinstance(extraction_adapter, Neo4jExtractionCoverageAdapter)
+    assert _PRODUCTION_HOST not in extraction_adapter._settings.neo4j_uri
+    assert extraction_adapter._settings.neo4j_uri == neo4j_settings.neo4j_uri
 
 
 @pytest.mark.neo4j_integration
@@ -200,6 +214,8 @@ async def test_readiness_evaluation_does_not_mutate_graph(
         result = await use_case.execute("test-readiness", report)
     finally:
         await use_case._retrieval_layer._retrieval_port.close()  # type: ignore[attr-defined]
+        await use_case._extraction_layer._coverage_port.close()  # type: ignore[attr-defined]
+        await use_case._extraction_layer._checkpoint_port.close()  # type: ignore[attr-defined]
     after = await _count_nodes(neo4j_driver)
 
     # Retrieval required passes; extraction is optional and fake-PENDING, so
