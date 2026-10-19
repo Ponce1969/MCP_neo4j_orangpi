@@ -142,3 +142,25 @@ readiness gate passes. Consequently, the readiness gate may pass while W1 remain
     after a full index) says whether what was extracted is attached to the chunk that mentions it.
     That is integrity, **not fidelity**, which is why the acceptance criterion "a project-owned,
     versioned, reproducible baseline per layer" stays open for extraction.
+  - **Measured — the connectivity half now exists (2026-10-19, `6062e0b`, branch
+    `feat/extraction-coverage-instrument`; contract in
+    `odd/tasks/extraction-coverage-instrument.md`).** `evaluate --layer extraction` (and the
+    readiness gate's optional `extraction` layer) reports the operator-approved quotient:
+    numerator `COUNT(DISTINCT e)` of **active** entities (`merged_into IS NULL OR
+    merged_into = ''`) holding at least one incoming `(:Chunk)-[:MENTIONS]->(e)`, denominator =
+    the same active population. Merged entities are excluded from **both** halves, so the audit
+    inventory (which includes them) is never the denominator; the rationale prints the raw
+    numbers, the explicit denominator and the per-book breakdown so no reader subtracts merged
+    entities by hand. `status = PASSED` with `threshold = 0.95`; a fall below it reports through
+    `warnings` + `rationale` as a **corpus diagnosis** (a WARNING *status* on an optional layer
+    is masked by `derive_overall_status`, which returns PASSED before it inspects the WARNING
+    branch). `failed_checkpoints` rides along as a secondary diagnostic metric with no
+    threshold, counted through the existing checkpoint port. Measured on the live read-only
+    graph (2026-10-19, commit `bd6c9e8`): coverage **20720/20720 = 1.0** (per-book mentioned
+    entities 7110 / 6526 / 5906 / 1178; the inventory's 21393 includes merged entities and sits
+    above that sum for exactly that reason), `failed_checkpoints = 2` in 1 source. The
+    instrument is born a **guardian of an invariant** (REQ-PROV-01 guarantees one `:MENTIONS`
+    per extracted entity, so the ratio is 1.0 until the pipeline breaks). **The acceptance
+    checkbox stays open**: this covers connectivity and provenance (REQ-PROV-03) and never
+    semantic fidelity, which still needs the labeled extraction dataset this repository does
+    not have.

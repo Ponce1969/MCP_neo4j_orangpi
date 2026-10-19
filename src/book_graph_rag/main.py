@@ -113,6 +113,9 @@ from book_graph_rag.infrastructure.llm_pairwise_judge import LLMPairwiseJudge
 from book_graph_rag.infrastructure.neo4j_audit_adapter import Neo4jAuditAdapter
 from book_graph_rag.infrastructure.neo4j_checkpoint_adapter import Neo4jCheckpointAdapter
 from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdapter
+from book_graph_rag.infrastructure.neo4j_extraction_coverage_adapter import (
+    Neo4jExtractionCoverageAdapter,
+)
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.infrastructure.neo4j_read_credentials import readonly_settings
 from book_graph_rag.infrastructure.neo4j_retrieval_adapter import Neo4jRetrievalAdapter
@@ -805,7 +808,15 @@ def _build_evaluate_command_use_case(settings: Settings) -> EvaluateCommandUseCa
         hmac_secret=hmac_secret,
     )
 
-    extraction_layer = EvaluateExtractionLayerUseCase()
+    extraction_layer = EvaluateExtractionLayerUseCase(
+        # Front d: the extraction layer measures the :MENTIONS coverage invariant over
+        # the active entity population (S1). Both adapters receive the per-consumer
+        # read-only settings view (R2), applied here at the composition root like the
+        # other read adapters, and the dead-letter count reuses the existing checkpoint
+        # port instead of a second query path (S6).
+        coverage_port=Neo4jExtractionCoverageAdapter(settings),
+        checkpoint_port=Neo4jCheckpointAdapter(settings),
+    )
 
     return EvaluateCommandUseCase(
         resolution_layer=resolution_layer,
@@ -883,7 +894,12 @@ def _build_readiness_gate_evaluator_use_case(
         hmac_secret=hmac_secret,
     )
 
-    extraction_layer = EvaluateExtractionLayerUseCase()
+    extraction_layer = EvaluateExtractionLayerUseCase(
+        # Same front-d wiring as the evaluate command: read-only credential per
+        # consumer, dead-letter count through the existing checkpoint port.
+        coverage_port=Neo4jExtractionCoverageAdapter(settings),
+        checkpoint_port=Neo4jCheckpointAdapter(settings),
+    )
 
     return ReadinessGateEvaluatorUseCase(
         gate_policy=policy,
@@ -902,7 +918,7 @@ def _build_readiness_gate_evaluator_use_case(
 @click.option(
     "--layer",
     required=True,
-    type=click.Choice(["resolution", "retrieval", "generation", "all"]),
+    type=click.Choice(["resolution", "retrieval", "generation", "extraction", "all"]),
     help="Evaluation layer to run.",
 )
 @click.option("--dataset", default=None, help="Reserved: dataset id override.")

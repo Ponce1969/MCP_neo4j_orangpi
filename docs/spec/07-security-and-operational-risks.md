@@ -420,6 +420,24 @@ remains human-gated. Verified complete vs. remaining:
    decision.
 7. Explicit human approval recorded; production graph untouched by validation —
    **not yet granted (production exposure is a human decision).**
+8. **The extraction layer is measured since 2026-10-19** (`6062e0b`, branch
+   `feat/extraction-coverage-instrument`; contract in
+   `odd/tasks/extraction-coverage-instrument.md`). The `extraction`-`pending` record in
+   item 6 is the historical truth of that run and stays as written; since then the
+   optional `extraction` layer reports the operator-approved :MENTIONS coverage
+   quotient over the **active** entity population (`merged_into IS NULL OR
+   merged_into = ''` — merged entities are excluded from numerator and denominator,
+   so the audit inventory's 21393 is never the denominator), through two allowlisted
+   `MATCH … RETURN` statements on the R2 read-only credential (`execute_read`, wired
+   per consumer at the composition roots like the other read adapters). Measured on
+   the live read-only graph (2026-10-19, commit `bd6c9e8`): **20720/20720 = 1.0**
+   (per-book mentioned entities 7110 / 6526 / 5906 / 1178) and `failed_checkpoints
+   = 2` in 1 source — the latter a secondary diagnostic metric without a threshold,
+   counted through the existing checkpoint port. The layer stays optional and
+   non-blocking; a fall below the 0.95 threshold reports through `warnings` +
+   `rationale` as a corpus diagnosis, never as a failure of the instrument that
+   measured it. This is connectivity and provenance (REQ-PROV-03), not semantic
+   fidelity — no gate decision moved.
 
 ## 6. Acceptance criteria
 

@@ -158,6 +158,18 @@ destructiva:
   con `--output data/evaluation/gate_report.json`): **exit 0 (pass)** — structure,
   resolution y generation `passed`, extraction `pending` ("deferred per spec 06 §11"),
   retrieval `passed` (f1 0.6410 · faithfulness 0.792 · precision@k 0.0482).
+- **La capa `extraction` dejó de ser placeholder (2026-10-19, `6062e0b`).** Donde antes
+  reportaba `pending` con `coverage: 0.0` hardcodeado, ahora mide el cociente aprobado de
+  cobertura `:MENTIONS` sobre la **población activa** (entidades con `merged_into IS NULL OR
+  merged_into = ''`; las entidades fusionadas están excluidas de ambas mitades del cociente,
+  por lo que el inventario del audit —que las incluye— nunca es el denominador). Medido sobre
+  el grafo vivo con credencial read-only: **20720/20720 = 1.0** (por libro 7110 / 6526 / 5906 /
+  1178), más `failed_checkpoints = 2` en 1 source como métrica diagnóstica sin umbral, leída
+  por el puerto de checkpoints existente. Sigue siendo capa opcional y no bloqueante
+  (`status = PASSED` incluso bajo el umbral 0.95, que se reporta como warning de diagnóstico
+  del corpus). Es conectividad/provenance (REQ-PROV-03), no fidelidad semántica: el checkbox
+  de aceptación de spec 06 sigue abierto por eso. Evidencia:
+  `odd/tasks/extraction-coverage-instrument.md`.
 
 ### 7.5 MCP en producción — contrato de operación
 
