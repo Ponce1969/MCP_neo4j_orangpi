@@ -35,9 +35,11 @@ rewritten, not adapted** — it pins a placeholder (`PENDING`), which is the sam
 demanded the spurious warning.
 
 **S5** — verbatim: "Aprobados los 5 pines y las actualizaciones en spec 06, spec 07, README, AGENTS.md y
-backlog." Plus: spec 06's acceptance checkbox (`docs/spec/06-evaluation-and-readiness.md:119`) **stays open**,
-stating that this instrument covers **connectivity and provenance** (REQ-PROV-03) and never semantic fidelity;
-the historical records (spec 07, README, `AGENTS.md`) get an **appended** note, never a rewrite.
+backlog." Plus: spec 06's acceptance checkbox (`docs/spec/06-evaluation-and-readiness.md:107` — the
+implementation found the `:119` this spec first cited was stale, which is the drift this feature's own
+predecessor was about) **stays open**, stating that this instrument covers **connectivity and provenance**
+(REQ-PROV-03) and never semantic fidelity; the historical records (spec 07, README, `AGENTS.md`) get an
+**appended** note, never a rewrite.
 
 **S6** — architecture, approved: a new `ExtractionCoveragePort`; `Neo4jExtractionCoverageAdapter` using
 **`execute_read`** and the **R2 read-only credential**, wired per consumer at the composition root like the
@@ -99,6 +101,24 @@ patterns 7110 entidades / 1515 chunks; knowledge:ai-engineering-huyen 6526 / 987
 does depend on it is the **reported denominator**, which the instrument must print explicitly: the inventory's
 21393 includes merged entities while both halves of the quotient exclude them, and the per-book sum (20720)
 sits below the inventory total for that reason. No arithmetic will be left to the reader.
+
+**L4** (worker, implementation): commit 1 = `6062e0b5c7b6ffeb90c26871aac9bd085db761f5` (T1-T6), commit 2 =
+the docs commit itself. Deviations found and stated, not silently resolved: (a) S5 above cited the checkbox at
+`06:119`; the actual line is `:107`, i.e. the spec had a stale reference — corrected here; (b) the dead-letter
+count is bounded by each book's current chunk range because the existing checkpoint port has no unbounded
+count and building a parallel path was forbidden; (c) the RED this feature could observe is structural (the
+two modules did not exist), not behavioural — compensation: pin 3's fake carries 13 entities including 5
+merged (8/8 vs a naive 8/13, asserted below the threshold so the pin provably bites), and an integration test
+on a real testcontainer Neo4j proves the merged exclusion (2/3) rather than assuming it.
+
+**L5** (parent, T8): the two queries were compared against S1's algebra word by word and match it — with one
+improvement over the sketched form: the quotient resolves both halves in a **single pass** (`EXISTS { MATCH
+(:Chunk)-[:MENTIONS]->(e) }` per entity), so the numerator and the denominator cannot come from two different
+populations and the composability trap becomes structurally impossible rather than a reviewer's duty. The
+rationale prints the numbers, the explicit denominator with its filter, the vacuous 0/0 rule and the per-book
+breakdown. **One gap found and fixed**: the dead-letter number did not state that it counts within each book's
+current chunk range, so it can legitimately differ from a raw `Checkpoint.failed_at` count (the operator's
+direct measurement said 2); the rationale now says so instead of leaving the discrepancy unexplained.
 
 **L4** (implementation log, T1–T7 complete). **Commit 1** = `6062e0b5c7b6ffeb90c26871aac9bd085db761f5`
 (T1–T6: `ports/extraction_coverage_port.py`, `infrastructure/neo4j_extraction_coverage_adapter.py` with the two

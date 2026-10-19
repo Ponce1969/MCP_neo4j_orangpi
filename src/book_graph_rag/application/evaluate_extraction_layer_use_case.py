@@ -175,6 +175,9 @@ class EvaluateExtractionLayerUseCase:
         parts.append(f"per-book breakdown: {breakdown or 'no books with chunks'}")
         parts.append(
             f"failed_checkpoints = {failed_checkpoints} across {sources_with_failures} "
-            "source(s) (secondary diagnostic metric, no threshold: no target exists for it)"
+            "source(s), counted within each book's current chunk range (secondary "
+            "diagnostic metric, no threshold: no target exists for it). A FAILED row left "
+            "outside a shorter re-extraction's range is not part of that number, so it can "
+            "differ from a raw count of Checkpoint.failed_at"
         )
         return "; ".join(parts)
