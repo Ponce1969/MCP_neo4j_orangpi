@@ -463,3 +463,11 @@ to the project-owned claims metric, which is what T8 measured.
   are skipped, an all-skipped run fails loudly, and the reference travels in the input JSONL as
   evidence only (never into the metric). The historical `0.7143` stays labelled as measured
   over re-answered questions; new runs measure the pipeline's own answers.
+
+- **The project-owned RAGAS baseline exists (2026-10-19).** The prerequisite the agent-cache spec asked
+  for: the canonical pair of `book-graph-rag evaluate --layer generation` runs, with its provenance and its
+  band, is recorded in `docs/spec/08-agent-cache-and-recipes.md`. The secondary scorer had been unmeasurable
+  through the supported path since 2026-10-09 ("RAGAS did not measure"); E3b made it score the pipeline's own
+  answers and the subprocess configuration fix (PR #49) made the child able to resolve its settings at all.
+  Read the band before any delta: the answer-dependent metrics move ~9 points between identical runs, while
+  the context metric moved 0.0006.

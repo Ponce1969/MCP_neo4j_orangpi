@@ -143,12 +143,53 @@ is, so make the graph cheaper **first**.
    when the dataset carries one, evidence for human audit only — no metric reads it>}`.
    Then **measure**: same three questions,
    expecting ≤ ~800 chars and zero unicode escapes.
-2. **Fix a project-owned RAGAS baseline.** Today's baseline is 67 questions over
-   `evaluation_dataset_dedup.jsonl` while the gate evaluates 35 generated answers:
-   the two are **not comparable**, so no delta means anything yet.
+2. **Fix a project-owned RAGAS baseline.** **Done 2026-10-19**, and it is a *pair* for a measured
+   reason: see "The project-owned generation baseline" below. Before it, the only baseline was 67
+   questions over `evaluation_dataset_dedup.jsonl` while the gate evaluates 35 generated answers —
+   **not comparable**, so no delta meant anything.
 3. **Stage 1 cache** (three tables, one SQLite file, per agent/machine: simplest and
    needs no cross-user coordination).
 4. **Stage 2 recipes/snapshots**, seeded from what stage 1 reveals.
+
+### The project-owned generation baseline (asentado 2026-10-19)
+
+The prerequisite this section asked for exists as of 2026-10-19. It comes from the **canonical run**
+(`book-graph-rag evaluate --layer generation`), not from the standalone script, and it is a **pair** for a
+reason that is measured rather than ceremonial.
+
+| metric | run 1 | run 2 | delta |
+|---|---|---|---|
+| claims | 555 | 536 | −19 |
+| pairwise win rate | 0.9714 (34/35) | 0.9714 (34/35) | 0.0000 |
+| faithfulness (project-owned) | 0.8775 | 0.8228 | **−0.0547** |
+| term grounding | 0.8314 | 0.8208 | −0.0106 |
+| cited context share | 0.4607 | 0.4929 | +0.0322 |
+| **RAGAS faithfulness** | **0.8138** | **0.7239** | **−0.0899** |
+| RAGAS answer relevancy | 0.7816 | 0.7667 | −0.0149 |
+| **RAGAS context precision** | **0.7603** | **0.7609** | **+0.0006** |
+| RAGAS available | `true` | `true` | — |
+
+Provenance: `data/evaluation/generation_run_1.json` and `generation_run_2.json`, on physical ARM64 hardware.
+The two commits differ in hash and are **the same content**: `edd8189` is the branch hash that the `--rebase`
+merge rewrote as `2f970f6`, so the code difference between the runs is **zero**. What follows is run variance,
+not an effect of the code.
+
+**How to read the pair:**
+
+1. **The stable metric is the context one.** `context precision` moved 0.0006 across 35 questions, because the
+   contexts come from fulltext retrieval, which is deterministic. The metrics that depend on the **answer** —
+   RAGAS faithfulness (−0.0899), the project-owned faithfulness (−0.0547), answer relevancy (−0.0149) — move
+   with what the model answered that time, which is also why the claim count moves (555 → 536). A baseline for
+   this instrument is a **pair with its band**, never a point.
+2. **The RAGAS faithfulness band is ~9 points wide.** A single run can land anywhere inside it, so comparing
+   against one point is comparing against the luck of one pass.
+3. **Warning about the primary threshold's headroom.** The committed threshold is `faithfulness_min = 0.80`
+   and run 2 came in at **0.8228**. With an observed band of roughly 0.82–0.90 across the four recorded
+   measurements (the two in `odd/tasks/retrieval-reranker-port.md` plus these two), a future run below 0.80 is
+   **plausible inside the dispersion**, not necessarily a regression. This does not ask for moving the
+   threshold; it asks for reading a gate failure with the band next to it.
+4. **The manual run's numbers are superseded, not averaged in.** They came from a different generation pass
+   (576 claims against 555) through a path the system does not use.
 
 **Acceptance criteria for stage 1** (all measurable):
 
