@@ -387,7 +387,8 @@ remains human-gated. Verified complete vs. remaining:
    - `generation` (blocking): passed — `faithfulness = 0.8502495840266223` (threshold
      `>= 0.8`) and `pairwise_win_rate = 1.0` (35/35, no threshold); rationale
      `generation layer passed baseline checks (claims=601, pairwise=35/35)`.
-   - `extraction` (optional, `blocking: false`): `pending` (deferred per R6.1).
+   - `extraction` (optional, `blocking: false`): `pending` (deferred per spec 06 §11, where the
+     rationale lives: there is no labeled extraction dataset to measure fidelity against).
    - `retrieval` (optional, `blocking: false`): passed — `precision@k = 0.1175` against a
      threshold of `0.1175`, i.e. exactly at the line; the layer is optional and the zero
      margin is recorded here as a fact rather than hidden.

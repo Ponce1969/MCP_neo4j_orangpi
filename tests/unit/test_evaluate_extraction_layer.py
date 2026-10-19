@@ -11,7 +11,7 @@ from book_graph_rag.domain.evaluation_models import LayerStatus
 
 
 def test_extraction_layer_always_pending() -> None:
-    """Layer 2 is deferred and always reports PENDING (R6.1)."""
+    """Layer 2 is deferred and always reports PENDING (spec 06 §11)."""
     uc = EvaluateExtractionLayerUseCase()
     result = asyncio.run(uc.execute())
     assert result.status == LayerStatus.PENDING

@@ -53,7 +53,7 @@ hardening) is deployed and serving.
 - Reference readiness run (2026-10-09), `gate expose-mcp-readiness --target
   bookgraph-neo4j`: **exit 0**, with resolution f1 `0.6410`, generation
   faithfulness `0.792` and retrieval precision@k `0.0482`. The extraction layer
-  stays `pending` ("deferred per R6.1") and is not blocking. Those are the numbers of
+  stays `pending` ("deferred per spec 06 §11", where the rationale lives) and is not blocking. Those are the numbers of
   that run, not the current baselines.
 - Re-measured baselines (2026-10-15, committed in `data/evaluation/`): retrieval
   `precision@k = 0.1250` against `precision_at_k_min = 0.1175`, and generation

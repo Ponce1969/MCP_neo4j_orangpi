@@ -156,7 +156,7 @@ destructiva:
   `odd/tasks/eval-question-aware-global-retrieval.md` (L1-L12) y `odd/backlog.md`.
 - Corrida de referencia (2026-10-09, `gate expose-mcp-readiness --target bookgraph-neo4j`
   con `--output data/evaluation/gate_report.json`): **exit 0 (pass)** — structure,
-  resolution y generation `passed`, extraction `pending` ("deferred per R6.1"),
+  resolution y generation `passed`, extraction `pending` ("deferred per spec 06 §11"),
   retrieval `passed` (f1 0.6410 · faithfulness 0.792 · precision@k 0.0482).
 
 ### 7.5 MCP en producción — contrato de operación

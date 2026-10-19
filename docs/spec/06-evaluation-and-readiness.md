@@ -130,3 +130,15 @@ readiness gate passes. Consequently, the readiness gate may pass while W1 remain
 - `[RESOLVED-PHASE5]` Required vs. optional layers: layers 1 (audit), 3 (entity
   resolution), and 5 (generation) are required/blocking; layers 2 (extraction fidelity)
   and 4 (retrieval) are optional/informative and never block.
+  - **Why extraction is deferred — the rationale, written 2026-10-19.** Layer 2's fidelity is defined
+    against a **labeled extraction dataset** (see the layer table), and this repository has none: its
+    labeled artifacts are entity-resolution pairs, a generation set, a retrieval set and a
+    namespace-routing set. Without a ground truth, any "precision/recall/F1" number would score the
+    extractor against itself, so the layer is declared optional instead of measured badly. **This entry
+    is the normative statement the code and the runbooks cite.** The older citation "R6.1" pointed at a
+    requirement register that no longer exists in this tree and must not be used; note in particular
+    that `domain/resolution_policy.py`'s "R6.1" is a *different* requirement (spec 03's merge policy).
+    What is measurable without labels is **connectivity**: `:MENTIONS` coverage (REQ-PROV-03, ≥95%
+    after a full index) says whether what was extracted is attached to the chunk that mentions it.
+    That is integrity, **not fidelity**, which is why the acceptance criterion "a project-owned,
+    versioned, reproducible baseline per layer" stays open for extraction.

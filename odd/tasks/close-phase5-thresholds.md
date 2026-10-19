@@ -48,3 +48,11 @@ Un gate que siempre da INCOMPLETE es un "problema aparente" del libro 1.
 
 ## Next step
 Confirmar readiness gate deja de ser INCOMPLETE por thresholds.
+
+**Corrección 2026-10-19**: este registro usa "R6.1" para dos cosas distintas —la extracción
+diferida (en la línea del E2E) y el retrieval no bloqueante (en "Decisión pendiente
+registrada")—, y ese identificador **no existe en el árbol**: apunta a un registro de
+requisitos que ya no está. La referencia normativa correcta es
+`docs/spec/06-evaluation-and-readiness.md` §11 (`[RESOLVED-PHASE5]`), donde hoy además está
+escrito el fundamento del diferimiento. El texto original queda como registro histórico; esta
+línea lo corrige.

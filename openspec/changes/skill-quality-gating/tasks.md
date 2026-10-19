@@ -14,7 +14,7 @@
    `precision@k` warning was closed on 2026-10-07 as a calibration artifact (an unreachable absolute
    threshold, now removed) whose apparent drop was the expected effect of the merged-entity fix
    `80f68f1` — see B2 in `odd/backlog.md`. The **RAGAS `context_precision` drop is still open** and is
-   now tracked as B5 there; it is a secondary, non-blocking metric (R6.1), so it does not gate this
+   now tracked as B5 there; it is a secondary, non-blocking metric (spec 06 §11), so it does not gate this
    change.
 2. **The 4th book (Chip Huyen) index decision.** Satisfied: the source is indexed and active —
    `knowledge:ai-engineering-huyen` has 989 chunks and 989 `PROCESSED` checkpoints in production, and
