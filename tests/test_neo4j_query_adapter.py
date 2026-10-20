@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 from collections.abc import AsyncIterator
+from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -1195,6 +1198,35 @@ async def test_ensure_indexes_chunk_text_index_ddl_is_pinned_verbatim(
         "CREATE FULLTEXT INDEX chunk_text_index IF NOT EXISTS FOR (n:Chunk) "
         "ON EACH [n.text] OPTIONS {indexConfig: {'fulltext.analyzer': 'standard-no-stop-words'}}"
     ) in queries
+
+
+async def test_recreate_script_statement_is_byte_identical_to_ensure_indexes(
+    adapter: Neo4jQueryAdapter,
+) -> None:
+    """The missing pin: the script's statement vs ``ensure_indexes``' executed bytes.
+
+    The script derives its CREATE from ``chunk_text_index_ddl`` (S5a single
+    source), but a future re-duplication of the literal in
+    ``scripts-ops/recreate_chunk_text_index.py`` would silently decouple the
+    gated recreation from production startup — this comparison is what fails
+    when the two implementations diverge in bytes.
+    """
+    session = _make_session([])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.ensure_indexes()
+
+    executed = next(q for q, _ in session.queries if "FULLTEXT INDEX chunk_text_index" in q)
+    spec = importlib.util.spec_from_file_location(
+        "recreate_chunk_text_index_pin",
+        Path(__file__).parents[1] / "scripts-ops/recreate_chunk_text_index.py",
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module: ModuleType = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.create_statement(module.DECLARED_ANALYZER) == executed
 
 
 # ── T-GR.4: text2cypher read helpers ─────────────────────────────────────────
