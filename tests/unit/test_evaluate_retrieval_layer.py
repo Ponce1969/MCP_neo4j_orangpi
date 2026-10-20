@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -597,3 +598,109 @@ def test_regression_below_baseline_threshold_warns() -> None:
     result = asyncio.run(uc.execute())
     assert result.status == LayerStatus.PASSED
     assert any("baseline" in w.lower() for w in result.warnings)
+
+
+# ── latency floor (S6 of odd/tasks/retrieval-phase2-lexical.md) ──────────────
+
+
+class _SteppingClock:
+    """Deterministic perf_counter double: each call advances by ``step``.
+
+    With one advance per call, every ``fetch_contexts`` call spans exactly
+    ``step`` seconds — no sleeping, no flakiness.
+    """
+
+    def __init__(self, step: float) -> None:
+        self._now = 0.0
+        self._step = step
+
+    def __call__(self) -> float:
+        self._now += self._step
+        return self._now
+
+
+def test_latency_p95_graph_floor_metric_reported_with_floor_rationale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S6: p95 over ``fetch_contexts`` in the same run, threshold 250, ``<=``.
+
+    ``n`` and the warm-up caveat belong in the rationale, and the string must
+    say it is the graph-path floor: the MCP ``search_rag`` envelope is a
+    different measurement.
+    """
+    records = (
+        {
+            "question_id": "ret-001",
+            "question": "question A",
+            "qtype": "local",
+            "reference_context_ids": ["a:book:1"],
+        },
+        {
+            "question_id": "ret-002",
+            "question": "question B",
+            "qtype": "local",
+            "reference_context_ids": ["a:book:2"],
+        },
+    )
+    contexts = {
+        "question A": (RetrievalContext(chunk_id="a:book:1", text="..."),),
+        "question B": (RetrievalContext(chunk_id="a:book:2", text="..."),),
+    }
+    uc = _make_use_case(records=records, contexts=contexts)
+    # Patching stdlib time directly reaches the use case: it calls
+    # ``time.perf_counter`` on the same module object.
+    monkeypatch.setattr(time, "perf_counter", _SteppingClock(0.05))
+
+    result = asyncio.run(uc.execute(run_ragas=False))
+
+    metric = next(m for m in result.project_owned_metrics if m.name == "latency_p95_graph_floor_ms")
+    assert metric.threshold == 250.0
+    assert metric.comparator == "<="
+    # Nearest-rank p95 of two 50 ms calls is 50 ms.
+    assert metric.value == pytest.approx(50.0, abs=1e-6)
+    assert "n=2" in result.rationale
+    assert "warm-up" in result.rationale
+    assert "floor" in result.rationale
+    assert "envelope" in result.rationale
+
+
+def test_latency_floor_above_250ms_keeps_the_layer_non_blocking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S6: a breached floor is reported, never blocking — the layer is optional."""
+    records = (
+        {
+            "question_id": "ret-001",
+            "question": "q",
+            "qtype": "local",
+            "reference_context_ids": ["a:book:5"],
+        },
+    )
+    contexts = {"q": (RetrievalContext(chunk_id="a:book:5", text="..."),)}
+    uc = _make_use_case(records=records, contexts=contexts)
+    monkeypatch.setattr(time, "perf_counter", _SteppingClock(0.30))
+
+    result = asyncio.run(uc.execute(run_ragas=False))
+
+    metric = next(m for m in result.project_owned_metrics if m.name == "latency_p95_graph_floor_ms")
+    assert metric.value == pytest.approx(300.0, abs=1e-6)
+    assert metric.threshold == 250.0
+    assert metric.value > 250.0, "the breach must be visible in the report"
+    assert result.status == LayerStatus.PASSED
+    assert result.warnings == ()
+
+
+def test_latency_metric_absent_when_nothing_was_measured() -> None:
+    """INCOMPLETE paths never called ``fetch_contexts``: no latency metric, no fiction."""
+    uc = _make_use_case(records=({"question_id": "ret-001", "question": "q"},), contexts={})
+    uc_no_baseline = EvaluateRetrievalLayerUseCase(
+        dataset_port=uc._dataset_port,
+        retrieval_port=uc._retrieval_port,
+        ragas_port=uc._ragas_port,
+        baseline_port=_FakeBaselinePort(None),
+    )
+
+    result = asyncio.run(uc_no_baseline.execute())
+
+    assert result.status == LayerStatus.INCOMPLETE
+    assert tuple(m.name for m in result.project_owned_metrics) == ("precision_at_k",)

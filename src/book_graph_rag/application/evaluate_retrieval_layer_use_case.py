@@ -22,6 +22,8 @@ it: recompute it with the formula above before trusting any absolute number.
 
 from __future__ import annotations
 
+import math
+import time
 import uuid
 
 from book_graph_rag.domain.checkpoint_models import format_redacted_error
@@ -50,6 +52,13 @@ class EvaluateRetrievalLayerUseCase:
     """
 
     _BASELINE_REPORT_PATH = "data/evaluation/retrieval_baseline.json"
+    #: S6 (odd/tasks/retrieval-phase2-lexical.md): the graph path measured as a
+    #: FLOOR. ``fetch_contexts`` is the same run that yields precision@k; the
+    #: MCP ``search_rag`` envelope adds scope resolution, budgets, logging and
+    #: ``find_entity`` and needs its own benchmark before the 250 ms budget is
+    #: claimed as met for the user-facing path.
+    _LATENCY_METRIC_NAME = "latency_p95_graph_floor_ms"
+    _LATENCY_METRIC_THRESHOLD_MS = 250.0
 
     def __init__(
         self,
@@ -119,6 +128,10 @@ class EvaluateRetrievalLayerUseCase:
             )
 
         precisions: list[float] = []
+        #: S6: p95 of the graph path, measured in the SAME run as precision so
+        #: the two numbers describe the same traffic. One sample per evaluated
+        #: record (n = 12 with the committed dataset).
+        fetch_latencies_ms: list[float] = []
         skipped_future: int = 0
         for record in dataset.records:
             if record.get("corpus") == "future":
@@ -127,11 +140,13 @@ class EvaluateRetrievalLayerUseCase:
             question = str(record.get("question", ""))
             qtype = str(record.get("qtype", "local"))
             reference_ids = set(record.get("reference_context_ids", []) or [])
+            fetch_started = time.perf_counter()
             contexts = await self._retrieval_port.fetch_contexts(
                 question=question,
                 qtype=qtype,  # type: ignore[arg-type]
                 detail_level=detail_level,
             )
+            fetch_latencies_ms.append((time.perf_counter() - fetch_started) * 1000.0)
             if not contexts:
                 precisions.append(0.0)
                 continue
@@ -174,6 +189,7 @@ class EvaluateRetrievalLayerUseCase:
             rationale = f"retrieval layer informative (precision@k={precision:.4f})"
             if skipped_future:
                 rationale += f" (skipped {skipped_future} future-corpus records)"
+            rationale += self._latency_rationale(fetch_latencies_ms)
         if ragas_skip_note:
             # The "nothing to score" fact goes to the rationale, not the warnings: a
             # warning that fires on every run is one operators learn to skip (E3a).
@@ -186,6 +202,33 @@ class EvaluateRetrievalLayerUseCase:
             ragas=ragas,
             baseline=baseline,
             warnings=tuple(warnings),
+            latency_p95_ms=(
+                self._p95_nearest_rank(fetch_latencies_ms) if fetch_latencies_ms else None
+            ),
+        )
+
+    @staticmethod
+    def _p95_nearest_rank(values: list[float]) -> float:
+        """Nearest-rank p95: with n = 12 the 95th percentile is the maximum.
+
+        Nearest-rank (no interpolation) keeps the reported number an actually
+        observed latency — important for a budget a human will reason about.
+        """
+        ordered = sorted(values)
+        index = math.ceil(0.95 * len(ordered)) - 1
+        return ordered[index]
+
+    def _latency_rationale(self, latencies_ms: list[float]) -> str:
+        """S6: n and the warm-up caveat in the rationale, floor stated as floor."""
+        p95 = self._p95_nearest_rank(latencies_ms)
+        return (
+            f"; {self._LATENCY_METRIC_NAME}={p95:.1f} over n={len(latencies_ms)} "
+            "fetch_contexts calls (nearest-rank p95; warm-up not excluded: the first call "
+            "pays model/driver startup; graph-path FLOOR only — the MCP search_rag envelope "
+            "adds scope resolution, budgets, logging and find_entity and needs its own "
+            "benchmark with representative traffic before the 250 ms budget is claimed as "
+            "met; a floor above 250 ms discards the variant immediately, the layer itself "
+            "stays non-blocking)"
         )
 
     async def _run_ragas(
@@ -244,22 +287,37 @@ class EvaluateRetrievalLayerUseCase:
         ragas: RAGASSecondaryMetrics | None,
         baseline: EvaluationBaselineReport | None,
         warnings: tuple[str, ...] = (),
+        latency_p95_ms: float | None = None,
     ) -> EvaluationLayerResult:
         threshold = baseline.precision_at_k_min if baseline is not None else None
         model_ids: tuple[str, ...] = ()
         if baseline is not None:
             model_ids = baseline.model_ids
+        metrics = [
+            LayerMetricValue(
+                name="precision_at_k",
+                value=precision,
+                threshold=threshold,
+                comparator=">=",
+            ),
+        ]
+        if latency_p95_ms is not None:
+            # S6: a second, independently thresholded metric. The threshold is
+            # fixed (250 ms), not baseline-derived: it is a budget, not a
+            # regression guard. Breaching it never blocks — the retrieval layer
+            # is optional — it is the number the variant's cut decision reads.
+            metrics.append(
+                LayerMetricValue(
+                    name=self._LATENCY_METRIC_NAME,
+                    value=latency_p95_ms,
+                    threshold=self._LATENCY_METRIC_THRESHOLD_MS,
+                    comparator="<=",
+                )
+            )
         return EvaluationLayerResult(
             layer="retrieval",
             status=status,
-            project_owned_metrics=(
-                LayerMetricValue(
-                    name="precision_at_k",
-                    value=precision,
-                    threshold=threshold,
-                    comparator=">=",
-                ),
-            ),
+            project_owned_metrics=tuple(metrics),
             ragas_secondary=ragas,
             warnings=warnings,
             rationale=rationale,

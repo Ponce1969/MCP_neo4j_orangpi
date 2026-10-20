@@ -1150,7 +1150,14 @@ async def test_ensure_indexes_creates_expected_indexes(adapter: Neo4jQueryAdapte
 
 
 async def test_ensure_indexes_fulltext_uses_on_each(adapter: Neo4jQueryAdapter) -> None:
-    """Full-text index creation uses ON EACH syntax."""
+    """Full-text index creation uses ON EACH syntax.
+
+    Updated for T1 (phase 2, S5): the chunk index now declares the current
+    analyzer in its OPTIONS — a strengthened pin, not a weakened one. The
+    repository owning ``standard-no-stop-words`` changes no number: the live
+    index was observed with exactly that analyzer (spec 09 §1), so the DDL now
+    states what production already does.
+    """
     session = _make_session([])
     adapter._driver = _FakeDriver(session)
 
@@ -1159,11 +1166,35 @@ async def test_ensure_indexes_fulltext_uses_on_each(adapter: Neo4jQueryAdapter) 
     chunk_fulltext_query = next(
         q for q, _ in session.queries if "FULLTEXT INDEX chunk_text_index" in q
     )
-    assert "ON EACH [n.text]" in chunk_fulltext_query
+    assert (
+        "ON EACH [n.text] OPTIONS {indexConfig: {'fulltext.analyzer': 'standard-no-stop-words'}}"
+        in chunk_fulltext_query
+    )
     entity_fulltext_query = next(
         q for q, _ in session.queries if "FULLTEXT INDEX entity_name_aliases_index" in q
     )
     assert "ON EACH [n.name, n.canonical_name, n.aliases]" in entity_fulltext_query
+
+
+async def test_ensure_indexes_chunk_text_index_ddl_is_pinned_verbatim(
+    adapter: Neo4jQueryAdapter,
+) -> None:
+    """The chunk fulltext DDL is pinned byte-for-byte, OPTIONS included.
+
+    This literal is shared with ``tests/unit/test_recreate_chunk_text_index.py``
+    (the gated recreation script issues the same statement): a change to the
+    analyzer or the index shape must break a test on both sides (S5a).
+    """
+    session = _make_session([])
+    adapter._driver = _FakeDriver(session)
+
+    await adapter.ensure_indexes()
+
+    queries = [q for q, _ in session.queries]
+    assert (
+        "CREATE FULLTEXT INDEX chunk_text_index IF NOT EXISTS FOR (n:Chunk) "
+        "ON EACH [n.text] OPTIONS {indexConfig: {'fulltext.analyzer': 'standard-no-stop-words'}}"
+    ) in queries
 
 
 # ── T-GR.4: text2cypher read helpers ─────────────────────────────────────────
