@@ -75,6 +75,9 @@ budget as a new line; the backlog records the run. Historical records are **appe
 - **T7** [S1,S9] the docs: spec 09 amendment, `AGENTS.md` §7.4, backlog. → commit 2
 - **T8** (parent) verification: suite, gates, and a spot check that the escaping and the control row are real. The
   **run itself belongs to the operator** (production graph, read-only) — the implementation delivers the instrument.
+- **T9** [S5, L4] the DDL emitted a Cypher syntax error (`'fulltext.analyzer'` instead of the backtick form): fix the
+  single source, re-record the three byte pins with the statement production **accepted**, and add the general guard
+  (`tests/unit/test_cypher_map_keys.py`) that makes the next DDL inherit the check. → commit 3
 
 ## Log
 
@@ -200,3 +203,42 @@ over n = 12.
   suite completa → **2266 passed, 3 skipped, 1 deselected**.
 - **Sigue sin correr, por contrato:** la recreación del índice y cualquier evaluación — del
   operador.
+
+**L4** (2026-10-20, operator, verbatim): "Causa raíz del error en apply: CypherSyntaxError: Invalid
+input ''fulltext.analyzer'': expected an identifier or '}' — Neo4j Cypher no permite comillas
+simples en las claves de mapas de configuración. Requiere backticks:
+OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard'}}". Estado reportado en la misma corrida:
+`chunk_text_index` restaurado a ONLINE con `standard-no-stop-words`, y la corrida de control
+reproduce **0.1250 exacto** (15 hits en 12 preguntas, cero desvío).
+
+**F6 — el DDL del índice fulltext era Cypher inválido, y ningún gate podía verlo.** El análisis del
+incidente, porque el defecto es de método y no de una línea:
+
+1. **La causa**: `chunk_text_index_ddl` emitía `OPTIONS {indexConfig: {'fulltext.analyzer': …}}`.
+   En Cypher las claves de un mapa son identificadores o backtick-escaped; una clave punteada entre
+   comillas simples es un **error de parseo**. La evidencia de producción es el mensaje del
+   operador, no mi razonamiento.
+2. **El patrón correcto ya estaba en el repo**: `_neo4j_vector_cypher._ENSURE_VECTOR_INDEX` usa
+   `` `vector.dimensions` `` desde siempre. Convivían las dos formas y nada las distinguía.
+3. **Por qué los gates no lo vieron**: los pines comparaban el DDL **consigo mismo**. Un statement
+   sintácticamente inválido es byte-idéntico a su propia copia, así que el pin verbatim, el pin de
+   paridad script↔adapter recién instalado en #54 y la suite entera pasaban en verde. **La paridad
+   no es corrección**: comparar dos copias de un string equivocado mide la consistencia del error.
+4. **Por qué el failure path sí sirvió**: el `--apply` falló en el `CREATE` tras el `DROP`, el
+   script reportó el estado y el operador restauró el índice a mano con la forma correcta. La ventana
+   declarada en F1 y la recuperación de F2 no evitaron el fallo; evitaron que fuera silencioso.
+5. **Latente en producción**: `ensure_indexes` emitía el mismo statement, así que el próximo
+   `--fresh` de indexación habría fallado igual —con el agravante de que un índice ya existente no
+   protege de un error de parseo, porque el parseo ocurre antes de que `IF NOT EXISTS` decida nada.
+
+**Corrección (T9).** Una fuente (`chunk_text_index_ddl`) pasa a emitir backticks; los tres pines de
+bytes registran el statement corregido, que es el que producción **aceptó**. Y se agrega el guard que
+faltaba, `tests/unit/test_cypher_map_keys.py`: una propiedad general —ningún DDL emitido por el repo
+usa una clave de mapa entre comillas simples— más el pin del key exacto que falló. El guard nació
+**ROJO** sobre el DDL del chunk (3 fallos) y **verde** sobre el vectorial, que es la evidencia de que
+discrimina en vez de prohibir todo.
+
+**Lección para el archivo**: un pin de bytes fija lo que el código **dice**, no lo que el sistema
+**acepta**. Cuando el artefacto es un lenguaje que el repo no puede parsear, el único pin honesto es
+una propiedad sintáctica, y la única validación real es el servidor. Este DDL estuvo verde tres PRs
+seguidos sin haber visto nunca un Neo4j.

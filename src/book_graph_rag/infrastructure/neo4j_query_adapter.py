@@ -771,5 +771,5 @@ def chunk_text_index_ddl(analyzer: str) -> str:
     return (
         "CREATE FULLTEXT INDEX chunk_text_index IF NOT EXISTS FOR (n:Chunk) "
         "ON EACH [n.text] OPTIONS "
-        f"{{indexConfig: {{'fulltext.analyzer': '{analyzer}'}}}}"
+        f"{{indexConfig: {{`fulltext.analyzer`: '{analyzer}'}}}}"
     )
