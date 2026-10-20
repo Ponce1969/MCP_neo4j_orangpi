@@ -334,8 +334,9 @@ async def _report_apply_failure(adapter: Neo4jQueryAdapter, exc: Exception) -> i
         )
     else:
         print(
-            "El estado observado no es 'absent': corré el dry-run de verificación (el plan y "
-            "su fingerprint también cambiaron) antes de reintentar."
+            "El estado observado no es 'absent': corré el dry-run de verificación antes de "
+            "reintentar. El fingerprint sólo cambia si el plan cambia: si el índice sobrevivió "
+            "idéntico (mismo estado, analyzer y censo), el hash puede ser el mismo."
         )
     return 2
 
