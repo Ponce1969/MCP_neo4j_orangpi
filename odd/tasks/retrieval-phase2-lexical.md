@@ -134,3 +134,69 @@ over n = 12.
   validation, format) passed on commit 1.
 - **Not run, by contract:** the index recreation, the `--shape-ab` measurement, and any
   evaluation against production — those belong to the operator.
+
+**Independent-verification fixes (2026-10-19, package-owned writer, branch
+`fix/recreate-index-defects`).** Five defects an independent verification found in
+`scripts-ops/recreate_chunk_text_index.py` before it may ever be applied to production, plus the
+`neo4j_uri` fingerprint binding. Commit 1 = fixes + pins; commit 2 = this Log entry.
+
+- **F1 — la ventana de indisponibilidad queda declarada** en el dry-run, en la salida del
+  `--apply` y en el JSON (`_WINDOW_WARNING`): (a) el plan es DROP → CREATE, así que entre
+  ambas sentencias `chunk_text_index` no existe y la pata de chunks queda sin fuente; el nombre
+  está hardcodeado en el camino de lectura (`neo4j_query_adapter.py:536` y `:554`), luego **no
+  hay shadow-swap posible** y la ventana es inherente; (b) tras la DDL una corrida puede leer
+  `precision@k = 0.0000` porque el índice está **ausente o repoblando**, no porque el analyzer
+  destruya la retrieval — `neo4j_retrieval_adapter.py:92-95` usa `return_exceptions=True` y sólo
+  procede `if isinstance(chunks, list)`, de modo que un índice ausente colapsa la pata a `[]`
+  y la precisión lee 0.0 en silencio; (c) la evaluación no debe correr con la ventana abierta.
+- **F2 — camino de falla:** `_apply` ya no puede dejar al operador con un traceback crudo.
+  `main` captura la excepción, imprime el estado observado (`absent`), dice con claridad que el
+  índice debe recrearse y da la recuperación exacta — **dry-run nuevo + fingerprint nuevo**,
+  porque el plan incluye `current_index_state` y ahora lee `absent` — y devuelve código 2.
+- **F3 — el analyzer como post-condición:** la consulta de estado ahora proyecta `options`
+  (`SHOW INDEXES YIELD name, type, state, populationPercent, options`) y la verificación exige
+  `options.indexConfig['fulltext.analyzer'] == <analyzer aplicado>` (evidencia del operador en
+  Neo4j 5.23: **sí está expuesto** — la nota del script que afirmaba lo contrario era falsa y se
+  borró). Esto cierra el agujero no-op (`DROP … IF EXISTS` + `CREATE … IF NOT EXISTS` ya no
+  pueden pasar `ONLINE`/`100%` sin que el analyzer pedido esté realmente aplicado). La población
+  acepta ambos grafos (`100.0` y `100`): el `startswith("ONLINE (population=100.0%")` anterior
+  falsa-alarma con el entero. La línea de éxito ahora es verdadera: dice `verificado vía SHOW
+  INDEXES` en lugar de implicar el analyzer.
+- **F4 — rollback como protocolo (el único):** documentado en el docstring y anunciado en la
+  salida. Como el default de `--analyzer` reproduce `DECLARED_ANALYZER`, recrear con el analyzer
+  original **es este mismo script sin `--analyzer`**, con la MISMA puerta (dry-run fresco →
+  aprobación → fingerprint nuevo). Verificación posterior: re-correr
+  `scripts/eval_fulltext_recall.py --shape-ab` y leer la fila de control. **Trampa declarada:**
+  después de la DDL esa fila declara `RUN VOID`, porque corre contra el analyzer nuevo y ya no
+  reproduce la línea base commiteada — es **esperado, no drift de medición**; la comparación
+  post-DDL es **por pregunta contra el registro pre-DDL**, nunca contra la línea base commiteada.
+- **F5 — una sola fuente del analyzer y del DDL:** `chunk_text_index_ddl(analyzer)` y
+  `DECLARED_CHUNK_ANALYZER` viven en el adapter; `ensure_indexes` **lo llama** y el script
+  **deriva** su sentencia de la misma función (no guarda copia). El bloque vive al final del
+  archivo a propósito, para que las líneas `:536`/`:554` citadas por F1 no se muevan. Pins:
+  delegación con centinela + igualdad de bytes con la función del adapter + **el pin que
+  faltaba**: la sentencia ejecutada por `ensure_indexes` contra la sentencia del script, byte a
+  byte (`tests/test_neo4j_query_adapter.py`).
+- **Fingerprint:** `neo4j_uri` viaja dentro del plan ⇒ un fingerprint minteado en dev no puede
+  validar un `--apply` contra prod (ni al revés).
+- **Sin tocar, por contrato:** el chequeo de la palabra (`"approve" in content`) — es el contrato
+  de este proyecto en toda puerta par (`scripts-ops/resolve_intra_ns.py:480`,
+  `scripts-ops/cleanup_namespace.py:113`); se reporta aquí en lugar de debilitarlo.
+- **RED observado (por comportamiento, antes de implementar):**
+  `AttributeError: … has no attribute 'chunk_text_index_ddl'`;
+  `ImportError: cannot import name 'chunk_text_index_ddl'`;
+  `assert 'options' in 'SHOW INDEXES YIELD name, type, state, populationPercent …'`;
+  `assert {'index_state': 'absent'} == {… 'analyzer': None, 'population': None, 'state': None}`;
+  `AttributeError: … has no attribute '_population_at_100'`;
+  `TypeError: build_plan() got an unexpected keyword argument 'neo4j_uri'` (×2);
+  `assert 'shadow-swap' in <salida del dry-run>` y lo mismo en la salida del `--apply`;
+  `KeyError: 'unavailability_window'`; `RuntimeError: CREATE falló` escapando **sin capturar**
+  (el defecto F2 en carne); `assert 0 == 1` (un analyzer incorrecto pasaba la post-condición);
+  `assert 1 == 0` (la población entera era rechazada); `assert 'Rollback' in <docstring>`. El pin
+  cruzado de bytes nació **verde** (ambos literales son idénticos hoy): es la cerradura contra
+  futuras divergencias, no una conducta nueva.
+- **Verificación:** `uv run ruff check .` → `All checks passed!`; `uv run ruff format .` →
+  `481 files left unchanged`; `uv run mypy .` → `Success: no issues found in 481 source files`;
+  suite completa → **2266 passed, 3 skipped, 1 deselected**.
+- **Sigue sin correr, por contrato:** la recreación del índice y cualquier evaluación — del
+  operador.
