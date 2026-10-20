@@ -492,3 +492,20 @@ to the project-owned claims metric, which is what T8 measured.
   `derive_overall_status`). Historical records that still say `extraction pending` (spec 07 §5 item 6,
   README's 2026-10-09 run) are kept as written; the spec 06 baseline checkbox stays open because this
   measures connectivity/provenance (REQ-PROV-03), never semantic fidelity.
+
+- **Fase 2 léxica (option B): el instrumento está listo, la corrida es del humano (2026-10-19,
+  rama `feat/retrieval-phase2-lexical`).** Reabierta bajo la enmienda del ADR (spec 09 §10) con el
+  criterio de corte del operador fijado antes de cualquier corrida: shippear solo con **>= +1
+  referencia neta sin perder ninguna** contra la línea base commiteada (`0.125`, leída de
+  `data/evaluation/retrieval_baseline.json` — el `COMMITTED_BASELINE` hardcodeado del script se
+  eliminó), fila de control en la misma corrida y corrida **VOID** si el control no la reproduce.
+  Entregado: `--shape-ab` en `scripts/eval_fulltext_recall.py` (shape frase con escape Lucene
+  caller-side — no existía escape alguno en el repo; sin él se mediría un error de sintaxis),
+  analyzer `standard-no-stop-words` declarado en el DDL de `ensure_indexes` (cero cambio de
+  número: es el analyzer observado en producción), recreación gateada idempotente
+  (`scripts-ops/recreate_chunk_text_index.py`, dry-run por defecto, approval + fingerprint) y
+  la métrica `latency_p95_graph_floor_ms` (p95 nearest-rank sobre `fetch_contexts`, n = 12,
+  umbral 250 ms `<=`, piso del camino de grafo — el envelope de MCP requiere su propio
+  benchmark). **Pendiente: la corrida del operador** contra el grafo de producción (read-only)
+  con las variantes pre-registradas; los números medidos se anexan en spec 09 §10. El rango
+  de B está conocido de antes: máximo 3 referencias (las del pool fuera del top-10).

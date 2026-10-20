@@ -255,3 +255,54 @@ negative result stay here and in `scripts/eval_fulltext_recall.py --simulate-hyb
 question can be reopened with evidence rather than intuition; a future revisit needs a *different
 measured premise* (a larger corpus, a different embedding model, or an objective that justifies
 the production write).
+
+## 10. Amendment (2026-10-19): phase 2 re-opened under a fixed cut criterion
+
+**Decision record appended per the owner's approval (L2 of the task document). This section
+amends; nothing above it is rewritten.** The historical phase-0 result (§9) and the 2026-10-16
+owner decision ("A is not built and B is not pursued for now") stay exactly as written.
+
+**What changed: nothing measured — a decision to measure.** Phase 2 (alternative B) is
+re-opened on 2026-10-19 by the owner. Why now: the objective `precision@k >= 0.15` remains
+**unmet and declared** at `0.1250`; the query-shape experiment needs **no data write** and no
+DDL (a caller-side transform of the question); and B's own bound is already known (§3: the
+three in-pool-but-outside-top-10 references). The previous decision is superseded on the
+*measurement question only*.
+
+**The cut criterion, fixed before any run (owner's verbatim rules, L1).**
+
+- The objective stays **`0.150`**.
+- A variant **ships** only if it beats the committed baseline `0.1250` by **at least one net
+  reference** (+1/120 = 0.0083) **without losing any current reference** — a monotonic gain.
+  A change that gains one and loses one is not an improvement.
+- If no variant qualifies, **option C stays** and there is no third attempt.
+- **At most two variants are pre-registered**: one query shape, one analyzer.
+
+**The control row stays in the same run.** The pure-fulltext leg must reproduce `0.1250`
+exactly; if it does not, the run is **void** — the control is the canary for measurement
+drift, not a result to interpret.
+
+**Pre-registered variant 1 — query shape (caller-side).** The fulltext query string is
+caller-owned and bound verbatim as a Cypher parameter, so the phrase variant is a transform of
+the question before the call: `scripts/eval_fulltext_recall.py --shape-ab` escapes the question
+for Lucene (no escaping existed anywhere in the repository before this; an unescaped variant
+would measure a syntax error) and wraps it in a single phrase. If it wins, the shape becomes a
+setting mirroring `rerank_enabled` — not `candidate_retrieval_strategy`, which is declared and
+consumed nowhere.
+
+**Pre-registered variant 2 — analyzer (one gated DDL recreation).** The current analyzer
+`standard-no-stop-words` (§1) is now declared explicitly in `ensure_indexes`' DDL — same
+behaviour, the repository owns the fact. A recreation with a different analyzer is a scripted,
+idempotent, dry-run-first operation (`scripts-ops/recreate_chunk_text_index.py`, approval file
+plus reviewed-plan fingerprint, same contract as the merge batches).
+
+**Latency budget.** The retrieval layer reports `latency_p95_graph_floor_ms` (nearest-rank p95
+over `fetch_contexts` in the same run as precision, threshold 250 ms, `<=`). It is a **floor**:
+if it exceeds 250 ms the variant is discarded immediately; if it sits comfortably below, the
+MCP `search_rag` envelope needs **its own** benchmark with representative traffic before the
+budget is claimed as met. The layer stays non-blocking either way.
+
+**What voids this amendment: a variant that fails the cut criterion.** Then option C is the
+evidence-backed state and phase 2 closes without a third attempt. The run itself belongs to the
+operator (production graph, read-only); the numbers it produces will be appended here, not
+substituted for anything above.

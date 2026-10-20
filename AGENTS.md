@@ -170,6 +170,23 @@ destructiva:
   del corpus). Es conectividad/provenance (REQ-PROV-03), no fidelidad semántica: el checkbox
   de aceptación de spec 06 sigue abierto por eso. Evidencia:
   `odd/tasks/extraction-coverage-instrument.md`.
+- **Fase 2 léxica (option B) reabierta 2026-10-19 con criterio de corte fijado de antemano
+  (enmienda al ADR, spec 09 §10).** El instrumento está entregado en la rama
+  `feat/retrieval-phase2-lexical`: `scripts/eval_fulltext_recall.py --shape-ab` (variante de
+  shape caller-side con escape Lucene y fila de control en la misma corrida), el analyzer
+  `standard-no-stop-words` declarado explícito en el DDL de `ensure_indexes` y la recreación
+  gateada (`scripts-ops/recreate_chunk_text_index.py`, dry-run por defecto). La línea base
+  contra la que se corta se **lee** de `data/evaluation/retrieval_baseline.json` (`0.125`),
+  nunca se hardcodea; la variante shippea solo con **>= +1 referencia neta sin perder
+  ninguna**, y si la fila de control no reproduce el baseline la corrida es **VOID**.
+  **Presupuesto de latencia:** `latency_p95_graph_floor_ms` (p95 nearest-rank sobre
+  `fetch_contexts`, n = 12, warm-up sin excluir) con umbral **250 ms** `<=` — es un **piso**
+  del camino de grafo, no del envelope de MCP `search_rag` (scope, budgets, logging y
+  `find_entity` suman y necesitan su propio benchmark con tráfico representativo antes de
+  reclamar el presupuesto). Un piso > 250 ms descarta la variante de inmediato; la capa
+  retrieval sigue sin bloquear. **Sin valor medido todavía: la corrida contra producción la
+  ejecuta el humano**, el instrumento está listo. Contrato completo:
+  `odd/tasks/retrieval-phase2-lexical.md`.
 
 ### 7.5 MCP en producción — contrato de operación
 
