@@ -722,7 +722,16 @@ class Neo4jQueryAdapter(GraphQueryPort):
             "CREATE INDEX entity_type IF NOT EXISTS FOR (n:Entity) ON (n.type)",
             "CREATE INDEX entity_id IF NOT EXISTS FOR (n:Entity) ON (n.id)",
             "CREATE INDEX rel_type IF NOT EXISTS FOR ()-[r:RELATED]-() ON (r.type)",
-            "CREATE FULLTEXT INDEX chunk_text_index IF NOT EXISTS FOR (n:Chunk) ON EACH [n.text]",
+            # T1 (phase 2, S5): the chunk fulltext index declares the analyzer
+            # production was observed with (spec 09 §1) — ``standard-no-stop-words``.
+            # Zero behaviour change: an existing index is untouched by IF NOT
+            # EXISTS, and a newly created one now matches production instead of
+            # silently taking whatever the server default is.
+            (
+                "CREATE FULLTEXT INDEX chunk_text_index IF NOT EXISTS FOR (n:Chunk) "
+                "ON EACH [n.text] OPTIONS "
+                "{indexConfig: {'fulltext.analyzer': 'standard-no-stop-words'}}"
+            ),
             (
                 "CREATE FULLTEXT INDEX entity_name_aliases_index "
                 "IF NOT EXISTS FOR (n:Entity) "
