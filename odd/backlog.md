@@ -509,3 +509,36 @@ to the project-owned claims metric, which is what T8 measured.
   benchmark). **Pendiente: la corrida del operador** contra el grafo de producción (read-only)
   con las variantes pre-registradas; los números medidos se anexan en spec 09 §10. El rango
   de B está conocido de antes: máximo 3 referencias (las del pool fuera del top-10).
+
+- **Fase 2 léxica — CERRADA bajo Opción C (2026-10-20).** La línea `Pendiente: la corrida del
+  operador` de la entrada de arriba quedó satisfecha: las dos variantes pre-registradas se corrieron
+  en hardware real (Neo4j 5.23, Orange Pi) y ninguna alcanza el objetivo. Acta completa en
+  **spec 09 §11**; acá los números, que son el motivo del cierre:
+
+  | variante | hits / 120 | precision@10 | veredicto |
+  |---|---|---|---|
+  | — (baseline commiteado, `standard-no-stop-words`) | 15 | **0.1250** | referencia |
+  | 1 · forma (frase escapada) | 0 | **0.0000** | −15 netas, descartada |
+  | 2 · analyzer `standard` | 16 | **0.1333** | +1 neto (ret-014), 0 perdidas, pero no 0.150 |
+
+  La variante 2 cumple la barra antirruido de la enmienda (monotonía estricta) y **no** el objetivo
+  `0.150` (18 hits). Se descartó para no matar el canario de drift (la fila de control habría
+  declarado `RUN VOID` en cada corrida, porque el baseline se midió con el otro analyzer), no
+  reintroducir la divergencia de configuración que S5 eliminó, y no abrir una segunda ventana de DDL.
+  **Rollback medido**: índice recreado con `standard-no-stop-words`, control de vuelta en **0.1250
+  (15/120), cero drift** — producción y `data/evaluation/retrieval_baseline.json` vuelven a coincidir.
+  **Sin tercer intento**, conforme al contrato fijado antes de correr.
+
+  **Evidencia de cuello de botella**: mover el analyzer mueve **una** referencia de 120, y los tres
+  cross-encoders ya habían quedado por debajo del orden fulltext puro. Dos palancas independientes
+  sobre la etapa de *ranking* no mueven una métrica que es de conjuntos en el top-10 ⇒ las
+  referencias faltantes no están mal ordenadas, **no están en el pool**. Es el mismo mecanismo que
+  la spec 09 §3 identificó y lo que deja a la alternativa A (híbrido vectorial nativo) como el único
+  camino no construido, con el resultado de fase 0 (§9) ya en contra.
+
+  **Subproducto operativo (PR #55)**: el primer `--apply` de la corrida falló con `CypherSyntaxError`
+  —el DDL usaba `'fulltext.analyzer'` y una clave de mapa Cypher exige identificador o backticks—.
+  Los pines de bytes no podían verlo (un statement inválido es idéntico a su propia copia) y pasó
+  tres PRs en verde. Corregido con el statement que Neo4j 5.23 aceptó y con un guard sintáctico
+  (`tests/unit/test_cypher_map_keys.py`). El failure path de PR #54 fue lo que lo hizo ruidoso en vez
+  de silencioso.

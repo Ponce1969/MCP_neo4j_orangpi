@@ -306,3 +306,66 @@ budget is claimed as met. The layer stays non-blocking either way.
 evidence-backed state and phase 2 closes without a third attempt. The run itself belongs to the
 operator (production graph, read-only); the numbers it produces will be appended here, not
 substituted for anything above.
+
+## 11. Phase 2 result (2026-10-20): both variants measured, option C stands
+
+Appended per §10's own rule ("the numbers it produces will be appended here, not substituted for
+anything above"). §10 is unchanged. Run by the operator on the production graph (Neo4j 5.23,
+Orange Pi), which is where every number below was produced; the repository supplied the instrument.
+
+**Variant 1 — query shape (escaped phrase).** `precision@10 = 0.0000`, 15 references lost, none
+gained. Requiring the whole question as one contiguous sequence almost never occurs in ~1,200-char
+technical chunks. Discarded; the shape slot is spent and there is no proximity follow-up (§10 allows
+two pre-registered variants, and choosing a new shape after seeing the loss is the failure mode
+phase 0 already had).
+
+**Variant 2 — analyzer `standard`.** `precision@10 = 0.1333` (16/120), **+1 net reference with none
+lost**: `ret-014` moves from 1 to 2 hits, `ret-001`–`ret-013` and `ret-018` are unchanged. Strict
+monotonicity holds, so the anti-noise bar in §10 is met — and the objective does not:
+
+| state | hits / 120 | precision@10 |
+|---|---|---|
+| committed baseline (`standard-no-stop-words`) | 15 | **0.1250** |
+| variant 2 (`standard`) | 16 | **0.1333** |
+| objective (18 hits) | 18 | 0.1500 |
+
+**Discarded, deliberately.** The +1 does not reach `0.150`, so adopting it would leave the
+objective unmet under a different name while costing three things: the **control row**, which would
+declare `RUN VOID` permanently (the committed baseline was measured with
+`standard-no-stop-words`, so the pure-fulltext leg stops reproducing and the drift canary dies
+until the baseline is re-registered); the **single declaration** of `DECLARED_CHUNK_ANALYZER`,
+which would then describe a configuration production no longer runs — the snowflake that §10's S5
+set out to eliminate; and a second DDL window on production.
+
+**Control row and void rule.** In the post-DDL run the control row declared `RUN VOID`, exactly as
+the recreation script warns: the control leg runs against the analyzer **installed**, not the
+committed one. The operator had authorized a substitute protocol before the run — pre-DDL control
+reproducing `0.1250`, then a per-question comparison against the pre-DDL record — so the run is
+admissible under that substitute, **not** under §10's literal same-run clause. Recording it as
+"the control passed" would be false.
+
+**Rollback, measured.** The index was recreated with `standard-no-stop-words` (ONLINE at 100 %,
+3,468 chunks) and the control row recomputed: **`0.1250`, 15/120, zero drift**. Production and
+`data/evaluation/retrieval_baseline.json` agree again, and `AGENTS.md` §7.4's recorded `0.1250`
+remains true — which is the point of having rolled back. The failure path added in PR #54 is what
+kept the earlier `--apply` failure from being silent: it reported the observed state and the exact
+recovery instead of leaving a traceback.
+
+**Closure.** Both pre-registered variants have been consumed and neither reaches `0.150`. Per §10,
+**option C is the evidence-backed state**: the objective stays unmet and declared, phase 2 closes,
+and no third attempt is opened.
+
+**What the numbers say about the bottleneck.** Changing the analyzer moves exactly one reference out
+of 120; the three cross-encoders measured earlier all fell *below* plain fulltext ordering. Two
+independent levers over the ranking stage fail to move a metric that is set-based at the top 10 —
+which is consistent with the mechanism identified in §3: the missing references are not badly
+ranked, they are **not in the pool**. The remaining un-built path is alternative A (native vector
+hybrid), whose phase-0 result (§9) already showed it does not pay for itself at 3,468 vector writes.
+
+**Instrument note (same run).** The first `--apply` failed on a `CypherSyntaxError`: the DDL shipped
+with the phase-2 instrument used `'fulltext.analyzer'`, and a Cypher map key must be an identifier
+or backtick-escaped. The byte pins could not see it — an invalid statement is byte-identical to its
+own copy, so the pins, the cross-pin and the suite stayed green for three PRs. Fixed in PR #55 with
+a syntactic guard (`tests/unit/test_cypher_map_keys.py`) plus the corrected statement, which is the
+form Neo4j 5.23 accepted. This is an independent defect from the measurement below: the numbers in
+this section were produced **after** the fix, on the corrected DDL.

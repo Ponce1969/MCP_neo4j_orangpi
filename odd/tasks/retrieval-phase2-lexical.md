@@ -78,6 +78,9 @@ budget as a new line; the backlog records the run. Historical records are **appe
 - **T9** [S5, L4] the DDL emitted a Cypher syntax error (`'fulltext.analyzer'` instead of the backtick form): fix the
   single source, re-record the three byte pins with the statement production **accepted**, and add the general guard
   (`tests/unit/test_cypher_map_keys.py`) that makes the next DDL inherit the check. → commit 3
+- **T10** [S1-S3] the operator's run on production hardware, both variants, the measured rollback and the
+  closure under option C — recorded in `docs/spec/09-retrieval-pool-recall.md` §11 and `odd/backlog.md`.
+  → operator, not a commit here
 
 ## Log
 
@@ -242,3 +245,30 @@ discrimina en vez de prohibir todo.
 **acepta**. Cuando el artefacto es un lenguaje que el repo no puede parsear, el único pin honesto es
 una propiedad sintáctica, y la única validación real es el servidor. Este DDL estuvo verde tres PRs
 seguidos sin haber visto nunca un Neo4j.
+
+**L5** (2026-10-20, operator, verbatim): "Rollback verificado en hardware real (Neo4j 5.23 sobre Orange
+Pi) — chunk_text_index recreado con analyzer 'standard-no-stop-words' (ONLINE al 100%, 3468 chunks).
+Corrida de control post-rollback ejecutada: precision@10 = 0.1250 (15 hits sobre 120 slots de
+evaluación), reproduciendo exactamente el baseline commiteado. Cero drift." Y sobre las variantes:
+"Slot 1 (Forma - Frase escapada): Colapso a 0.0000 (-15 referencias netas). Descartado. Slot 2
+(Analyzer - standard): Subió a 0.1333 (16/120 hits, +1 ganado en ret-014, 0 perdidos). Monotonía
+estricta verificada, pero objetivo 0.1500 (18 hits) no alcanzado. Descartado para proteger el canario
+de drift, evitar divergencia de configuración (snowflake) y mantener el baseline commiteado."
+
+**Cierre de la fase (Option C).** Ambas variantes pre-registradas consumidas, ninguna alcanza `0.150`.
+La variante 2 satisfizo la barra antirruido de S2 y falló el objetivo; adoptarla habría dejado el
+objetivo unmet bajo otro nombre a cambio de un canario de drift muerto (la fila de control declara
+`RUN VOID` en cada corrida, porque el baseline se midió con `standard-no-stop-words`), una divergencia
+entre `DECLARED_CHUNK_ANALYZER` y el servidor —el snowflake que S5 eliminó— y una segunda ventana de
+DDL. Rollback medido: `0.1250`, 15/120, cero drift. **Acta en `docs/spec/09-retrieval-pool-recall.md`
+§11 y en `odd/backlog.md`.** Sin tercer intento.
+
+**Lo que la fase deja medido**: el analyzer mueve una referencia de 120 y los tres cross-encoders
+quedaron por debajo del orden fulltext puro ⇒ el cuello de botella está en el **recall del pool**, no
+en el ranking ni en el análisis del texto. El único camino no construido sigue siendo la alternativa A
+(híbrido vectorial nativo), con el resultado de fase 0 en contra y `RERANK_ENABLED` en `false`.
+
+**Estado de tareas**: T1-T10 cerradas. T1-T8 se entregaron en el PR #53, squash-mergeado como
+`98bf449` (los commits de la rama no sobreviven al squash, así que se cita el merge). T9 en el PR #55,
+squash-mergeado como `3d23653`; la interfaz de recreación endurecida de la que dependía, en el PR #54
+(`ef6ab7b`). T10 es la corrida del operador: no tiene commit, su evidencia es el acta de spec 09 §11.
