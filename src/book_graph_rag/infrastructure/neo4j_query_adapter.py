@@ -727,11 +727,7 @@ class Neo4jQueryAdapter(GraphQueryPort):
             # Zero behaviour change: an existing index is untouched by IF NOT
             # EXISTS, and a newly created one now matches production instead of
             # silently taking whatever the server default is.
-            (
-                "CREATE FULLTEXT INDEX chunk_text_index IF NOT EXISTS FOR (n:Chunk) "
-                "ON EACH [n.text] OPTIONS "
-                "{indexConfig: {'fulltext.analyzer': 'standard-no-stop-words'}}"
-            ),
+            chunk_text_index_ddl(DECLARED_CHUNK_ANALYZER),
             (
                 "CREATE FULLTEXT INDEX entity_name_aliases_index "
                 "IF NOT EXISTS FOR (n:Entity) "
@@ -741,3 +737,39 @@ class Neo4jQueryAdapter(GraphQueryPort):
         async with self._driver.session() as session:
             for statement in index_statements:
                 await self._run_with_timeout(session.run(statement))
+
+
+# ── Single source for the chunk fulltext DDL (phase 2, S5a) ──────────────────
+# Declared after the class on purpose: nothing may be inserted above
+# ``search_chunks``' read-path lines (the recreation script's window warning
+# cites them by number).
+
+#: The analyzer production was observed with (spec 09 §1, ``SHOW INDEXES``).
+#: Single source for both owners: ``ensure_indexes`` declares it in the DDL and
+#: ``scripts-ops/recreate_chunk_text_index.py`` adopts it as its default, so
+#: rollback (recreate with the default) always restores this exact analyzer.
+DECLARED_CHUNK_ANALYZER = "standard-no-stop-words"
+
+#: The analyzer lands inside DDL text: only plain ``[a-z0-9-]+`` identifiers
+#: pass (empty strings and anything outside the set are rejected).
+_CHUNK_ANALYZER_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
+
+
+def chunk_text_index_ddl(analyzer: str) -> str:
+    """The one implementation of the ``chunk_text_index`` CREATE statement (S5a).
+
+    ``ensure_indexes`` issues exactly this statement and
+    ``scripts-ops/recreate_chunk_text_index.py`` derives its plan statement by
+    *calling* this function — the script holds no copy of the DDL, so production
+    startup and the gated recreation cannot drift byte-wise. Verified by the
+    cross-pin in ``tests/test_neo4j_query_adapter.py`` (executed bytes vs the
+    script's statement) and the delegation pin in
+    ``tests/unit/test_recreate_chunk_text_index.py``.
+    """
+    if not analyzer or any(char not in _CHUNK_ANALYZER_CHARS for char in analyzer):
+        raise ValueError(f"analyzer {analyzer!r} is not a plain [a-z0-9-] identifier")
+    return (
+        "CREATE FULLTEXT INDEX chunk_text_index IF NOT EXISTS FOR (n:Chunk) "
+        "ON EACH [n.text] OPTIONS "
+        f"{{indexConfig: {{'fulltext.analyzer': '{analyzer}'}}}}"
+    )
