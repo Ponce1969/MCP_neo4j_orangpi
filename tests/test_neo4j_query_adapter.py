@@ -1170,7 +1170,7 @@ async def test_ensure_indexes_fulltext_uses_on_each(adapter: Neo4jQueryAdapter) 
         q for q, _ in session.queries if "FULLTEXT INDEX chunk_text_index" in q
     )
     assert (
-        "ON EACH [n.text] OPTIONS {indexConfig: {'fulltext.analyzer': 'standard-no-stop-words'}}"
+        "ON EACH [n.text] OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard-no-stop-words'}}"
         in chunk_fulltext_query
     )
     entity_fulltext_query = next(
@@ -1196,7 +1196,7 @@ async def test_ensure_indexes_chunk_text_index_ddl_is_pinned_verbatim(
     queries = [q for q, _ in session.queries]
     assert (
         "CREATE FULLTEXT INDEX chunk_text_index IF NOT EXISTS FOR (n:Chunk) "
-        "ON EACH [n.text] OPTIONS {indexConfig: {'fulltext.analyzer': 'standard-no-stop-words'}}"
+        "ON EACH [n.text] OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard-no-stop-words'}}"
     ) in queries
 
 

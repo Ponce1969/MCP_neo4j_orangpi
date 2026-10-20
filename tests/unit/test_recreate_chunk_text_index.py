@@ -147,7 +147,7 @@ def test_create_statement_is_byte_identical_to_ensure_indexes_ddl() -> None:
     """
     expected = (
         "CREATE FULLTEXT INDEX chunk_text_index IF NOT EXISTS FOR (n:Chunk) ON EACH [n.text] "
-        "OPTIONS {indexConfig: {'fulltext.analyzer': 'standard-no-stop-words'}}"
+        "OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard-no-stop-words'}}"
     )
 
     assert DECLARED_ANALYZER == "standard-no-stop-words"
