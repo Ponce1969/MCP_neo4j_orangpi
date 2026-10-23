@@ -11,6 +11,7 @@ from types import ModuleType
 from typing import Any, get_args
 
 import pytest
+from pydantic import ValidationError
 
 from book_graph_rag.domain.extraction_labels import LabeledChunk
 from book_graph_rag.domain.models import EntityType
@@ -24,12 +25,18 @@ _MODULE: ModuleType = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 
 
-def _entity(canonical: str, entity_type: EntityType = "pattern") -> dict[str, Any]:
+def _entity(
+    canonical: str,
+    entity_type: EntityType = "pattern",
+    *,
+    surfaces: list[str] | None = None,
+    confidence: str = "high",
+) -> dict[str, Any]:
     return {
-        "surfaces": [canonical],
+        "surfaces": surfaces if surfaces is not None else [canonical],
         "canonical": canonical,
         "type": entity_type,
-        "confidence": "high",
+        "confidence": confidence,
     }
 
 
@@ -57,12 +64,18 @@ def _write_rows(path: Path, rows: list[dict[str, Any]]) -> bytes:
     return encoded
 
 
-def _drive(path: Path, answers: list[str], *, texts: Path | None = None) -> tuple[int, str]:
-    prompts: list[str] = []
+def _drive(
+    path: Path,
+    answers: list[str],
+    *,
+    texts: Path | None = None,
+    recorded_prompts: list[str] | None = None,
+) -> tuple[int, str]:
     iterator = iter(answers)
 
     def input_fn(prompt: str) -> str:
-        prompts.append(prompt)
+        if recorded_prompts is not None:
+            recorded_prompts.append(prompt)
         return next(iterator)
 
     output = io.StringIO()
@@ -284,3 +297,328 @@ def test_chunk_text_is_rendered_when_provided_and_hint_is_shown_when_absent(
     assert result_with_text == result_without_text == 0
     assert "Texto con ReAct y GraphRAG." in with_text
     assert "--texts PATH" in without_text
+
+
+def _capture_suggestions(path: Path, canonical: str) -> str:
+    output = io.StringIO()
+
+    def input_fn(prompt: str) -> str:
+        if prompt.startswith("Action"):
+            return "a"
+        if prompt.startswith("Canonical name"):
+            return canonical
+        raise EOFError("stop after displaying history suggestions")
+
+    with pytest.raises(EOFError):
+        _MODULE.run_labeler(path, input_fn=input_fn, output_stream=output)
+    return output.getvalue()
+
+
+def _completed_rows_for(canonical: str, count: int, *, start: int) -> list[dict[str, Any]]:
+    return [
+        _row(index, entities=[_entity(canonical)], completed=True)
+        for index in range(start, start + count)
+    ]
+
+
+def test_history_suggestions_order_exact_then_frequency_then_alphabetically(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "labels.jsonl"
+    rows = (
+        _completed_rows_for("GraphRAG", 1, start=1)
+        + _completed_rows_for("GraphRAG Able", 2, start=2)
+        + _completed_rows_for("GraphRAG Beta", 3, start=4)
+        + _completed_rows_for("GraphRAG Alpha", 3, start=7)
+        + [_row(10)]
+    )
+    _write_rows(path, rows)
+
+    output = _capture_suggestions(path, "GraphRAG")
+
+    suggestion_lines = [
+        line.strip()
+        for line in output.splitlines()
+        if line.strip().startswith(tuple(f"{number}." for number in range(1, 10)))
+    ]
+    assert [
+        line.split(" [", maxsplit=1)[0].split(". ", maxsplit=1)[1] for line in suggestion_lines
+    ] == [
+        "GraphRAG",
+        "GraphRAG Alpha",
+        "GraphRAG Beta",
+        "GraphRAG Able",
+    ]
+    assert "[pattern]" in suggestion_lines[0]
+    assert "1 time" in suggestion_lines[0]
+    assert "3 times" in suggestion_lines[1]
+
+
+def test_history_suggestions_are_capped_at_five(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    names = [f"Graph Entity {letter}" for letter in "ABCDEFGH"]
+    rows = [
+        _row(index, entities=[_entity(name)], completed=True)
+        for index, name in enumerate(names, start=1)
+    ] + [_row(20)]
+    _write_rows(path, rows)
+
+    output = _capture_suggestions(path, "Graph")
+
+    suggestion_lines = [
+        line.strip()
+        for line in output.splitlines()
+        if line.strip().startswith(tuple(f"{number}." for number in range(1, 10)))
+    ]
+    assert len(suggestion_lines) == 5
+    assert [
+        line.split(" [", maxsplit=1)[0].split(". ", maxsplit=1)[1] for line in suggestion_lines
+    ] == names[:5]
+
+
+def test_reusing_history_prefills_fields_and_allows_an_extra_variant(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    previous = _entity(
+        "GraphRAG",
+        "tool",
+        surfaces=["GraphRAG", "Reasoning and Acting"],
+        confidence="low",
+    )
+    _write_rows(path, [_row(1, entities=[previous], completed=True), _row(2)])
+
+    prompts: list[str] = []
+    result, output = _drive(
+        path,
+        [
+            "a",
+            "GraphRAG",
+            "1",
+            "",
+            "Reasoning and Acting, Added Variant",
+            "",
+            "",
+            "s",
+        ],
+        recorded_prompts=prompts,
+    )
+
+    saved = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    reused = saved[1]["entities"][0]
+    assert result == 0
+    assert reused == {
+        "surfaces": ["GraphRAG", "Reasoning and Acting", "Added Variant"],
+        "canonical": "GraphRAG",
+        "type": "tool",
+        "confidence": "low",
+    }
+    assert "Canonical name [GraphRAG]: " in prompts
+    assert "Variants (comma-separated, optional) [Reasoning and Acting]: " in prompts
+    assert "Type number (1-9) [5]: " in prompts
+    assert "Confidence (high/low) [low]: " in prompts
+
+
+def test_non_numeric_history_choice_is_a_new_canonical_name(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    _write_rows(
+        path,
+        [_row(1, entities=[_entity("Graph Retrieval")], completed=True), _row(2)],
+    )
+
+    result, _output = _drive(
+        path,
+        ["a", "Graph", "Brand New Entity", "", "1", "", "s"],
+    )
+
+    saved = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert result == 0
+    assert saved[1]["entities"] == [_entity("Brand New Entity")]
+
+
+def test_empty_history_keeps_the_original_prompt_flow(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    _write_rows(path, [_row(1)])
+    prompts: list[str] = []
+    answers = iter(["a", "GraphRAG", "", "1", "", "s"])
+
+    def input_fn(prompt: str) -> str:
+        prompts.append(prompt)
+        return next(answers)
+
+    output = io.StringIO()
+    result = _MODULE.run_labeler(path, input_fn=input_fn, output_stream=output)
+
+    assert result == 0
+    assert prompts == [
+        "Action [a/b/v/s/q]: ",
+        "Canonical name: ",
+        "Variants (comma-separated, optional): ",
+        "Type number (1-9): ",
+        "Confidence (high/low) [high]: ",
+        "Action [a/b/v/s/q]: ",
+    ]
+    assert "History suggestions" not in output.getvalue()
+
+
+def test_suggestions_exclude_entities_from_pending_rows(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    rows = [
+        _row(1),
+        _row(2, entities=[_entity("GraphRAG History")], completed=True),
+        _row(3, entities=[_entity("GraphRAG Pending")]),
+    ]
+    _write_rows(path, rows)
+
+    output = _capture_suggestions(path, "Graph")
+
+    suggestions = output.split("History suggestions:", maxsplit=1)[1]
+    assert "GraphRAG History" in suggestions
+    assert "GraphRAG Pending" not in suggestions
+
+
+def test_reused_entity_is_validated_and_inserted_in_normalized_order(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    previous = _entity(
+        "ReAct",
+        surfaces=["ReAct", "Reasoning and Acting"],
+        confidence="low",
+    )
+    _write_rows(
+        path,
+        [_row(1, entities=[previous], completed=True), _row(2, entities=[_entity("Zulu")])],
+    )
+
+    result, _output = _drive(path, ["a", "ReAct", "1", "", "", "", "", "s"])
+
+    saved = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    chunk = LabeledChunk.model_validate(saved[1])
+    assert result == 0
+    assert [entity.canonical for entity in chunk.entities] == ["ReAct", "Zulu"]
+    assert chunk.entities[0].surfaces == ["ReAct", "Reasoning and Acting"]
+    assert chunk.entities[0].confidence == "low"
+
+
+def test_invalid_history_reuse_reports_and_falls_back_to_manual_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "labels.jsonl"
+    _write_rows(
+        path,
+        [_row(1, entities=[_entity("GraphRAG")], completed=True), _row(2)],
+    )
+    original_validate = _MODULE.LabeledEntity.model_validate
+    should_reject_reuse = True
+    action_count = 0
+
+    def input_fn(prompt: str) -> str:
+        nonlocal should_reject_reuse, action_count
+        if prompt.startswith("Action"):
+            action_count += 1
+            return "a" if action_count == 1 else "q"
+        if prompt == "Canonical name: ":
+            return "GraphRAG"
+        if prompt.startswith("Suggestion number"):
+
+            def reject_first_reuse(cls: type[Any], /, value: Any, **kwargs: Any) -> Any:
+                nonlocal should_reject_reuse
+                if (
+                    should_reject_reuse
+                    and isinstance(value, dict)
+                    and value.get("canonical") == "GraphRAG"
+                ):
+                    should_reject_reuse = False
+                    raise ValidationError.from_exception_data(
+                        "LabeledEntity",
+                        [
+                            {
+                                "type": "value_error",
+                                "loc": ("canonical",),
+                                "input": "GraphRAG",
+                                "ctx": {"error": ValueError("history entry is invalid")},
+                            }
+                        ],
+                    )
+                return original_validate(value, **kwargs)
+
+            monkeypatch.setattr(
+                _MODULE.LabeledEntity,
+                "model_validate",
+                classmethod(reject_first_reuse),
+            )
+            return "1"
+        if prompt.startswith("Variants"):
+            return ""
+        if prompt.startswith("Type number"):
+            return "1"
+        if prompt.startswith("Confidence"):
+            return ""
+        raise AssertionError(f"Unexpected prompt: {prompt}")
+
+    output = io.StringIO()
+    result = _MODULE.run_labeler(path, input_fn=input_fn, output_stream=output)
+
+    saved = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert result == 0
+    assert "could not be reused" in output.getvalue()
+    assert saved[1]["entities"] == [_entity("GraphRAG")]
+
+
+def test_rejected_reuse_does_not_change_file_bytes(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    previous = _entity(
+        "GraphRAG",
+        surfaces=["GraphRAG", "Reasoning and Acting"],
+        confidence="low",
+    )
+    original = _write_rows(path, [_row(1, entities=[previous], completed=True), _row(2)])
+    canonical_prompts = 0
+
+    def input_fn(prompt: str) -> str:
+        nonlocal canonical_prompts
+        if prompt.startswith("Action"):
+            return "a"
+        if prompt.startswith("Canonical name"):
+            canonical_prompts += 1
+            if canonical_prompts == 1:
+                return "GraphRAG"
+            if canonical_prompts == 2:
+                assert prompt == "Canonical name [GraphRAG]: "
+                return ""
+            assert prompt == "Canonical name [GraphRAG]: "
+            assert path.read_bytes() == original
+            raise EOFError("stop after rejecting the invalid extra variant")
+        if prompt.startswith("Suggestion number"):
+            return "1"
+        if prompt.startswith("Variants"):
+            return "graph-rag"
+        if prompt.startswith("Type number") or prompt.startswith("Confidence"):
+            return ""
+        raise AssertionError(f"Unexpected prompt: {prompt}")
+
+    output = io.StringIO()
+    with pytest.raises(EOFError):
+        _MODULE.run_labeler(path, input_fn=input_fn, output_stream=output)
+
+    assert "duplicate normalized" in output.getvalue()
+    assert path.read_bytes() == original
+
+
+def test_reuse_warns_when_history_gives_one_canonical_two_types(tmp_path: Path) -> None:
+    """A silent first-occurrence pick would turn type_agreement into an artifact of order."""
+    path = tmp_path / "labels.jsonl"
+    _write_rows(
+        path,
+        [
+            _row(1, entities=[_entity("RAG", "pattern")], completed=True),
+            _row(2, entities=[_entity("RAG", "concept")], completed=True),
+            _row(3, entities=[]),
+        ],
+    )
+
+    result, output = _drive(path, ["a", "RAG", "1", "", "", "", "", "q"])
+
+    saved = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    chunk = LabeledChunk.model_validate(saved[2])
+    assert result == 0
+    assert "more than one type" in output
+    assert chunk.entities[0].type == "pattern", "reuse still takes the first occurrence"

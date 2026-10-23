@@ -28,8 +28,8 @@ from typing import Any, TextIO
 from book_graph_rag.config import Settings
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 
-SAMPLE_VERSION = "extraction-fidelity-v1"
-SAMPLE_SIZE_PER_BOOK = 12
+SAMPLE_VERSION = "extraction-fidelity-v2"
+SAMPLE_SIZE_PER_BOOK = 6
 ACTIVE_BOOK_COUNT = 4
 
 Chunk = tuple[str, int, str]
@@ -44,7 +44,7 @@ LIMIT $limit
 
 
 def select_sample(chunks: Sequence[Chunk], version: str = SAMPLE_VERSION) -> list[Chunk]:
-    """Select 12 chunks per book using the protocol's stable BLAKE2b ordering.
+    """Select 6 chunks per book using the protocol's stable BLAKE2b ordering.
 
     The output is ordered by ``(book_id, chunk_index)`` for readable, stable
     presentation; selection itself is determined only by the versioned digest

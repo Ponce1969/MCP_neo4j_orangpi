@@ -93,22 +93,23 @@ def test_selection_is_deterministic() -> None:
     assert first == second
 
 
-def test_selection_allocates_exactly_twelve_chunks_per_book() -> None:
+def test_selection_allocates_exactly_six_chunks_per_book() -> None:
     selected = _MODULE.select_sample(_chunks())
 
-    assert len(selected) == 48
+    assert len(selected) == 24
     assert Counter(book_id for book_id, _index, _text in selected) == Counter(
-        dict.fromkeys(_BOOKS, 12)
+        dict.fromkeys(_BOOKS, 6)
     )
 
 
-def test_selection_changes_when_the_version_suffix_changes() -> None:
+def test_v2_selection_differs_from_the_v1_sample() -> None:
     chunks = _chunks(40)
 
     version_one = _MODULE.select_sample(chunks, version="extraction-fidelity-v1")
     version_two = _MODULE.select_sample(chunks, version="extraction-fidelity-v2")
 
-    assert _MODULE.SAMPLE_VERSION == "extraction-fidelity-v1"
+    assert _MODULE.SAMPLE_VERSION == "extraction-fidelity-v2"
+    assert _MODULE.select_sample(chunks) == version_two
     assert version_one != version_two
 
 
@@ -128,7 +129,7 @@ def test_skeleton_matches_protocol_schema_and_has_one_record_per_sampled_chunk()
     skeleton = _MODULE.render_skeleton(selected)
     records = [json.loads(line) for line in skeleton.splitlines()]
 
-    assert len(records) == 48
+    assert len(records) == 24
     assert all(
         list(record) == ["chunk_id", "book_id", "chunk_index", "entities", "notes", "completed"]
         for record in records
@@ -166,7 +167,11 @@ async def test_blind_sheet_never_queries_or_emits_predictions(
     assert "entity" not in query.casefold()
     assert "mentions" not in query.casefold()
     assert _PREDICTION_NAME not in output
-    assert "Blind labeling text for knowledge:book-a chunk 0." in output
+    sampled_chunk = _MODULE.select_sample(
+        [(row["book_id"], row["chunk_index"], row["text"]) for row in _fake_graph_rows()]
+    )[0]
+    assert sampled_chunk[2] in output
+    assert "Observed :Chunk census per book:" in output
     assert "Sample pairs (book_id, chunk_index):" in output
 
 
@@ -195,7 +200,7 @@ async def test_emit_skeleton_writes_protocol_jsonl(
 
     records = [json.loads(line) for line in destination.read_text(encoding="utf-8").splitlines()]
     assert result == 0
-    assert len(records) == 48
+    assert len(records) == 24
     assert all(
         set(record) == {"chunk_id", "book_id", "chunk_index", "entities", "notes", "completed"}
         for record in records
@@ -235,7 +240,7 @@ async def test_json_mode_outputs_only_the_deterministic_pair_list(
     pairs = json.loads(capsys.readouterr().out)
 
     assert result == 0
-    assert len(pairs) == 48
+    assert len(pairs) == 24
     assert all(isinstance(pair, list) and len(pair) == 2 for pair in pairs)
     assert pairs == [
         [book_id, index] for book_id, index, _text in _MODULE.select_sample(_chunks(16))

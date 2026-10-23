@@ -89,29 +89,37 @@ If a chunk cannot be labeled blind (for example, the sheet generator was modifie
 The frame is every `:Chunk` in the four active books. Census: **1520 / 989 / 302 / 657 = 3468**
 chunks.
 
-Allocation is **equal per book** — 12 chunks each, **48 total** — not proportional: with
-proportional allocation the 302-chunk book would contribute three chunks and its precision would be
-unmeasurable, while the 1520-chunk book already has plenty of text in common with the others.
+Allocation is **equal per book** — 6 chunks each, **24 total** — not proportional: with proportional
+allocation the 302-chunk book would contribute two chunks and its precision would be unmeasurable,
+while the 1520-chunk book already has plenty of text in common with the others.
 
-48 chunks at roughly five entities per chunk gives ~240 labels; the 95 % interval on F1 is then
-about ±5 points, which is enough to detect the regression size that matters (a 10-point drop) and
-not enough to chase noise. **The size is fixed before any labeling and before any prediction is
-looked at**: shrinking it after seeing a bad result would be choosing the sample after the outcome.
+24 chunks at roughly five entities per chunk gives ~120 labels; the 95 % interval on F1 is then
+about ±8 points, which detects the regression size that actually matters here (a 15-point drop) and
+not the 10-point one the 48-chunk sample would have caught. The trade was made deliberately on
+2026-10-20 before any label existed, to fit the labeling inside one sitting — see the amendment at
+the end of this file. **The size is fixed before any labeling and before any prediction is looked
+at**: shrinking it after seeing a bad result would be choosing the sample after the outcome.
 
 ### 3.2 Selection rule
 
-For each book, order the chunks by `chunk_index` and select the 12 with the smallest
+For each book, order the chunks by `chunk_index` and select the 6 with the smallest
 
 ```
-blake2b(f"{book_id}:{chunk_index}:extraction-fidelity-v1", digest_size=8)
+blake2b(f"{book_id}:{chunk_index}:extraction-fidelity-v2", digest_size=8)
 ```
+
+The version suffix moved to `v2` with the size change: v1 named a rule that selected 12 per book, and
+no v1 sample was ever drawn, so nothing is invalidated — but a pair list produced by an earlier
+`--json` run must not be mistaken for the current sample. The **file** stays
+`data/extraction_labels_v1.jsonl`: that `v1` is the protocol version, a different number that happens
+to look like the same one.
 
 Ties broken by `chunk_index`. Hash-based selection is used instead of a PRNG because it is
 reproducible in any language and any future Python version, with no seed state to preserve, and
 instead of a regular stride because chunk boundaries carry periodic structure (section breaks) that
 a stride would sample in phase.
 
-The resolved list of 48 `(book_id, chunk_index)` pairs is **committed** as part of the dataset, so
+The resolved list of 24 `(book_id, chunk_index)` pairs is **committed** as part of the dataset, so
 "the sample" is a fact about the repository and not about somebody's local run.
 
 ### 3.3 When the sample must be redrawn
@@ -236,8 +244,11 @@ code fragments with no typeable named thing.
 
 1. **Generate the sheet** (read-only): the export script samples per §3.2 and prints, per chunk, the
    `chunk_id` and the chunk **text** — and nothing about predictions.
-2. **Label 12 chunks per session**, one book per session. Budget: **~3 minutes per chunk** including
-   reading, so ~40 minutes per book, **~2.5–3 hours total**, splittable across days without loss.
+2. **Label 6 chunks per session**, one book per session. Budget: **~3 minutes per chunk** including
+   reading, so ~20 minutes per book, **~75 minutes total**, splittable without loss. The labeler
+   offers the canonical names and surface forms from chunks already labeled in the same file, so the
+   repetitive typing is paid once per entity instead of once per chunk — it reuses the labeler's own
+   decisions and never shows what the pipeline produced.
 3. **Validate the file** against the schema before committing (duplicate normalized surfaces, type
    outside the closed set, `merged_into`-shaped ids in labels — all rejected).
 4. **Commit the labels** with the MANIFEST entry, then run the metric.
@@ -281,3 +292,15 @@ where they look for it rather than reconstruct it.
 typeable in it, so "resume at the first unfinished chunk" could not be implemented without guessing.
 The field is additive and means what it says — a row with `completed: false` is not a label. No label
 file existed when the field was added, so nothing had to be migrated.
+
+**2026-10-20 — sample reduced from 12 to 6 chunks per book (48 → 24), suffix moved to `v2`.** The
+protocol's own rule is that the size is fixed before any labeling and never shrunk after seeing a
+result; this change satisfies the first half and does not touch the second, because **no label
+existed** when it was made — the dataset had not been started, and there was no prediction to look
+at. The reason is the honest one: 48 chunks is ~3 hours of human reading, and a dataset nobody
+finishes is worth less than a smaller one that gets finished. The cost is stated in §3.1 and not
+hidden: the interval widens to about ±8 points, so a 10-point regression that 48 chunks would have
+caught becomes invisible; a 15-point one does not. The alternative proposals were rejected for
+measurement reasons, not for convenience: pre-filling labels from a keyword dictionary would make F1
+a comparison between the pipeline and the dictionary instead of between the pipeline and the book,
+and any sheet that shows the labeler candidate entities converts judgment into ratification.
