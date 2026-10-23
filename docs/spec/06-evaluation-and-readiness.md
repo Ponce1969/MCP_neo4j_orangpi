@@ -164,3 +164,17 @@ readiness gate passes. Consequently, the readiness gate may pass while W1 remain
     checkbox stays open**: this covers connectivity and provenance (REQ-PROV-03) and never
     semantic fidelity, which still needs the labeled extraction dataset this repository does
     not have.
+  - **The labeling protocol exists; the labels and the measurement do not (2026-10-20).**
+    `docs/evaluation/extraction-labeling-protocol.md` (v1) is the normative instruction set for the
+    dataset this section has been waiting for: one **chunk** per unit, a deterministic hash-based
+    sample of 12 chunks per book (48 total, committed), **blind** labeling (the labeler never sees
+    what the extractor produced — a sheet that shows predictions would measure the extractor
+    against itself, the failure this section refused in the first place), normalization and alias
+    matching, canonical resolution through `merged_into`, one-to-one matching, and type agreement
+    reported on its own axis instead of double-counting a right entity with a wrong type.
+    **What it authorizes: nothing yet.** Writing the protocol does not produce a label file, and a
+    label file does not produce a threshold. The metric is measurement-only in its first
+    iteration, extraction stays `blocking: false`, and **the checkbox above stays open** until a
+    measured baseline exists with a threshold derived from its own dispersion — the same order
+    layers 3, 4 and 5 followed. Relation fidelity is deliberately out of scope (§1.2 of the
+    protocol) rather than quietly absent.
