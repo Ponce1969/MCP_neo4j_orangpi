@@ -133,14 +133,122 @@ def _ask_value(
     return value.strip()
 
 
-def _collect_entity(input_fn: InputFn, output_stream: TextIO) -> LabeledEntity:
-    canonical: str | None = None
+_HistorySuggestion = tuple[LabeledEntity, int]
+
+
+def _conflicting_types(chunks: list[LabeledChunk], canonical: str) -> set[EntityType]:
+    """Return every type this canonical was labeled with in completed rows.
+
+    More than one means the file contradicts itself. Reuse then silently picks the
+    first occurrence, which would make ``type_agreement`` reflect the order chunks
+    were labeled instead of the labeler's judgment — so the caller warns instead.
+    """
+    key = normalize_surface(canonical)
+    return {
+        entity.type
+        for chunk in chunks
+        if chunk.completed
+        for entity in chunk.entities
+        if normalize_surface(entity.canonical) == key
+    }
+
+
+def _history_suggestions(chunks: list[LabeledChunk], canonical: str) -> list[_HistorySuggestion]:
+    """Find up to five canonical entities used by completed rows in this file."""
+    query = normalize_surface(canonical)
+    if not query:
+        return []
+
+    counts: dict[str, int] = {}
+    examples: dict[str, LabeledEntity] = {}
+    for chunk in chunks:
+        if not chunk.completed:
+            continue
+        for entity in chunk.entities:
+            key = normalize_surface(entity.canonical)
+            counts[key] = counts.get(key, 0) + 1
+            examples.setdefault(key, entity)
+
+    matches = [
+        (examples[key], count)
+        for key, count in counts.items()
+        if key == query or key.startswith(query)
+    ]
+    matches.sort(
+        key=lambda suggestion: (
+            normalize_surface(suggestion[0].canonical) != query,
+            -suggestion[1],
+            normalize_surface(suggestion[0].canonical),
+            suggestion[0].canonical.casefold(),
+        )
+    )
+    return matches[:5]
+
+
+def _collect_entity(
+    input_fn: InputFn,
+    output_stream: TextIO,
+    chunks: list[LabeledChunk],
+) -> LabeledEntity:
+    canonical: str = _ask_value(input_fn, "Canonical name", None)
     variants_input: str | None = None
     type_number: str | None = None
     confidence = "high"
+    prompt_canonical = False
+
+    suggestions = _history_suggestions(chunks, canonical)
+    if suggestions:
+        print("History suggestions:", file=output_stream)
+        for number, (history_entity, count) in enumerate(suggestions, start=1):
+            label_count = "1 time" if count == 1 else f"{count} times"
+            print(
+                f"  {number}. {history_entity.canonical} [{history_entity.type}] "
+                f"— labeled {label_count}",
+                file=output_stream,
+            )
+
+        choice = input_fn(f"Suggestion number (or new canonical name) [{canonical}]: ").strip()
+        try:
+            selected_number = int(choice)
+        except ValueError:
+            selected_number = 0
+
+        if 1 <= selected_number <= len(suggestions):
+            suggestion, _count = suggestions[selected_number - 1]
+            try:
+                reused = LabeledEntity.model_validate(suggestion.model_dump(mode="python"))
+            except ValidationError as exc:
+                print(
+                    f"History suggestion {selected_number} could not be reused: {exc}",
+                    file=output_stream,
+                )
+                print("Falling back to manual entry.", file=output_stream)
+            else:
+                conflicts = _conflicting_types(chunks, reused.canonical)
+                if len(conflicts) > 1:
+                    print(
+                        f"Warning: {reused.canonical!r} is labeled with more than one type "
+                        f"({', '.join(sorted(conflicts))}); reusing {reused.type!r}. "
+                        "Type agreement measures this, so if it is a real inconsistency, "
+                        "fix it deliberately rather than inheriting the first one seen.",
+                        file=output_stream,
+                    )
+                canonical = reused.canonical
+                variants_input = ", ".join(
+                    surface
+                    for surface in reused.surfaces
+                    if normalize_surface(surface) != normalize_surface(reused.canonical)
+                )
+                type_number = str(ENTITY_TYPES.index(reused.type) + 1)
+                confidence = reused.confidence
+                prompt_canonical = True
+        elif choice:
+            canonical = choice
 
     while True:
-        canonical = _ask_value(input_fn, "Canonical name", canonical)
+        if prompt_canonical:
+            canonical = _ask_value(input_fn, "Canonical name", canonical)
+            prompt_canonical = False
         variants_input = _ask_value(
             input_fn, "Variants (comma-separated, optional)", variants_input
         )
@@ -154,6 +262,7 @@ def _collect_entity(input_fn: InputFn, output_stream: TextIO) -> LabeledEntity:
                 raise ValueError
         except ValueError:
             print("Type must be a number from 1 to 9.", file=output_stream)
+            prompt_canonical = True
             continue
 
         confidence = _ask_value(input_fn, "Confidence (high/low)", confidence)
@@ -175,6 +284,7 @@ def _collect_entity(input_fn: InputFn, output_stream: TextIO) -> LabeledEntity:
                 "Please re-enter the entity; Enter keeps each previous value.",
                 file=output_stream,
             )
+            prompt_canonical = True
 
 
 def _insert_entity(chunk: LabeledChunk, entity: LabeledEntity) -> LabeledChunk:
@@ -220,7 +330,7 @@ def run_labeler(
             action = input_fn("Action [a/b/v/s/q]: ").strip().casefold()
 
             if action == "a":
-                entity = _collect_entity(input_fn, output_stream)
+                entity = _collect_entity(input_fn, output_stream, chunks)
                 chunk = _insert_entity(chunk, entity)
                 chunks[index] = chunk
             elif action == "b":
