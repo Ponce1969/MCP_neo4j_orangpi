@@ -130,7 +130,7 @@ def test_skeleton_matches_protocol_schema_and_has_one_record_per_sampled_chunk()
 
     assert len(records) == 48
     assert all(
-        list(record) == ["chunk_id", "book_id", "chunk_index", "entities", "notes"]
+        list(record) == ["chunk_id", "book_id", "chunk_index", "entities", "notes", "completed"]
         for record in records
     )
     assert all(
@@ -141,6 +141,7 @@ def test_skeleton_matches_protocol_schema_and_has_one_record_per_sampled_chunk()
             "chunk_index": record["chunk_index"],
             "entities": [],
             "notes": "",
+            "completed": False,
         }
         for record in records
     )
@@ -196,10 +197,32 @@ async def test_emit_skeleton_writes_protocol_jsonl(
     assert result == 0
     assert len(records) == 48
     assert all(
-        set(record) == {"chunk_id", "book_id", "chunk_index", "entities", "notes"}
+        set(record) == {"chunk_id", "book_id", "chunk_index", "entities", "notes", "completed"}
         for record in records
     )
-    assert all(record["entities"] == [] and record["notes"] == "" for record in records)
+    assert all(
+        record["entities"] == [] and record["notes"] == "" and not record["completed"]
+        for record in records
+    )
+
+
+async def test_text_export_writes_only_sampled_chunk_text_in_sample_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_fake_graph(monkeypatch)
+    destination = tmp_path / "chunk_texts.json"
+
+    result = await _MODULE.main(["--texts", str(destination)])
+
+    texts = json.loads(destination.read_text(encoding="utf-8"))
+    graph_chunks = [(row["book_id"], row["chunk_index"], row["text"]) for row in _fake_graph_rows()]
+    sample = _MODULE.select_sample(graph_chunks)
+    expected = {f"{book_id}:{chunk_index}": text for book_id, chunk_index, text in sample}
+    assert result == 0
+    assert texts == expected
+    assert list(texts) == list(expected)
+    assert _PREDICTION_NAME not in destination.read_text(encoding="utf-8")
 
 
 async def test_json_mode_outputs_only_the_deterministic_pair_list(

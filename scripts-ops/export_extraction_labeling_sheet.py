@@ -7,8 +7,10 @@ what the extractor predicted for a chunk.
 
 Default mode prints the human sheet to stdout. ``--json`` prints only the
 sampled ``(book_id, chunk_index)`` pairs; ``--emit-skeleton PATH`` creates the
-empty protocol-v1 JSONL file without overwriting an existing file. All graph
-access is through managed read transactions; no graph writes are issued.
+empty protocol-v1 JSONL file without overwriting an existing file; ``--texts
+PATH`` writes a JSON mapping from chunk id to text, also without overwriting.
+All graph access is through managed read transactions; no graph writes are
+issued.
 """
 
 from __future__ import annotations
@@ -90,12 +92,19 @@ def render_skeleton(chunks: Sequence[Chunk]) -> str:
                 "chunk_index": chunk_index,
                 "entities": [],
                 "notes": "",
+                "completed": False,
             },
             ensure_ascii=False,
         )
         for book_id, chunk_index, _text in chunks
     ]
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+def render_texts(chunks: Sequence[Chunk]) -> str:
+    """Render only sampled chunk text, keyed by id, in the sample's stable order."""
+    texts = {f"{book_id}:{chunk_index}": text for book_id, chunk_index, text in chunks}
+    return json.dumps(texts, ensure_ascii=False, indent=2) + "\n"
 
 
 def render_sheet(chunks: Sequence[Chunk], census: dict[str, int]) -> str:
@@ -173,6 +182,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="print only the deterministic sampled [book_id, chunk_index] pairs as JSON",
     )
+    parser.add_argument(
+        "--texts",
+        type=Path,
+        metavar="PATH",
+        help="write only the sampled {chunk_id: text} mapping to PATH (refuses to overwrite)",
+    )
     return parser.parse_args(argv)
 
 
@@ -196,6 +211,11 @@ async def main(argv: list[str] | None = None) -> int:
         )
 
     sample = select_sample(chunks)
+    if args.texts is not None:
+        with args.texts.open("xb") as output_file:
+            output_file.write(render_texts(sample).encode("utf-8"))
+        print(f"Chunk texts written to {args.texts}", file=sys.stderr)
+
     if args.json:
         pairs = [[book_id, chunk_index] for book_id, chunk_index, _text in sample]
         print(json.dumps(pairs, ensure_ascii=False, indent=2))
