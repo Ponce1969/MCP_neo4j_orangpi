@@ -201,7 +201,7 @@ One JSON object per line, in `data/evaluation/extraction_dataset.jsonl`, registe
 `provenance: "manually curated (protocol v1)"` — the same shape the resolution dataset uses.
 
 ```json
-{"chunk_id": "knowledge:agentic-architectural-patterns:979", "book_id": "knowledge:agentic-architectural-patterns", "chunk_index": 979, "entities": [{"surfaces": ["ReAct", "Reasoning and Acting"], "canonical": "ReAct", "type": "pattern", "confidence": "high"}], "notes": ""}
+{"chunk_id": "knowledge:agentic-architectural-patterns:979", "book_id": "knowledge:agentic-architectural-patterns", "chunk_index": 979, "entities": [{"surfaces": ["ReAct", "Reasoning and Acting"], "canonical": "ReAct", "type": "pattern", "confidence": "high"}], "notes": "", "completed": true}
 ```
 
 Field rules:
@@ -220,6 +220,12 @@ Field rules:
   carrying the result; if they diverge, the number depends on judgments the labeler flagged;
 - `notes` is free text, never read by a metric — it exists so a later reader can understand a
   surprising label without re-deriving it.
+- `completed` is `false` until a human confirms the chunk and `true` once they have. It exists
+  because `entities: []` is ambiguous: an empty list is both "not labeled yet" and "labeled, and
+  there is nothing typeable in this chunk" — and the paragraph below declares the second case
+  legitimate, so without an explicit marker a resuming labeler cannot tell a pending chunk from a
+  finished empty one. A row with `completed: false` is **not** a label: the committed dataset has
+  every row `true`, and the metric must never be run over a file that still contains pending rows.
 
 An empty `entities` list is a legitimate label: some chunks are references, tables of contents or
 code fragments with no typeable named thing.
@@ -269,3 +275,9 @@ rather than evaluating both keys, because the words key is subsumed: if `key_wor
 `key_compact` are necessarily equal, so the single test implements the stated rule exactly. Recorded
 because a reader will notice the words key is produced and not consulted, and should find the reason
 where they look for it rather than reconstruct it.
+
+**2026-10-20 — §5 gains `completed`.** The interactive labeler exposed an ambiguity in v1: `entities:
+[]` is the skeleton's "not labeled yet" and also a legitimate finished label for a chunk with nothing
+typeable in it, so "resume at the first unfinished chunk" could not be implemented without guessing.
+The field is additive and means what it says — a row with `completed: false` is not a label. No label
+file existed when the field was added, so nothing had to be migrated.

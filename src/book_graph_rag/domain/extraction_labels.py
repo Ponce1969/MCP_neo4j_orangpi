@@ -75,6 +75,7 @@ class LabeledChunk(BaseModel):
     chunk_index: int
     entities: list[LabeledEntity]
     notes: str
+    completed: bool = False
 
     @model_validator(mode="after")
     def validate_chunk_and_entity_order(self) -> LabeledChunk:
