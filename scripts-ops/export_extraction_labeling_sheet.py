@@ -7,10 +7,11 @@ what the extractor predicted for a chunk.
 
 Default mode prints the human sheet to stdout. ``--json`` prints only the
 sampled ``(book_id, chunk_index)`` pairs; ``--emit-skeleton PATH`` creates the
-empty protocol-v1 JSONL file without overwriting an existing file; ``--texts
-PATH`` writes a JSON mapping from chunk id to text, also without overwriting.
-All graph access is through managed read transactions; no graph writes are
-issued.
+empty protocol-v1 JSONL file and its ``.sample.json`` companion without
+overwriting either existing file. The companion is the committed record of the
+sample required by the labeling protocol. ``--texts PATH`` writes a JSON mapping
+from chunk id to text, also without overwriting. All graph access is through
+managed read transactions; no graph writes are issued.
 """
 
 from __future__ import annotations
@@ -99,6 +100,16 @@ def render_skeleton(chunks: Sequence[Chunk]) -> str:
         for book_id, chunk_index, _text in chunks
     ]
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+def render_sample_companion(chunks: Sequence[Chunk]) -> bytes:
+    """Render the committed sample record using stable pair ordering and LF."""
+    pairs = sorted(
+        [[book_id, chunk_index] for book_id, chunk_index, _text in chunks],
+        key=lambda pair: (pair[0], pair[1]),
+    )
+    record = {"sample_version": SAMPLE_VERSION, "pairs": pairs}
+    return (json.dumps(record, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
 
 def render_texts(chunks: Sequence[Chunk]) -> str:
@@ -211,6 +222,12 @@ async def main(argv: list[str] | None = None) -> int:
         )
 
     sample = select_sample(chunks)
+    companion_path = (
+        args.emit_skeleton.with_suffix(".sample.json") if args.emit_skeleton is not None else None
+    )
+    if companion_path is not None and companion_path.exists():
+        raise FileExistsError(f"Sample companion already exists: {companion_path}")
+
     if args.texts is not None:
         with args.texts.open("xb") as output_file:
             output_file.write(render_texts(sample).encode("utf-8"))
@@ -222,6 +239,9 @@ async def main(argv: list[str] | None = None) -> int:
     elif args.emit_skeleton is not None:
         with args.emit_skeleton.open("x", encoding="utf-8", newline="\n") as output_file:
             output_file.write(render_skeleton(sample))
+        assert companion_path is not None
+        with companion_path.open("xb") as companion_file:
+            companion_file.write(render_sample_companion(sample))
         print(f"Empty labeling skeleton written to {args.emit_skeleton}")
     else:
         print(render_sheet(sample, census))
