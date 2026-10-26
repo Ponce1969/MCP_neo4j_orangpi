@@ -213,7 +213,8 @@ def test_all_completed_rows_exit_without_prompting(tmp_path: Path) -> None:
     )
 
     assert result == 0
-    assert output.getvalue() == "No pending chunks.\n"
+    assert "No pending chunks." in output.getvalue()
+    assert "cannot be traced to a sample" in output.getvalue()
     assert path.read_bytes() == original
 
 
@@ -622,3 +623,118 @@ def test_reuse_warns_when_history_gives_one_canonical_two_types(tmp_path: Path) 
     assert result == 0
     assert "more than one type" in output
     assert chunk.entities[0].type == "pattern", "reuse still takes the first occurrence"
+
+
+def _write_sample(
+    path: Path,
+    pairs: list[list[str | int]],
+    *,
+    sample_version: str = "extraction-fidelity-v2",
+) -> Path:
+    companion = path.with_suffix(".sample.json")
+    record = {"sample_version": sample_version, "pairs": pairs}
+    companion.write_bytes((json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8"))
+    return companion
+
+
+def test_matching_sample_starts_at_first_pending_chunk(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    rows = [_row(1, completed=True), _row(2), _row(3, completed=True)]
+    _write_rows(path, rows)
+    _write_sample(path, [["knowledge:book-a", index] for index in (1, 2, 3)])
+
+    result, output = _drive(path, ["q"])
+
+    assert result == 0
+    assert "Chunk knowledge:book-a:2" in output
+    assert "Chunk knowledge:book-a:1" not in output
+    assert "Chunk knowledge:book-a:3" not in output
+
+
+def test_wrong_sample_count_refuses_before_prompt_and_preserves_file(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    rows = [_row(index, completed=True) for index in range(48)]
+    original = _write_rows(path, rows)
+    _write_sample(
+        path,
+        [["knowledge:book-a", index] for index in range(24)],
+        sample_version="extraction-fidelity-v1",
+    )
+    output = io.StringIO()
+
+    result = _MODULE.main(
+        ["--path", str(path)],
+        input_fn=lambda _prompt: pytest.fail("sample mismatch must be checked before prompts"),
+        output_stream=output,
+    )
+
+    message = output.getvalue()
+    assert result != 0
+    assert "24 pairs in the sample, 48 rows in the file" in message
+    assert "extraction-fidelity-v1" in message
+    assert "regenerate the skeleton" in message.casefold()
+    assert "--ignore-sample" in message
+    assert path.read_bytes() == original
+
+
+def test_same_count_with_different_chunk_id_refuses_and_names_differences(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "labels.jsonl"
+    _write_rows(path, [_row(1), _row(2)])
+    original = path.read_bytes().replace(b",", b", ")
+    path.write_bytes(original)
+    _write_sample(
+        path,
+        [["knowledge:book-a", 1], ["knowledge:book-a", 99]],
+        sample_version="legacy-v1",
+    )
+    output = io.StringIO()
+
+    prompts: list[str] = []
+
+    def answer(prompt: str) -> str:
+        prompts.append(prompt)
+        return "q"
+
+    result = _MODULE.main(
+        ["--path", str(path)],
+        input_fn=answer,
+        output_stream=output,
+    )
+
+    message = output.getvalue()
+    assert result != 0
+    assert prompts == []
+    assert "knowledge:book-a:99" in message
+    assert "knowledge:book-a:2" in message
+    assert "legacy-v1" in message
+    assert "regenerate the skeleton" in message.casefold()
+    assert "--ignore-sample" in message
+    assert path.read_bytes() == original
+
+
+def test_missing_sample_companion_warns_and_proceeds(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    _write_rows(path, [_row(1)])
+
+    result, output = _drive(path, ["q"])
+
+    assert result == 0
+    assert "cannot be traced to a sample" in output
+
+
+def test_ignore_sample_proceeds_with_mismatch_and_warns_untraceable(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    _write_rows(path, [_row(1)])
+    _write_sample(path, [["knowledge:book-a", 99]], sample_version="legacy-v1")
+    output = io.StringIO()
+
+    result = _MODULE.main(
+        ["--path", str(path), "--ignore-sample"],
+        input_fn=lambda _prompt: "q",
+        output_stream=output,
+    )
+
+    assert result == 0
+    assert "not be traceable to the recorded sample" in output.getvalue()

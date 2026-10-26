@@ -120,7 +120,15 @@ instead of a regular stride because chunk boundaries carry periodic structure (s
 a stride would sample in phase.
 
 The resolved list of 24 `(book_id, chunk_index)` pairs is **committed** as part of the dataset, so
-"the sample" is a fact about the repository and not about somebody's local run.
+"the sample" is a fact about the repository and not about somebody's local run. It travels as a
+**companion file**: `--emit-skeleton` also writes `<name>.sample.json` next to the label file, holding
+`sample_version` and the ordered pairs. The labeler reads it before the first prompt and **refuses to
+start** when the rows in the label file are not the pairs the sample recorded — a count mismatch or a
+chunk id present on one side only. This is not hypothetical: a 48-row file from the `v1` sample was
+about to be labeled as if it were the `v2` sample, and nothing else in the toolchain would have
+noticed. When the companion is absent the labeler warns loudly and proceeds (no claim to check is not
+the same as a false claim); `--ignore-sample` bypasses a mismatch on purpose and says the file will
+not be traceable.
 
 ### 3.3 When the sample must be redrawn
 

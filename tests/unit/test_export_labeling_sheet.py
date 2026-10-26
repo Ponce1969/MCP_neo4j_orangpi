@@ -245,3 +245,44 @@ async def test_json_mode_outputs_only_the_deterministic_pair_list(
     assert pairs == [
         [book_id, index] for book_id, index, _text in _MODULE.select_sample(_chunks(16))
     ]
+
+
+async def test_emit_skeleton_writes_sorted_lf_sample_companion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_fake_graph(monkeypatch)
+    destination = tmp_path / "extraction_dataset.jsonl"
+    companion = destination.with_suffix(".sample.json")
+
+    result = await _MODULE.main(["--emit-skeleton", str(destination)])
+
+    data = companion.read_bytes()
+    record = json.loads(data)
+    expected_pairs = [
+        [book_id, chunk_index]
+        for book_id, chunk_index, _text in _MODULE.select_sample(
+            [(row["book_id"], row["chunk_index"], row["text"]) for row in _fake_graph_rows()]
+        )
+    ]
+    assert result == 0
+    assert b"\r" not in data
+    assert record == {"sample_version": _MODULE.SAMPLE_VERSION, "pairs": expected_pairs}
+    assert list(record) == ["sample_version", "pairs"]
+    assert expected_pairs == sorted(expected_pairs, key=lambda pair: (pair[0], pair[1]))
+
+
+async def test_emit_skeleton_refuses_to_overwrite_existing_sample_companion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_fake_graph(monkeypatch)
+    destination = tmp_path / "extraction_dataset.jsonl"
+    companion = destination.with_suffix(".sample.json")
+    stale_record = b'{"sample_version":"old-v1","pairs":[]}\n'
+    companion.write_bytes(stale_record)
+
+    with pytest.raises(FileExistsError):
+        await _MODULE.main(["--emit-skeleton", str(destination)])
+
+    assert companion.read_bytes() == stale_record

@@ -49,6 +49,94 @@ def load_label_file(path: Path) -> list[LabeledChunk]:
     return load_labeled_chunks(rows)
 
 
+def _read_sample_companion(path: Path) -> tuple[str, list[tuple[str, int]]]:
+    """Read and validate the version and pair list in a sample companion."""
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"sample companion {path} must contain a JSON object")
+
+    sample_version = value.get("sample_version")
+    if not isinstance(sample_version, str) or not sample_version:
+        raise ValueError(f"sample companion {path} must have a non-empty sample_version")
+
+    raw_pairs = value.get("pairs")
+    if not isinstance(raw_pairs, list):
+        raise ValueError(f"sample companion {path} must contain a pairs list")
+
+    pairs: list[tuple[str, int]] = []
+    for position, raw_pair in enumerate(raw_pairs, start=1):
+        if not isinstance(raw_pair, list) or len(raw_pair) != 2:
+            raise ValueError(f"sample companion pair {position} must be [book_id, chunk_index]")
+        book_id, chunk_index = raw_pair
+        if (
+            not isinstance(book_id, str)
+            or not book_id
+            or isinstance(chunk_index, bool)
+            or not isinstance(chunk_index, int)
+        ):
+            raise ValueError(
+                f"sample companion pair {position} must contain a non-empty book_id "
+                "and integer chunk_index"
+            )
+        pairs.append((book_id, chunk_index))
+    return sample_version, pairs
+
+
+def _format_chunk_ids(pairs: list[tuple[str, int]]) -> str:
+    rendered = [f"{book_id}:{chunk_index}" for book_id, chunk_index in pairs[:5]]
+    if len(pairs) > 5:
+        rendered.append(f"... ({len(pairs) - 5} more)")
+    return ", ".join(rendered)
+
+
+def _check_sample_companion(
+    path: Path,
+    chunks: list[LabeledChunk],
+    *,
+    ignore_sample: bool,
+    output_stream: TextIO,
+) -> None:
+    """Refuse labels whose recorded sample does not match, before any prompting."""
+    companion_path = path.with_suffix(".sample.json")
+    if not companion_path.exists():
+        print(
+            f"Warning: no sample companion at {companion_path}; "
+            "this label file cannot be traced to a sample.",
+            file=output_stream,
+        )
+        return
+
+    sample_version, sample_pairs = _read_sample_companion(companion_path)
+    file_pairs = [(chunk.book_id, chunk.chunk_index) for chunk in chunks]
+    sample_ids = set(sample_pairs)
+    file_ids = set(file_pairs)
+    if len(sample_pairs) == len(file_pairs) and sample_ids == file_ids:
+        return
+
+    if ignore_sample:
+        print(
+            "Warning: --ignore-sample: the label file will not be traceable to the "
+            f"recorded sample (sample_version={sample_version!r}).",
+            file=output_stream,
+        )
+        return
+
+    if len(sample_pairs) != len(file_pairs):
+        difference = f"{len(sample_pairs)} pairs in the sample, {len(file_pairs)} rows in the file"
+    else:
+        sample_only = sorted(sample_ids - file_ids)
+        file_only = sorted(file_ids - sample_ids)
+        difference = (
+            f"chunk ids differ; present only in sample: {_format_chunk_ids(sample_only)}; "
+            f"present only in file: {_format_chunk_ids(file_only)}"
+        )
+
+    raise ValueError(
+        f"Label sample mismatch (sample_version={sample_version!r}): {difference}. "
+        "Regenerate the skeleton, or pass --ignore-sample deliberately."
+    )
+
+
 def load_text_file(path: Path, chunks: list[LabeledChunk]) -> dict[str, str]:
     """Load only the offline chunk-id-to-text mapping; predictions are not accepted."""
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -308,9 +396,16 @@ def run_labeler(
     input_fn: InputFn,
     output_stream: TextIO,
     texts_path: Path | None = None,
+    ignore_sample: bool = False,
 ) -> int:
     """Run the resumable menu loop using injected I/O for tests and non-TTY use."""
     chunks = load_label_file(path)
+    _check_sample_companion(
+        path,
+        chunks,
+        ignore_sample=ignore_sample,
+        output_stream=output_stream,
+    )
     pending_indices = [index for index, chunk in enumerate(chunks) if not chunk.completed]
     if not pending_indices:
         print("No pending chunks.", file=output_stream)
@@ -376,6 +471,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="PATH",
         help="optional JSON mapping of chunk ids to text; no predictions are read",
     )
+    parser.add_argument(
+        "--ignore-sample",
+        action="store_true",
+        help=(
+            "deliberately bypass a companion mismatch; labels will not be traceable to that sample"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -395,6 +497,7 @@ def main(
             input_fn=input_fn if input_fn is not None else input,
             output_stream=output,
             texts_path=args.texts,
+            ignore_sample=args.ignore_sample,
         )
     except (OSError, ValueError, ValidationError) as exc:
         print(f"Error: {exc}", file=errors)
