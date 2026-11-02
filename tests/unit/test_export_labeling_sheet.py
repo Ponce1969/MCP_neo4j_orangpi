@@ -77,8 +77,10 @@ class _FakeGraph:
         return None
 
 
-def _install_fake_graph(monkeypatch: pytest.MonkeyPatch) -> _FakeGraph:
-    graph = _FakeGraph(_fake_graph_rows())
+def _install_fake_graph(
+    monkeypatch: pytest.MonkeyPatch, rows: list[dict[str, Any]] | None = None
+) -> _FakeGraph:
+    graph = _FakeGraph(_fake_graph_rows() if rows is None else rows)
     monkeypatch.setattr(_MODULE, "Settings", _StubSettings, raising=False)
     monkeypatch.setattr(_MODULE, "Neo4jQueryAdapter", lambda _settings: graph, raising=False)
     return graph
@@ -270,6 +272,130 @@ async def test_emit_skeleton_writes_sorted_lf_sample_companion(
     assert record == {"sample_version": _MODULE.SAMPLE_VERSION, "pairs": expected_pairs}
     assert list(record) == ["sample_version", "pairs"]
     assert expected_pairs == sorted(expected_pairs, key=lambda pair: (pair[0], pair[1]))
+
+
+async def test_single_book_filter_yields_exactly_six_pairs_from_that_book(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_fake_graph(monkeypatch)
+
+    result = await _MODULE.main(["--json", "--book", "knowledge:book-a"])
+    captured = capsys.readouterr()
+    pairs = json.loads(captured.out)
+
+    assert result == 0
+    assert len(pairs) == 6
+    assert {pair[0] for pair in pairs} == {"knowledge:book-a"}
+    # The operator-facing census and effective selection describe only the
+    # filtered frame, not the whole corpus.
+    assert "Effective selection: 6 chunks" in captured.err
+    assert "knowledge:book-b" not in captured.err
+    assert "knowledge:book-c" not in captured.err
+    assert "knowledge:book-d" not in captured.err
+
+
+async def test_two_book_filters_yield_twelve_pairs_six_per_book(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_fake_graph(monkeypatch)
+
+    result = await _MODULE.main(
+        ["--json", "--book", "knowledge:book-b", "--book", "knowledge:book-d"]
+    )
+    pairs = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert len(pairs) == 12
+    assert Counter(pair[0] for pair in pairs) == Counter(
+        {"knowledge:book-b": 6, "knowledge:book-d": 6}
+    )
+
+
+async def test_naming_every_book_is_identical_to_the_unfiltered_run(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_fake_graph(monkeypatch)
+
+    assert await _MODULE.main(["--json"]) == 0
+    unfiltered = capsys.readouterr().out
+
+    filter_args = ["--json"]
+    for book_id in _BOOKS:
+        filter_args.extend(["--book", book_id])
+    assert await _MODULE.main(filter_args) == 0
+    filtered = capsys.readouterr().out
+
+    assert filtered == unfiltered
+
+
+async def test_unknown_requested_book_fails_naming_the_observed_books(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_graph(monkeypatch)
+
+    with pytest.raises(ValueError, match="knowledge:not-a-book") as excinfo:
+        await _MODULE.main(["--json", "--book", "knowledge:not-a-book"])
+
+    message = str(excinfo.value)
+    positions = [message.index(book_id) for book_id in sorted(_BOOKS)]
+    assert positions == sorted(positions), "observed books must be named in sorted order"
+    assert "knowledge:not-a-book" in message
+
+
+async def test_whole_corpus_guard_is_unchanged_without_the_book_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    three_books = [row for row in _fake_graph_rows() if row["book_id"] in _BOOKS[:3]]
+    _install_fake_graph(monkeypatch, rows=three_books)
+
+    with pytest.raises(ValueError, match="Expected the 4-book active frame; observed 3 books"):
+        await _MODULE.main([])
+
+
+async def test_filtered_json_texts_and_companion_agree_on_the_same_six_ids(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_fake_graph(monkeypatch)
+    book_id = "knowledge:book-c"
+
+    assert await _MODULE.main(["--json", "--book", book_id]) == 0
+    pairs = json.loads(capsys.readouterr().out)
+
+    texts_path = tmp_path / "chunk_texts.json"
+    assert await _MODULE.main(["--texts", str(texts_path), "--book", book_id]) == 0
+    capsys.readouterr()
+    texts = json.loads(texts_path.read_text(encoding="utf-8"))
+
+    skeleton_path = tmp_path / "labels.jsonl"
+    assert await _MODULE.main(["--emit-skeleton", str(skeleton_path), "--book", book_id]) == 0
+    capsys.readouterr()
+    companion = json.loads(skeleton_path.with_suffix(".sample.json").read_text(encoding="utf-8"))
+
+    json_ids = [f"{pair[0]}:{pair[1]}" for pair in pairs]
+    assert len(json_ids) == 6
+    assert json_ids == list(texts)
+    assert json_ids == [f"{pair[0]}:{pair[1]}" for pair in companion["pairs"]]
+
+
+async def test_filtered_companion_records_only_the_filtered_pairs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_fake_graph(monkeypatch)
+    destination = tmp_path / "extraction_dataset.jsonl"
+    companion = destination.with_suffix(".sample.json")
+
+    result = await _MODULE.main(["--emit-skeleton", str(destination), "--book", "knowledge:book-b"])
+
+    record = json.loads(companion.read_bytes())
+    assert result == 0
+    assert len(record["pairs"]) == 6
+    assert {pair[0] for pair in record["pairs"]} == {"knowledge:book-b"}
 
 
 async def test_emit_skeleton_refuses_to_overwrite_existing_sample_companion(
