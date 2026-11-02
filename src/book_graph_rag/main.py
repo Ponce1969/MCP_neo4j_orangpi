@@ -116,6 +116,9 @@ from book_graph_rag.infrastructure.neo4j_command_adapter import Neo4jCommandAdap
 from book_graph_rag.infrastructure.neo4j_extraction_coverage_adapter import (
     Neo4jExtractionCoverageAdapter,
 )
+from book_graph_rag.infrastructure.neo4j_extraction_prediction_adapter import (
+    Neo4jExtractionPredictionAdapter,
+)
 from book_graph_rag.infrastructure.neo4j_query_adapter import Neo4jQueryAdapter
 from book_graph_rag.infrastructure.neo4j_read_credentials import readonly_settings
 from book_graph_rag.infrastructure.neo4j_retrieval_adapter import Neo4jRetrievalAdapter
@@ -813,9 +816,13 @@ def _build_evaluate_command_use_case(settings: Settings) -> EvaluateCommandUseCa
         # the active entity population (S1). Both adapters receive the per-consumer
         # read-only settings view (R2), applied here at the composition root like the
         # other read adapters, and the dead-letter count reuses the existing checkpoint
-        # port instead of a second query path (S6).
+        # port instead of a second query path (S6). The fidelity half reads the
+        # committed label file through the SAME manifest-validated dataset port the
+        # other layers use; prediction and coverage are separate read adapters.
         coverage_port=Neo4jExtractionCoverageAdapter(settings),
         checkpoint_port=Neo4jCheckpointAdapter(settings),
+        prediction_port=Neo4jExtractionPredictionAdapter(settings),
+        dataset_port=dataset_port,
     )
 
     return EvaluateCommandUseCase(
@@ -896,9 +903,12 @@ def _build_readiness_gate_evaluator_use_case(
 
     extraction_layer = EvaluateExtractionLayerUseCase(
         # Same front-d wiring as the evaluate command: read-only credential per
-        # consumer, dead-letter count through the existing checkpoint port.
+        # consumer, dead-letter count through the existing checkpoint port, and the
+        # fidelity half over the manifest-validated extraction_dataset_huyen labels.
         coverage_port=Neo4jExtractionCoverageAdapter(settings),
         checkpoint_port=Neo4jCheckpointAdapter(settings),
+        prediction_port=Neo4jExtractionPredictionAdapter(settings),
+        dataset_port=dataset_port,
     )
 
     return ReadinessGateEvaluatorUseCase(

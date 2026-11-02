@@ -56,6 +56,9 @@ from book_graph_rag.infrastructure.neo4j_checkpoint_adapter import Neo4jCheckpoi
 from book_graph_rag.infrastructure.neo4j_extraction_coverage_adapter import (
     Neo4jExtractionCoverageAdapter,
 )
+from book_graph_rag.infrastructure.neo4j_extraction_prediction_adapter import (
+    Neo4jExtractionPredictionAdapter,
+)
 from book_graph_rag.infrastructure.neo4j_retrieval_adapter import Neo4jRetrievalAdapter
 from book_graph_rag.infrastructure.stub_ragas_runner import StubRAGASRunner
 
@@ -148,10 +151,16 @@ def _build_readiness_use_case(settings: Settings) -> ReadinessGateEvaluatorUseCa
         ),
         retrieval_layer=_build_retrieval_layer(settings),
         # Front d: the extraction layer is wired like the composition roots — real
-        # adapters against the testcontainer URI (never a production endpoint).
+        # adapters against the testcontainer URI (never a production endpoint),
+        # including the fidelity half: prediction port over the same container and
+        # the manifest-validated label dataset (same shape main.py wires).
         extraction_layer=EvaluateExtractionLayerUseCase(
             coverage_port=Neo4jExtractionCoverageAdapter(settings),
             checkpoint_port=Neo4jCheckpointAdapter(settings),
+            prediction_port=Neo4jExtractionPredictionAdapter(settings),
+            dataset_port=JsonlManifestEvaluationDatasetLoader(
+                Path("data/evaluation/MANIFEST.json")
+            ),
         ),
     )
 
