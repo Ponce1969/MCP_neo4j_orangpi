@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -26,15 +28,26 @@ from book_graph_rag.domain.checkpoint_models import (
     VersionDimensions,
 )
 from book_graph_rag.domain.evaluation_models import (
+    EvaluationDataset,
     EvaluationLayerResult,
     LayerMetricValue,
     LayerStatus,
+    UnknownDatasetError,
+)
+from book_graph_rag.domain.extraction_fidelity import Prediction
+from book_graph_rag.infrastructure.evaluation_dataset_loader import (
+    JsonlManifestEvaluationDatasetLoader,
 )
 from book_graph_rag.ports.checkpoint_port import CheckpointPort
+from book_graph_rag.ports.evaluation_dataset_port import EvaluationDatasetPort
 from book_graph_rag.ports.extraction_coverage_port import (
     BookCoverage,
     ExtractionCoverageMeasurement,
     ExtractionCoveragePort,
+)
+from book_graph_rag.ports.extraction_prediction_port import (
+    ExtractionPredictionMeasurement,
+    ExtractionPredictionPort,
 )
 
 _VERSIONS = VersionDimensions(
@@ -157,6 +170,153 @@ def _metric(result: EvaluationLayerResult, name: str) -> LayerMetricValue:
     return next(m for m in result.project_owned_metrics if m.name == name)
 
 
+# ── Extraction-fidelity fixtures (protocol §1: unit = one chunk) ─────────────
+
+_BOOK = "knowledge:fixture-book"
+
+#: Two labeled rows in the REAL label-file shape (protocol §5): chunk_id is
+#: ``{book_id}:{chunk_index}`` with a colon-bearing book id, entities sorted by
+#: canonical, ``completed: true``.
+_FIDELITY_ROWS: tuple[dict[str, Any], ...] = (
+    {
+        "chunk_id": f"{_BOOK}:1",
+        "book_id": _BOOK,
+        "chunk_index": 1,
+        "entities": [
+            {
+                "surfaces": ["ReAct", "Reasoning and Acting"],
+                "canonical": "ReAct",
+                "type": "pattern",
+                "confidence": "high",
+            }
+        ],
+        "notes": "",
+        "completed": True,
+    },
+    {
+        "chunk_id": f"{_BOOK}:2",
+        "book_id": _BOOK,
+        "chunk_index": 2,
+        "entities": [
+            {
+                "surfaces": ["MCP", "Model Context Protocol"],
+                "canonical": "MCP",
+                "type": "mcp",
+                "confidence": "high",
+            }
+        ],
+        "notes": "",
+        "completed": True,
+    },
+)
+
+
+def _perfect_predictions() -> dict[str, list[Prediction]]:
+    return {
+        f"{_BOOK}:1": [
+            Prediction(
+                id="entity:react-pattern",
+                name="ReAct",
+                canonical_name="ReAct",
+                aliases=[],
+                type="pattern",
+                merged_into=None,
+            )
+        ],
+        f"{_BOOK}:2": [
+            Prediction(
+                id="entity:mcp-mcp",
+                name="MCP",
+                canonical_name=None,
+                aliases=["Model Context Protocol"],
+                type="mcp",
+                merged_into=None,
+            )
+        ],
+    }
+
+
+class _FakeDatasetPort(EvaluationDatasetPort):
+    """Stands in for the MANIFEST loader: canned rows or a load failure."""
+
+    def __init__(
+        self,
+        records: tuple[dict[str, Any], ...] | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self._records = _FIDELITY_ROWS if records is None else records
+        self._error = error
+        self.loaded: list[str] = []
+
+    def load(self, dataset_id: str) -> EvaluationDataset:
+        self.loaded.append(dataset_id)
+        if self._error is not None:
+            raise self._error
+        return EvaluationDataset(dataset_id=dataset_id, records=self._records)
+
+    def list_datasets(self) -> tuple[str, ...]:
+        return ("extraction_dataset_huyen",)
+
+
+class _FakePredictionPort(ExtractionPredictionPort):
+    """Stands in for the Neo4j adapter: canned predictions per chunk."""
+
+    def __init__(
+        self,
+        predictions_by_chunk: dict[str, list[Prediction]] | None = None,
+        canonical_of: dict[str, str] | None = None,
+    ) -> None:
+        self._predictions = (
+            _perfect_predictions() if predictions_by_chunk is None else predictions_by_chunk
+        )
+        self._canonical = canonical_of or {}
+        self.asked_chunk_ids: list[str] = []
+
+    async def measure(self, labeled_chunks: Any) -> ExtractionPredictionMeasurement:
+        self.asked_chunk_ids = [chunk.chunk_id for chunk in labeled_chunks]
+        return ExtractionPredictionMeasurement(
+            predictions_by_chunk=self._predictions,
+            canonical_of=self._canonical,
+        )
+
+
+def _fidelity_use_case(
+    *,
+    coverage_port: ExtractionCoveragePort | None = None,
+    prediction_port: ExtractionPredictionPort | None = None,
+    dataset_port: EvaluationDatasetPort | None = None,
+) -> EvaluateExtractionLayerUseCase:
+    return EvaluateExtractionLayerUseCase(
+        coverage_port=coverage_port or _FakeCoveragePort(_measurement(active=10, mentioned=10)),
+        checkpoint_port=_FakeCheckpointPort(),
+        prediction_port=prediction_port or _FakePredictionPort(),
+        dataset_port=dataset_port or _FakeDatasetPort(),
+    )
+
+
+def _coverage_use_case(
+    *,
+    coverage_port: ExtractionCoveragePort,
+    checkpoint_port: CheckpointPort,
+) -> EvaluateExtractionLayerUseCase:
+    """Coverage-pin construction with the fidelity ports wired to working fakes.
+
+    The original coverage pins predate the fidelity half; they keep testing the
+    quotient with a dataset that loads and perfect predictions, so no robustness
+    warning dilutes their warning assertions.
+    """
+    return EvaluateExtractionLayerUseCase(
+        coverage_port=coverage_port,
+        checkpoint_port=checkpoint_port,
+        prediction_port=_FakePredictionPort(),
+        dataset_port=_FakeDatasetPort(),
+    )
+
+
+def _fidelity_names(result: EvaluationLayerResult) -> set[str]:
+    return {m.name for m in result.project_owned_metrics}
+
+
 # ── Pin 1: complete coverage ⇒ no warnings, coverage = 1.0, status PASSED ──────
 
 
@@ -172,9 +332,7 @@ def test_complete_coverage_reports_one_and_no_warnings() -> None:
         )
     )
     checkpoint_port = _FakeCheckpointPort()
-    uc = EvaluateExtractionLayerUseCase(
-        coverage_port=coverage_port, checkpoint_port=checkpoint_port
-    )
+    uc = _coverage_use_case(coverage_port=coverage_port, checkpoint_port=checkpoint_port)
     result = asyncio.run(uc.execute())
 
     assert result.status == LayerStatus.PASSED
@@ -194,7 +352,7 @@ def test_complete_coverage_reports_one_and_no_warnings() -> None:
 
 def test_below_threshold_keeps_passed_and_warns_about_the_corpus() -> None:
     """Coverage 0.94 < 0.95 ⇒ status stays PASSED and one warning names the corpus."""
-    uc = EvaluateExtractionLayerUseCase(
+    uc = _coverage_use_case(
         coverage_port=_FakeCoveragePort(
             _measurement(
                 active=100,
@@ -218,7 +376,7 @@ def test_below_threshold_keeps_passed_and_warns_about_the_corpus() -> None:
 
 def test_coverage_exactly_at_threshold_emits_no_warning() -> None:
     """The comparator is ``>=``: exactly 0.95 is not a fall below the threshold."""
-    uc = EvaluateExtractionLayerUseCase(
+    uc = _coverage_use_case(
         coverage_port=_FakeCoveragePort(
             _measurement(
                 active=100,
@@ -251,9 +409,7 @@ def test_merged_entities_never_enter_the_quotient() -> None:
     assert naive_merged_inclusive < 0.95  # the trap the pin guards against
 
     coverage_port = _MergedCarryingCoveragePort()
-    uc = EvaluateExtractionLayerUseCase(
-        coverage_port=coverage_port, checkpoint_port=_FakeCheckpointPort()
-    )
+    uc = _coverage_use_case(coverage_port=coverage_port, checkpoint_port=_FakeCheckpointPort())
     result = asyncio.run(uc.execute())
 
     assert coverage_port.calls == 1
@@ -270,7 +426,7 @@ def test_merged_entities_never_enter_the_quotient() -> None:
 
 def test_placeholder_pending_stub_is_gone() -> None:
     """The stub pinned PENDING/0.0/None; the instrument pins PASSED/0.95 instead."""
-    uc = EvaluateExtractionLayerUseCase(
+    uc = _coverage_use_case(
         coverage_port=_FakeCoveragePort(_measurement(active=0, mentioned=0)),
         checkpoint_port=_FakeCheckpointPort(),
     )
@@ -287,7 +443,7 @@ def test_placeholder_pending_stub_is_gone() -> None:
 
 def test_empty_active_population_holds_the_invariant_vacuously() -> None:
     """0/0 is undefined; the invariant holder reports 1.0 and says so in the rationale."""
-    uc = EvaluateExtractionLayerUseCase(
+    uc = _coverage_use_case(
         coverage_port=_FakeCoveragePort(_measurement(active=0, mentioned=0)),
         checkpoint_port=_FakeCheckpointPort(),
     )
@@ -301,7 +457,7 @@ def test_empty_active_population_holds_the_invariant_vacuously() -> None:
 def test_failed_checkpoints_are_counted_per_book_through_the_checkpoint_port() -> None:
     """failed_checkpoints = the FAILED rows in each book's chunk range (S2, no threshold)."""
     checkpoint_port = _FakeCheckpointPort(failed={"knowledge:alpha": {3, 7}, "knowledge:beta": {1}})
-    uc = EvaluateExtractionLayerUseCase(
+    uc = _coverage_use_case(
         coverage_port=_FakeCoveragePort(
             _measurement(
                 active=10,
@@ -330,7 +486,7 @@ def test_failed_checkpoints_are_counted_per_book_through_the_checkpoint_port() -
 def test_zero_chunk_books_never_reach_the_checkpoint_port() -> None:
     """A book with no chunks has no chunk range to ask about."""
     checkpoint_port = _FakeCheckpointPort()
-    uc = EvaluateExtractionLayerUseCase(
+    uc = _coverage_use_case(
         coverage_port=_FakeCoveragePort(
             _measurement(
                 active=0,
@@ -350,7 +506,7 @@ def test_zero_chunk_books_never_reach_the_checkpoint_port() -> None:
 
 def test_rationale_carries_raw_numbers_the_denominator_and_the_book_breakdown() -> None:
     """S7: the rationale is a deliverable — raw numbers, explicit denominator, breakdown."""
-    uc = EvaluateExtractionLayerUseCase(
+    uc = _coverage_use_case(
         coverage_port=_FakeCoveragePort(
             _measurement(
                 active=20,
@@ -381,3 +537,154 @@ def test_measurement_model_rejects_a_numerator_above_the_denominator() -> None:
             mentioned_active_entities=9,
             books=(),
         )
+
+
+# ── Extraction fidelity: measurement only, never blocking (protocol §7) ──────
+
+
+def test_prediction_and_dataset_ports_are_required() -> None:
+    """Wiring omission is a construction error, never a silent degraded rung.
+
+    A ``None`` default would let a composition root forget one port and watch
+    the fidelity half vanish into the rationale while coverage keeps reporting.
+    """
+    with pytest.raises(TypeError):
+        # The omitted ports ARE the test: construction must fail, not degrade.
+        EvaluateExtractionLayerUseCase(  # type: ignore[call-arg]
+            coverage_port=_FakeCoveragePort(_measurement(active=1, mentioned=1)),
+            checkpoint_port=_FakeCheckpointPort(),
+        )
+
+
+def test_perfect_predictions_over_two_chunks_give_f1_one() -> None:
+    """Perfect predictions over the two-chunk fixture: every rate is 1.0, no threshold."""
+    result = asyncio.run(_fidelity_use_case().execute())
+
+    assert result.status == LayerStatus.PASSED
+    for name in (
+        "entity_precision",
+        "entity_recall",
+        "entity_f1",
+        "entity_type_agreement",
+    ):
+        metric = _metric(result, name)
+        assert metric.value == 1.0, name
+        assert metric.threshold is None, name  # measurement only, nothing blocking
+    # Coverage keeps working alongside the fidelity numbers.
+    assert _metric(result, "coverage").value == 1.0
+    assert result.warnings == ()
+    # The rationale carries the raw counts (S7).
+    assert "labels=2" in result.rationale
+    assert "predictions=2" in result.rationale
+    assert "matched=2" in result.rationale
+    assert "matching_types=2" in result.rationale
+
+
+def test_wrong_type_prediction_moves_only_the_type_agreement_axis() -> None:
+    """A type error changes only type_agreement: never precision/recall/f1 (§4.5)."""
+    predictions = _perfect_predictions()
+    predictions[f"{_BOOK}:2"] = [
+        Prediction(
+            id="entity:mcp-mcp",
+            name="MCP",
+            canonical_name=None,
+            aliases=["Model Context Protocol"],
+            type="tool",  # wrong type, right surfaces
+            merged_into=None,
+        )
+    ]
+    result = asyncio.run(
+        _fidelity_use_case(prediction_port=_FakePredictionPort(predictions)).execute()
+    )
+
+    assert _metric(result, "entity_f1").value == 1.0
+    assert _metric(result, "entity_precision").value == 1.0
+    assert _metric(result, "entity_recall").value == 1.0
+    assert _metric(result, "entity_type_agreement").value == 0.5
+    assert "matching_types=1" in result.rationale  # one of two matched pairs wrong-typed
+
+
+def test_merged_duplicate_predictions_are_collapsed_to_one() -> None:
+    """Predictions collapsing to the same canonical entity count ONCE (§4.3)."""
+    predictions = _perfect_predictions()
+    predictions[f"{_BOOK}:1"] = [
+        *predictions[f"{_BOOK}:1"],
+        Prediction(
+            id="entity:react-alias-pattern",
+            name="Reasoning and Acting",
+            canonical_name="ReAct",
+            aliases=[],
+            type="pattern",
+            merged_into="entity:react-pattern",
+        ),
+    ]
+    result = asyncio.run(
+        _fidelity_use_case(
+            prediction_port=_FakePredictionPort(
+                predictions, canonical_of={"entity:react-alias-pattern": "entity:react-pattern"}
+            )
+        ).execute()
+    )
+
+    # Without collapse: predictions=3, precision=2/3. With it: 1.0.
+    assert _metric(result, "entity_precision").value == 1.0
+    assert _metric(result, "entity_recall").value == 1.0
+    assert _metric(result, "entity_f1").value == 1.0
+    assert "predictions=2" in result.rationale  # pooled: 1 collapsed + 1
+
+
+def test_missing_dataset_warns_and_keeps_coverage_without_fidelity_numbers() -> None:
+    """Dataset cannot load ⇒ warning + rationale, coverage intact, no entity_* (robustness)."""
+    use_case = _fidelity_use_case(
+        dataset_port=_FakeDatasetPort(error=UnknownDatasetError("extraction_dataset_huyen"))
+    )
+    result = asyncio.run(use_case.execute())
+
+    assert result.status == LayerStatus.PASSED
+    assert _metric(result, "coverage").value == 1.0
+    names = _fidelity_names(result)
+    assert "coverage" in names
+    assert not any(name.startswith("entity_") for name in names)
+    assert any("extraction fidelity not measured" in warning for warning in result.warnings)
+    assert "extraction fidelity not measured" in result.rationale
+
+
+def test_pending_rows_are_not_labels_and_suppress_the_fidelity_numbers() -> None:
+    """A ``completed: false`` row is not a label (protocol §5): warn, no fidelity numbers."""
+    pending_rows = tuple(dict(row, completed=False) for row in _FIDELITY_ROWS)
+    use_case = _fidelity_use_case(dataset_port=_FakeDatasetPort(records=pending_rows))
+    result = asyncio.run(use_case.execute())
+
+    assert result.status == LayerStatus.PASSED
+    assert _metric(result, "coverage").value == 1.0
+    names = _fidelity_names(result)
+    assert not any(name.startswith("entity_") for name in names)
+    assert any("pending" in warning for warning in result.warnings)
+    assert "completed: false" in result.rationale
+
+
+def test_committed_huyen_dataset_rows_flow_through_the_layer() -> None:
+    """The REAL extraction_dataset_huyen.jsonl rows validate and produce fidelity numbers."""
+    loader = JsonlManifestEvaluationDatasetLoader(Path("data/evaluation/MANIFEST.json"))
+    dataset = loader.load("extraction_dataset_huyen")
+    result = asyncio.run(
+        _fidelity_use_case(dataset_port=_FakeDatasetPort(records=dataset.records)).execute()
+    )
+
+    assert result.status == LayerStatus.PASSED
+    names = _fidelity_names(result)
+    assert "entity_recall" in names
+    assert "entity_f1" in names
+    assert not any("extraction fidelity not measured" in warning for warning in result.warnings)
+    # The pilot labels all six chunks; with an empty prediction set precision is
+    # undefined (no predictions) and is OMITTED rather than faked as 0.0.
+    assert "entity_precision" not in names
+    assert "labels=6" in result.rationale
+
+
+def test_committed_huyen_dataset_matches_its_manifest_hash() -> None:
+    """The real file's sha256 still matches MANIFEST.json (loader validates it)."""
+    loader = JsonlManifestEvaluationDatasetLoader(Path("data/evaluation/MANIFEST.json"))
+    dataset = loader.load("extraction_dataset_huyen")
+    assert dataset.dataset_id == "extraction_dataset_huyen"
+    assert len(dataset.records) == 6

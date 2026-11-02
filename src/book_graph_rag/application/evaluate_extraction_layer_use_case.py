@@ -3,14 +3,18 @@
 The layer measures the invariant it claims: REQ-PROV-01 guarantees one ``:MENTIONS``
 per extracted entity, so the coverage quotient (S1's operator-approved definition)
 is 1.0 until the pipeline breaks — the instrument is born as a **guardian of that
-invariant**, not as a quality score. Semantic fidelity stays unmeasured (no labeled
-extraction dataset exists; spec 06 §11): what this layer measures is connectivity and
-provenance, which is why the spec 06 acceptance checkbox stays open.
+invariant**, not as a quality score. On top of it sits the fidelity half (protocol
+``docs/evaluation/extraction-labeling-protocol.md``): precision/recall/F1 over the
+labeled ``extraction_dataset_huyen`` rows, with the type axis reported separately
+(§4.5). Both halves are **measurement only, never blocking** (§7): the first
+measurement is a baseline, and a threshold derived before it would be invented.
 
 Status semantics (S3): ``derive_overall_status`` returns PASSED **before** it looks at
 the WARNING branch, so a WARNING *status* on this optional layer would be masked;
 ``warnings`` and ``rationale`` are the durable slots for a below-threshold drop
-(precedent: the retrieval layer, measured with a threshold and never failing).
+(precedent: the retrieval layer, measured with a threshold and never failing) and for
+a fidelity half that could not run (dataset missing, malformed or pending), which
+must never be reported as a number.
 """
 
 from __future__ import annotations
@@ -24,12 +28,19 @@ from book_graph_rag.domain.evaluation_models import (
     LayerRunMetadata,
     LayerStatus,
 )
+from book_graph_rag.domain.extraction_fidelity import (
+    ExtractionFidelityResult,
+    calculate_extraction_fidelity,
+)
+from book_graph_rag.domain.extraction_labels import load_labeled_chunks
 from book_graph_rag.ports.checkpoint_port import CheckpointPort
+from book_graph_rag.ports.evaluation_dataset_port import EvaluationDatasetPort
 from book_graph_rag.ports.extraction_coverage_port import (
     BookCoverage,
     ExtractionCoverageMeasurement,
     ExtractionCoveragePort,
 )
+from book_graph_rag.ports.extraction_prediction_port import ExtractionPredictionPort
 
 
 class EvaluateExtractionLayerUseCase:
@@ -45,16 +56,29 @@ class EvaluateExtractionLayerUseCase:
     #: The operator-approved threshold (S3): a fall below it is reported, never blocked.
     COVERAGE_THRESHOLD = 0.95
 
+    #: The committed label file (protocol §5): LOCAL to one book, a pilot — never a
+    #: corpus baseline. The fidelity half loads it through ``EvaluationDatasetPort``
+    #: so the MANIFEST sha256 gate applies before any number is computed.
+    FIDELITY_DATASET_ID = "extraction_dataset_huyen"
+
     def __init__(
         self,
         coverage_port: ExtractionCoveragePort,
         checkpoint_port: CheckpointPort,
         *,
+        prediction_port: ExtractionPredictionPort,
+        dataset_port: EvaluationDatasetPort,
         run_id: str | None = None,
         code_commit: str = "",
     ) -> None:
+        #: Required on purpose: a ``None`` default would turn a wiring omission
+        #: into a silent degraded rung — coverage keeps reporting while the
+        #: fidelity half disappears into the rationale. A composition root that
+        #: forgets a port must fail at construction, not at interpretation.
         self._coverage_port = coverage_port
         self._checkpoint_port = checkpoint_port
+        self._prediction_port = prediction_port
+        self._dataset_port = dataset_port
         self._run_id = run_id or uuid.uuid4().hex
         self._code_commit = code_commit
 
@@ -82,6 +106,9 @@ class EvaluateExtractionLayerUseCase:
             measurement.books
         )
 
+        fidelity_metrics, fidelity_warnings, fidelity_rationale = await self._measure_fidelity()
+        warnings.extend(fidelity_warnings)
+
         return EvaluationLayerResult(
             layer="extraction",
             status=LayerStatus.PASSED,
@@ -99,17 +126,130 @@ class EvaluateExtractionLayerUseCase:
                     value=float(failed_checkpoints),
                     threshold=None,
                 ),
+                *fidelity_metrics,
             ),
             warnings=tuple(warnings),
             rationale=self._rationale(
                 measurement, coverage, failed_checkpoints, sources_with_failures
-            ),
+            )
+            + f"; {fidelity_rationale}",
             source_dataset_id="",
             baseline_report_path=None,
             run_metadata=LayerRunMetadata(
                 run_id=self._run_id,
                 code_commit=self._code_commit,
             ),
+        )
+
+    async def _measure_fidelity(
+        self,
+    ) -> tuple[tuple[LayerMetricValue, ...], list[str], str]:
+        """Run the protocol-§4 fidelity half; never raise, never fake a number.
+
+        Returns ``(metrics, warnings, rationale)``. On ANY failure to obtain
+        trustworthy labels — dataset missing or malformed, pending
+        (``completed: false``) rows — the layer reports the reason in
+        ``warnings`` + ``rationale``, keeps coverage, and returns NO fidelity
+        metrics: a pending row is not a label (protocol §5), and a number computed
+        over unlabeled rows would be the exact failure spec 06 §11 refused.
+        """
+        try:
+            dataset = self._dataset_port.load(self.FIDELITY_DATASET_ID)
+        except Exception as exc:  # noqa: BLE001 — the port raises several types on purpose
+            reason = f"dataset {self.FIDELITY_DATASET_ID!r} unavailable: {exc}"
+            return (
+                (),
+                [f"extraction fidelity not measured: {reason}"],
+                f"extraction fidelity not measured: {reason}",
+            )
+
+        try:
+            labeled_chunks = load_labeled_chunks(dataset.records)
+        except Exception as exc:  # noqa: BLE001 — ValidationError/ValueError from the schema
+            reason = f"dataset {self.FIDELITY_DATASET_ID!r} malformed: {exc}"
+            return (
+                (),
+                [f"extraction fidelity not measured: {reason}"],
+                f"extraction fidelity not measured: {reason}",
+            )
+
+        pending = [chunk.chunk_id for chunk in labeled_chunks if not chunk.completed]
+        if pending:
+            reason = (
+                f"dataset {self.FIDELITY_DATASET_ID!r} has {len(pending)} pending row(s) "
+                "(completed: false); a pending row is not a label (protocol §5): "
+                f"{', '.join(pending)}"
+            )
+            return (
+                (),
+                [f"extraction fidelity not measured: {reason}"],
+                f"extraction fidelity not measured: {reason}",
+            )
+
+        prediction_measurement = await self._prediction_port.measure(labeled_chunks)
+        fidelity = calculate_extraction_fidelity(
+            labeled_chunks,
+            prediction_measurement.predictions_by_chunk,
+            prediction_measurement.canonical_of,
+        )
+        return self._fidelity_metrics(fidelity), [], self._fidelity_rationale(fidelity)
+
+    @staticmethod
+    def _fidelity_metrics(fidelity: ExtractionFidelityResult) -> tuple[LayerMetricValue, ...]:
+        """The four fidelity rates as threshold-less metrics (protocol §7).
+
+        An undefined rate (``None``: e.g. precision with zero predictions) is
+        OMITTED rather than reported as 0.0 — a fabricated zero reads like a
+        measurement of bad extraction instead of "nothing to divide".
+        """
+        rates = (
+            ("entity_precision", fidelity.precision),
+            ("entity_recall", fidelity.recall),
+            ("entity_f1", fidelity.f1),
+            ("entity_type_agreement", fidelity.type_agreement),
+        )
+        return tuple(
+            LayerMetricValue(name=name, value=value, threshold=None)
+            for name, value in rates
+            if value is not None
+        )
+
+    @staticmethod
+    def _fidelity_rationale(fidelity: ExtractionFidelityResult) -> str:
+        """Raw counts, per-book breakdown and the pessimistic bound (S7, §5).
+
+        The rationale is the durable slot when a status is masked: it must state
+        what was counted so a reader never has to re-derive it. The pessimistic
+        bound drops ``confidence: "low"`` labels while holding predictions fixed —
+        it prices "every contested label was an error", not a second estimate.
+        """
+        headline = (
+            "extraction fidelity (measurement only, threshold none — protocol §7): "
+            f"labels={fidelity.labels} predictions={fidelity.predictions} "
+            f"matched={fidelity.matched} matching_types={fidelity.matching_types}; "
+            f"precision={_format_rate(fidelity.precision)} "
+            f"recall={_format_rate(fidelity.recall)} f1={_format_rate(fidelity.f1)} "
+            f"type_agreement={_format_rate(fidelity.type_agreement)}"
+        )
+        breakdown = "; ".join(
+            f"{book_id}: labels={m.labels} predictions={m.predictions} "
+            f"matched={m.matched} matching_types={m.matching_types} "
+            f"f1={_format_rate(m.f1)}"
+            for book_id, m in fidelity.per_book.items()
+        )
+        stable = fidelity.excluding_low_confidence
+        bound = (
+            "pessimistic bound (confidence:low labels dropped, predictions held fixed — "
+            "prices 'every contested label was an error', NOT a second estimate): "
+            f"labels={stable.labels} predictions={stable.predictions} "
+            f"matched={stable.matched} matching_types={stable.matching_types} "
+            f"precision={_format_rate(stable.precision)} "
+            f"recall={_format_rate(stable.recall)} f1={_format_rate(stable.f1)}"
+        )
+        return (
+            f"{headline}; per-book: {breakdown or 'none'}; {bound}; pilot dataset "
+            f"{EvaluateExtractionLayerUseCase.FIDELITY_DATASET_ID!r} is LOCAL to its "
+            "sampled book, never a corpus baseline"
         )
 
     async def _count_failed_checkpoints(self, books: tuple[BookCoverage, ...]) -> tuple[int, int]:
@@ -181,3 +321,8 @@ class EvaluateExtractionLayerUseCase:
             "differ from a raw count of Checkpoint.failed_at"
         )
         return "; ".join(parts)
+
+
+def _format_rate(value: float | None) -> str:
+    """Format a rate, naming ``None`` instead of printing a number that is not one."""
+    return "undefined" if value is None else f"{value:.4f}"
