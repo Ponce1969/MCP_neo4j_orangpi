@@ -36,6 +36,15 @@
       "provenance": "Unit 0 hand-curated namespace-routing labels across the three production book namespaces",
       "model_id": "",
       "record_count": 31
+    },
+    {
+      "id": "extraction_dataset_huyen",
+      "schema_version": "1.0.0",
+      "file": "extraction_dataset_huyen.jsonl",
+      "sha256": "ce424ef0b840a27ade09dd6dda3baff9b1bf36c118803a3e7932a94fcbb69a6e",
+      "provenance": "Extraction-fidelity pilot, manually curated (docs/evaluation/extraction-labeling-protocol.md v1, 6 chunks x 6 per book from a single-book sample); LOCAL to knowledge:ai-engineering-huyen, never a corpus baseline",
+      "model_id": "",
+      "record_count": 6
     }
   ]
 }
