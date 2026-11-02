@@ -78,13 +78,80 @@ class ExtractionFidelityResult(FidelityMetrics):
     excluding_low_confidence: FidelityMetrics = field(
         default_factory=lambda: FidelityMetrics(None, None, None, None, 0, 0, 0, 0)
     )
+    #: The headline pass's per-chunk pairing when ``include_detail=True``; ``None``
+    #: when not asked for, so the default result is exactly today's, field for field.
+    detail: tuple[ChunkFidelityDetail, ...] | None = None
+
+
+# ── Opt-in per-chunk detail: the adjudication view of the SAME pass ───────────
+#
+# These records exist only when ``calculate_extraction_fidelity(include_detail=True)``
+# is requested. They are the pairing the counts came from — never a second matching
+# implementation — so the reconciliation (summed ``matched`` equals the counted
+# ``matched``, unmatched predictions equal ``predictions - matched``) holds by
+# construction rather than by agreement between two code paths.
+
+
+@dataclass(frozen=True, slots=True)
+class MatchedPairDetail:
+    """One matched pair: the label and the COLLAPSED prediction it was paired with."""
+
+    label_canonical: str
+    #: The collapsed canonical identity the metric matched on (§4.3).
+    prediction_canonical: str
+    #: The group's representative raw prediction id, for looking the entity up.
+    prediction_id: str
+    #: The type axis of this pair (§4.5): right entity, wrong type ⇒ ``False``.
+    type_matches: bool
+
+
+@dataclass(frozen=True, slots=True)
+class UnmatchedPredictionDetail:
+    """One collapsed prediction no label absorbed, original fields intact (§4.2/§4.3)."""
+
+    id: str
+    name: str
+    canonical_name: str | None
+    aliases: tuple[str, ...]
+    type: EntityType
+    merged_into: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class UnmatchedLabelDetail:
+    """One label the pass did not pair, with the surfaces it was labeled under."""
+
+    canonical: str
+    type: EntityType
+    surfaces: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkFidelityDetail:
+    """Everything one chunk's matching pass decided, in count-reconcilable form."""
+
+    chunk_id: str
+    matched: tuple[MatchedPairDetail, ...]
+    unmatched_predictions: tuple[UnmatchedPredictionDetail, ...]
+    unmatched_labels: tuple[UnmatchedLabelDetail, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class _CollapsedPrediction:
     canonical_id: str
     surfaces: frozenset[str]
-    type: EntityType
+    #: The raw prediction the group is reported as (§4.3's representative): its
+    #: identity, name, aliases and merge link stay visible in the detail records.
+    representative: Prediction
+
+
+@dataclass(frozen=True, slots=True)
+class _Pair:
+    """One assignment of the augmenting-path matching (§4.4), type axis included."""
+
+    label_index: int
+    prediction: _CollapsedPrediction
+    type_matches: bool
 
 
 @dataclass(slots=True)
@@ -116,23 +183,34 @@ def calculate_extraction_fidelity(
     labeled_chunks: Sequence[LabeledChunk],
     predictions_by_chunk: Mapping[str, Sequence[Prediction]],
     canonical_of: Mapping[str, str],
+    *,
+    include_detail: bool = False,
 ) -> ExtractionFidelityResult:
-    """Compute pooled and per-book fidelity without reading or mutating a graph."""
+    """Compute pooled and per-book fidelity without reading or mutating a graph.
+
+    ``include_detail=True`` additionally returns the headline pass's per-chunk
+    pairing as ``detail``. The counts come from that SAME pass — there is no second
+    matching implementation that could disagree with them — and the default (``False``)
+    reproduces today's result exactly, field for field.
+    """
     chunk_ids = [chunk.chunk_id for chunk in labeled_chunks]
     if len(set(chunk_ids)) != len(chunk_ids):
         raise ValueError("labeled_chunks must not contain duplicate chunk_id values")
 
-    headline, per_book = _measure(
+    headline, per_book, detail = _measure(
         labeled_chunks,
         predictions_by_chunk,
         canonical_of,
         include_low_confidence=True,
+        include_detail=include_detail,
     )
-    stable, _ = _measure(
+    stable, _, _ = _measure(
         labeled_chunks,
         predictions_by_chunk,
         canonical_of,
         include_low_confidence=False,
+        # The stability view never carries detail: the adjudication view describes
+        # the headline measurement, the one the report prints.
     )
     return ExtractionFidelityResult(
         precision=headline.precision,
@@ -145,6 +223,7 @@ def calculate_extraction_fidelity(
         matching_types=headline.matching_types,
         per_book=per_book,
         excluding_low_confidence=stable,
+        detail=detail,
     )
 
 
@@ -154,9 +233,15 @@ def _measure(
     canonical_of: Mapping[str, str],
     *,
     include_low_confidence: bool,
-) -> tuple[FidelityMetrics, dict[str, FidelityMetrics]]:
+    include_detail: bool = False,
+) -> tuple[
+    FidelityMetrics,
+    dict[str, FidelityMetrics],
+    tuple[ChunkFidelityDetail, ...] | None,
+]:
     pooled = _Tally()
     by_book: dict[str, _Tally] = {}
+    details: list[ChunkFidelityDetail] | None = [] if include_detail else None
     for chunk in labeled_chunks:
         labels = [
             entity
@@ -166,20 +251,38 @@ def _measure(
         predictions = _collapse_predictions(
             predictions_by_chunk.get(chunk.chunk_id, ()), canonical_of
         )
-        matched, matching_types = _match(labels, predictions)
+        pairs, matching_types = _match(labels, predictions)
 
         for tally in (pooled, by_book.setdefault(chunk.book_id, _Tally())):
             tally.labels += len(labels)
             tally.predictions += len(predictions)
-            tally.matched += matched
+            tally.matched += len(pairs)
             tally.matching_types += matching_types
 
-    return pooled.freeze(), {book_id: tally.freeze() for book_id, tally in by_book.items()}
+        if details is not None:
+            # The records are a view of THIS chunk's pass: same labels, same
+            # collapsed predictions, same pairs that just fed the tallies.
+            details.append(_chunk_detail(chunk.chunk_id, labels, predictions, pairs))
+
+    detail = None if details is None else tuple(details)
+    return (
+        pooled.freeze(),
+        {book_id: tally.freeze() for book_id, tally in by_book.items()},
+        detail,
+    )
 
 
 def _collapse_predictions(
     predictions: Sequence[Prediction], canonical_of: Mapping[str, str]
 ) -> list[_CollapsedPrediction]:
+    """Group predictions by canonical identity (§4.3) and pick each group's representative.
+
+    The representative is the canonical member when the group contains it, so an
+    UNMATCHED group holding both a merge loser and its canonical target is reported
+    as the canonical member: §4.3 counts the group once, and the loser's
+    ``merged_into`` is therefore not shown for that group — it is shown when the
+    loser is the group's only member (its target absent from the chunk).
+    """
     grouped: dict[str, list[Prediction]] = {}
     for prediction in predictions:
         canonical_id = _resolve_canonical_id(prediction, canonical_of)
@@ -205,7 +308,7 @@ def _collapse_predictions(
             _CollapsedPrediction(
                 canonical_id=canonical_id,
                 surfaces=frozenset(surfaces),
-                type=representative.type,
+                representative=representative,
             )
         )
     return collapsed
@@ -227,8 +330,13 @@ def _resolve_canonical_id(prediction: Prediction, canonical_of: Mapping[str, str
 
 def _match(
     labels: Sequence[LabeledEntity], predictions: Sequence[_CollapsedPrediction]
-) -> tuple[int, int]:
-    """Return a maximum-cardinality one-to-one match, then its type agreements."""
+) -> tuple[list[_Pair], int]:
+    """Return the maximum-cardinality one-to-one pairing, then its type agreements.
+
+    The pairing AND ``matching_types`` come out of ONE walk over ``label_match`` —
+    the dict that ``len`` counts — so a detail record and the counted number can
+    never describe different matches.
+    """
     label_surfaces = [{key_compact(surface) for surface in label.surfaces} for label in labels]
     candidates: list[list[tuple[int, _CollapsedPrediction]]] = []
     for surfaces in label_surfaces:
@@ -262,8 +370,57 @@ def _match(
     for label_index in label_order:
         assign(label_index, set())
 
-    matching_types = sum(
-        labels[label_index].type == prediction.type
-        for label_index, prediction in label_match.items()
+    pairs: list[_Pair] = []
+    matching_types = 0
+    for label_index in sorted(label_match):
+        prediction = label_match[label_index]
+        type_matches = labels[label_index].type == prediction.representative.type
+        pairs.append(
+            _Pair(label_index=label_index, prediction=prediction, type_matches=type_matches)
+        )
+        matching_types += type_matches
+    return pairs, matching_types
+
+
+def _chunk_detail(
+    chunk_id: str,
+    labels: Sequence[LabeledEntity],
+    predictions: Sequence[_CollapsedPrediction],
+    pairs: Sequence[_Pair],
+) -> ChunkFidelityDetail:
+    """Slice one chunk's already-computed pass into records. No matching happens here."""
+    paired_labels = {pair.label_index for pair in pairs}
+    paired_predictions = {pair.prediction.canonical_id for pair in pairs}
+    return ChunkFidelityDetail(
+        chunk_id=chunk_id,
+        matched=tuple(
+            MatchedPairDetail(
+                label_canonical=labels[pair.label_index].canonical,
+                prediction_canonical=pair.prediction.canonical_id,
+                prediction_id=pair.prediction.representative.id,
+                type_matches=pair.type_matches,
+            )
+            for pair in pairs
+        ),
+        unmatched_predictions=tuple(
+            UnmatchedPredictionDetail(
+                id=prediction.representative.id,
+                name=prediction.representative.name,
+                canonical_name=prediction.representative.canonical_name,
+                aliases=tuple(prediction.representative.aliases),
+                type=prediction.representative.type,
+                merged_into=prediction.representative.merged_into,
+            )
+            for prediction in predictions
+            if prediction.canonical_id not in paired_predictions
+        ),
+        unmatched_labels=tuple(
+            UnmatchedLabelDetail(
+                canonical=label.canonical,
+                type=label.type,
+                surfaces=tuple(label.surfaces),
+            )
+            for index, label in enumerate(labels)
+            if index not in paired_labels
+        ),
     )
-    return len(label_match), matching_types

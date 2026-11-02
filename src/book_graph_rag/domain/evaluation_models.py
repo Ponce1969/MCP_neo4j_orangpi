@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from book_graph_rag.domain.models import EntityType
+
 
 class EvaluationGate(BaseModel):
     """Verdict from comparing a hybrid run against the slug+token baseline."""
@@ -320,6 +322,52 @@ class LayerRunMetadata(BaseModel):
     model_ids: tuple[str, ...] = ()
 
 
+class FidelityMatchedPairDetail(BaseModel):
+    """One matched pair of the extraction fidelity pass (protocol §4.4 / §4.5)."""
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    label_canonical: str
+    #: The collapsed canonical identity the metric matched on (§4.3).
+    prediction_canonical: str
+    prediction_id: str
+    type_matches: bool
+
+
+class FidelityUnmatchedPredictionDetail(BaseModel):
+    """A counted prediction no label matched, original fields intact (§4.2 / §4.3)."""
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    id: str
+    name: str
+    canonical_name: str | None
+    aliases: tuple[str, ...]
+    type: EntityType
+    merged_into: str | None
+
+
+class FidelityUnmatchedLabelDetail(BaseModel):
+    """A label the pass did not pair, with the surfaces it was labeled under."""
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    canonical: str
+    type: EntityType
+    surfaces: tuple[str, ...]
+
+
+class FidelityChunkDetail(BaseModel):
+    """Per-chunk adjudication view of one extraction fidelity pass (opt-in)."""
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    chunk_id: str
+    matched: tuple[FidelityMatchedPairDetail, ...]
+    unmatched_predictions: tuple[FidelityUnmatchedPredictionDetail, ...]
+    unmatched_labels: tuple[FidelityUnmatchedLabelDetail, ...]
+
+
 class EvaluationLayerResult(BaseModel):
     """Per-layer outcome (R2.1, R2.2)."""
 
@@ -336,6 +384,12 @@ class EvaluationLayerResult(BaseModel):
     source_dataset_id: str
     baseline_report_path: str | None = None
     run_metadata: LayerRunMetadata
+    #: Extraction-only per-entity adjudication detail (protocol §7, measurement only),
+    #: set solely by ``evaluate --fidelity-detail``; the readiness gate never sets it.
+    #: Like its siblings ``ragas_secondary`` and ``answer_grounding``, absent data
+    #: renders as ``null`` in the report — consistency with the other optional
+    #: sections, not a key that vanishes from one run and appears in another.
+    fidelity_detail: tuple[FidelityChunkDetail, ...] | None = None
 
 
 # ── Top-level report (R2.1, R4) ──────────────────────────────────────────────

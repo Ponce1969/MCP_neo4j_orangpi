@@ -945,15 +945,36 @@ def _build_readiness_gate_evaluator_use_case(
     default=False,
     help="Emit only JSON to stdout; suppress human summary.",
 )
+@click.option(
+    "--fidelity-detail",
+    is_flag=True,
+    default=False,
+    help="Include the per-entity extraction fidelity detail (extraction layer only).",
+)
 def evaluate(
     layer: str,
     dataset: str | None,
     baseline: str | None,
     output: Path | None,
     json_only: bool,
+    fidelity_detail: bool,
 ) -> None:
     """Run an evaluation layer and emit a JSON report."""
     del dataset, baseline  # reserved for future slicing; not wired in T-C.5
+    # The detail is an extraction-layer measurement option: pass it only where it
+    # applies, and say so on stderr elsewhere — silently dropping the flag would
+    # hide that the report does not contain what was asked for. The readiness gate
+    # does not come through this command and never sets the flag.
+    execute_kwargs: dict[str, Any] = {"layer": layer}
+    if fidelity_detail:
+        if layer in ("extraction", "all"):
+            execute_kwargs["include_fidelity_detail"] = True
+        else:
+            click.echo(
+                "note: --fidelity-detail applies only to --layer extraction (or all); "
+                f"ignored for --layer {layer}",
+                err=True,
+            )
     try:
         settings = Settings.model_validate({})
     except Exception as exc:  # noqa: BLE001
@@ -962,7 +983,7 @@ def evaluate(
 
     use_case = _build_evaluate_command_use_case(readonly_settings(settings))
     try:
-        report, exit_code = asyncio.run(use_case.execute(layer=layer))
+        report, exit_code = asyncio.run(use_case.execute(**execute_kwargs))
     except ValueError as exc:
         raise click.UsageError(str(exc)) from exc
 

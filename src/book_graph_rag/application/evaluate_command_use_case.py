@@ -79,14 +79,23 @@ class EvaluateCommandUseCase:
         *,
         layer: str,
         scope: str | None = None,
+        include_fidelity_detail: bool = False,
     ) -> tuple[EvaluationReport, int]:
-        """Run the requested layer evaluator(s) and return the report + exit code."""
+        """Run the requested layer evaluator(s) and return the report + exit code.
+
+        ``include_fidelity_detail`` is extraction-only: it is handed to the extraction
+        layer (under ``all`` too) and every other layer ignores it — their ``execute``
+        does not even take the parameter. The readiness gate never passes it, so the
+        gate report stays lean.
+        """
         if layer == "all":
             layer_results = [
                 await self._resolution_layer.execute(),
                 await self._retrieval_layer.execute(),
                 await self._generation_layer.execute(),
-                await self._extraction_layer.execute(),
+                await self._extraction_layer.execute(
+                    include_fidelity_detail=include_fidelity_detail
+                ),
             ]
             report = EvaluationReport(
                 overall_status=EvaluationReport.derive_overall_status(
@@ -109,7 +118,9 @@ class EvaluateCommandUseCase:
         elif layer == "retrieval":
             result = await self._retrieval_layer.execute()
         elif layer == "extraction":
-            result = await self._extraction_layer.execute()
+            result = await self._extraction_layer.execute(
+                include_fidelity_detail=include_fidelity_detail
+            )
         else:
             raise ValueError(f"unknown layer: {layer}")
 
