@@ -125,9 +125,10 @@ def test_add_validates_and_inserts_entities_in_normalized_order(tmp_path: Path) 
 
 
 def test_rejected_entity_reasks_without_mutating_or_writing_the_file(tmp_path: Path) -> None:
+    """A real validation failure (empty after normalization) still re-asks, untouched file."""
     path = tmp_path / "labels.jsonl"
     original = _write_rows(path, [_row(3)])
-    answers = iter(["a", "GraphRAG", "graph-rag", "1", ""])
+    answers = iter(["a", "###", "", "1", ""])
     canonical_prompts = 0
 
     def input_fn(prompt: str) -> str:
@@ -135,7 +136,7 @@ def test_rejected_entity_reasks_without_mutating_or_writing_the_file(tmp_path: P
         if prompt.startswith("Canonical name"):
             canonical_prompts += 1
             if canonical_prompts == 2:
-                assert prompt == "Canonical name [GraphRAG]: "
+                assert prompt == "Canonical name [###; Enter keeps, '-' clears]: "
                 assert path.read_bytes() == original
                 raise EOFError("stop after observing the retry")
         return next(answers)
@@ -145,8 +146,163 @@ def test_rejected_entity_reasks_without_mutating_or_writing_the_file(tmp_path: P
         _MODULE.run_labeler(path, input_fn=input_fn, output_stream=output)
 
     assert canonical_prompts == 2
-    assert "duplicate normalized" in output.getvalue()
+    assert "Invalid entity" in output.getvalue()
+    assert "empty after normalization" in output.getvalue()
     assert path.read_bytes() == original
+
+
+def test_operator_duplicate_variant_is_deduped_before_validation_and_saves(
+    tmp_path: Path,
+) -> None:
+    """The live session trap: the pair the model rejects must never reach validation."""
+    path = tmp_path / "labels.jsonl"
+    _write_rows(path, [_row(3)])
+
+    result, output = _drive(
+        path,
+        ["a", "Super-NaturalInstructions", "SuperNaturalInstructions", "1", "", "s"],
+    )
+
+    chunk = LabeledChunk.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    assert result == 0
+    assert chunk.completed is True
+    assert [entity.surfaces for entity in chunk.entities] == [["Super-NaturalInstructions"]]
+    assert "SuperNaturalInstructions" in output
+    assert "same form after normalization" in output
+
+
+def test_dedupe_is_by_compact_key_not_raw_string(tmp_path: Path) -> None:
+    collapse_path = tmp_path / "collapse.jsonl"
+    _write_rows(collapse_path, [_row(1)])
+
+    collapse_result, collapse_output = _drive(
+        collapse_path,
+        ["a", "GraphRAG", "graph-rag", "1", "", "s"],
+    )
+
+    collapsed = LabeledChunk.model_validate(json.loads(collapse_path.read_text(encoding="utf-8")))
+    assert collapse_result == 0
+    assert collapsed.entities[0].surfaces == ["GraphRAG"]
+    assert "graph-rag" in collapse_output
+    assert "same form after normalization" in collapse_output
+
+    survive_path = tmp_path / "survive.jsonl"
+    _write_rows(survive_path, [_row(1)])
+
+    survive_result, survive_output = _drive(
+        survive_path,
+        ["a", "MCP", "Model Context Protocol", "1", "", "s"],
+    )
+
+    surviving = LabeledChunk.model_validate(json.loads(survive_path.read_text(encoding="utf-8")))
+    assert survive_result == 0
+    assert surviving.entities[0].surfaces == ["MCP", "Model Context Protocol"]
+    assert "same form after normalization" not in survive_output
+
+
+def test_duplicate_variant_among_three_drops_only_the_duplicate_in_order(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "labels.jsonl"
+    _write_rows(path, [_row(1)])
+
+    result, output = _drive(
+        path,
+        ["a", "ReAct", "GraphRAG, graph rag, Reasoning and Acting", "1", "", "s"],
+    )
+
+    chunk = LabeledChunk.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    assert result == 0
+    assert chunk.entities[0].surfaces == ["ReAct", "GraphRAG", "Reasoning and Acting"]
+    assert "graph rag" in output
+    assert "same form after normalization" in output
+
+
+def test_clear_token_removes_variants_leaving_canonical_only(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    previous = _entity(
+        "GraphRAG",
+        "tool",
+        surfaces=["GraphRAG", "Reasoning and Acting"],
+        confidence="low",
+    )
+    _write_rows(path, [_row(1, entities=[previous], completed=True), _row(2)])
+    prompts: list[str] = []
+
+    result, _output = _drive(
+        path,
+        ["a", "GraphRAG", "1", "", "-", "", "", "s"],
+        recorded_prompts=prompts,
+    )
+
+    saved = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    chunk = LabeledChunk.model_validate(saved[1])
+    assert result == 0
+    assert _MODULE.CLEAR_TOKEN == "-"
+    assert chunk.entities[0].canonical == "GraphRAG"
+    assert chunk.entities[0].surfaces == ["GraphRAG"]
+    variant_prompts = [prompt for prompt in prompts if prompt.startswith("Variants")]
+    assert variant_prompts
+    assert "Enter keeps, '-' clears" in variant_prompts[0]
+
+
+def test_clear_token_on_canonical_is_refused_reasks_and_next_answer_wins(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "labels.jsonl"
+    previous = _entity(
+        "GraphRAG",
+        "tool",
+        surfaces=["GraphRAG", "Reasoning and Acting"],
+        confidence="low",
+    )
+    _write_rows(path, [_row(1, entities=[previous], completed=True), _row(2)])
+    prompts: list[str] = []
+
+    result, output = _drive(
+        path,
+        ["a", "GraphRAG", "1", "-", "Brand New Canonical", "", "", "", "s"],
+        recorded_prompts=prompts,
+    )
+
+    saved = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    chunk = LabeledChunk.model_validate(saved[1])
+    assert result == 0
+    assert chunk.entities[0].canonical == "Brand New Canonical"
+    assert chunk.entities[0].surfaces == ["Brand New Canonical", "Reasoning and Acting"]
+    assert "required" in output.casefold()
+    canonical_prompts = [prompt for prompt in prompts if prompt.startswith("Canonical name")]
+    assert len(canonical_prompts) == 3
+    assert canonical_prompts[1] == "Canonical name [GraphRAG; Enter keeps, '-' clears]: "
+    assert canonical_prompts[2] == "Canonical name [GraphRAG; Enter keeps, '-' clears]: "
+
+
+def test_clear_token_does_not_fire_inside_a_longer_value(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    previous = _entity(
+        "GraphRAG",
+        "tool",
+        surfaces=["GraphRAG", "Reasoning and Acting"],
+        confidence="low",
+    )
+    _write_rows(path, [_row(1, entities=[previous], completed=True), _row(2)])
+    prompts: list[str] = []
+
+    result, output = _drive(
+        path,
+        ["a", "GraphRAG", "1", "", "-x", "", "", "s"],
+        recorded_prompts=prompts,
+    )
+
+    chunk = LabeledChunk.model_validate(
+        json.loads(path.read_text(encoding="utf-8").splitlines()[1])
+    )
+    assert result == 0
+    assert chunk.entities[0].surfaces == ["GraphRAG", "-x"]
+    variant_prompts = [prompt for prompt in prompts if prompt.startswith("Variants")]
+    assert variant_prompts
+    assert "Enter keeps, '-' clears" in variant_prompts[0]
+    assert "Dropped" not in output
 
 
 def test_delete_removes_the_last_sorted_entity(tmp_path: Path) -> None:
@@ -412,8 +568,11 @@ def test_reusing_history_prefills_fields_and_allows_an_extra_variant(tmp_path: P
         "type": "tool",
         "confidence": "low",
     }
-    assert "Canonical name [GraphRAG]: " in prompts
-    assert "Variants (comma-separated, optional) [Reasoning and Acting]: " in prompts
+    assert "Canonical name [GraphRAG; Enter keeps, '-' clears]: " in prompts
+    assert (
+        "Variants (comma-separated, optional) [Reasoning and Acting; "
+        "Enter keeps, '-' clears]: " in prompts
+    )
     assert "Type number (1-9) [5]: " in prompts
     assert "Confidence (high/low) [low]: " in prompts
 
@@ -583,15 +742,15 @@ def test_rejected_reuse_does_not_change_file_bytes(tmp_path: Path) -> None:
             if canonical_prompts == 1:
                 return "GraphRAG"
             if canonical_prompts == 2:
-                assert prompt == "Canonical name [GraphRAG]: "
+                assert prompt == "Canonical name [GraphRAG; Enter keeps, '-' clears]: "
                 return ""
-            assert prompt == "Canonical name [GraphRAG]: "
+            assert prompt == "Canonical name [GraphRAG; Enter keeps, '-' clears]: "
             assert path.read_bytes() == original
             raise EOFError("stop after rejecting the invalid extra variant")
         if prompt.startswith("Suggestion number"):
             return "1"
         if prompt.startswith("Variants"):
-            return "graph-rag"
+            return "!!!"
         if prompt.startswith("Type number") or prompt.startswith("Confidence"):
             return ""
         raise AssertionError(f"Unexpected prompt: {prompt}")
@@ -600,7 +759,8 @@ def test_rejected_reuse_does_not_change_file_bytes(tmp_path: Path) -> None:
     with pytest.raises(EOFError):
         _MODULE.run_labeler(path, input_fn=input_fn, output_stream=output)
 
-    assert "duplicate normalized" in output.getvalue()
+    assert "Invalid entity" in output.getvalue()
+    assert "empty after normalization" in output.getvalue()
     assert path.read_bytes() == original
 
 

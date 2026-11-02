@@ -1,4 +1,8 @@
-"""Blind interactive labeling of extraction-fidelity chunks from local files only."""
+"""Blind interactive labeling of extraction-fidelity chunks from local files only.
+
+Usage: Enter keeps each previous value; the clear token CLEAR_TOKEN ('-') clears it
+(a canonical name is required, so clearing one re-asks instead of emptying it).
+"""
 
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ from pydantic import ValidationError
 from book_graph_rag.domain.extraction_labels import (
     LabeledChunk,
     LabeledEntity,
+    key_compact,
     load_labeled_chunks,
     normalize_surface,
 )
@@ -34,6 +39,10 @@ ENTITY_TYPES: tuple[EntityType, ...] = (
 )
 DEFAULT_LABEL_PATH = Path("data/extraction_labels_v1.jsonl")
 InputFn = Callable[[str], str]
+
+# Typed alone on a prompt that shows a previous value, this removes that value.
+# Greppable and testable by design; every prompt that accepts it advertises it.
+CLEAR_TOKEN = "-"
 
 
 def load_label_file(path: Path) -> list[LabeledChunk]:
@@ -213,12 +222,45 @@ def _ask_value(
     input_fn: InputFn,
     prompt: str,
     previous: str | None,
+    *,
+    clearable: bool = False,
 ) -> str:
-    suffix = f" [{previous}]" if previous is not None else ""
+    """Return the typed value, keeping ``previous`` on empty input.
+
+    The clear-token hint is shown (and the token honoured by the caller) only when
+    there is a previous value to clear: with nothing in brackets, Enter keeps
+    nothing and ``CLEAR_TOKEN`` has nothing to remove.
+    """
+    if previous is None:
+        suffix = ""
+    elif clearable:
+        suffix = f" [{previous}; Enter keeps, {CLEAR_TOKEN!r} clears]"
+    else:
+        suffix = f" [{previous}]"
     value = input_fn(f"{prompt}{suffix}: ")
     if value == "" and previous is not None:
         return previous
     return value.strip()
+
+
+def _ask_canonical(input_fn: InputFn, output_stream: TextIO, previous: str | None) -> str:
+    """Ask for the canonical name; CLEAR_TOKEN re-asks instead of emptying it.
+
+    Unlike variants, a canonical name can never be cleared: an entity without a
+    name is meaningless, and silently treating a cleared canonical as "cancel the
+    entity" would be a second hidden behaviour. So the token prints that a
+    canonical is required and the same prompt repeats, with the previous value
+    still shown because it was not cleared.
+    """
+    while True:
+        value = _ask_value(input_fn, "Canonical name", previous, clearable=True)
+        if previous is not None and value == CLEAR_TOKEN:
+            print(
+                "A canonical name is required; it cannot be cleared, re-entering.",
+                file=output_stream,
+            )
+            continue
+        return value
 
 
 _HistorySuggestion = tuple[LabeledEntity, int]
@@ -278,7 +320,7 @@ def _collect_entity(
     output_stream: TextIO,
     chunks: list[LabeledChunk],
 ) -> LabeledEntity:
-    canonical: str = _ask_value(input_fn, "Canonical name", None)
+    canonical: str = _ask_canonical(input_fn, output_stream, None)
     variants_input: str | None = None
     type_number: str | None = None
     confidence = "high"
@@ -335,11 +377,17 @@ def _collect_entity(
 
     while True:
         if prompt_canonical:
-            canonical = _ask_value(input_fn, "Canonical name", canonical)
+            canonical = _ask_canonical(input_fn, output_stream, canonical)
             prompt_canonical = False
+        previous_variants = variants_input
         variants_input = _ask_value(
-            input_fn, "Variants (comma-separated, optional)", variants_input
+            input_fn,
+            "Variants (comma-separated, optional)",
+            variants_input,
+            clearable=True,
         )
+        if previous_variants is not None and variants_input == CLEAR_TOKEN:
+            variants_input = ""
         print("Entity type:", file=output_stream)
         for number, entity_type in enumerate(ENTITY_TYPES, start=1):
             print(f"  {number}. {entity_type}", file=output_stream)
@@ -355,8 +403,28 @@ def _collect_entity(
 
         confidence = _ask_value(input_fn, "Confidence (high/low)", confidence)
         variants = [variant.strip() for variant in variants_input.split(",") if variant.strip()]
-        surfaces = [canonical]
-        surfaces.extend(variant for variant in variants if variant != canonical)
+        surfaces = [canonical, *variants]
+
+        # Dedupe by key_compact BEFORE validation; first occurrence wins, and the
+        # canonical is inserted first so it always survives. This does NOT weaken
+        # the model's rule: LabeledEntity still rejects duplicate normalized forms
+        # in the data file (protocol §4.1/§5). The tool is only preventing the
+        # operator from building a pair the model would reject — without this, the
+        # re-entry prompt ("Enter keeps each previous value") reproduced the same
+        # invalid pair forever, and Ctrl+C was the only exit, discarding the whole
+        # chunk's unsaved work.
+        kept_by_key: dict[str, str] = {}
+        for surface in surfaces:
+            key = key_compact(surface)
+            if key in kept_by_key:
+                print(
+                    f"Dropped {surface!r}: same form after normalization as {kept_by_key[key]!r}.",
+                    file=output_stream,
+                )
+                continue
+            kept_by_key[key] = surface
+        surfaces = list(kept_by_key.values())
+
         try:
             return LabeledEntity.model_validate(
                 {
