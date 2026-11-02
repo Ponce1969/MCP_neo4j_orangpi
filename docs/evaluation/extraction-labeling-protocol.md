@@ -51,6 +51,19 @@ types, choose the type that the chunk's sentence is actually about.
 **Not labeled**: pronouns and generic nouns ("the system", "the model"), people's names, page
 numbers, bibliographic entries, URL fragments, and anything that is only a verb phrase.
 
+**Completeness, not salience — the distinction the two rounds turn on.** "Present in the text" has
+two readings and they produce different datasets:
+
+- **Salient-only**: the one thing the chunk is really about. Fast, and what the pilot round used.
+- **Exhaustive**: **every** named thing of the nine types the chunk mentions, however briefly. Slower,
+  and what a dataset needs if `precision` is to mean anything: precision is `matched / predictions`,
+  so a six-label sample against forty-seven predictions is capped at `6/47 = 0.128` no matter how good
+  the extractor is. That number describes the label set's size, not the extractor.
+
+The two readings are **not comparable** and must never be mixed inside one dataset: a salient label
+set makes precision unreadable, and an exhaustive one makes it meaningful. The round in use is
+recorded in each dataset's id and provenance.
+
 ### 1.2 Relations are out of scope in v1
 
 `RelationshipType` is also a closed set (`domain/models.py:80`, eight types), but relations are
@@ -343,3 +356,25 @@ What this changes and what it does not:
   reads the corpus language. That requirement is now stated in §2 as a property of the role, not a
   preference: a labeler who cannot read the chunk cannot decide what it names, and a label produced
   by guessing is worse than no label, because it enters the metric looking like evidence.
+
+**2026-11-02 — round 2: exhaustive coverage on fresh chunks, same book.** The pilot
+(`extraction_dataset_huyen`, 6 chunks, salient-only reading) is closed and frozen as a **local
+baseline for that book**; its chunks are now contaminated for labeling purposes, because the pipeline's
+predictions for them have been inspected while auditing the 43 unmatched entries. Extending that file
+would be ratification, not labeling.
+
+Round 2 therefore:
+
+- draws a **disjoint** sample: `--sample-version extraction-fidelity-v3` for a different selection, and
+  `--exclude-labeled` against the pilot file so the two can never overlap. Both are needed — the suffix
+  changes which chunks are drawn, the exclusion guarantees no repaired overlap;
+- uses a **larger size** (`--sample-size`), because the type axis needs matched pairs to mean anything:
+  with `n` labels, a match rate near the pilot's two-thirds yields roughly `0.67n` matched pairs, and
+  the 95 % interval on a proportion from 20–25 pairs is still about ±20 points. This round buys a
+  readable precision and a coarse type signal; a tight type estimate needs a third round or a different
+  labeler, and saying so now is cheaper than discovering it in the numbers;
+- is labeled **exhaustively** per the §1.1 block above, and keeps its own dataset id and provenance
+  (`..._exhaustive`), so no reader can mistake it for the pilot or average the two.
+
+What the pilot remains good for: recall on a salient reading (`0.6667`, four of the six most important
+things found), and the type-agreement signal that motivated this round.
