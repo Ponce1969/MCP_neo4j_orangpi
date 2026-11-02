@@ -10,6 +10,8 @@ through the existing checkpoint port.
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -688,3 +690,184 @@ def test_committed_huyen_dataset_matches_its_manifest_hash() -> None:
     dataset = loader.load("extraction_dataset_huyen")
     assert dataset.dataset_id == "extraction_dataset_huyen"
     assert len(dataset.records) == 6
+
+
+# ── Opt-in fidelity detail (measurement only, protocol §7) ───────────────────
+
+
+def _headline_counts(result: EvaluationLayerResult) -> tuple[int, int, int, int]:
+    """(labels, predictions, matched, matching_types) as the rationale headline reports them."""
+    match = re.search(
+        r"labels=(\d+) predictions=(\d+) matched=(\d+) matching_types=(\d+)",
+        result.rationale,
+    )
+    assert match is not None, result.rationale
+    return (
+        int(match.group(1)),
+        int(match.group(2)),
+        int(match.group(3)),
+        int(match.group(4)),
+    )
+
+
+def test_fidelity_detail_is_off_by_default_and_the_four_values_do_not_move() -> None:
+    """Flag off ⇒ ``fidelity_detail`` is None and the four values match a run without the parameter.
+
+    The absent detail renders as ``null`` in the report — exactly like the sibling
+    optional sections ``ragas_secondary`` and ``answer_grounding`` (the real gate
+    report carries both as ``null``), rather than as a key missing from one run and
+    present in another.
+    """
+    without_parameter = asyncio.run(_fidelity_use_case().execute())
+    explicit_off = asyncio.run(_fidelity_use_case().execute(include_fidelity_detail=False))
+
+    assert without_parameter.fidelity_detail is None
+    assert explicit_off.fidelity_detail is None
+    for name in (
+        "entity_precision",
+        "entity_recall",
+        "entity_f1",
+        "entity_type_agreement",
+    ):
+        assert _metric(without_parameter, name).value == _metric(explicit_off, name).value, name
+        assert _metric(without_parameter, name).threshold is None, name
+    # Absent data renders as null, as it does for the other optional sections.
+    assert json.loads(without_parameter.model_dump_json())["fidelity_detail"] is None
+    assert json.loads(explicit_off.model_dump_json())["fidelity_detail"] is None
+
+
+def _detail_flag_predictions() -> dict[str, list[Prediction]]:
+    """Two-chunk fixture extended: a wrong-typed match and a merged unmatched prediction."""
+    predictions = _perfect_predictions()
+    predictions[f"{_BOOK}:2"] = [
+        Prediction(
+            id="entity:mcp-mcp",
+            name="MCP",
+            canonical_name=None,
+            aliases=["Model Context Protocol"],
+            type="tool",  # right entity, wrong type ⇒ matched, type_matches False
+            merged_into=None,
+        ),
+        Prediction(
+            id="entity:old-graphrag",
+            name="GraphRAG",
+            canonical_name=None,
+            aliases=[],
+            type="pattern",
+            merged_into="entity:graphrag",  # merged and unmatched: must NOT be dropped
+        ),
+    ]
+    return predictions
+
+
+_DETAIL_CANONICAL_OF = {
+    "entity:old-graphrag": "entity:graphrag",
+}
+
+
+def test_fidelity_detail_flag_on_carries_the_right_entities_per_group() -> None:
+    """Flag on ⇒ per-chunk matched/unmatched groups hold exactly the entities counted."""
+    use_case = _fidelity_use_case(
+        prediction_port=_FakePredictionPort(
+            _detail_flag_predictions(), canonical_of=dict(_DETAIL_CANONICAL_OF)
+        )
+    )
+    result = asyncio.run(use_case.execute(include_fidelity_detail=True))
+
+    detail = result.fidelity_detail
+    assert detail is not None
+    by_chunk = {record.chunk_id: record for record in detail}
+    assert set(by_chunk) == {f"{_BOOK}:1", f"{_BOOK}:2"}
+
+    chunk_one = by_chunk[f"{_BOOK}:1"]
+    (pair,) = chunk_one.matched
+    assert pair.label_canonical == "ReAct"
+    assert pair.prediction_canonical == "entity:react-pattern"
+    assert pair.prediction_id == "entity:react-pattern"
+    assert pair.type_matches is True
+    assert chunk_one.unmatched_predictions == ()
+    assert chunk_one.unmatched_labels == ()
+
+    chunk_two = by_chunk[f"{_BOOK}:2"]
+    (mcp_pair,) = chunk_two.matched
+    assert mcp_pair.label_canonical == "MCP"
+    assert mcp_pair.prediction_id == "entity:mcp-mcp"
+    assert mcp_pair.type_matches is False  # right entity, wrong type (§4.5)
+    (unmatched,) = chunk_two.unmatched_predictions
+    assert unmatched.id == "entity:old-graphrag"
+    assert unmatched.name == "GraphRAG"
+    assert unmatched.type == "pattern"
+    assert unmatched.merged_into == "entity:graphrag"  # visible, not silently dropped
+    assert chunk_two.unmatched_labels == ()
+
+
+def test_fidelity_detail_reconciles_with_the_reported_counts() -> None:
+    """THE pin: summed detail equals the counted numbers — one measurement, not two.
+
+    The fixture includes a collapsed duplicate (§4.3) so the unmatched total is checked
+    against the COLLAPSED prediction count the rationale reports.
+    """
+    predictions = _detail_flag_predictions()
+    predictions[f"{_BOOK}:1"] = [
+        *predictions[f"{_BOOK}:1"],
+        Prediction(
+            id="entity:react-alias-pattern",
+            name="Reasoning and Acting",
+            canonical_name="ReAct",
+            aliases=[],
+            type="pattern",
+            merged_into="entity:react-pattern",
+        ),
+    ]
+    use_case = _fidelity_use_case(
+        prediction_port=_FakePredictionPort(
+            predictions,
+            canonical_of={
+                "entity:react-alias-pattern": "entity:react-pattern",
+                **_DETAIL_CANONICAL_OF,
+            },
+        )
+    )
+    result = asyncio.run(use_case.execute(include_fidelity_detail=True))
+
+    detail = result.fidelity_detail
+    assert detail is not None
+    labels, predictions_count, matched_count, matching_types_count = _headline_counts(result)
+
+    summed_matched = sum(len(record.matched) for record in detail)
+    summed_unmatched_predictions = sum(len(record.unmatched_predictions) for record in detail)
+    summed_unmatched_labels = sum(len(record.unmatched_labels) for record in detail)
+
+    assert summed_matched == matched_count
+    assert summed_unmatched_predictions == predictions_count - matched_count
+    # Every label is either matched or listed — nothing vanishes between the two views.
+    assert summed_matched + summed_unmatched_labels == labels
+    assert (
+        sum(1 for record in detail for pair in record.matched if pair.type_matches)
+        == matching_types_count
+    )
+
+
+def test_missing_dataset_with_detail_flag_reports_no_numbers_and_no_detail() -> None:
+    """Dataset unavailable ⇒ even with the flag on: no fidelity numbers, no detail."""
+    use_case = _fidelity_use_case(
+        dataset_port=_FakeDatasetPort(error=UnknownDatasetError("extraction_dataset_huyen"))
+    )
+    result = asyncio.run(use_case.execute(include_fidelity_detail=True))
+
+    assert result.status == LayerStatus.PASSED
+    assert result.fidelity_detail is None
+    assert not any(name.startswith("entity_") for name in _fidelity_names(result))
+    assert any("extraction fidelity not measured" in warning for warning in result.warnings)
+
+
+def test_pending_rows_with_detail_flag_report_no_numbers_and_no_detail() -> None:
+    """A pending row is not a label (§5): with the flag on it still reports no detail."""
+    pending_rows = tuple(dict(row, completed=False) for row in _FIDELITY_ROWS)
+    use_case = _fidelity_use_case(dataset_port=_FakeDatasetPort(records=pending_rows))
+    result = asyncio.run(use_case.execute(include_fidelity_detail=True))
+
+    assert result.status == LayerStatus.PASSED
+    assert result.fidelity_detail is None
+    assert not any(name.startswith("entity_") for name in _fidelity_names(result))
+    assert any("pending" in warning for warning in result.warnings)

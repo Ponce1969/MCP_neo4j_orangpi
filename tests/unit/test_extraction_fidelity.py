@@ -413,6 +413,171 @@ def test_label_loader_accepts_already_parsed_jsonl_rows() -> None:
     assert chunks[0].entities[0].canonical == "ReAct"
 
 
+# ── include_detail: the pairing behind the counted numbers ──────────────────
+
+
+def test_detail_names_the_pairing_that_produced_the_counts() -> None:
+    """Maximum-cardinality match under arbitration: detail = the counted pairing.
+
+    Two predictions compete for one label; the winner is decided by shared surface
+    forms (then canonical id) exactly as the counts were. The detail must name that
+    winner, park the loser under ``unmatched_predictions`` and reconcile with the
+    numbers from the same pass — a detail that disagreed with ``matched`` would be
+    a second measurement.
+    """
+    chunk = _chunk(
+        "book-a:1",
+        _label(
+            canonical="Model Context Protocol",
+            surfaces=["MCP", "Model Context Protocol"],
+            entity_type="pattern",
+        ),
+    )
+    score = calculate_extraction_fidelity(
+        [chunk],
+        {
+            "book-a:1": [
+                _prediction("z-weak", "MCP", entity_type="tool"),
+                _prediction(
+                    "a-strong",
+                    "MCP",
+                    aliases=["Model Context Protocol"],
+                    entity_type="pattern",
+                ),
+            ]
+        },
+        {},
+        include_detail=True,
+    )
+
+    assert score.detail is not None
+    (record,) = score.detail
+    assert record.chunk_id == "book-a:1"
+    (pair,) = record.matched
+    assert pair.label_canonical == "Model Context Protocol"
+    assert pair.prediction_id == "a-strong"
+    assert pair.prediction_canonical == "a-strong"
+    assert pair.type_matches is True
+    (loser,) = record.unmatched_predictions
+    assert loser.id == "z-weak"
+    assert loser.type == "tool"
+    assert record.unmatched_labels == ()
+    # Reconciliation with the counted numbers of the SAME pass.
+    assert len(record.matched) == score.matched == 1
+    assert len(record.unmatched_predictions) == score.predictions - score.matched == 1
+    assert sum(1 for matched_pair in record.matched if matched_pair.type_matches) == (
+        score.matching_types
+    )
+
+
+def test_detail_tie_breaks_by_smallest_canonical_id_like_the_counts() -> None:
+    """A pure tie (same shared surfaces) goes to the smallest canonical id — in the detail too."""
+    chunk = _chunk("book-a:1", _label(canonical="MCP", surfaces=["MCP", "Model Context Protocol"]))
+    score = calculate_extraction_fidelity(
+        [chunk],
+        {
+            "book-a:1": [
+                _prediction("zeta", "MCP", entity_type="tool"),
+                _prediction("alpha", "MCP", entity_type="pattern"),
+            ]
+        },
+        {},
+        include_detail=True,
+    )
+
+    assert (score.matched, score.matching_types) == (1, 1)
+    assert score.detail is not None
+    (record,) = score.detail
+    (pair,) = record.matched
+    assert pair.prediction_id == "alpha"  # the tie-break the counts applied
+    (loser,) = record.unmatched_predictions
+    assert loser.id == "zeta"
+
+
+def test_detail_keeps_unmatched_labels_and_merged_predictions_visible() -> None:
+    """An unmatched label carries its surfaces; a merged prediction keeps ``merged_into``."""
+    labeled = _chunk(
+        "book-a:1",
+        _label(canonical="ReAct", surfaces=["ReAct", "Reasoning and Acting"]),
+    )
+    no_predictions = calculate_extraction_fidelity(
+        [labeled], {"book-a:1": []}, {}, include_detail=True
+    )
+    assert no_predictions.detail is not None
+    (record,) = no_predictions.detail
+    assert record.matched == ()
+    assert record.unmatched_predictions == ()
+    (unmatched_label,) = record.unmatched_labels
+    assert unmatched_label.canonical == "ReAct"
+    assert unmatched_label.type == "pattern"
+    assert unmatched_label.surfaces == ("ReAct", "Reasoning and Acting")
+    assert len(record.unmatched_labels) == no_predictions.labels - no_predictions.matched
+
+    merged = calculate_extraction_fidelity(
+        [labeled],
+        {
+            "book-a:1": [
+                _prediction("react", "ReAct"),
+                _prediction("old-graphrag", "GraphRAG", merged_into="graphrag-root"),
+            ]
+        },
+        {},
+        include_detail=True,
+    )
+    assert (merged.predictions, merged.matched) == (2, 1)
+    assert merged.detail is not None
+    (merged_record,) = merged.detail
+    (unmatched_prediction,) = merged_record.unmatched_predictions
+    assert unmatched_prediction.id == "old-graphrag"
+    assert unmatched_prediction.name == "GraphRAG"
+    assert unmatched_prediction.merged_into == "graphrag-root"
+    assert len(merged_record.unmatched_predictions) == merged.predictions - merged.matched
+
+
+def test_include_detail_false_leaves_the_result_identical_to_the_default() -> None:
+    """``include_detail=False`` (and the default) must reproduce today's result exactly."""
+    chunks = [
+        _chunk("book-a:1", _label(canonical="ReAct")),
+        _chunk("book-a:2", _label(canonical="MCP", entity_type="mcp"), chunk_index=2),
+    ]
+    predictions = {
+        "book-a:1": [_prediction("react", "ReAct")],
+        "book-a:2": [],
+    }
+    default = calculate_extraction_fidelity(chunks, predictions, {})
+    explicit_off = calculate_extraction_fidelity(chunks, predictions, {}, include_detail=False)
+    explicit_on = calculate_extraction_fidelity(chunks, predictions, {}, include_detail=True)
+
+    assert default.detail is None
+    assert explicit_off.detail is None
+    # Field-for-field equality: counts, rates, per-book and the stability view untouched.
+    assert explicit_off == default
+    assert explicit_on.detail is not None
+    assert (
+        explicit_on.precision,
+        explicit_on.recall,
+        explicit_on.f1,
+        explicit_on.type_agreement,
+        explicit_on.labels,
+        explicit_on.predictions,
+        explicit_on.matched,
+        explicit_on.matching_types,
+        explicit_on.per_book,
+        explicit_on.excluding_low_confidence,
+    ) == (
+        default.precision,
+        default.recall,
+        default.f1,
+        default.type_agreement,
+        default.labels,
+        default.predictions,
+        default.matched,
+        default.matching_types,
+        default.per_book,
+        default.excluding_low_confidence,
+    )
+
+
 def test_prediction_adapter_copies_domain_entity_fields() -> None:
     source: Iterable[Entity] = [
         Entity(

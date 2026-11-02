@@ -8,6 +8,13 @@ from typing import Any
 import pytest
 from click.testing import CliRunner
 
+from book_graph_rag.application.evaluate_command_use_case import EvaluateCommandUseCase
+from book_graph_rag.domain.evaluation_models import (
+    EvaluationLayerResult,
+    LayerMetricValue,
+    LayerRunMetadata,
+    LayerStatus,
+)
 from book_graph_rag.main import cli
 
 
@@ -220,3 +227,126 @@ def test_cli_index_unknown_namespace_fails_fast(
     assert "Namespace error:" in result.output
     assert "Unknown source" in result.output
     assert constructed == []
+
+
+# ── evaluate --fidelity-detail (extraction-only opt-in) ──────────────────────
+
+
+class _FakeEvaluateSettings:
+    """Minimal Settings stand-in: the evaluate command only needs model_validate."""
+
+    @classmethod
+    def model_validate(cls, data: object) -> _FakeEvaluateSettings:
+        return cls()
+
+
+def _layer_result(layer: str) -> EvaluationLayerResult:
+    return EvaluationLayerResult(
+        layer=layer,  # type: ignore[arg-type]
+        status=LayerStatus.PASSED,
+        project_owned_metrics=(LayerMetricValue(name="metric", value=1.0, threshold=None),),
+        rationale="ok",
+        source_dataset_id="",
+        run_metadata=LayerRunMetadata(run_id="run-1", code_commit="abc123"),
+    )
+
+
+class _RecordingLayer:
+    """Stands in for a non-extraction layer: ``execute`` takes no kwargs at all."""
+
+    def __init__(self, layer: str) -> None:
+        self.layer = layer
+        self.calls: list[dict[str, Any]] = []
+
+    async def execute(self) -> EvaluationLayerResult:
+        self.calls.append({})
+        return _layer_result(self.layer)
+
+
+class _RecordingExtractionLayer:
+    """Stands in for the extraction layer: records the detail flag it was given."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def execute(self, *, include_fidelity_detail: bool = False) -> EvaluationLayerResult:
+        self.calls.append({"include_fidelity_detail": include_fidelity_detail})
+        return _layer_result("extraction")
+
+
+def _install_evaluate_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[_RecordingLayer, _RecordingLayer, _RecordingLayer, _RecordingExtractionLayer]:
+    """Wire the REAL dispatch with recording layer fakes behind the CLI."""
+    resolution = _RecordingLayer("resolution")
+    generation = _RecordingLayer("generation")
+    retrieval = _RecordingLayer("retrieval")
+    extraction = _RecordingExtractionLayer()
+    use_case = EvaluateCommandUseCase(
+        resolution_layer=resolution,  # type: ignore[arg-type]
+        generation_layer=generation,  # type: ignore[arg-type]
+        retrieval_layer=retrieval,  # type: ignore[arg-type]
+        extraction_layer=extraction,  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr("book_graph_rag.main.Settings", _FakeEvaluateSettings)
+    monkeypatch.setattr("book_graph_rag.main._build_evaluate_command_use_case", lambda _: use_case)
+    return resolution, generation, retrieval, extraction
+
+
+def test_cli_evaluate_fidelity_detail_is_accepted_for_extraction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--fidelity-detail with --layer extraction reaches the extraction layer, no note."""
+    _, _, _, extraction = _install_evaluate_command(monkeypatch)
+
+    result = CliRunner().invoke(cli, ["evaluate", "--layer", "extraction", "--fidelity-detail"])
+
+    assert result.exit_code == 0, result.output
+    assert extraction.calls == [{"include_fidelity_detail": True}]
+    assert "ignored" not in result.stderr
+
+
+def test_cli_evaluate_fidelity_detail_without_flag_leaves_it_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default off: the extraction layer is asked for the detail explicitly False."""
+    _, _, _, extraction = _install_evaluate_command(monkeypatch)
+
+    result = CliRunner().invoke(cli, ["evaluate", "--layer", "extraction"])
+
+    assert result.exit_code == 0, result.output
+    assert extraction.calls == [{"include_fidelity_detail": False}]
+    assert "ignored" not in result.stderr
+
+
+def test_cli_evaluate_fidelity_detail_note_for_another_layer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Flag + another layer ⇒ a stderr note instead of silently doing nothing."""
+    resolution, _, _, extraction = _install_evaluate_command(monkeypatch)
+
+    result = CliRunner().invoke(cli, ["evaluate", "--layer", "resolution", "--fidelity-detail"])
+
+    assert result.exit_code == 0, result.output
+    assert "--fidelity-detail" in result.stderr
+    assert "extraction" in result.stderr
+    assert "ignored" in result.stderr
+    # The requested layer still ran; the flag was not plumbed anywhere.
+    assert resolution.calls == [{}]
+    assert extraction.calls == []
+
+
+def test_cli_evaluate_fidelity_detail_reaches_only_extraction_under_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--layer all passes the flag to the extraction layer and to no other layer."""
+    resolution, generation, retrieval, extraction = _install_evaluate_command(monkeypatch)
+
+    result = CliRunner().invoke(cli, ["evaluate", "--layer", "all", "--fidelity-detail"])
+
+    assert result.exit_code == 0, result.output
+    assert extraction.calls == [{"include_fidelity_detail": True}]
+    assert resolution.calls == [{}]
+    assert generation.calls == [{}]
+    assert retrieval.calls == [{}]
+    assert "ignored" not in result.stderr

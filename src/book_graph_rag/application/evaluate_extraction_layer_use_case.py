@@ -24,11 +24,16 @@ import uuid
 from book_graph_rag.domain.checkpoint_models import CheckpointStatus
 from book_graph_rag.domain.evaluation_models import (
     EvaluationLayerResult,
+    FidelityChunkDetail,
+    FidelityMatchedPairDetail,
+    FidelityUnmatchedLabelDetail,
+    FidelityUnmatchedPredictionDetail,
     LayerMetricValue,
     LayerRunMetadata,
     LayerStatus,
 )
 from book_graph_rag.domain.extraction_fidelity import (
+    ChunkFidelityDetail,
     ExtractionFidelityResult,
     calculate_extraction_fidelity,
 )
@@ -82,8 +87,17 @@ class EvaluateExtractionLayerUseCase:
         self._run_id = run_id or uuid.uuid4().hex
         self._code_commit = code_commit
 
-    async def execute(self) -> EvaluationLayerResult:
-        """Return a PASSED, WARNING-capable measurement of the coverage invariant."""
+    async def execute(self, *, include_fidelity_detail: bool = False) -> EvaluationLayerResult:
+        """Return a PASSED, WARNING-capable measurement of the coverage invariant.
+
+        ``include_fidelity_detail`` is a per-RUN measurement option, so it lives here
+        and not in the constructor: the same wired instance serves default-off calls
+        (the readiness gate calls ``execute()`` without it and keeps its report lean),
+        and no composition root has to know the flag exists. When off, the fidelity
+        half reports exactly what it reports today — ``fidelity_detail`` stays
+        ``None`` and renders as ``null``, like the report's other optional sections
+        (``ragas_secondary``, ``answer_grounding``).
+        """
         measurement = await self._coverage_port.measure()
         active = measurement.active_entities
         mentioned = measurement.mentioned_active_entities
@@ -106,7 +120,12 @@ class EvaluateExtractionLayerUseCase:
             measurement.books
         )
 
-        fidelity_metrics, fidelity_warnings, fidelity_rationale = await self._measure_fidelity()
+        (
+            fidelity_metrics,
+            fidelity_warnings,
+            fidelity_rationale,
+            fidelity_detail,
+        ) = await self._measure_fidelity(include_fidelity_detail)
         warnings.extend(fidelity_warnings)
 
         return EvaluationLayerResult(
@@ -139,19 +158,25 @@ class EvaluateExtractionLayerUseCase:
                 run_id=self._run_id,
                 code_commit=self._code_commit,
             ),
+            fidelity_detail=fidelity_detail,
         )
 
     async def _measure_fidelity(
-        self,
-    ) -> tuple[tuple[LayerMetricValue, ...], list[str], str]:
+        self, include_fidelity_detail: bool
+    ) -> tuple[
+        tuple[LayerMetricValue, ...], list[str], str, tuple[FidelityChunkDetail, ...] | None
+    ]:
         """Run the protocol-§4 fidelity half; never raise, never fake a number.
 
-        Returns ``(metrics, warnings, rationale)``. On ANY failure to obtain
+        Returns ``(metrics, warnings, rationale, detail)``. On ANY failure to obtain
         trustworthy labels — dataset missing or malformed, pending
         (``completed: false``) rows — the layer reports the reason in
         ``warnings`` + ``rationale``, keeps coverage, and returns NO fidelity
-        metrics: a pending row is not a label (protocol §5), and a number computed
-        over unlabeled rows would be the exact failure spec 06 §11 refused.
+        metrics AND NO detail: a pending row is not a label (protocol §5), and a
+        number computed over unlabeled rows would be the exact failure spec 06 §11
+        refused. The detail, when requested, is produced by the SAME
+        ``calculate_extraction_fidelity`` call that produces the metrics — never a
+        second matching pass that could disagree with the reported counts.
         """
         try:
             dataset = self._dataset_port.load(self.FIDELITY_DATASET_ID)
@@ -161,6 +186,7 @@ class EvaluateExtractionLayerUseCase:
                 (),
                 [f"extraction fidelity not measured: {reason}"],
                 f"extraction fidelity not measured: {reason}",
+                None,
             )
 
         try:
@@ -171,6 +197,7 @@ class EvaluateExtractionLayerUseCase:
                 (),
                 [f"extraction fidelity not measured: {reason}"],
                 f"extraction fidelity not measured: {reason}",
+                None,
             )
 
         pending = [chunk.chunk_id for chunk in labeled_chunks if not chunk.completed]
@@ -184,6 +211,7 @@ class EvaluateExtractionLayerUseCase:
                 (),
                 [f"extraction fidelity not measured: {reason}"],
                 f"extraction fidelity not measured: {reason}",
+                None,
             )
 
         prediction_measurement = await self._prediction_port.measure(labeled_chunks)
@@ -191,8 +219,56 @@ class EvaluateExtractionLayerUseCase:
             labeled_chunks,
             prediction_measurement.predictions_by_chunk,
             prediction_measurement.canonical_of,
+            include_detail=include_fidelity_detail,
         )
-        return self._fidelity_metrics(fidelity), [], self._fidelity_rationale(fidelity)
+        return (
+            self._fidelity_metrics(fidelity),
+            [],
+            self._fidelity_rationale(fidelity),
+            self._fidelity_detail(fidelity.detail),
+        )
+
+    @staticmethod
+    def _fidelity_detail(
+        detail: tuple[ChunkFidelityDetail, ...] | None,
+    ) -> tuple[FidelityChunkDetail, ...] | None:
+        """Translate the domain records into the report's JSON shape. No logic here."""
+        if detail is None:
+            return None
+        return tuple(
+            FidelityChunkDetail(
+                chunk_id=record.chunk_id,
+                matched=tuple(
+                    FidelityMatchedPairDetail(
+                        label_canonical=pair.label_canonical,
+                        prediction_canonical=pair.prediction_canonical,
+                        prediction_id=pair.prediction_id,
+                        type_matches=pair.type_matches,
+                    )
+                    for pair in record.matched
+                ),
+                unmatched_predictions=tuple(
+                    FidelityUnmatchedPredictionDetail(
+                        id=prediction.id,
+                        name=prediction.name,
+                        canonical_name=prediction.canonical_name,
+                        aliases=prediction.aliases,
+                        type=prediction.type,
+                        merged_into=prediction.merged_into,
+                    )
+                    for prediction in record.unmatched_predictions
+                ),
+                unmatched_labels=tuple(
+                    FidelityUnmatchedLabelDetail(
+                        canonical=label.canonical,
+                        type=label.type,
+                        surfaces=label.surfaces,
+                    )
+                    for label in record.unmatched_labels
+                ),
+            )
+            for record in detail
+        )
 
     @staticmethod
     def _fidelity_metrics(fidelity: ExtractionFidelityResult) -> tuple[LayerMetricValue, ...]:
