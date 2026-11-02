@@ -10,8 +10,12 @@ sampled ``(book_id, chunk_index)`` pairs; ``--emit-skeleton PATH`` creates the
 empty protocol-v1 JSONL file and its ``.sample.json`` companion without
 overwriting either existing file. The companion is the committed record of the
 sample required by the labeling protocol. ``--texts PATH`` writes a JSON mapping
-from chunk id to text, also without overwriting. All graph access is through
-managed read transactions; no graph writes are issued.
+from chunk id to text, also without overwriting. ``--book BOOK_ID`` (repeatable)
+restricts the frame to the named books before sampling so a per-book pilot
+can be drawn; every output then describes that filtered sample. Without
+``--book`` the whole-corpus guard still requires exactly ``ACTIVE_BOOK_COUNT``
+books. All graph access is through managed read transactions; no graph writes
+are issued.
 """
 
 from __future__ import annotations
@@ -199,6 +203,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="PATH",
         help="write only the sampled {chunk_id: text} mapping to PATH (refuses to overwrite)",
     )
+    parser.add_argument(
+        "--book",
+        action="append",
+        metavar="BOOK_ID",
+        help="restrict the sample frame to BOOK_ID before sampling (repeatable; "
+        "full book_id, e.g. knowledge:ai-engineering-huyen)",
+    )
     return parser.parse_args(argv)
 
 
@@ -214,14 +225,35 @@ async def main(argv: list[str] | None = None) -> int:
     census: dict[str, int] = defaultdict(int)
     for book_id, _chunk_index, _text in chunks:
         census[book_id] += 1
-    _print_census(census, file=sys.stderr if args.json or args.emit_skeleton else sys.stdout)
 
-    if len(census) != ACTIVE_BOOK_COUNT:
+    info_stream = sys.stderr if args.json or args.emit_skeleton else sys.stdout
+    requested: list[str] | None = None
+    if args.book:
+        requested = sorted(set(args.book))
+        missing = sorted(set(requested) - set(census))
+        if missing:
+            raise ValueError(
+                f"Requested book(s) not observed: {', '.join(missing)}; "
+                f"observed books: {', '.join(sorted(census))}"
+            )
+        requested_set = set(requested)
+        chunks = [chunk for chunk in chunks if chunk[0] in requested_set]
+        census = {book_id: census[book_id] for book_id in requested}
+
+    _print_census(census, file=info_stream)
+
+    if requested is None and len(census) != ACTIVE_BOOK_COUNT:
         raise ValueError(
             f"Expected the {ACTIVE_BOOK_COUNT}-book active frame; observed {len(census)} books"
         )
 
     sample = select_sample(chunks)
+    if requested is not None:
+        print(
+            f"Effective selection: {len(sample)} chunks from {len(requested)} book(s): "
+            + ", ".join(requested),
+            file=info_stream,
+        )
     companion_path = (
         args.emit_skeleton.with_suffix(".sample.json") if args.emit_skeleton is not None else None
     )

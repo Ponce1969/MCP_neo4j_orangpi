@@ -80,6 +80,18 @@ that means nothing.
 If a chunk cannot be labeled blind (for example, the sheet generator was modified), the label is
 **void**, not "probably fine".
 
+**The labeler must be able to read the chunk.** This is a property of the role, not a preference, and
+it is written here because the first attempt at using this protocol failed on it: the corpus is
+mostly English, the labeler did not read English, and the session reached the labeling prompt without
+anyone noticing the mismatch. A labeler who cannot read the chunk cannot decide what it names, and
+the failure is silent — the labels come out well-formed, the file validates, and the metric treats
+guesses as evidence. If the labeler and the corpus disagree on language, the options are (a) a
+labeler who reads the corpus, (b) a per-book pilot on books in a language they read, recorded as
+local evidence by the amendment at the end of this file, or (c) no labeled dataset, declared. What is
+**not** an option is labeling text that cannot be read, and what is **not** an alternative is letting
+the translation choose: a faithful, complete translation preserves the labeler's judgment, while a
+translation that selects "the relevant parts" has already made the entity decision for them.
+
 ---
 
 ## 3. The sample: deterministic, committed, pre-registered
@@ -312,3 +324,22 @@ caught becomes invisible; a 15-point one does not. The alternative proposals wer
 measurement reasons, not for convenience: pre-filling labels from a keyword dictionary would make F1
 a comparison between the pipeline and the dictionary instead of between the pipeline and the book,
 and any sheet that shows the labeler candidate entities converts judgment into ratification.
+
+**2026-10-20 — a per-book pilot sample is allowed, and it is local evidence.** The protocol assumed a
+labeler who reads the corpus language; the first attempt to label it failed on exactly that gap, so
+§3.1's four-book allocation now has a documented exception: an unnamed subset of books (for this
+corpus, the one Spanish book) may be sampled alone with `--book`, producing
+`SAMPLE_SIZE_PER_BOOK` chunks for each named book.
+
+What this changes and what it does not:
+
+- the sample stays deterministic, blinded, and committed, and its companion `.sample.json` records
+  the filtered pairs, so the labeler's guard still applies without change;
+- the measurement it produces is **local to the books sampled** — for a one-book pilot, a fidelity
+  number for that book. It is **not** a baseline for the corpus, and it must never be reported as
+  one. The extractor is the same model and prompt, so the number is informative about its behaviour;
+  it is not representative of books in another language;
+- the full four-book sample remains the only corpus-level baseline, and it still needs a labeler who
+  reads the corpus language. That requirement is now stated in §2 as a property of the role, not a
+  preference: a labeler who cannot read the chunk cannot decide what it names, and a label produced
+  by guessing is worse than no label, because it enters the metric looking like evidence.
