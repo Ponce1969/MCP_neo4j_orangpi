@@ -45,6 +45,15 @@
       "provenance": "Extraction-fidelity pilot, manually curated (docs/evaluation/extraction-labeling-protocol.md v1, 6 chunks x 6 per book from a single-book sample); LOCAL to knowledge:ai-engineering-huyen, never a corpus baseline",
       "model_id": "",
       "record_count": 6
+    },
+    {
+      "id": "extraction_dataset_huyen_exhaustive",
+      "schema_version": "1.0.0",
+      "file": "extraction_dataset_huyen_exhaustive.jsonl",
+      "sha256": "b1f22574d96b157a22a314e00532d2a1c8e87713cd2cfc7cab477049b41dfd64",
+      "provenance": "Extraction-fidelity round 2, manually curated EXHAUSTIVE reading (docs/evaluation/extraction-labeling-protocol.md v1, 8 chunks, sample version extraction-fidelity-v3, disjoint from extraction_dataset_huyen by --exclude-labeled); LOCAL to knowledge:ai-engineering-huyen, never a corpus baseline",
+      "model_id": "",
+      "record_count": 8
     }
   ]
 }
