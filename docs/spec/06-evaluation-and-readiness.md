@@ -178,3 +178,38 @@ readiness gate passes. Consequently, the readiness gate may pass while W1 remain
     measured baseline exists with a threshold derived from its own dispersion — the same order
     layers 3, 4 and 5 followed. Relation fidelity is deliberately out of scope (§1.2 of the
     protocol) rather than quietly absent.
+  - **Measured — round 2 and what it settles (2026-11-02).** A second, **disjoint** sample of eight
+    chunks from the same book (`extraction_dataset_huyen_exhaustive`, sample version
+    `extraction-fidelity-v3`, excluded against the pilot) was labeled blind under the **exhaustive**
+    reading defined in the protocol's §1.1: every named thing, not the salient one.
+    Result, against the pipeline on those same eight chunks:
+
+    | metric | value | note |
+    |---|---|---|
+    | `entity_recall` | **0.6667** (8/12) | identical to the pilot's 4/6 — consistent, not proof: with 12 labels the 95 % interval is still ~0.35–0.90 |
+    | `predictions` | 47 | ~5.9 per chunk against 1.5 labeled |
+    | `entity_precision` | 0.1702 (8/47) | ceiling 12/47 = 0.255, i.e. still bounded by set size |
+
+    **The finding is the ratio, not the ratio's value.** A careful human reading — even an exhaustive
+    one — yields ~1.5 entities per chunk where the extractor yields ~6. Inspecting the unmatched
+    predictions settled the direction: they are not noise and not hallucination. They are a **more
+    granular ontology** — sub-tools, specific algorithms (FAISS, Annoy), specific risks (jailbreaking,
+    prompt injection) — while the human reading stayed at the macro level. Two yardsticks, not one
+    instrument measuring the same thing badly.
+
+    **Consequences, stated so nobody re-derives them:**
+    - `recall` of key entities is the number this instrument measures well, and it has now been
+      measured twice on disjoint samples with the same result;
+    - **`precision` against human labels is the wrong instrument for this pipeline**: with a
+      human/extractor density ratio near 1:4, its ceiling is set by that ratio and no amount of
+      labeling effort changes it;
+    - the pilot and round 2 are **not comparable** to each other (salient vs exhaustive reading) and
+      neither is a corpus baseline — both are local to the one Spanish book, whose language is the
+      reason a human could label it at all.
+
+    **What precision would need instead** — recorded, not built: an *audit by sampling predictions*
+    rather than labeling chunks. Take a random sample of the entities the pipeline attached to a
+    chunk, and ask a human one question per entity: is this in the text? That measures how much of
+    what the extractor asserts is real, is blind by construction (the auditor sees a prediction and
+    the text, never a label set to match), and is immune to the density ceiling because the sample is
+    drawn from the predictions, not from a human enumeration.
