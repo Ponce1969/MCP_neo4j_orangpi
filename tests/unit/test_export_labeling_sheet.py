@@ -412,3 +412,259 @@ async def test_emit_skeleton_refuses_to_overwrite_existing_sample_companion(
         await _MODULE.main(["--emit-skeleton", str(destination)])
 
     assert companion.read_bytes() == stale_record
+
+
+def _write_label_file(path: Path, chunk_ids: list[str]) -> Path:
+    """Write a label JSONL whose rows carry exactly the given chunk ids."""
+    path.write_text(
+        "".join(
+            json.dumps(
+                {
+                    "chunk_id": chunk_id,
+                    "book_id": chunk_id.rsplit(":", 1)[0],
+                    "chunk_index": int(chunk_id.rsplit(":", 1)[1]),
+                    "entities": [],
+                    "notes": "",
+                    "completed": True,
+                }
+            )
+            + "\n"
+            for chunk_id in chunk_ids
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    return path
+
+
+async def test_sample_size_without_a_book_filter_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = _install_fake_graph(monkeypatch)
+
+    with pytest.raises(ValueError, match="--sample-size requires") as excinfo:
+        await _MODULE.main(["--json", "--sample-size", "8"])
+
+    message = str(excinfo.value)
+    assert "--sample-size" in message
+    assert "--book" in message
+    assert "filter" in message
+    # Fail fast: an invalid invocation must not open the graph at all.
+    assert graph.queries == []
+
+
+async def test_sample_size_zero_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = _install_fake_graph(monkeypatch)
+
+    with pytest.raises(ValueError, match="--sample-size must be at least 1"):
+        await _MODULE.main(["--json", "--sample-size", "0", "--book", "knowledge:book-a"])
+
+    assert graph.queries == []
+
+
+async def test_sample_size_non_integer_value_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_graph(monkeypatch)
+
+    with pytest.raises(SystemExit) as excinfo:
+        await _MODULE.main(["--json", "--sample-size", "eight", "--book", "knowledge:book-a"])
+
+    assert excinfo.value.code == 2
+
+
+async def test_sample_size_eight_on_one_book_yields_eight_pairs_and_companion_agrees(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_fake_graph(monkeypatch)
+    book_id = "knowledge:book-a"
+    flags = ["--sample-size", "8", "--book", book_id]
+
+    assert await _MODULE.main(["--json", *flags]) == 0
+    captured = capsys.readouterr()
+    pairs = json.loads(captured.out)
+
+    assert len(pairs) == 8
+    assert {pair[0] for pair in pairs} == {book_id}
+    assert "Effective selection: 8 chunks" in captured.err
+
+    skeleton_path = tmp_path / "labels.jsonl"
+    assert await _MODULE.main(["--emit-skeleton", str(skeleton_path), *flags]) == 0
+    companion = json.loads(skeleton_path.with_suffix(".sample.json").read_text(encoding="utf-8"))
+    skeleton_ids = [
+        json.loads(line)["chunk_id"]
+        for line in skeleton_path.read_text(encoding="utf-8").splitlines()
+    ]
+    json_ids = [f"{book}:{index}" for book, index in pairs]
+    assert len(skeleton_ids) == 8
+    assert skeleton_ids == json_ids
+    assert [f"{book}:{index}" for book, index in companion["pairs"]] == json_ids
+    # A different size must not silently change the selection version.
+    assert companion["sample_version"] == _MODULE.SAMPLE_VERSION
+
+
+async def test_sample_size_eight_and_texts_agree_with_json_and_companion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_fake_graph(monkeypatch)
+    book_id = "knowledge:book-c"
+    flags = ["--sample-size", "8", "--book", book_id]
+
+    assert await _MODULE.main(["--json", *flags]) == 0
+    pairs = json.loads(capsys.readouterr().out)
+
+    texts_path = tmp_path / "chunk_texts.json"
+    assert await _MODULE.main(["--texts", str(texts_path), *flags]) == 0
+    capsys.readouterr()
+    texts = json.loads(texts_path.read_text(encoding="utf-8"))
+
+    skeleton_path = tmp_path / "labels.jsonl"
+    assert await _MODULE.main(["--emit-skeleton", str(skeleton_path), *flags]) == 0
+    capsys.readouterr()
+    companion = json.loads(skeleton_path.with_suffix(".sample.json").read_text(encoding="utf-8"))
+    skeleton_ids = [
+        json.loads(line)["chunk_id"]
+        for line in skeleton_path.read_text(encoding="utf-8").splitlines()
+    ]
+
+    json_ids = [f"{book}:{index}" for book, index in pairs]
+    assert len(json_ids) == 8
+    assert json_ids == list(texts)
+    assert json_ids == skeleton_ids
+    assert json_ids == [f"{book}:{index}" for book, index in companion["pairs"]]
+
+
+async def test_exclude_labeled_removes_the_pilot_chunks_and_prints_the_excluded_count(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_fake_graph(monkeypatch)
+    book_id = "knowledge:book-a"
+    pilot_sample = _MODULE.select_sample([chunk for chunk in _chunks(16) if chunk[0] == book_id])
+    # One of the six chunks the default sample would draw is already labeled.
+    labeled_id = f"{pilot_sample[0][0]}:{pilot_sample[0][1]}"
+    exclusion_path = _write_label_file(tmp_path / "pilot.jsonl", [labeled_id])
+
+    result = await _MODULE.main(
+        ["--json", "--book", book_id, "--exclude-labeled", str(exclusion_path)]
+    )
+    captured = capsys.readouterr()
+    pairs = json.loads(captured.out)
+    selected_ids = [f"{book}:{index}" for book, index in pairs]
+
+    assert result == 0
+    assert len(selected_ids) == 6
+    assert labeled_id not in selected_ids
+    assert "Excluded labeled chunks per book:" in captured.err
+    # The printed per-book count matches the chunk actually removed.
+    assert f"  {book_id}: 1" in captured.err
+
+
+async def test_exclusion_leaving_too_few_candidates_fails_naming_book_and_counts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_fake_graph(monkeypatch)
+    book_id = "knowledge:book-a"
+    # 16 candidates minus 10 labeled = 6 remaining, fewer than the 8 requested.
+    labeled_ids = [f"{book_id}:{index}" for index in range(10)]
+    exclusion_path = _write_label_file(tmp_path / "big_pilot.jsonl", labeled_ids)
+
+    with pytest.raises(ValueError, match=book_id) as excinfo:
+        await _MODULE.main(
+            [
+                "--json",
+                "--sample-size",
+                "8",
+                "--book",
+                book_id,
+                "--exclude-labeled",
+                str(exclusion_path),
+            ]
+        )
+
+    message = str(excinfo.value)
+    assert book_id in message
+    assert "6" in message, "the message must say how many candidates remain"
+    assert "8" in message, "the message must say how many were requested"
+
+
+async def test_sample_version_v3_differs_from_the_default_and_companion_records_v3(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_fake_graph(monkeypatch)
+
+    assert await _MODULE.main(["--json"]) == 0
+    default_ids = {f"{book}:{index}" for book, index in json.loads(capsys.readouterr().out)}
+
+    assert await _MODULE.main(["--json", "--sample-version", "extraction-fidelity-v3"]) == 0
+    v3_ids = {f"{book}:{index}" for book, index in json.loads(capsys.readouterr().out)}
+
+    assert len(v3_ids) == 24
+    assert v3_ids != default_ids, "v3 must select a different set than the default version"
+
+    skeleton_path = tmp_path / "labels.jsonl"
+    assert (
+        await _MODULE.main(
+            [
+                "--emit-skeleton",
+                str(skeleton_path),
+                "--sample-version",
+                "extraction-fidelity-v3",
+            ]
+        )
+        == 0
+    )
+    companion = json.loads(skeleton_path.with_suffix(".sample.json").read_text(encoding="utf-8"))
+    assert companion["sample_version"] == "extraction-fidelity-v3"
+    assert {f"{book}:{index}" for book, index in companion["pairs"]} == v3_ids
+
+
+async def test_four_book_guard_still_runs_without_a_filter_with_new_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    three_books = [row for row in _fake_graph_rows() if row["book_id"] in _BOOKS[:3]]
+    _install_fake_graph(monkeypatch, rows=three_books)
+    exclusion_path = _write_label_file(tmp_path / "pilot.jsonl", ["knowledge:book-a:0"])
+    guard = "Expected the 4-book active frame; observed 3 books"
+
+    with pytest.raises(ValueError, match=guard):
+        await _MODULE.main(["--json", "--exclude-labeled", str(exclusion_path)])
+    with pytest.raises(ValueError, match=guard):
+        await _MODULE.main(["--json", "--sample-version", "extraction-fidelity-v3"])
+
+
+async def test_human_sheet_reflects_the_chosen_sample_size(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_fake_graph(monkeypatch)
+
+    result = await _MODULE.main(["--sample-size", "8", "--book", "knowledge:book-a"])
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert output.count("chunk_id: ") == 8
+    assert "Effective selection: 8 chunks" in output
+
+
+def test_post_selection_disjointness_assertion_names_the_offending_chunk() -> None:
+    sample = [("knowledge:book-a", 3, "text")]
+
+    _MODULE._assert_sample_disjoint(sample, set())
+    _MODULE._assert_sample_disjoint(sample, {"knowledge:book-a:4"})
+
+    with pytest.raises(ValueError, match="knowledge:book-a:3") as excinfo:
+        _MODULE._assert_sample_disjoint(sample, {"knowledge:book-a:3"})
+
+    assert "knowledge:book-a:3" in str(excinfo.value)
