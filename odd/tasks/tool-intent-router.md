@@ -230,3 +230,19 @@ Not implemented either way: this is a product decision about spending money, not
     service is not on the Orange Pi. `TextPassagePort` therefore stays contract-only until the
     maintainer supplies the endpoint and the auth shape; inventing a transport for an external service
     would be guesswork with a network round-trip attached.
+- **L15** (BTRAG wiring specified, 2026-11-05; maintainer authorized reading the harness MCP config).
+  Discovered, not guessed — the config at `~/.pi/agent/mcp-adapter.json` and one live `search` call:
+  - endpoint `http://100.106.85.109:8020/mcp`, **streamable HTTP** (path `/mcp`, not `/sse`);
+  - auth `Authorization: Bearer ${BOOK_TEXT_RAG_MCP_TOKEN}`;
+  - tool `search(query, top_k?, mode?, document_ids?)`, lexical only, and it returns
+    `{mode, index_version, resultados:[{rank, score, document_id, document_version, chunk_id,
+    section_path, pdf_page_start, pdf_page_end, content}]}` **and** the same payload as
+    `structuredContent`;
+  - precedent for provenance from the orchestration skill: `book-text-rag:<chunk_id>`.
+  Decisions: (a) `Passage.namespace` stays `None`, because BTRAG's `document_id`
+  (`huyen-ai-engineering`) is not the graph's `SourceNamespace` (`ai-engineering-huyen`) — a
+  reconciled mapping is a separate unit, and fabricating one would poison provenance; (b) transport
+  requires an `httpx.AsyncClient` since `streamable_http_client` takes no `headers`, so `httpx`
+  becomes a **declared** dependency instead of an undeclared transitive one (delivery risk, hence
+  independent verification); (c) config fails closed: empty url or token raises at construction,
+  never at query time, so a missing secret cannot turn into a fabricated passage.
