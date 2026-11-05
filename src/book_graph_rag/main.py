@@ -86,6 +86,7 @@ from book_graph_rag.domain.rollback_plan_models import (
     RollbackPlan,
     compare_census,
 )
+from book_graph_rag.domain.routing_models import ResolvedRoute
 from book_graph_rag.domain.s4_band_assignment import BandThresholds
 from book_graph_rag.domain.schema_manifest import SchemaManifest
 from book_graph_rag.domain.validation_models import BookScope, SmokeManifest, TargetScope
@@ -138,6 +139,7 @@ from book_graph_rag.infrastructure.resolution_wiring import (
     build_review_quarantine_use_case,
     build_rollback_apply_use_case,
 )
+from book_graph_rag.infrastructure.routing_caller import build_routing_caller
 from book_graph_rag.infrastructure.sentence_transformer_adapter import (
     SentenceTransformerAdapter,
 )
@@ -1048,6 +1050,80 @@ def _book_scope(book_id: str) -> BookScope:
         source_identity=book_id,
         path_fingerprint=fingerprint,
     )
+
+
+def _route_payload(question: str, resolved: ResolvedRoute | None) -> dict[str, Any]:
+    """Render one routing outcome as the CLI's machine-readable payload.
+
+    ``enabled: false`` means the router flag is off and the caller keeps its
+    explicit-scope path; it is never conflated with an abstaining route, which
+    reports ``enabled: true`` with ``validated_namespace: null``.
+    """
+    if resolved is None:
+        return {
+            "candidates": [],
+            "enabled": False,
+            "fanout_namespaces": [],
+            "margin": None,
+            "question": question,
+            "reason": None,
+            "route_kind": None,
+            "top_score": None,
+            "validated_namespace": None,
+        }
+    decision = resolved.decision
+    validated = resolved.validated_namespace
+    return {
+        "candidates": [
+            {"namespace": candidate.namespace.source_id, "score": round(candidate.score, 6)}
+            for candidate in decision.candidates[:3]
+        ],
+        "enabled": True,
+        "fanout_namespaces": [namespace.source_id for namespace in resolved.fanout_namespaces],
+        "margin": round(decision.margin, 6),
+        "question": question,
+        "reason": decision.reason,
+        "route_kind": decision.route_kind,
+        "top_score": round(decision.top_score, 6),
+        "validated_namespace": validated.source_id if validated is not None else None,
+    }
+
+
+@cli.command("route")
+@click.argument("question")
+def route(question: str) -> None:
+    """Propose a book namespace for QUESTION without issuing any graph query.
+
+    Read-only classifier, never an authorization mechanism: the proposed
+    namespace still has to pass the catalog-backed scope resolver, and the MCP
+    scope gate stays the only security boundary. Output is one JSON object.
+    """
+    try:
+        settings = Settings.model_validate({})
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Configuration error: {exc}", err=True)
+        sys.exit(1)
+
+    try:
+        caller = build_routing_caller(settings)
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Router configuration error: {exc}", err=True)
+        sys.exit(1)
+
+    async def _run() -> ResolvedRoute | None:
+        try:
+            return await caller.route_for_caller(question)
+        finally:
+            await caller.close()
+
+    try:
+        resolved = asyncio.run(_run())
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Routing error: {exc}", err=True)
+        sys.exit(1)
+
+    payload = _route_payload(question, resolved)
+    click.echo(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False))
 
 
 @cli.command("validate")
