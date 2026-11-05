@@ -43,6 +43,7 @@ from book_graph_rag.application.evaluate_retrieval_layer_use_case import (
 )
 from book_graph_rag.application.evaluation_harness import EvaluationHarness
 from book_graph_rag.application.index_book_use_case import IndexBookUseCase
+from book_graph_rag.application.orchestration.compose import CompositionResult
 from book_graph_rag.application.query_knowledge_graph_use_case import (
     QueryKnowledgeGraphUseCase,
 )
@@ -1124,6 +1125,158 @@ def route(question: str) -> None:
 
     payload = _route_payload(question, resolved)
     click.echo(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False))
+
+
+def _parse_orchestration_scopes(raw_scopes: tuple[str, ...]) -> list[dict[str, str]] | None:
+    """Turn repeatable ``--scope CORPUS:SOURCE`` options into the payload's scope list.
+
+    Returns ``None`` when the option is omitted: the caller stated no scope,
+    which is ``scope=None`` meaning all books (S2) — never an inferred or
+    narrowed scope. A malformed value (no separator, more than one separator,
+    or an empty half) is a usage error raised *before* any configuration is
+    read or the stack is built, so a typo can never reach a graph port.
+    """
+    if not raw_scopes:
+        return None
+    scopes: list[dict[str, str]] = []
+    for raw in raw_scopes:
+        try:
+            namespace = SourceNamespace.parse_book_id(raw)
+        except UnknownNamespaceError as exc:
+            raise click.UsageError(f"--scope must be CORPUS:SOURCE, got {raw!r}") from exc
+        scopes.append({"corpus": namespace.corpus, "source": namespace.source})
+    return scopes
+
+
+def _orchestration_payload(result: CompositionResult) -> dict[str, Any]:
+    """Render one composition result as the CLI's machine-readable payload.
+
+    ``evidence`` carries namespace + citation ids per item — never the
+    graph's summary prose; ``passages`` carries only ``chunk_id`` per item —
+    never the passage text. Stdout is a contract for the calling agent, not a
+    second copy of the corpus: ids are what a caller cites, the text is what
+    the text store is for.
+    """
+    outcome = result.outcome
+    return {
+        "cache": {"cacheable": result.cache.cacheable, "reason": result.cache.reason},
+        "evidence": [
+            {"citations": list(item.citations), "namespace": item.namespace.source_id}
+            for item in outcome.evidence
+        ],
+        "intent_tuning": (
+            result.intent_tuning.model_dump(mode="json")
+            if result.intent_tuning is not None
+            else None
+        ),
+        "mode": result.mode,
+        "passages": [passage.chunk_id for passage in outcome.passages],
+        "reason": outcome.reason,
+        "scopes": [namespace.source_id for namespace in result.scopes],
+        "state": outcome.state,
+    }
+
+
+@cli.command("orchestrate")
+@click.argument("question")
+@click.option(
+    "--mode",
+    type=click.Choice(["evidence", "synthesis"]),
+    default="evidence",
+    show_default=True,
+    help="Evidence (search_rag, cheap) or synthesis (ask_global, expensive; opt-in, S1).",
+)
+@click.option(
+    "--intent",
+    type=click.Choice(["foundation", "design", "implementation"]),
+    default=None,
+    help="Declared intent tuning k / traversal / citation style (S3, S13); omit for none.",
+)
+@click.option(
+    "--scope",
+    "scopes",
+    multiple=True,
+    metavar="CORPUS:SOURCE",
+    help="Explicit namespace to dispatch to (repeatable); omit for all books (S2).",
+)
+@click.option(
+    "--requires-passages",
+    is_flag=True,
+    default=False,
+    help="Also fetch text passages from the text store, whatever the graph says (S5).",
+)
+def orchestrate(
+    question: str,
+    mode: str,
+    intent: str | None,
+    scopes: tuple[str, ...],
+    requires_passages: bool,
+) -> None:
+    """Answer QUESTION through the orchestration layer, printing one JSON object.
+
+    Sits above the MCP without replacing it: evidence mode queries the graph
+    read-only, synthesis mode opts into ask_global, an explicit --scope wins
+    over the namespace router (S2), and a graph miss is reported as an
+    explicit insufficient_coverage state instead of an invented answer (S6).
+    Exit code 0 for every non-error outcome — insufficient coverage included —
+    and 1 for configuration or runtime errors (message on stderr).
+    """
+    # Scope first: a malformed value must fail as a usage error before any
+    # settings are read or the stack exists.
+    scope_payload = _parse_orchestration_scopes(scopes)
+
+    try:
+        settings = Settings.model_validate({})
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Configuration error: {exc}", err=True)
+        sys.exit(1)
+
+    # Lazy import: the stack is built here, never at module import, so
+    # importing the CLI never constructs a driver or a text-port client.
+    from book_graph_rag.infrastructure.orchestration.wiring import build_orchestration_stack
+
+    try:
+        stack = build_orchestration_stack(settings)
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Orchestration configuration error: {exc}", err=True)
+        sys.exit(1)
+
+    payload: dict[str, Any] = {
+        "question": question,
+        "mode": mode,
+        "requires_passages": requires_passages,
+    }
+    if intent is not None:
+        payload["intent"] = intent
+    if scope_payload is not None:
+        payload["scope"] = scope_payload
+
+    async def _run() -> CompositionResult:
+        answer_failed = False
+        try:
+            return await stack.answer(payload)
+        except BaseException:
+            answer_failed = True
+            raise
+        finally:
+            # Close runs on every path; when the answer already failed, a
+            # close failure is reported on stderr instead of masking it.
+            try:
+                await stack.close()
+            except Exception as close_exc:  # noqa: BLE001
+                if not answer_failed:
+                    raise
+                click.echo(f"Close error: {close_exc}", err=True)
+
+    try:
+        result = asyncio.run(_run())
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Orchestration error: {exc}", err=True)
+        sys.exit(1)
+
+    click.echo(
+        json.dumps(_orchestration_payload(result), indent=2, sort_keys=True, ensure_ascii=False)
+    )
 
 
 @cli.command("validate")
