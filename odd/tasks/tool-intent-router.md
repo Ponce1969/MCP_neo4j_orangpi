@@ -159,3 +159,20 @@ delivered, `odd/tasks/namespace-router-call-site.md`) is its scope sub-router.
   was rejected by the catalog takes the S7 path instead of raising, because the graph is never
   queried with an unvalidated namespace (S4 posture). No infrastructure adapter implements the two
   ports yet: they are contracts, and wiring them is a later unit.
+- **L10** (maintainer ruling, verbatim — the S7 passage budget, 2026-11-05): *"Me parece correcto que
+  se tome el k de la tabla (foundation → 3) y no el default de 5. La lógica es: si el usuario pidió un
+  fundamento, quiere una respuesta concisa. Si el grafo falla y cae al texto, no tiene sentido
+  castigarlo con 5 pasajes y llenarlo de ruido. Mantenelo así."* Requirement added to the code as an
+  explicit `INTENTIONAL, not a bug` comment in `application/orchestration/fallback.py`, next to the
+  `limit` resolution, so the next reader does not "fix" it back to `passage_limit`.
+- **L11** (T3 and T5 delivered, 2026-11-05): T3 (S5) adds the caller-declared `requires_passages` to
+  `OrchestrationRequest` and fetches passages in every outcome when it is set — the state never
+  changes, so there is no fourth state; passages ride alongside the evidence. The maintainer's ruling
+  on S13's ambiguity is now executable: `intent=design` alone does **not** imply passages
+  (`test_design_intent_alone_does_not_imply_passages`). T5 (S10-S12) is `domain/cache_policy.py`:
+  `should_cache(outcome, mode) -> CacheDecision(cacheable, reason)`, decided on `state` and never on
+  `passages` being non-empty — that distinction is the whole point, since caller-demanded passages on
+  a covered outcome are not "entidades incompletas". S11 is synthesis-scoped and deliberately not
+  widened to evidence mode. S12 is not reimplemented: `route_cache_key`'s `graph_snapshot` dimension
+  already rotates the key. The real cache lives in `agentic-memory`, so this repo owns the contract
+  and that repo owns enforcement.

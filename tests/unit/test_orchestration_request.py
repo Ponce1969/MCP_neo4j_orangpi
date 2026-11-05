@@ -1,4 +1,4 @@
-"""Unit tests for the orchestration request contract (T1, specs S1-S4).
+"""Unit tests for the orchestration request contract (T1/T3, specs S1-S5).
 
 Everything goes through the public API: ``parse_orchestration_request`` for
 parsing behavior, and ``OrchestrationRequest``/``Mode``/``Intent`` for the
@@ -91,7 +91,13 @@ def test_intent_never_changes_scope(intent: str | None) -> None:
 
 def test_single_book_key_is_rejected_by_the_extra_field_guard() -> None:
     """S4: the request has no field that names a single book, and extras are forbidden."""
-    assert set(OrchestrationRequest.model_fields) == {"question", "mode", "intent", "scope"}
+    assert set(OrchestrationRequest.model_fields) == {
+        "question",
+        "mode",
+        "intent",
+        "scope",
+        "requires_passages",
+    }
     with pytest.raises(ValidationError) as excinfo:
         parse_orchestration_request({"question": "x", "book": "graphrag-agentic"})
     assert "book" in str(excinfo.value)
@@ -108,3 +114,35 @@ def test_question_with_surrounding_spaces_is_kept_verbatim() -> None:
     padded = "  how do namespaces work?  "
     request = parse_orchestration_request({"question": padded})
     assert request.question == padded
+
+
+# ── S5 (T3): requires_passages — the caller's explicit requirement ────────────
+
+
+def test_requires_passages_defaults_to_false() -> None:
+    """S5: passages are never implied; without the flag the caller demands none."""
+    request = parse_orchestration_request({"question": "q"})
+    assert request.requires_passages is False
+
+
+def test_requires_passages_true_is_preserved_alongside_design_intent() -> None:
+    """S5: the explicit requirement and the intent travel as independent fields."""
+    request = parse_orchestration_request(
+        {"question": "q", "intent": "design", "requires_passages": True}
+    )
+    assert request.intent is Intent.DESIGN
+    assert request.requires_passages is True
+
+
+def test_design_intent_alone_does_not_imply_passages() -> None:
+    """Maintainer ruling on S13's ambiguity: passages only if the caller demands them."""
+    request = parse_orchestration_request({"question": "q", "intent": "design"})
+    assert request.intent is Intent.DESIGN
+    assert request.requires_passages is False
+
+
+def test_misspelled_requires_passages_key_is_rejected_by_the_extra_field_guard() -> None:
+    """The extra="forbid" guard still catches typos of the new field."""
+    with pytest.raises(ValidationError) as excinfo:
+        parse_orchestration_request({"question": "q", "requires_passge": True})
+    assert "requires_passge" in str(excinfo.value)

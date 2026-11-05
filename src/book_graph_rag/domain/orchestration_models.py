@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from book_graph_rag.domain.namespaces import SourceNamespace
 
@@ -67,6 +67,11 @@ class OrchestrationRequest(BaseModel):
     empty tuple is rejected because "narrow to nothing" is not a meaningful
     caller choice.
 
+    ``requires_passages`` follows the same posture: it defaults to False and
+    is only ever the caller's word (S5) — no validator derives it from
+    ``intent`` or ``mode``, which makes the maintainer's ruling on S13's
+    *"grafo + pasajes"* ambiguity structural rather than a promise.
+
     S4 (*"el router no filtra por libro"*) is structural here: ``extra=
     "forbid"`` plus the field set below means the model cannot name a single
     book, and no validator derives ``scope`` from ``intent`` — intent and
@@ -79,6 +84,16 @@ class OrchestrationRequest(BaseModel):
     mode: Mode = Mode.EVIDENCE
     intent: Intent | None = None
     scope: tuple[SourceNamespace, ...] | None = None
+    requires_passages: bool = Field(
+        default=False,
+        description=(
+            "Caller's explicit word that passages (BTRAG) are required (S5): when true, "
+            "the text port is called in every outcome — covered and fan-out included — "
+            "because the caller demands full textual coverage or literal citations. "
+            "Never inferred from ``intent`` or ``mode``: only the caller can declare "
+            "this requirement."
+        ),
+    )
 
     @model_validator(mode="after")
     def _question_not_blank(self) -> OrchestrationRequest:

@@ -1,4 +1,4 @@
-"""Behavior tests for the evidence-based fallback resolver (specs S6, S7, S8).
+"""Behavior tests for the evidence-based fallback resolver (specs S5-S8).
 
 Every test drives the public ``resolve_with_fallback`` with fake ports that
 record their calls, and asserts on the returned ``FallbackOutcome`` only —
@@ -13,6 +13,7 @@ import pytest
 from book_graph_rag.application.orchestration.fallback import resolve_with_fallback
 from book_graph_rag.application.orchestration.ports import GraphEvidencePort, TextPassagePort
 from book_graph_rag.domain.namespaces import SourceNamespace
+from book_graph_rag.domain.orchestration_models import Intent
 from book_graph_rag.domain.orchestration_outcomes import (
     CoverageState,
     GraphEvidence,
@@ -236,3 +237,146 @@ async def test_scopes_lists_only_evidence_producing_scopes_in_route_order() -> N
     assert graph.calls == [_ESSENTIAL, _AAP]  # both queried once, route order
     assert outcome.state == CoverageState.FANOUT
     assert outcome.scopes == (_ns(_AAP),)  # the missing scope is excluded
+
+
+# ── S5 (T3): requires_passages — the caller's explicit passage requirement ────
+
+
+def _covered_route() -> ResolvedRoute:
+    return _route(
+        _decision("clear", route_kind="single", selected=_ns(_AAP)),
+        validated=_ns(_AAP),
+    )
+
+
+async def test_requires_passages_fetches_text_on_covered_route_without_changing_state() -> None:
+    """S5: covered stays covered, yet text is fetched because the caller demands it."""
+    evidence = _evidence(_AAP, "ReAct summary", "chunk-1")
+    passage = _passage("chunk-2", "literal coverage")
+    graph = _FakeGraph({_AAP: evidence})
+    text = _FakeText((passage,))
+
+    outcome = await resolve_with_fallback(
+        _QUESTION, _covered_route(), graph=graph, text=text, requires_passages=True
+    )
+
+    assert outcome.state == CoverageState.COVERED  # no fourth state invented
+    assert outcome.evidence == (evidence,)  # graph evidence still present
+    assert outcome.passages == (passage,)  # passages ride along with it
+    assert outcome.scopes == (_ns(_AAP),)
+    assert graph.calls == [_AAP]  # exactly one graph query, no retries
+    assert len(text.calls) == 1  # at most once per resolution
+
+
+async def test_requires_passages_with_design_intent_uses_s13_k_as_passage_count() -> None:
+    """S13: design's k (5) is the passage count, not the fallback default."""
+    graph = _FakeGraph({_AAP: _evidence(_AAP, "ReAct summary", "chunk-1")})
+    text = _FakeText((_passage("chunk-2", "literal coverage"),))
+
+    outcome = await resolve_with_fallback(
+        _QUESTION,
+        _covered_route(),
+        graph=graph,
+        text=text,
+        requires_passages=True,
+        intent=Intent.DESIGN,
+    )
+
+    assert text.calls == [(_QUESTION, 5)]  # S13 k, not the passage_limit default
+    assert outcome.state == CoverageState.COVERED
+    assert len(outcome.passages) == 1
+
+
+@pytest.mark.parametrize(
+    ("intent", "expected_passages"),
+    [
+        (Intent.FOUNDATION, 3),
+        (Intent.IMPLEMENTATION, 4),
+    ],
+)
+async def test_requires_passages_k_follows_s13_table(
+    intent: Intent, expected_passages: int
+) -> None:
+    """S13: foundation requests 3 and implementation 4 — the table's k, never 3/4/5 hardcoded."""
+    graph = _FakeGraph({_AAP: _evidence(_AAP, "ReAct summary", "chunk-1")})
+    text = _FakeText((_passage("chunk-2", "literal coverage"),))
+
+    outcome = await resolve_with_fallback(
+        _QUESTION,
+        _covered_route(),
+        graph=graph,
+        text=text,
+        requires_passages=True,
+        intent=intent,
+    )
+
+    assert text.calls == [(_QUESTION, expected_passages)]
+    assert outcome.state == CoverageState.COVERED
+
+
+async def test_requires_passages_without_intent_keeps_fallback_default_limit() -> None:
+    """intent=None has no S13 row (L7), so passage_limit's default stands."""
+    graph = _FakeGraph({_AAP: _evidence(_AAP, "ReAct summary", "chunk-1")})
+    text = _FakeText((_passage("chunk-2", "literal coverage"),))
+
+    outcome = await resolve_with_fallback(
+        _QUESTION,
+        _covered_route(),
+        graph=graph,
+        text=text,
+        requires_passages=True,
+        intent=None,
+    )
+
+    assert text.calls == [(_QUESTION, 5)]  # the fallback's own default limit
+    assert outcome.state == CoverageState.COVERED
+
+
+async def test_requires_passages_false_keeps_covered_and_fanout_off_the_text_port() -> None:
+    """S5 regression guard: without the flag, covered and fanout never touch text."""
+    evidence = _evidence(_AAP, "ReAct summary", "chunk-1")
+    text = _FakeText((_passage("chunk-2", "must not be fetched"),))
+
+    covered_graph = _FakeGraph({_AAP: evidence})
+    covered = await resolve_with_fallback(
+        _QUESTION, _covered_route(), graph=covered_graph, text=text, requires_passages=False
+    )
+    assert covered.state == CoverageState.COVERED
+    assert covered.passages == ()
+    assert text.calls == []
+
+    fanout_graph = _FakeGraph(
+        {_ESSENTIAL: _evidence(_ESSENTIAL, "essential", "chunk-3"), _AAP: evidence}
+    )
+    fanout_route = _route(_decision("low_margin"), fanout=(_ns(_ESSENTIAL), _ns(_AAP)))
+    fanout = await resolve_with_fallback(
+        _QUESTION, fanout_route, graph=fanout_graph, text=text, requires_passages=False
+    )
+    assert fanout.state == CoverageState.FANOUT
+    assert fanout.passages == ()
+    assert text.calls == []  # still no text call after both resolutions
+
+
+async def test_requires_passages_fetches_text_on_fanout_route_too() -> None:
+    """S5's "in every outcome": fanout keeps its state and carries passages as well."""
+    essential = _evidence(_ESSENTIAL, "essential summary", "chunk-1")
+    aap = _evidence(_AAP, "aap summary", "chunk-2")
+    passage = _passage("chunk-3", "literal coverage")
+    graph = _FakeGraph({_ESSENTIAL: essential, _AAP: aap})
+    text = _FakeText((passage,))
+    route = _route(_decision("low_margin"), fanout=(_ns(_ESSENTIAL), _ns(_AAP)))
+
+    outcome = await resolve_with_fallback(
+        _QUESTION,
+        route,
+        graph=graph,
+        text=text,
+        requires_passages=True,
+        intent=Intent.DESIGN,
+    )
+
+    assert outcome.state == CoverageState.FANOUT  # state unchanged
+    assert outcome.evidence == (essential, aap)  # merged graph evidence still present
+    assert outcome.passages == (passage,)
+    assert graph.calls == [_ESSENTIAL, _AAP]
+    assert text.calls == [(_QUESTION, 5)]  # once, with S13's k
