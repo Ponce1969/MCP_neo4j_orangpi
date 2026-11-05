@@ -176,3 +176,57 @@ delivered, `odd/tasks/namespace-router-call-site.md`) is its scope sub-router.
   widened to evidence mode. S12 is not reimplemented: `route_cache_key`'s `graph_snapshot` dimension
   already rotates the key. The real cache lives in `agentic-memory`, so this repo owns the contract
   and that repo owns enforcement.
+- **L12** (verification, 2026-11-05): the integrated suite on the committed tree is **2513 passed,
+  4 skipped, 107 deselected in 286.83s** — exactly the projection (2493 + 11 from T3 + 9 from T5).
+  Three review units are committed on `feat/tool-intent-router`: `dea93d7` (router call site, margin
+  fix, cache-key mode), `ccac78a` (request contract, intent tuning, fallback), `d309df2` (passages on
+  demand, cache policy). Working tree clean.
+
+## Next unit — T7 (composition), not yet specified
+
+The ports are contracts with no adapter, so the layer cannot answer a real question yet. T7 is the
+use case that composes what exists: `OrchestrationRequest` → namespace route (`RoutingCaller`) →
+port per `Mode` (S1: evidence ⇒ `search_rag`; synthesis ⇒ `ask_global`) → `resolve_with_fallback`
+(S6-S8) → `should_cache` (S10-S12) → one result.
+
+Derived from the specs, no decision needed:
+- evidence mode routes through `GraphEvidencePort` and never silently upgrades to synthesis;
+- the namespace route is a proposal, so an unvalidated namespace never reaches a port (S4 posture);
+- the cache decision is computed and reported, never written by this repo (T5 boundary).
+
+**Open decision (maintainer):** S8 governs a namespace-router abstention in *evidence* mode. What
+happens in *synthesis* mode when the router abstains with `low_margin`? Three honest options:
+(a) same fan-out — `ask_global` per top-2 namespace and merge the summaries, accepting two expensive
+calls; (b) synthesis needs a committed namespace, so an abstention degrades to evidence mode with
+passages; (c) no synthesis without scope — return `insufficient_coverage` and let the caller decide.
+Not implemented either way: this is a product decision about spending money, not a technical detail.
+- **L13** (maintainer ruling, verbatim — T7 synthesis abstention, 2026-11-05): *"Vamos con la opción
+  (c): no hay síntesis sin alcance. Devolvemos insufficient_coverage y decide el llamador. Razón: si
+  el router no está seguro de a qué libro ir, hacer una síntesis a ciegas es una invitación a la
+  alucinación carísima. Prefiero que el sistema sea honesto y le diga al agente externo: 'No tengo
+  cobertura suficiente para hacer un resumen confiable'. El agente externo (Claude Code) sabrá si le
+  avisa al usuario o si prefiere pedir evidencia (que es barata y segura)."*
+  Consequence for T7: `mode=synthesis` requires a **committed, catalog-validated namespace**. An
+  abstention — `low_margin` included — never fans out to two `ask_global` calls and never degrades to
+  evidence on its own: it returns `insufficient_coverage`. Authorized scope: T7 + the real adapters
+  for `search_rag` and BTRAG.
+- **L14** (T7 specified, 2026-11-05): composition use case + the two in-repo adapters, derived from the
+  map at `mcp_server_adapter.py`, `global_query_use_case.py`, `ports/graph_query_port.py` and
+  `mcp_server_main.py`. Decisions written down so they are not re-litigated:
+  - **Scope precedence** (S2 + S4): an explicit `request.scope` wins and the namespace router is not
+    consulted at all; otherwise the router proposes (single or the top-2 fan-out); an abstention with
+    no fan-out means the caller gets `insufficient_coverage`, never "all books guessed at once".
+    "Los 4 libros por defecto" is the caller's `scope=None` meaning, not licence for the router to
+    pick all four after abstaining.
+  - **Synthesis requires a committed scope** (L13): no validated namespace ⇒ `insufficient_coverage`
+    before any port is touched, so no `ask_global` is ever spent on a guess.
+  - **Evidence adapter** reuses `GraphQueryPort.search_chunks(query, limit, scope=...)` — the same port
+    `search_rag` uses — and maps each chunk to provenance via `chunk_id`, with the namespace recovered
+    with `SourceNamespace.parse_book_id`. Reaching into `McpServerAdapter` was rejected: that class is
+    the MCP surface (16 construction parameters) and the whole point of T7 is to sit above it.
+  - **Synthesis adapter** reuses `GlobalQueryUseCase.ask(question, detail_level, scope=...)`; its
+    `citations` are community-summary ids, which is what `GraphEvidence.citations` carries.
+  - **BTRAG has no wiring in this repo**: no client, no `httpx` dependency, no config field, and the
+    service is not on the Orange Pi. `TextPassagePort` therefore stays contract-only until the
+    maintainer supplies the endpoint and the auth shape; inventing a transport for an external service
+    would be guesswork with a network round-trip attached.

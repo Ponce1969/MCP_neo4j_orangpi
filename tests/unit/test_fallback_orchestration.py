@@ -380,3 +380,85 @@ async def test_requires_passages_fetches_text_on_fanout_route_too() -> None:
     assert outcome.passages == (passage,)
     assert graph.calls == [_ESSENTIAL, _AAP]
     assert text.calls == [(_QUESTION, 5)]  # once, with S13's k
+
+
+# ── T7: dispatch_scopes — the caller states the scopes; no reason-string gate ─
+
+
+async def test_dispatch_scopes_with_non_low_margin_reason_dispatches_both_and_merges() -> None:
+    """dispatch_scopes dispatches both scopes in order, merges by citation id,
+    and reports FANOUT — with a route whose reason is NOT ``low_margin``.
+
+    Proves the branch no longer depends on the diagnostic string: the dispatch
+    is the caller's explicit parameter, so renaming a router reason cannot
+    change behaviour.
+    """
+    # Overlapping citation chunk-2 proves the merge runs across the two scopes.
+    essential = _evidence(_ESSENTIAL, "essential summary", "chunk-1", "chunk-2")
+    aap = _evidence(_AAP, "aap summary", "chunk-2", "chunk-3")
+    graph = _FakeGraph({_ESSENTIAL: essential, _AAP: aap})
+    text = _FakeText()
+    route = _route(_decision("explicit_scope", route_kind="multi"))
+
+    outcome = await resolve_with_fallback(
+        _QUESTION,
+        route,
+        graph=graph,
+        text=text,
+        dispatch_scopes=(_ns(_ESSENTIAL), _ns(_AAP)),
+    )
+
+    assert graph.calls == [_ESSENTIAL, _AAP]  # both in the stated order
+    assert outcome.state == CoverageState.FANOUT
+    assert outcome.scopes == (_ns(_ESSENTIAL), _ns(_AAP))
+    citations = tuple(c for item in outcome.evidence for c in item.citations)
+    assert citations == ("chunk-1", "chunk-2", "chunk-3")  # merged, deduped
+    assert outcome.reason.startswith("explicit_scope")  # the route's own reason
+    assert text.calls == []
+
+
+async def test_dispatch_scopes_single_scope_reports_covered_and_queries_port_once() -> None:
+    """dispatch_scopes with exactly one evidence-producing scope → COVERED,
+    one graph query, no text call (S6's happy path, stated explicitly)."""
+    evidence = _evidence(_AAP, "aap summary", "chunk-1")
+    graph = _FakeGraph({_AAP: evidence})
+    text = _FakeText()
+    route = _route(_decision("explicit_scope", route_kind="single", selected=_ns(_AAP)))
+
+    outcome = await resolve_with_fallback(
+        _QUESTION,
+        route,
+        graph=graph,
+        text=text,
+        dispatch_scopes=(_ns(_AAP),),
+    )
+
+    assert outcome.state == CoverageState.COVERED
+    assert outcome.evidence == (evidence,)
+    assert outcome.scopes == (_ns(_AAP),)
+    assert graph.calls == [_AAP]  # the port called exactly once
+    assert text.calls == []
+
+
+async def test_dispatch_scopes_all_missing_derives_to_text_exactly_once() -> None:
+    """dispatch_scopes where every scope returns None → INSUFFICIENT_COVERAGE,
+    empty evidence, and exactly one derivation to text (S6/S7)."""
+    graph = _FakeGraph({_ESSENTIAL: None, _AAP: None})
+    passage = _passage("chunk-5", "only text remains")
+    text = _FakeText((passage,))
+    route = _route(_decision("explicit_scope", route_kind="multi"))
+
+    outcome = await resolve_with_fallback(
+        _QUESTION,
+        route,
+        graph=graph,
+        text=text,
+        dispatch_scopes=(_ns(_ESSENTIAL), _ns(_AAP)),
+    )
+
+    assert graph.calls == [_ESSENTIAL, _AAP]  # every scope tried once
+    assert text.calls == [(_QUESTION, 5)]  # derived to text once, default limit
+    assert outcome.state == CoverageState.INSUFFICIENT_COVERAGE
+    assert outcome.evidence == ()  # nothing invented from the question (S6)
+    assert outcome.passages == (passage,)
+    assert outcome.reason.startswith("explicit_scope")

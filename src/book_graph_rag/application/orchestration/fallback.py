@@ -11,7 +11,17 @@ retries blindly (S7) and never fabricates graph evidence (S6):
   ``low_margin`` abstentions) this is the normal path, not an error (S8),
   with passages appended when the caller requires them (S5);
 * abstain without usable fan-out, or a graph miss → ``insufficient_coverage``
-  derived to text passages (S7 / S6).
+  derived to text passages (S7 / S6);
+* caller-stated ``dispatch_scopes`` (T7 explicit scope) → exactly those scopes
+  are queried, with the same citation-id merge: ``covered`` when one produced
+  evidence, ``fanout`` when several did, ``insufficient_coverage`` when none
+  did.
+
+``FallbackOutcome.reason`` is a **diagnostic string** — the router's own
+reason plus what the resolver did — reported for humans and logs. It is never
+an input to a branch: the only branch inputs are the route's committed
+fields (``validated_namespace`` / ``fanout_namespaces``) and the caller's
+explicit ``dispatch_scopes``.
 
 Passage budget (S5/S13): when the caller declares an intent, ``tuning_for``
 returns a row whose ``k`` *is* the passage count; otherwise ``passage_limit``
@@ -45,15 +55,19 @@ async def resolve_with_fallback(
     passage_limit: int = 5,
     requires_passages: bool = False,
     intent: Intent | None = None,
+    dispatch_scopes: tuple[SourceNamespace, ...] | None = None,
 ) -> FallbackOutcome:
     """Resolve ``question`` for ``route`` into one explicit coverage state.
 
-    Branch order mirrors how :class:`ResolvedRoute` is produced by
-    ``RouteQuestionUseCase``: a validated single scope first, then S8's
-    ``low_margin`` fan-out, then S7's text derivation. The first two states are
-    mutually exclusive in a well-formed route; a route with neither a
-    validated scope nor a usable fan-out takes the S7 path without ever
-    querying the graph.
+    When the caller states ``dispatch_scopes`` (T7's explicit scope), those
+    and only those scopes are dispatched, and the route's reason string is
+    never consulted — ``reason`` is a diagnostic reported on the outcome,
+    never an input to a branch. Without it, branch order mirrors how
+    :class:`ResolvedRoute` is produced by ``RouteQuestionUseCase``: a
+    validated single scope first, then S8's ``low_margin`` fan-out, then S7's
+    text derivation. The first two states are mutually exclusive in a
+    well-formed route; a route with neither a validated scope nor a usable
+    fan-out takes the S7 path without ever querying the graph.
 
     Args:
         question: The question verbatim, as the caller sent it.
@@ -73,6 +87,15 @@ async def resolve_with_fallback(
             its ``k`` *is* the passage count and overrides
             ``passage_limit``; ``None`` keeps ``passage_limit`` (S13 defines
             no row for "no intent").
+        dispatch_scopes: The exact scopes to query when the caller stated
+            them explicitly (T7 / S2). When provided, these — and only these
+            — are dispatched in the given order, each queried at most once,
+            merged by citation id exactly like the S8 fan-out: ``covered``
+            when exactly one scope produced evidence, ``fanout`` when more
+            than one did, ``insufficient_coverage`` (derived to text) when
+            none did. When ``None``, the route-driven branches below apply
+            unchanged, byte-identical to the pre-``dispatch_scopes``
+            behaviour, including the ``low_margin`` gate.
 
     Returns:
         A frozen ``FallbackOutcome`` in exactly one of ``covered`` (S6 happy
@@ -96,6 +119,47 @@ async def resolve_with_fallback(
     s5_note = ""
     if requires_passages:
         s5_note = "; passages fetched because the caller requires them (S5)"
+
+    # T7 explicit dispatch: the caller stated the exact scopes, so they are
+    # dispatched directly — route.decision.reason is NOT read here (it is a
+    # diagnostic, never a branch input; the low_margin gate below only runs
+    # when this parameter is absent).
+    if dispatch_scopes is not None:
+        merged, scopes_with_evidence = await _query_scopes(question, dispatch_scopes, graph)
+        if not scopes_with_evidence:
+            # Every dispatched scope missed: S6 applies per scope — derive to
+            # text, once, with nothing fabricated (evidence stays empty).
+            missing = ", ".join(scope.source_id for scope in dispatch_scopes)
+            passages = await text.passages(question, limit=limit)
+            return FallbackOutcome(
+                state=CoverageState.INSUFFICIENT_COVERAGE,
+                passages=passages,
+                reason=f"{reason}: no graph evidence in dispatch scopes "
+                f"{missing}; derived to text passages",
+            )
+        # S5 rides along exactly as in the route-driven branches: passages
+        # are fetched for every state when the caller requires them.
+        if requires_passages:
+            passages = await text.passages(question, limit=limit)
+        if len(scopes_with_evidence) == 1:
+            # Exactly one scope produced evidence: a single committed scope,
+            # so the outcome is covered — no fourth state invented (S6).
+            only = scopes_with_evidence[0]
+            return FallbackOutcome(
+                state=CoverageState.COVERED,
+                evidence=tuple(merged),
+                passages=passages,
+                scopes=tuple(scopes_with_evidence),
+                reason=f"{reason}: graph evidence for scope {only.source_id}{s5_note}",
+            )
+        produced = ", ".join(scope.source_id for scope in scopes_with_evidence)
+        return FallbackOutcome(
+            state=CoverageState.FANOUT,
+            evidence=tuple(merged),
+            passages=passages,
+            scopes=tuple(scopes_with_evidence),
+            reason=f"{reason}: dispatch merged evidence from {produced}{s5_note}",
+        )
 
     # S6 covered / missed branches: only a catalog-validated namespace ever
     # reaches the graph (S4: the router proposes, the catalog disposes).
@@ -133,17 +197,7 @@ async def resolve_with_fallback(
     # citation id, and do NOT fall back to text just because the router
     # abstained — text only happens below, when no scope produced evidence.
     if reason == "low_margin" and route.fanout_namespaces:
-        merged: list[GraphEvidence] = []
-        scopes_with_evidence: list[SourceNamespace] = []
-        seen_citations: set[str] = set()
-        for scope in route.fanout_namespaces:
-            evidence = await graph.query(question, scope)
-            if evidence is None:
-                continue
-            scopes_with_evidence.append(scope)
-            deduped = _merge_citations(evidence, seen_citations)
-            if deduped is not None:
-                merged.append(deduped)
+        merged, scopes_with_evidence = await _query_scopes(question, route.fanout_namespaces, graph)
         if scopes_with_evidence:
             produced = ", ".join(scope.source_id for scope in scopes_with_evidence)
             # S5: "independientemente de lo que diga el grafo" applies to the
@@ -176,6 +230,37 @@ async def resolve_with_fallback(
         passages=passages,
         reason=f"{reason}: no queryable validated scope; derived to text passages",
     )
+
+
+async def _query_scopes(
+    question: str,
+    scopes: tuple[SourceNamespace, ...],
+    graph: GraphEvidencePort,
+) -> tuple[list[GraphEvidence], list[SourceNamespace]]:
+    """Query each scope exactly once, in order; merge by citation id.
+
+    Shared by the T7 explicit dispatch and S8's ``low_margin`` fan-out so the
+    two paths cannot drift apart: scope order is preserved, a scope whose
+    query misses is skipped (it produced no evidence), and citation ids
+    already contributed by an earlier scope are dropped
+    (:func:`_merge_citations`).
+
+    Returns:
+        ``(merged_evidence, scopes_with_evidence)`` — the deduplicated items
+        and the scopes that produced evidence, both in dispatch order.
+    """
+    merged: list[GraphEvidence] = []
+    scopes_with_evidence: list[SourceNamespace] = []
+    seen_citations: set[str] = set()
+    for scope in scopes:
+        evidence = await graph.query(question, scope)
+        if evidence is None:
+            continue
+        scopes_with_evidence.append(scope)
+        deduped = _merge_citations(evidence, seen_citations)
+        if deduped is not None:
+            merged.append(deduped)
+    return merged, scopes_with_evidence
 
 
 def _merge_citations(evidence: GraphEvidence, seen: set[str]) -> GraphEvidence | None:
