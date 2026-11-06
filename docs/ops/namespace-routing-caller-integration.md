@@ -33,6 +33,35 @@ Two outcomes are never conflated: `None` means flag-off, an abstaining
 still must pass the catalog backed scope resolver, and MCP `require_scope`
 remains the security gate. The router on its own never issues a graph query.
 
+## CLI call site
+
+`book-graph-rag route QUESTION` is the router's first production call site. It is
+read-only, it never issues a graph query, and it leaves the MCP surface untouched.
+
+```bash
+uv run book-graph-rag route "¿cómo se conectan los patrones de orquestación?"
+```
+
+It prints one JSON object (sorted keys, indent 2):
+
+| Field | Meaning |
+|-------|---------|
+| `enabled` | `false` exactly when `route_for_caller` returned `None`, i.e. the flag is off. |
+| `question` | The question as given. |
+| `validated_namespace` | The catalog-validated `source_id`, or `null`. |
+| `fanout_namespaces` | At most two validated namespaces on `low_margin` ambiguity; `[]` otherwise. |
+| `route_kind` | `single`, `multi`, `abstain`, `out_of_domain`, or `null` when disabled. |
+| `reason` | The decision reason (`clear`, `low_score`, `low_margin`, `no_profiles`, …). |
+| `top_score`, `margin` | Rounded to 6 decimals; `null` when disabled. |
+| `candidates` | Top three `{namespace, score}` pairs, or `[]` when disabled. |
+
+`enabled: false` and an abstaining route (`enabled: true` with
+`validated_namespace: null`) are never conflated in the output.
+
+Exit codes: `0` for every non-error outcome, including a disabled router and an
+abstention (an abstention is data, not failure); `1` for a configuration error, a
+composition error, or a routing exception, with the message on stderr.
+
 ## Composition
 
 - `build_route_question_use_case(settings)` — the single composition root for

@@ -199,6 +199,7 @@ async def test_cache_key_derived_outside_and_used(tmp_path: Path) -> None:
     key = route_cache_key(
         "fp-1",
         namespace="knowledge:book-a",
+        mode="evidence",
         model_id="m",
         profile_version="1.0.0",
         catalog_version="1",
