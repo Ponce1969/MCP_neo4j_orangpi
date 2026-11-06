@@ -51,12 +51,13 @@ delivered, `odd/tasks/namespace-router-call-site.md`) is its scope sub-router.
 
 | ID | Spec | Route | Commit |
 |----|------|-------|--------|
-| T1 | S1, S2, S3, S4 | done — contract only: `Mode`, `Intent`, frozen `OrchestrationRequest` (question verbatim, `mode` defaulting to evidence, explicit `scope` or `None` = all books) and a fail-closed `parse_orchestration_request`; `extra="forbid"` makes S4 structural | — (uncommitted) |
-| T6 | S3, S13 | done — `IntentTuning` + `tuning_for`; `intent=None` applies no tuning (S13 defines no row for it) | — |
-| T2 | S6, S7, S8 | in progress — `GraphEvidencePort` + `TextPassagePort` and one outcome with three explicit states (`covered` / `fanout` / `insufficient_coverage`) | — |
-| T3 | S5 | pending — always fetch passages when textual coverage or citations are required | — |
-| T4 | S9 | done — `route_cache_key` gained a required keyword-only `mode`; seven dimensions, one test per dimension; blank mode rejected, never normalized | — (uncommitted) |
-| T5 | S10, S11, S12 | pending — cache write policy: never store fallback-derived graph answers or unprovenanced synthesis; key rotates with `graph_version` | — |
+| T1 | S1, S2, S3, S4 | done — contract only: `Mode`, `Intent`, frozen `OrchestrationRequest` (question verbatim, `mode` defaulting to evidence, explicit `scope` or `None` = all books) and a fail-closed `parse_orchestration_request`; `extra="forbid"` makes S4 structural | `ccac78a` |
+| T6 | S3, S13 | done — `IntentTuning` + `tuning_for`; `intent=None` applies no tuning (S13 defines no row for it) | `ccac78a` |
+| T2 | S6, S7, S8 | done — `GraphEvidencePort` + `TextPassagePort` and one outcome with three explicit states (`covered` / `fanout` / `insufficient_coverage`); dispatch stated explicitly, never by a diagnostic string | `ccac78a` + `66a8684` |
+| T3 | S5 | done — caller-declared `requires_passages`; an intent never implies passages (the ruling on S13 made executable) | `d309df2` |
+| T4 | S9 | done — `route_cache_key` gained a required keyword-only `mode`; seven dimensions, one test per dimension; blank mode rejected, never normalized | `dea93d7` |
+| T5 | S10, S11, S12 | done — `should_cache` decides on coverage state, never on `passages` being non-empty; contract here, enforcement in `agentic-memory`; S12 already lives in `route_cache_key` | `d309df2` |
+| T7 | S1-S8 | done — `compose_answer`, the two in-repo adapters, the BTRAG adapter, `OrchestrationStack` and `book-graph-rag orchestrate`; end-to-end smoke green on the production host (L16) | `66a8684` + `448564d` + `7b08acb` |
 
 ## Log
 
@@ -246,3 +247,25 @@ Not implemented either way: this is a product decision about spending money, not
   becomes a **declared** dependency instead of an undeclared transitive one (delivery risk, hence
   independent verification); (c) config fails closed: empty url or token raises at construction,
   never at query time, so a missing secret cannot turn into a fabricated passage.
+- **L16** (END-TO-END SMOKE GREEN, 2026-11-05, on the production host, worktree `~/abg-orch`).
+  Two real runs against the live graph and the live text store, nothing mocked:
+  - `book-graph-rag route "¿qué dice Huyen sobre ingeniería de aplicaciones con IA?"` →
+    `ai-engineering-huyen` 0.622052, `agentic-architectural-patterns` 0.577574,
+    `margin 0.044478`, `abstain/low_margin`, fan-out to those two. The margin equals the gap
+    exactly (0.622052 − 0.577574), which is the production proof of the `_ranked_margin` fix: the
+    same field printed `0.0` before it.
+  - `book-graph-rag orchestrate "¿cómo se conectan los patrones de orquestación?" --mode evidence` →
+    `state: fanout`, scopes `graphrag-agentic` + `essential-graphrag`, three citations merged
+    (`graphrag-agentic:343`, `essential-graphrag:258`, `essential-graphrag:127`),
+    `cache: {cacheable: true, reason: cacheable}`, `passages: []`, `reason` prefixed with
+    `low_margin`.
+  Reading of the evidence, recorded so nobody re-derives it: the top-1 was the right book in both
+  questions (Huyen for the Huyen question, graphrag-agentic for the orchestration one), and the
+  fan-out differs by question — that is discrimination, not blindness. What abstains is the
+  **confidence gate** (`min_margin=0.05`), not the ranking. The centroid truncation identified in
+  the BTRAG audit is the likely cause of the small margins and is left for its own branch, per the
+  maintainer's sequencing rule: no new feature on top of a pending smoke.
+  Windows-side cross-check before the host run: the same orchestration question locally returned
+  `graphrag-agentic 0.598502` / `essential-graphrag 0.593640`, the same top-2 in the same order, so
+  the layer is deterministic across machines and the regenerated artifact is materially equivalent
+  to the October one.
