@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from pydantic import ValidationError
 
@@ -67,56 +69,75 @@ def test_cosine_dimension_mismatch_raises() -> None:
 # ── cache key derivation ────────────────────────────────────────────────────
 
 
+def _cache_key(
+    question_fingerprint: str = "fp-1",
+    *,
+    namespace: str | None = "knowledge:book-a",
+    mode: str = "evidence",
+    model_id: str = "m",
+    profile_version: str = "1.0.0",
+    catalog_version: str = "1",
+    graph_snapshot: str = "s",
+) -> str:
+    """Baseline key: every dimension test overrides exactly one input."""
+    return route_cache_key(
+        question_fingerprint,
+        namespace=namespace,
+        mode=mode,
+        model_id=model_id,
+        profile_version=profile_version,
+        catalog_version=catalog_version,
+        graph_snapshot=graph_snapshot,
+    )
+
+
 def test_route_cache_key_is_deterministic() -> None:
-    key_a = route_cache_key(
-        "fp-1",
-        namespace="knowledge:book-a",
-        model_id="m",
-        profile_version="1.0.0",
-        catalog_version="1",
-        graph_snapshot="s",
-    )
-    key_b = route_cache_key(
-        "fp-1",
-        namespace="knowledge:book-a",
-        model_id="m",
-        profile_version="1.0.0",
-        catalog_version="1",
-        graph_snapshot="s",
-    )
+    key_a = _cache_key()
+    key_b = _cache_key()
 
     assert key_a == key_b
-    assert len(key_a) == 64
+    assert re.fullmatch(r"[0-9a-f]{64}", key_a) is not None
 
 
-def test_route_cache_key_binds_every_dimension() -> None:
-    key_fingerprint = route_cache_key(
-        "fp-1",
-        namespace="knowledge:book-a",
-        model_id="m",
-        profile_version="1.0.0",
-        catalog_version="1",
-        graph_snapshot="s",
-    )
-    key_snapshot = route_cache_key(
-        "fp-1",
-        namespace="knowledge:book-a",
-        model_id="m",
-        profile_version="1.0.0",
-        catalog_version="1",
-        graph_snapshot="s2",
-    )
-    key_namespace = route_cache_key(
-        "fp-1",
-        namespace=None,
-        model_id="m",
-        profile_version="1.0.0",
-        catalog_version="1",
-        graph_snapshot="s",
-    )
+def test_route_cache_key_binds_question_fingerprint() -> None:
+    assert _cache_key("fp-1") != _cache_key("fp-2")
 
-    assert key_fingerprint != key_snapshot
-    assert key_fingerprint != key_namespace
+
+def test_route_cache_key_binds_namespace() -> None:
+    baseline = _cache_key(namespace="knowledge:book-a")
+
+    assert baseline != _cache_key(namespace="knowledge:book-b")
+    assert baseline != _cache_key(namespace=None)
+
+
+def test_route_cache_key_binds_mode() -> None:
+    assert _cache_key(mode="evidence") != _cache_key(mode="synthesis")
+
+
+def test_route_cache_key_binds_model_id() -> None:
+    assert _cache_key(model_id="m") != _cache_key(model_id="other-model")
+
+
+def test_route_cache_key_binds_profile_version() -> None:
+    assert _cache_key(profile_version="1.0.0") != _cache_key(profile_version="1.0.1")
+
+
+def test_route_cache_key_binds_catalog_version() -> None:
+    assert _cache_key(catalog_version="1") != _cache_key(catalog_version="2")
+
+
+def test_route_cache_key_binds_graph_snapshot() -> None:
+    assert _cache_key(graph_snapshot="s") != _cache_key(graph_snapshot="s2")
+
+
+@pytest.mark.parametrize("blank_mode", ["", "   "], ids=["empty", "whitespace"])
+def test_route_cache_key_rejects_blank_mode(blank_mode: str) -> None:
+    with pytest.raises(ValueError, match="mode"):
+        _cache_key(mode=blank_mode)
+
+
+def test_route_cache_key_stores_mode_verbatim_without_normalizing() -> None:
+    assert _cache_key(mode="evidence") != _cache_key(mode="evidence ")
 
 
 # ── lexical hints ────────────────────────────────────────────────────────────
@@ -301,6 +322,41 @@ def test_decide_route_low_margin_abstains() -> None:
     assert decision.route_kind == "abstain"
     assert decision.reason == "low_margin"
     assert decision.selected is None
+
+
+def test_low_margin_abstention_reports_the_real_margin() -> None:
+    ranked = (
+        ScoredCandidate(namespace=_ns("knowledge:book-a"), score=0.80),
+        ScoredCandidate(namespace=_ns("knowledge:book-b"), score=0.75),
+    )
+    thresholds = RouteThresholds(min_top_score=0.45, min_margin=0.10)
+
+    decision = decide_route(ranked, thresholds)
+
+    assert decision.reason == "low_margin"
+    assert decision.margin == pytest.approx(0.05)
+    assert decision.top_score == pytest.approx(0.80)
+
+
+def test_low_score_abstention_reports_the_real_margin() -> None:
+    ranked = (
+        ScoredCandidate(namespace=_ns("knowledge:book-a"), score=0.30),
+        ScoredCandidate(namespace=_ns("knowledge:book-b"), score=0.20),
+    )
+    thresholds = RouteThresholds(min_top_score=0.45, min_margin=0.10)
+
+    decision = decide_route(ranked, thresholds)
+
+    assert decision.reason == "low_score"
+    assert decision.margin == pytest.approx(0.10)
+
+
+def test_abstention_without_profiles_reports_zero_margin() -> None:
+    decision = decide_route((), RouteThresholds())
+
+    assert decision.reason == "no_profiles"
+    assert decision.top_score == 0.0
+    assert decision.margin == 0.0
 
 
 def test_decide_route_clear_winner_selects_namespace() -> None:

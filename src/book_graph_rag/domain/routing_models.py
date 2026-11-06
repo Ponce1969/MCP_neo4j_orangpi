@@ -71,6 +71,7 @@ def route_cache_key(
     question_fingerprint: str,
     *,
     namespace: str | None,
+    mode: str,
     model_id: str,
     profile_version: str,
     catalog_version: str,
@@ -78,13 +79,22 @@ def route_cache_key(
 ) -> str:
     """Derive a canonical cache key from every routing-relevant dimension.
 
-    A change in model, profile, catalog, or graph snapshot invalidates the key
-    so a stale routing decision can never be served by cache.
+    Seven dimensions: question fingerprint, namespace/scope, mode (evidence
+    vs synthesis), model, profile, catalog, and graph snapshot. A change in
+    any of them invalidates the key so a stale routing decision can never be
+    served by cache.
+
+    Raises:
+        ValueError: When ``mode`` is empty or whitespace-only. The value is
+            rejected, never silently normalized.
     """
+    if not mode.strip():
+        raise ValueError("mode must not be blank")
     payload = json.dumps(
         {
             "question_fingerprint": question_fingerprint,
             "namespace": namespace,
+            "mode": mode,
             "model_id": model_id,
             "profile_version": profile_version,
             "catalog_version": catalog_version,
@@ -271,6 +281,20 @@ def score_against_profiles(
     return tuple(scored)
 
 
+def _ranked_margin(ordered: Sequence[ScoredCandidate]) -> float:
+    """Return the gap between the best candidate and the runner-up.
+
+    A single candidate has no runner-up, so its whole score is the margin; an
+    empty ranking has none. Abstentions report this value instead of zero, so
+    how close a question came to committing stays measurable for calibration.
+    """
+    if not ordered:
+        return 0.0
+    if len(ordered) == 1:
+        return ordered[0].score
+    return ordered[0].score - ordered[1].score
+
+
 def decide_route(
     ranked: Sequence[ScoredCandidate],
     thresholds: RouteThresholds,
@@ -286,8 +310,7 @@ def decide_route(
         return _abstain(ordered, "no_profiles")
 
     top = ordered[0]
-    second = ordered[1] if len(ordered) > 1 else None
-    margin = top.score - second.score if second is not None else top.score
+    margin = _ranked_margin(ordered)
 
     if top.score < thresholds.min_top_score:
         return _abstain(ordered, "low_score")
@@ -315,7 +338,7 @@ def _abstain(
         selected=None,
         candidates=tuple(ordered),
         top_score=top_score,
-        margin=0.0,
+        margin=_ranked_margin(ordered),
         confidence=0.0,
         route_kind="abstain",
         reason=reason,

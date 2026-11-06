@@ -222,6 +222,12 @@ class Settings(BaseSettings):
     # composition while ``router_telemetry_enabled`` is on.
     router_telemetry_hmac_key_id: str = "router-telemetry-v1"
     router_telemetry_hmac_key: SecretStr = SecretStr("")
+    # BTRAG text-passage service (TextPassagePort adapter, T7/L15): READ-ONLY
+    # endpoint consulted only when the graph does not cover a question (S6/S7).
+    # Empty by default — no default host (AGENTS §3); the adapter fails closed
+    # at construction when the url is blank or the token is not a real secret.
+    text_rag_url: str = ""
+    text_rag_token: SecretStr = SecretStr("")
 
     # ── Community summaries (REQ-GR.1) ────────────────────────────────────
     max_cluster_size: int = 10

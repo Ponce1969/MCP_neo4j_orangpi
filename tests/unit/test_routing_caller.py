@@ -188,11 +188,16 @@ def test_build_routing_caller_honors_settings_flag() -> None:
 
 
 def test_build_routing_caller_flag_off_by_default() -> None:
+    # The declared default, independent of any ambient .env a developer may keep.
+    assert Settings.model_fields["router_enabled"].default is False
+
     settings = Settings.model_validate(
         {
             "neo4j_uri": "bolt://localhost:7687",
             "neo4j_user": "neo4j",
             "neo4j_password": "secret",
+            "router_enabled": False,
+            "router_telemetry_enabled": False,
         }
     )
 
