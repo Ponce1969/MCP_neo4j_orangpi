@@ -371,12 +371,17 @@ def score_against_profiles(
     question_vector: tuple[float, ...],
     profiles: Sequence[NamespaceProfile],
 ) -> tuple[ScoredCandidate, ...]:
-    """Score ``question_vector`` against every profile's ``centroid`` (v1 path).
+    """Score ``question_vector`` against every profile's ``centroid`` (legacy v1 path).
 
-    This is the centroid path the live router still calls
-    (``RouteQuestionUseCase.score_question``); it is kept byte-for-byte
-    unchanged so this unit cannot move the router before the scoring unit
-    lands. Ties are broken by ``source_id`` so the ordering is deterministic.
+    The live router no longer calls this function: since T2 (S2),
+    ``RouteQuestionUseCase.score_question`` scores against prototypes via
+    ``score_against_prototypes``. It survives as the v1 reference geometry —
+    the comparison ``tests/unit/test_route_question_use_case.py`` uses to
+    prove the prototype ranking inverts on multimodal books, and the behaviour
+    pinned by ``tests/unit/test_routing_domain.py``. Removing it would break
+    those green contracts without shrinking the router's surface: nothing
+    reachable from ``RouteQuestionUseCase`` can call it anymore. Ties are
+    broken by ``source_id`` so the ordering stays deterministic.
     """
     scored = [
         ScoredCandidate(

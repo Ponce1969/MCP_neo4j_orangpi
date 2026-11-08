@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from book_graph_rag.application.route_question_use_case import RouteQuestionUseCase
 from book_graph_rag.domain.mcp_security import InvalidScopeError, ScopeContext
 from book_graph_rag.domain.namespaces import SourceNamespace
@@ -9,6 +11,9 @@ from book_graph_rag.domain.routing_models import (
     LexicalHints,
     NamespaceProfile,
     RouteThresholds,
+    mean_normalized,
+    score_against_profiles,
+    score_against_prototypes,
 )
 from book_graph_rag.ports.embedding_provider_port import (
     EmbeddingBatch,
@@ -31,13 +36,22 @@ def _ns(namespace_id: str) -> SourceNamespace:
     return SourceNamespace(corpus=corpus, source=source)
 
 
-def _profile(namespace_id: str, centroid: tuple[float, ...]) -> NamespaceProfile:
+def _profile(namespace_id: str, prototypes: tuple[tuple[float, ...], ...]) -> NamespaceProfile:
+    """Build a v2 profile (S1): prototypes scored, centroid diagnostic only.
+
+    The centroid is derived exactly as the builder derives it (mean of the
+    prototype vectors, re-normalized) so these fixtures carry the same
+    passive diagnostic a real artifact would.
+    """
     return NamespaceProfile(
         namespace=_ns(namespace_id),
-        centroid=centroid,
-        dimension=len(centroid),
+        centroid=mean_normalized(prototypes),
+        dimension=len(prototypes[0]),
         model_id="test-model",
-        profile_version="1.0.0",
+        profile_version="2.0.0",
+        prototypes=prototypes,
+        k=len(prototypes),
+        prototype_sources=tuple(f"chunk:{index}" for index in range(len(prototypes))),
     )
 
 
@@ -97,9 +111,11 @@ class _FakeScopeResolver(ScopeResolverPort):
 
 
 _PROFILES = (
-    _profile(_AAP, (1.0, 0.0, 0.0)),
-    _profile(_ESSENTIAL, (0.0, 1.0, 0.0)),
-    _profile(_AGENTIC, (0.0, 0.0, 1.0)),
+    # One prototype per book: the compat shape that must behave exactly like
+    # the old centroid path (single-prototype equivalence, asserted below).
+    _profile(_AAP, ((1.0, 0.0, 0.0),)),
+    _profile(_ESSENTIAL, ((0.0, 1.0, 0.0),)),
+    _profile(_AGENTIC, ((0.0, 0.0, 1.0),)),
 )
 
 _HINTS = (
@@ -168,7 +184,7 @@ async def test_out_of_domain_abstains_without_fanout() -> None:
 
 
 async def test_stale_profile_is_rejected_by_catalog() -> None:
-    stale_profiles = (_profile("knowledge:removed-book", (1.0, 0.0, 0.0)),)
+    stale_profiles = (_profile("knowledge:removed-book", ((1.0, 0.0, 0.0),)),)
     use_case, _embedding, resolver = _use_case(profiles=stale_profiles)
 
     result = await use_case.execute("Any question about patterns")
@@ -195,3 +211,102 @@ async def test_custom_thresholds_change_the_decision() -> None:
     assert result.decision.route_kind == "abstain"
     assert result.decision.reason == "low_score"
     assert result.validated_namespace is None
+
+
+# ── S2: the geometry change, pinned end to end ───────────────────────────────
+
+
+def _multimodal_profiles() -> tuple[NamespaceProfile, NamespaceProfile]:
+    """Two books engineered so the two geometries disagree.
+
+    Question direction is (1, 0, 0) — the ``_FakeEmbedding`` else-branch.
+
+    Book A (``_AAP``): three orthogonal prototypes ((1,0,0), (0,1,0),
+    (0,0,1)). Its mean centroid is (1,1,1)/√3, whose cosine with the question
+    is 1/√3 ≈ 0.5773502691896258 — *farther* than book B's centroid. But its
+    prototype (1,0,0) sits exactly on the question: max-cosine = 1.0.
+
+    Book B (``_ESSENTIAL``): two prototypes (0.6,0.8,0) and (0.6,-0.8,0),
+    both unit vectors whose cosine with the question is 0.6. Their mean is
+    (0.6,0,0) → centroid (1,0,0): cosine 1.0 with the question, i.e. B's
+    centroid is closer to the question than *any* of B's own prototypes.
+    """
+    return (
+        _profile(_AAP, ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))),
+        _profile(_ESSENTIAL, ((0.6, 0.8, 0.0), (0.6, -0.8, 0.0))),
+    )
+
+
+async def test_far_centroid_with_one_close_prototype_beats_nearer_centroid() -> None:
+    """The behavioural point of the ADR (S2): max-pooling, not the mean.
+
+    Book A's mean centroid (cosine 0.5773502691896258) is farther from the
+    question than book B's mean centroid (cosine 1.0), yet A owns one
+    prototype exactly on the question (cosine 1.0) while B's best prototype
+    only reaches 0.6. Under ``score_against_prototypes`` A must win; the
+    legacy centroid ranking — asserted here, so the inversion is explicit —
+    would have picked B.
+    """
+    profiles = _multimodal_profiles()
+    question_vector = (1.0, 0.0, 0.0)
+
+    # Old geometry, stated as evidence: centroid B (1.0) beats centroid A
+    # (0.5773502691896258), so the centroid router would select _ESSENTIAL.
+    centroid_ranking = score_against_profiles(question_vector, profiles)
+    assert [c.namespace.source_id for c in centroid_ranking] == [_ESSENTIAL, _AAP]
+    assert centroid_ranking[0].score == pytest.approx(1.0)
+    assert centroid_ranking[1].score == pytest.approx(0.5773502691896258)
+
+    use_case, embedding, resolver = _use_case(profiles=profiles)
+
+    result = await use_case.execute("What is the ReAct agent pattern?")
+
+    assert embedding.calls == ["What is the ReAct agent pattern?"]
+    assert result.validated_namespace == _ns(_AAP)
+    assert result.decision.route_kind == "single"
+    assert result.decision.top_score == pytest.approx(1.0)
+    assert result.decision.margin == pytest.approx(0.4)  # 1.0 − 0.6
+    assert resolver.checked == [_AAP]
+
+    # And the live path really is max-over-prototypes: A = 1.0, B = 0.6.
+    prototype_ranking = score_against_prototypes(question_vector, profiles)
+    assert [c.namespace.source_id for c in prototype_ranking] == [_AAP, _ESSENTIAL]
+    assert prototype_ranking[1].score == pytest.approx(0.6)
+
+
+async def test_question_matching_no_prototype_still_abstains() -> None:
+    """A question orthogonal to every prototype abstains: no accidental commit."""
+    profiles = (
+        _profile(_AAP, ((0.0, 1.0, 0.0),)),
+        _profile(_ESSENTIAL, ((0.0, 0.0, 1.0),)),
+    )
+    use_case, _embedding, resolver = _use_case(profiles=profiles)
+
+    result = await use_case.execute("What is the ReAct agent pattern?")
+
+    assert result.decision.route_kind == "abstain"
+    assert result.decision.reason == "low_score"
+    assert result.decision.top_score == 0.0
+    assert result.validated_namespace is None
+    assert result.fanout_namespaces == ()
+    assert resolver.checked == []
+
+
+async def test_single_prototype_profiles_match_centroid_path_exactly() -> None:
+    """Compat (S2): one prototype per book degenerates to the old behaviour.
+
+    Cosine ignores scale and a single prototype's centroid is that prototype
+    re-normalized, so both scoring functions must agree vector-for-vector,
+    and the use case must reproduce the centroid-era low-margin fan-out.
+    """
+    for question_vector in ((1.0, 1.0, 0.0), (0.2, 0.5, 0.8), (0.0, 0.0, 1.0)):
+        assert score_against_prototypes(question_vector, _PROFILES) == score_against_profiles(
+            question_vector, _PROFILES
+        )
+
+    use_case, _embedding, _resolver = _use_case()
+
+    result = await use_case.execute("Compare GraphRAG systems")
+
+    assert result.decision.reason == "low_margin"
+    assert [ns.source_id for ns in result.fanout_namespaces] == [_AAP, _ESSENTIAL]

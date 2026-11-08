@@ -8,8 +8,13 @@ abstaining ``ResolvedRoute`` (never conflated with the off-flag ``None``).
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from typing import Any
+
 import pytest
 
+from book_graph_rag.application.route_question_use_case import RouteQuestionUseCase
 from book_graph_rag.config import Settings
 from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.domain.routing_models import (
@@ -17,9 +22,13 @@ from book_graph_rag.domain.routing_models import (
     RouteDecision,
     hmac_query_fingerprint,
 )
+from book_graph_rag.infrastructure.json_namespace_profile_store import (
+    NamespaceProfileStoreError,
+)
 from book_graph_rag.infrastructure.routing_caller import (
     RoutingCaller,
     RoutingTelemetryError,
+    build_route_question_use_case,
     build_routing_caller,
     build_routing_event,
     fingerprint_query_for_telemetry,
@@ -171,7 +180,7 @@ def test_enabled_property_reflects_flag() -> None:
     assert RoutingCaller(_StubExecutor(_single_route()), enabled=True).enabled is True
 
 
-def test_build_routing_caller_honors_settings_flag() -> None:
+def test_build_routing_caller_honors_settings_flag(tmp_path: Path) -> None:
     settings = Settings.model_validate(
         {
             "neo4j_uri": "bolt://localhost:7687",
@@ -179,6 +188,8 @@ def test_build_routing_caller_honors_settings_flag() -> None:
             "neo4j_password": "secret",
             "router_enabled": True,
             "router_telemetry_enabled": False,
+            # Absent artifact: composition (S4) only fails on a *stale* one.
+            "namespace_profile_store_path": str(tmp_path / "absent-profiles.json"),
         }
     )
 
@@ -187,7 +198,7 @@ def test_build_routing_caller_honors_settings_flag() -> None:
     assert caller.enabled is True
 
 
-def test_build_routing_caller_flag_off_by_default() -> None:
+def test_build_routing_caller_flag_off_by_default(tmp_path: Path) -> None:
     # The declared default, independent of any ambient .env a developer may keep.
     assert Settings.model_fields["router_enabled"].default is False
 
@@ -198,12 +209,117 @@ def test_build_routing_caller_flag_off_by_default() -> None:
             "neo4j_password": "secret",
             "router_enabled": False,
             "router_telemetry_enabled": False,
+            "namespace_profile_store_path": str(tmp_path / "absent-profiles.json"),
         }
     )
 
     caller = build_routing_caller(settings)
 
     assert caller.enabled is False
+
+
+# ── S4: stale-artifact gates run at composition, not at first question ───────
+
+
+def _composition_settings(artifact: Path) -> Settings:
+    """Settings pinned explicitly so no ambient ``.env`` can move the gates."""
+    return Settings.model_validate(
+        {
+            "neo4j_uri": "bolt://localhost:7687",
+            "neo4j_user": "neo4j",
+            "neo4j_password": "secret",
+            "router_enabled": False,
+            "router_telemetry_enabled": False,
+            "namespace_profile_store_path": str(artifact),
+            "namespace_profile_version": "2.0.0",
+            "embedding_model_id": "test-model",
+            "allow_extra_embedding_model": True,
+        }
+    )
+
+
+def _write_artifact(path: Path, entries: list[dict[str, Any]]) -> None:
+    path.write_bytes(json.dumps(entries).encode("utf-8"))
+
+
+def _artifact_entry(
+    *,
+    profile_version: str = "2.0.0",
+    model_id: str = "test-model",
+    with_prototypes: bool = True,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "namespace": {"corpus": "knowledge", "source": "book-a"},
+        "centroid": [1.0, 0.0],
+        "model_id": model_id,
+        "dimension": 2,
+        "profile_version": profile_version,
+    }
+    if with_prototypes:
+        entry.update(
+            {
+                "prototypes": [[1.0, 0.0]],
+                "k": 1,
+                "prototype_sources": ["chunk:0"],
+            }
+        )
+    return entry
+
+
+def test_build_route_question_use_case_rejects_v1_artifact(tmp_path: Path) -> None:
+    """A v1 artifact (no ``prototypes``) fails composition; no abstaining caller."""
+    artifact = tmp_path / "profiles.json"
+    _write_artifact(artifact, [_artifact_entry(with_prototypes=False, profile_version="1.0.0")])
+
+    with pytest.raises(NamespaceProfileStoreError, match="shape v1") as excinfo:
+        build_route_question_use_case(_composition_settings(artifact))
+
+    message = str(excinfo.value)
+    assert "missing field 'prototypes'" in message
+    assert "profile_version 2.0.0" in message
+
+
+def test_build_route_question_use_case_rejects_profile_version_mismatch(tmp_path: Path) -> None:
+    """S4: a v2-shaped artifact built for another version names the field."""
+    artifact = tmp_path / "profiles.json"
+    _write_artifact(artifact, [_artifact_entry(profile_version="0.9.0")])
+
+    with pytest.raises(NamespaceProfileStoreError, match="profile_version mismatch") as excinfo:
+        build_route_question_use_case(_composition_settings(artifact))
+
+    message = str(excinfo.value)
+    assert "expected '2.0.0'" in message
+    assert "got '0.9.0'" in message
+
+
+def test_build_route_question_use_case_rejects_model_id_mismatch(tmp_path: Path) -> None:
+    """S4: an artifact embedded with another model names the field."""
+    artifact = tmp_path / "profiles.json"
+    _write_artifact(artifact, [_artifact_entry(model_id="some-other-model")])
+
+    with pytest.raises(NamespaceProfileStoreError, match="model_id mismatch") as excinfo:
+        build_route_question_use_case(_composition_settings(artifact))
+
+    message = str(excinfo.value)
+    assert "expected 'test-model'" in message
+    assert "got 'some-other-model'" in message
+
+
+def test_build_route_question_use_case_composes_on_matching_v2_artifact(tmp_path: Path) -> None:
+    """Positive control: the gates reject drift, not a healthy artifact."""
+    artifact = tmp_path / "profiles.json"
+    _write_artifact(artifact, [_artifact_entry()])
+
+    use_case = build_route_question_use_case(_composition_settings(artifact))
+
+    assert isinstance(use_case, RouteQuestionUseCase)
+
+
+def test_build_route_question_use_case_composes_on_absent_artifact(tmp_path: Path) -> None:
+    """Absence is not drift: no artifact yet still composes (abstains later)."""
+    use_case = build_route_question_use_case(_composition_settings(tmp_path / "absent.json"))
+
+    assert isinstance(use_case, RouteQuestionUseCase)
 
 
 # ── telemetry fingerprinting (Unit B: keyed HMAC, no placeholders) ───────────

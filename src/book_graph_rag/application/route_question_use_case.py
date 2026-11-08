@@ -17,7 +17,7 @@ from book_graph_rag.domain.routing_models import (
     ScoredCandidate,
     decide_route,
     match_lexical_hints,
-    score_against_profiles,
+    score_against_prototypes,
 )
 from book_graph_rag.ports.embedding_provider_port import (
     EmbeddingProviderPort,
@@ -71,7 +71,9 @@ class RouteQuestionUseCase:
         )
         question_vector = batch.vectors[0].values
         profiles = await self._profiles_port.load_profiles()
-        return score_against_profiles(question_vector, profiles)
+        # S2: max cosine against each book's prototypes; the passive mean
+        # centroid is never consulted on this path (S1/L2).
+        return score_against_prototypes(question_vector, profiles)
 
     async def _validate(self, decision: RouteDecision) -> ResolvedRoute:
         """Validate candidates against the catalog-backed resolver.

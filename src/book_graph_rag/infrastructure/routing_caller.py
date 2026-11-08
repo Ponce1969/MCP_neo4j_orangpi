@@ -9,6 +9,7 @@ explicit-scope path unchanged. The MCP surface is untouched.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Protocol
 
 from book_graph_rag.application.route_question_use_case import RouteQuestionUseCase
@@ -52,14 +53,37 @@ def build_route_question_use_case(settings: Settings) -> RouteQuestionUseCase:
     The single composition point for the router's concrete adapters:
     catalog-backed scope resolver, local profile artifact, local
     sentence-transformer embeddings, and deterministic catalog hints.
+
+    S4 gates run here, at composition: the store is built with the configured
+    ``namespace_profile_version`` and ``embedding_model_id``, and the artifact
+    is loaded once up front so a stale v1 shape or a version/model mismatch
+    fails loudly with a field-naming message instead of the router abstaining
+    quietly on a wrong profile set at query time. The preloaded profiles are
+    discarded on purpose — the reader reloads per query, so a rebuilt artifact
+    is still picked up without a restart. An *absent* artifact keeps composing
+    (empty profiles ⇒ explicit ``no_profiles`` abstention), because only a
+    present-but-stale artifact is drift.
+
+    Must be called outside a running event loop (every production call site is
+    a synchronous composition point).
+
+    Raises:
+        NamespaceProfileStoreError: When the artifact exists but its shape,
+            ``profile_version`` or ``model_id`` does not match configuration.
     """
     catalog = CatalogLoader(settings.catalog_path)
     resolver = CatalogScopeResolver(catalog)
+    reader = JsonNamespaceProfileReader(
+        JsonNamespaceProfileStore(
+            settings.namespace_profile_store_path,
+            expected_profile_version=settings.namespace_profile_version,
+            expected_model_id=settings.embedding_model_id,
+        )
+    )
+    asyncio.run(reader.load_profiles())
     return RouteQuestionUseCase(
         SentenceTransformerAdapter(settings),
-        JsonNamespaceProfileReader(
-            JsonNamespaceProfileStore(settings.namespace_profile_store_path)
-        ),
+        reader,
         resolver,
         model_id=settings.embedding_model_id,
         lexical_hints=hints_from_catalog(catalog.load()),
