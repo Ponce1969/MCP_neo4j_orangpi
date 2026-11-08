@@ -68,7 +68,7 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
   `prototypes: tuple[Vector, ...]` (1..k of them), `k`, and **`prototype_sources: tuple[str, ...]`** —
   a short stable identifier per prototype (e.g. `kind:ordinal` of the text it came from), so a routing
   decision can be explained instead of merely reported. The mean `centroid` **stays persisted as a
-  passive diagnostic field** (maintainer's ruling, §9): it is never read by the scoring path, and a
+  passive diagnostic field** (maintainer's ruling, §10): it is never read by the scoring path, and a
   test must prove that removing it changes no score. Two geometries can then be compared post-hoc
   without the router ever consulting the second one.
 - **S2** — Scoring: `score(book) = max(cosine(question, p) for p in prototypes)`. The ranking is
@@ -90,6 +90,15 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
   source identifiers. k is a **CLI parameter** (`--k`) so the sweep is three builds of the same code
   rather than three code changes. The per-kind caps stay as they are; raising them is a separate
   decision with its own cost (build time and artifact size).
+
+## 9. Tasks
+
+| ID | Spec | Route | Commit |
+|----|------|-------|--------|
+| T1 | S1, S3, S4, S6 | done — v2 profile shape, deterministic `select_prototypes`, builder with `--k`, store/reader shape gate, `profile_version` 2.0.0 | `73f8867` |
+| T2 | S2, S4 | pending — the router scores against prototypes (max cosine) and the store's version gates get wired at the composition root, so a stale v1 artifact fails loudly instead of abstaining quietly | — |
+| T3 | S7 | pending — `strategy`, `k` and `best_prototype_source` in the `route` payload | — |
+| T4 | S5 | pending — **needs the production host**: three builds (`--k 4`, `8`, `16`), then the sweep over the 31 committed labels with both acceptance sides | — |
 - **S7** — Observability: the `route` payload gains `strategy: "prototypes"`, `k`, and per-candidate
   `best_prototype_source`, so a measurement is self-describing and a surprising decision is traceable
   to a text instead of to a vector.
@@ -140,7 +149,7 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
 2. **Provenance ids**: **yes** (§9). A few strings buy auditable explainability.
 3. **Mean centroid as diagnostic**: **yes, persisted and never scored** (§9).
 
-## 9. Log
+## 10. Log
 
 - **L1** (maintainer, verbatim — the three rulings that unblock S1-S7, 2026-11-06):
   *"1. Valor de k. Mi recomendación: Arrancar con el barrido propuesto de 4 / 8 / 16. Por qué: Cubre
