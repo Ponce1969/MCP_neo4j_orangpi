@@ -72,3 +72,39 @@ test that hypothesis, not to assume it.
   Renamed before commit. **Measured:** the full suite passed *with* the homonym present
   (`2579 passed`, `importlib` mode), so the collision was latent, not active — the rename was
   hygiene, not a bugfix.
+- **L5** (MEASURED, 2026-11-05, production host, worktree `~/abg-centroid`, same question, same binary,
+  same artifact path; the only variable is the regenerated profile artifact):
+
+  | | antes (artefacto 2026-11-05) | después (ventana activa) | delta |
+  |---|---|---|---|
+  | top-1 `graphrag-agentic` | 0.598502 | 0.605677 | +0.007175 |
+  | top-2 `essential-graphrag` | 0.593640 | 0.599557 | +0.005917 |
+  | top-3 `ai-engineering-huyen` | 0.563843 | 0.570325 | +0.006482 |
+  | **margin** | **0.004862** | **0.006120** | **+0.001258 (+25.9%)** |
+  | ranking | 1-2-3 igual | idéntico | sin cambio de decisión |
+  | state | abstain / low_margin | abstain / low_margin | sigue absteniéndose |
+
+  And the mechanism is no longer a hypothesis: `transformers` itself printed
+  `Token indices sequence length is longer than the specified maximum sequence length for this model
+  (316 > 128)` during the build, so the profile texts were 316 tokens long and the model saw 128. The
+  fix now embeds all 316, the scores move, and the ranking holds.
+
+  **Verdict: the mechanism was real, the hypothesis as a cause is refuted.** +25.9% is a real relative
+  gain, but the margin is still 0.006120 against a threshold of 0.05 — it would need to grow ~8× to
+  cross. Truncation contributed about one fiftieth of the distance required to stop abstaining.
+- **L6** (the finding that replaces the hypothesis, recorded before acting on it): look at *where* the
+  scores moved. All three books rose by ~0.006-0.007, and the spread top-1→top-3 is virtually
+  unchanged (0.0347 before, 0.0354 after). When added text lifts every candidate by nearly the same
+  amount, the added text is **shared background**, not discriminative signal. That is the signature of
+  an aggregation problem, not a truncation problem: `ordered_profile_texts` averages chapters,
+  sections, **chunks**, entities and community summaries into a single mean vector per book, so every
+  book's centroid drifts toward the corpus mean and the margins are structurally small.
+  Next candidate, in order of expected value: (i) score by **nearest neighbour** against the per-text
+  vectors instead of similarity to one mean centroid; (ii) only then touch `min_margin=0.05`, and only
+  with the committed routing dataset, because the current 0.05 is what keeps `wrong_namespace_rate`
+  at 0.0.
+- **L7** (T10, resolved by construction, not by re-running): `ask_global` and `search_chunks` never
+  touch the profile centroids — the router only chooses *scope*, and the scope decision is identical
+  (same two books, same order). Retrieval inside the books is lexical (`search_chunks`) and the
+  community scores come from the LLM, so nothing downstream can change while the routing decision
+  holds. Re-running `orchestrate` would be a confirmation, not evidence of anything new.
