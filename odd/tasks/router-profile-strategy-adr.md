@@ -67,8 +67,10 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
 - **S1** — The profile artifact is versioned **2.0.0** and each profile carries
   `prototypes: tuple[Vector, ...]` (1..k of them), `k`, and **`prototype_sources: tuple[str, ...]`** —
   a short stable identifier per prototype (e.g. `kind:ordinal` of the text it came from), so a routing
-  decision can be explained instead of merely reported. The single `centroid` field is **removed**:
-  keeping both would let two scoring paths coexist and drift.
+  decision can be explained instead of merely reported. The mean `centroid` **stays persisted as a
+  passive diagnostic field** (maintainer's ruling, §9): it is never read by the scoring path, and a
+  test must prove that removing it changes no score. Two geometries can then be compared post-hoc
+  without the router ever consulting the second one.
 - **S2** — Scoring: `score(book) = max(cosine(question, p) for p in prototypes)`. The ranking is
   sorted by `(-score, namespace.source_id)` exactly as today, so ties stay deterministic.
 - **S3** — Prototype selection is deterministic: farthest-point sampling seeded from the text closest
@@ -85,8 +87,9 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
   `min_top_score=0.10` and `min_margin=0.05` become meaningless values in the new geometry.
 - **S6** — The builder changes shape, not dependencies: per book it embeds the profile texts (with the
   window fix already in place), selects k prototypes by S3, and persists prototypes plus their
-  source identifiers. The per-kind caps stay as they are; raising them is a separate decision with its
-  own cost (build time and artifact size).
+  source identifiers. k is a **CLI parameter** (`--k`) so the sweep is three builds of the same code
+  rather than three code changes. The per-kind caps stay as they are; raising them is a separate
+  decision with its own cost (build time and artifact size).
 - **S7** — Observability: the `route` payload gains `strategy: "prototypes"`, `k`, and per-candidate
   `best_prototype_source`, so a measurement is self-describing and a surprising decision is traceable
   to a text instead of to a vector.
@@ -130,12 +133,30 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
 - **The Pi must regenerate the artifact** before any production measurement; a v1 artifact on a v2
   reader is rejected by design, which is the safe failure.
 
-## 8. Open questions for the maintainer
+## 8. Open questions for the maintainer — ANSWERED (§9)
 
-1. **k**: start at 8? The sweep will decide, but the range to sweep is a judgement call (4 / 8 / 16
-   versus 4 / 6 / 8 / 12).
-2. **Provenance ids in the artifact** (S1): they cost a few KB and buy explainability. Worth it, or
-   keep the artifact minimal and accept opaque vectors?
-3. **Should the mean centroid survive as a diagnostic field** next to the prototypes, so a future
-   investigation can compare the two geometries? It doubles nothing meaningful (384 floats) but S1
-   argues against keeping two scoring paths — the field could exist *without* being scored.
+1. **k**: sweep **4 / 8 / 16** (§9). Chosen for symmetry: it shows quickly whether 4 under-fits and
+   whether 16 saturates back toward individual-fragment noise.
+2. **Provenance ids**: **yes** (§9). A few strings buy auditable explainability.
+3. **Mean centroid as diagnostic**: **yes, persisted and never scored** (§9).
+
+## 9. Log
+
+- **L1** (maintainer, verbatim — the three rulings that unblock S1-S7, 2026-11-06):
+  *"1. Valor de k. Mi recomendación: Arrancar con el barrido propuesto de 4 / 8 / 16. Por qué: Cubre
+  simétricamente las potencias de 2, permitiendo ver rápido si 4 se queda corto (sub-fitting) o si 16
+  empieza a saturar y acercarse al comportamiento ruidoso de los fragmentos individuales.*
+  *2. IDs de procedencia en el artefacto (prototype_sources). Mi recomendación: Sí, rotundo. Por qué:
+  El costo en espacio es insignificante (unos pocos strings de metadatos), pero el retorno de valor es
+  gigante. Pasar de un veredicto ciego (\"ganó el libro X con score 0.61\") a una explicabilidad
+  auditable (\"ganó el libro X por el fragmento clave Y\") cambia por completo la calidad de la
+  depuración del router.*
+  *3. ¿Sobrevive el centroide medio como campo de diagnóstico? Mi recomendación: Sí, guardarlo. Por
+  qué: Por el costo despreciable de 384 floats por libro, tener el centroide medio persistido en el
+  JSON como metadato de diagnóstico pasivo nos permite correr métricas de correlación geométricas
+  post-hoc sin alterar en nada la función de ruteo principal.*"
+  *"Dale luz verde a la implementación del prototipo y medimos los nuevos márgenes!"*
+- **L2** (spec amendment caused by L1): S1 originally removed the `centroid` field outright, to keep a
+  single scoring path. The maintainer ruled it should stay as a passive diagnostic. The rule is now
+  enforced differently: the field persists, and a test asserts that **the scoring path never reads
+  it** — so the drift S1 feared is impossible by construction instead of by absence.
