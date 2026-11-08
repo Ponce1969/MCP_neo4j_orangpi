@@ -60,4 +60,7 @@ data/evaluation/ragas_input_*.jsonl
 .engram/
 
 # Windows accidental redirect artifact (`> nul` in msys creates a literal file)
-nul
+
+# Evaluation evidence bundles are local artifacts, never versioned
+# (funding: odd/tasks/tool-intent-router.md L16 and the centroid measurement)
+evidence-bundles/
