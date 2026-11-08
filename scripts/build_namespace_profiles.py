@@ -72,7 +72,15 @@ def build_namespace_profiles(
         sys.exit(1)
 
     catalog = CatalogLoader(settings.catalog_path).load()
-    embedding = SentenceTransformerAdapter(settings)
+    # Opt-in windowing — defect fix (truncation at the model's token window):
+    # profile texts embed MATCH (k:Chunk) rows up to pdf_max_chunk_size=1500
+    # chars, far past this model's 128-token window, and the tokenizer used to
+    # silently cut every chunk (the centroid only saw the first ~third of each
+    # text) with nothing reporting the loss. The flag is ON here and nowhere
+    # else because the same adapter class serves routing questions,
+    # entity-resolution anchors and evaluation runs: re-embedding those would
+    # invalidate every number already measured in this project.
+    embedding = SentenceTransformerAdapter(settings, window_long_texts=True)
     store = JsonNamespaceProfileStore(output or settings.namespace_profile_store_path)
 
     async def _build() -> tuple[NamespaceProfile, ...]:

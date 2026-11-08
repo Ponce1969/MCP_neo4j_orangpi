@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from book_graph_rag.application.build_namespace_profiles_use_case import (
@@ -70,6 +72,23 @@ class _FakeEmbedding(EmbeddingProviderPort):
         return 3
 
 
+class _SequentialEmbedding(EmbeddingProviderPort):
+    """One distinct rotating unit vector per text, in input order."""
+
+    async def embed(self, request: EmbeddingRequest) -> EmbeddingBatch:
+        vectors = [
+            EmbeddingVector(
+                values=tuple(1.0 if dim == index % 3 else 0.0 for dim in range(3)),
+                model_id=request.model_id,
+            )
+            for index, _text in enumerate(request.texts)
+        ]
+        return EmbeddingBatch(model_id=request.model_id, vectors=vectors)
+
+    def model_dim(self, model_id: str) -> int:
+        return 3
+
+
 class _RecordingStore(NamespaceProfileStorePort):
     def __init__(self) -> None:
         self.saved: tuple[NamespaceProfile, ...] | None = None
@@ -84,11 +103,12 @@ class _RecordingStore(NamespaceProfileStorePort):
 def _use_case(
     source: NamespaceProfileSourcePort | None = None,
     store: _RecordingStore | None = None,
+    embedding: EmbeddingProviderPort | None = None,
 ) -> tuple[BuildNamespaceProfilesUseCase, _RecordingStore]:
     recording_store = store or _RecordingStore()
     use_case = BuildNamespaceProfilesUseCase(
         source or _FakeSource(),
-        _FakeEmbedding(),
+        embedding or _FakeEmbedding(),
         recording_store,
         model_id="test-model",
         profile_version="2.0.0",
@@ -150,3 +170,26 @@ async def test_build_with_no_material_raises() -> None:
 
     with pytest.raises(ValueError, match="no source material"):
         await use_case.execute()
+
+
+async def test_centroid_is_normalized_mean_of_port_vectors() -> None:
+    """The builder is agnostic: whatever the port returns, centroid = norm mean."""
+    use_case, _store = _use_case(embedding=_SequentialEmbedding())
+
+    profiles = await use_case.execute()
+
+    # book-a has 4 texts → (1,0,0), (0,1,0), (0,0,1), (1,0,0).
+    vectors = [
+        (1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+        (0.0, 0.0, 1.0),
+        (1.0, 0.0, 0.0),
+    ]
+    mean = tuple(sum(vector[dim] for vector in vectors) / len(vectors) for dim in range(3))
+    norm = math.sqrt(sum(value * value for value in mean))
+    expected_a = tuple(value / norm for value in mean)
+    assert profiles[0].centroid == pytest.approx(expected_a)
+    # book-b has 2 texts → (1,0,0), (0,1,0) → mean (0.5, 0.5, 0).
+    expected_b = (math.sqrt(0.5), math.sqrt(0.5), 0.0)
+    assert profiles[1].centroid == pytest.approx(expected_b)
+    assert profiles[0].dimension == 3
