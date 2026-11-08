@@ -1,9 +1,9 @@
 """Pure-domain models and functions for namespace question routing.
 
-This module is the router's decision kernel: it knows how to score a question
-embedding against namespace centroids and how to decide a route from ranked
-scores. It imports only stdlib and pydantic, and it never touches Neo4j,
-SQLite, sentence-transformers, or infrastructure adapters.
+This module is the router's decision kernel: it knows how to select profile
+prototypes, to score a question embedding against namespace profiles, and to
+decide a route from ranked scores. It imports only stdlib and pydantic, and it
+never touches Neo4j, SQLite, sentence-transformers, or infrastructure adapters.
 """
 
 from __future__ import annotations
@@ -107,7 +107,15 @@ def route_cache_key(
 
 
 class NamespaceProfile(BaseModel):
-    """Immutable semantic centroid for one active book namespace."""
+    """Immutable routing profile for one active book namespace (shape v2, S1).
+
+    ``prototypes`` holds up to ``k`` representative vectors selected from the
+    book's own texts, and ``prototype_sources`` identifies, per prototype, the
+    ``kind:ordinal`` text that produced it (same length as ``prototypes``).
+    ``centroid`` is the normalized mean of the same vectors and is persisted
+    only as a **passive diagnostic** (S1/L2): the prototype scoring path never
+    reads it, and ``test_prototype_scoring_ignores_centroid`` pins that down.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -116,17 +124,51 @@ class NamespaceProfile(BaseModel):
     model_id: str
     dimension: int
     profile_version: str
+    prototypes: tuple[tuple[float, ...], ...] = ()
+    k: int = 0
+    prototype_sources: tuple[str, ...] = ()
     catalog_version: str = ""
     graph_snapshot: str = ""
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @model_validator(mode="after")
-    def _dimension_matches(self) -> NamespaceProfile:
+    def _profile_shape(self) -> NamespaceProfile:
+        """Enforce the v2 prototype shape (S1) without breaking v1 callers.
+
+        Every invariant is checked whenever it can be violated. The prototype
+        block invariants (non-empty, ``k >= 1``) apply only when at least one
+        prototype field was explicitly provided — in a constructor call or in
+        a serialized artifact. A profile constructed *without* any prototype
+        field is the legacy v1 shape: it stays valid in memory for callers
+        that only read the diagnostic centroid, and artifact readers must
+        still reject it (the JSON store checks the ``prototypes`` field).
+        """
         if len(self.centroid) != self.dimension:
             raise ValueError(
                 f"centroid dimension {len(self.centroid)} does not match "
                 f"declared dimension {self.dimension}"
             )
+        for index, prototype in enumerate(self.prototypes):
+            if len(prototype) != self.dimension:
+                raise ValueError(
+                    f"prototype {index} dimension {len(prototype)} does not match "
+                    f"declared dimension {self.dimension}"
+                )
+        if len(self.prototypes) != len(self.prototype_sources):
+            raise ValueError(
+                f"prototype_sources length {len(self.prototype_sources)} does not match "
+                f"prototypes length {len(self.prototypes)}"
+            )
+        prototype_block_present = bool(
+            self.model_fields_set & {"prototypes", "prototype_sources", "k"}
+        )
+        if prototype_block_present:
+            if not self.prototypes:
+                raise ValueError("prototypes must not be empty")
+            if self.k < 1:
+                raise ValueError(f"k must be >= 1, got {self.k}")
+        if self.k != len(self.prototypes):
+            raise ValueError(f"k {self.k} does not match prototypes length {len(self.prototypes)}")
         return self
 
 
@@ -243,6 +285,69 @@ def mean_normalized(vectors: Sequence[tuple[float, ...]]) -> tuple[float, ...]:
     return normalize_vector(mean)
 
 
+def select_prototypes(vectors: Sequence[tuple[float, ...]], k: int) -> tuple[int, ...]:
+    """Select ``k`` prototype indices by deterministic farthest-point sampling (S3).
+
+    The seed is the vector closest (by cosine distance) to the arithmetic mean
+    of the whole set — the point a single centroid used to represent. Each
+    following pick is the vector that maximises its **minimum** cosine distance
+    to every vector already chosen (equivalently, minimises its maximum cosine
+    similarity to them).
+
+    **Tie-break: at every step a tie resolves to the lowest input index**
+    (seed and greedy picks alike), so the function contains no randomness — no
+    RNG, no seed — and the same vector list always yields the same index
+    tuple, in selection order. That byte-for-byte determinism is what makes an
+    A/B measurement over the artifact meaningful.
+
+    When there are fewer vectors than ``k``, every index is returned exactly
+    once: no padding, no crash.
+
+    Raises:
+        ValueError: When ``vectors`` is empty, ``k < 1``, or the vectors do
+            not all share one dimension.
+    """
+    if not vectors:
+        raise ValueError("cannot select prototypes from zero vectors")
+    if k < 1:
+        raise ValueError(f"k must be >= 1, got {k}")
+    dimension = len(vectors[0])
+    if any(len(vector) != dimension for vector in vectors):
+        raise ValueError("all vectors must share the same dimension")
+
+    mean = tuple(
+        sum(vector[index] for vector in vectors) / len(vectors) for index in range(dimension)
+    )
+    # Seed: closest to the mean; strict comparison keeps the lowest index on ties.
+    seed_index = 0
+    best_similarity = cosine_similarity(vectors[0], mean)
+    for index in range(1, len(vectors)):
+        similarity = cosine_similarity(vectors[index], mean)
+        if similarity > best_similarity:
+            best_similarity = similarity
+            seed_index = index
+
+    selected = [seed_index]
+    remaining = [index for index in range(len(vectors)) if index != seed_index]
+    target = min(k, len(vectors))
+    while len(selected) < target:
+        # Farthest point: max over remaining of min cosine distance to chosen.
+        # Iteration stays in ascending index order and comparisons are strict,
+        # so ties resolve to the lowest index.
+        best_index = remaining[0]
+        best_distance = -math.inf
+        for index in remaining:
+            distance = min(
+                1.0 - cosine_similarity(vectors[index], vectors[chosen]) for chosen in selected
+            )
+            if distance > best_distance:
+                best_distance = distance
+                best_index = index
+        selected.append(best_index)
+        remaining.remove(best_index)
+    return tuple(selected)
+
+
 def match_lexical_hints(
     question: str,
     hints: Sequence[LexicalHints],
@@ -266,9 +371,12 @@ def score_against_profiles(
     question_vector: tuple[float, ...],
     profiles: Sequence[NamespaceProfile],
 ) -> tuple[ScoredCandidate, ...]:
-    """Score ``question_vector`` against every profile, ordered best-first.
+    """Score ``question_vector`` against every profile's ``centroid`` (v1 path).
 
-    Ties are broken by ``source_id`` so the ordering is deterministic.
+    This is the centroid path the live router still calls
+    (``RouteQuestionUseCase.score_question``); it is kept byte-for-byte
+    unchanged so this unit cannot move the router before the scoring unit
+    lands. Ties are broken by ``source_id`` so the ordering is deterministic.
     """
     scored = [
         ScoredCandidate(
@@ -277,6 +385,40 @@ def score_against_profiles(
         )
         for profile in profiles
     ]
+    scored.sort(key=lambda candidate: (-candidate.score, candidate.namespace.source_id))
+    return tuple(scored)
+
+
+def score_against_prototypes(
+    question_vector: tuple[float, ...],
+    profiles: Sequence[NamespaceProfile],
+) -> tuple[ScoredCandidate, ...]:
+    """Score each profile by its best prototype (S2), ordered best-first.
+
+    ``score(book) = max(cosine(question, p) for p in prototypes)``. The
+    function reads only ``namespace`` and ``prototypes`` — never the passive
+    diagnostic ``centroid`` — so corrupting or removing a centroid cannot
+    change any score (S1/L2, pinned by ``test_prototype_scoring_ignores_centroid``).
+
+    Ties are broken by ``source_id`` exactly like the centroid path, so the
+    ranking stays deterministic.
+
+    Raises:
+        ValueError: When a profile carries no prototypes. The prototype path
+            only scores v2 profiles; prototype-less (legacy) profiles belong
+            to ``score_against_profiles``.
+    """
+    scored: list[ScoredCandidate] = []
+    for profile in profiles:
+        if not profile.prototypes:
+            raise ValueError(
+                f"profile for {profile.namespace.source_id} has no prototypes; "
+                "score_against_prototypes only scores prototype (v2) profiles"
+            )
+        score = max(
+            cosine_similarity(question_vector, prototype) for prototype in profile.prototypes
+        )
+        scored.append(ScoredCandidate(namespace=profile.namespace, score=score))
     scored.sort(key=lambda candidate: (-candidate.score, candidate.namespace.source_id))
     return tuple(scored)
 

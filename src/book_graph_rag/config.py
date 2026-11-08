@@ -207,10 +207,12 @@ class Settings(BaseSettings):
     allow_extra_embedding_model: bool = False
 
     # ── Namespace question routing (router units) ──────────────────────────
-    # Local artifact for the read-only namespace centroid builder. The artifact
-    # never lives in Neo4j; the runtime router reads it from disk.
+    # Local artifact for the read-only namespace routing profile builder
+    # (prototype profiles, shape v2). The artifact never lives in Neo4j; the
+    # runtime router reads it from disk. Bumping this version invalidates the
+    # route cache by design: it is one of route_cache_key's seven dimensions.
     namespace_profile_store_path: Path = Path("data/router/namespace_profiles.json")
-    namespace_profile_version: str = "1.0.0"
+    namespace_profile_version: str = "2.0.0"
     # Feature flag consumed by the caller integration: when False, callers keep
     # the existing explicit-scope path and the router is not invoked.
     router_enabled: bool = False

@@ -21,6 +21,8 @@ from book_graph_rag.domain.routing_models import (
     normalize_vector,
     route_cache_key,
     score_against_profiles,
+    score_against_prototypes,
+    select_prototypes,
 )
 
 
@@ -38,6 +40,25 @@ def _profile(namespace_id: str, centroid: list[float]) -> NamespaceProfile:
 def _ns(namespace_id: str) -> SourceNamespace:
     corpus, source = namespace_id.split(":", maxsplit=1)
     return SourceNamespace(corpus=corpus, source=source)
+
+
+def _profile_v2(
+    namespace_id: str,
+    centroid: tuple[float, ...],
+    prototypes: tuple[tuple[float, ...], ...],
+    sources: tuple[str, ...],
+) -> NamespaceProfile:
+    """Full v2 profile: prototype block explicitly present."""
+    return NamespaceProfile(
+        namespace=_ns(namespace_id),
+        centroid=centroid,
+        dimension=len(centroid),
+        model_id="test-model",
+        profile_version="2.0.0",
+        prototypes=prototypes,
+        k=len(prototypes),
+        prototype_sources=sources,
+    )
 
 
 # ── cosine_similarity ─────────────────────────────────────────────────────────
@@ -247,6 +268,154 @@ def test_profile_rejects_centroid_dimension_mismatch() -> None:
         )
 
 
+def test_profile_rejects_prototype_dimension_mismatch() -> None:
+    with pytest.raises(ValidationError, match="prototype 0 dimension"):
+        NamespaceProfile(
+            namespace=_ns("knowledge:book-a"),
+            centroid=(1.0, 0.0),
+            dimension=2,
+            model_id="test-model",
+            profile_version="2.0.0",
+            prototypes=((1.0, 0.0, 0.0),),
+            k=1,
+            prototype_sources=("chunk:0",),
+        )
+
+
+def test_profile_rejects_mismatched_prototype_sources_length() -> None:
+    with pytest.raises(ValidationError, match="prototype_sources length"):
+        NamespaceProfile(
+            namespace=_ns("knowledge:book-a"),
+            centroid=(1.0, 0.0),
+            dimension=2,
+            model_id="test-model",
+            profile_version="2.0.0",
+            prototypes=((1.0, 0.0),),
+            k=1,
+            prototype_sources=(),
+        )
+
+
+def test_profile_rejects_empty_prototypes() -> None:
+    with pytest.raises(ValidationError, match="prototypes must not be empty"):
+        NamespaceProfile(
+            namespace=_ns("knowledge:book-a"),
+            centroid=(1.0, 0.0),
+            dimension=2,
+            model_id="test-model",
+            profile_version="2.0.0",
+            prototypes=(),
+            k=0,
+            prototype_sources=(),
+        )
+
+
+def test_profile_rejects_k_below_one() -> None:
+    with pytest.raises(ValidationError, match="k must be >= 1"):
+        NamespaceProfile(
+            namespace=_ns("knowledge:book-a"),
+            centroid=(1.0, 0.0),
+            dimension=2,
+            model_id="test-model",
+            profile_version="2.0.0",
+            prototypes=((1.0, 0.0),),
+            k=0,
+            prototype_sources=("chunk:0",),
+        )
+
+
+def test_profile_rejects_k_mismatching_prototype_count() -> None:
+    with pytest.raises(ValidationError, match="does not match prototypes length"):
+        NamespaceProfile(
+            namespace=_ns("knowledge:book-a"),
+            centroid=(1.0, 0.0),
+            dimension=2,
+            model_id="test-model",
+            profile_version="2.0.0",
+            prototypes=((1.0, 0.0), (0.0, 1.0)),
+            k=1,
+            prototype_sources=("chunk:0", "chunk:1"),
+        )
+
+
+def test_profile_without_prototype_block_stays_loadable_for_centroid_path() -> None:
+    """Legacy v1 construction is valid in memory (it keeps the live router
+    green); artifact readers still reject it — see the store tests."""
+    profile = _profile("knowledge:book-a", [1.0, 0.0])
+
+    assert profile.prototypes == ()
+    assert profile.k == 0
+    assert profile.prototype_sources == ()
+
+
+# ── prototype selection (S3) ─────────────────────────────────────────────────
+
+_SELECTION_VECTORS = (
+    (1.0, 0.0, 0.0),
+    (0.0, 1.0, 0.0),
+    (0.0, 0.0, 1.0),
+    (-1.0, 0.0, 0.0),
+    (0.5, 0.5, 0.0),
+    (0.2, -0.3, 0.9),
+)
+
+
+def test_select_prototypes_is_deterministic_across_runs() -> None:
+    first = select_prototypes(_SELECTION_VECTORS, 3)
+    second = select_prototypes(_SELECTION_VECTORS, 3)
+
+    assert first == second
+    assert len(first) == 3
+    assert len(set(first)) == 3
+    assert all(0 <= index < len(_SELECTION_VECTORS) for index in first)
+
+
+def test_select_prototypes_spans_tight_and_far_clusters() -> None:
+    """The point of the ADR: a mean describes neither cluster, two
+    farthest-point prototypes take one from each."""
+    tight = tuple((1.0, 0.01 * offset) for offset in range(10))
+    far = ((-1.0, 0.05), (-1.0, -0.05))
+    vectors = (*tight, *far)
+
+    selected = select_prototypes(vectors, 2)
+
+    assert len(selected) == 2
+    assert len(set(selected)) == 2
+    # The seed is closest to the mean of the whole set: +x-leaning, so tight.
+    assert selected[0] < 10, "seed must come from the tight cluster"
+    assert sum(1 for index in selected if index < 10) == 1
+    assert sum(1 for index in selected if index >= 10) == 1
+
+
+def test_select_prototypes_k_one_returns_closest_to_mean() -> None:
+    """k=1 degenerates to today's behaviour: the single mean seed."""
+    vectors = _SELECTION_VECTORS
+    mean = tuple(sum(vector[index] for vector in vectors) / len(vectors) for index in range(3))
+    similarities = [cosine_similarity(vector, mean) for vector in vectors]
+    best = max(similarities)
+    expected_index = similarities.index(best)  # lowest index wins a tie
+
+    assert select_prototypes(vectors, 1) == (expected_index,)
+
+
+def test_select_prototypes_returns_all_when_fewer_vectors_than_k() -> None:
+    three = _SELECTION_VECTORS[:3]
+
+    selected = select_prototypes(three, 8)
+
+    assert len(selected) == 3
+    assert set(selected) == {0, 1, 2}
+
+
+def test_select_prototypes_rejects_invalid_inputs() -> None:
+    with pytest.raises(ValueError, match="k must be >= 1"):
+        select_prototypes(_SELECTION_VECTORS, 0)
+    with pytest.raises(ValueError, match="zero vectors"):
+        select_prototypes((), 2)
+    with pytest.raises(ValueError, match="same dimension"):
+        select_prototypes(((1.0, 0.0), (1.0,)), 1)
+
+
 # ── scoring and ranking ───────────────────────────────────────────────────────
 
 
@@ -283,6 +452,72 @@ def test_score_against_profiles_breaks_ties_deterministically() -> None:
 
 def test_score_against_profiles_empty_is_empty() -> None:
     assert score_against_profiles((1.0,), ()) == ()
+
+
+def test_score_against_prototypes_takes_the_best_prototype() -> None:
+    profiles = (
+        _profile_v2(
+            "knowledge:book-a",
+            (1.0, 0.0),
+            ((0.0, 1.0), (0.7071, 0.7071)),
+            ("chunk:0", "chunk:1"),
+        ),
+        _profile_v2(
+            "knowledge:book-b",
+            (0.0, 1.0),
+            ((0.0, 1.0),),
+            ("chunk:0",),
+        ),
+    )
+
+    ranked = score_against_prototypes((1.0, 0.0), profiles)
+
+    # book-a wins on its *best* prototype, not on any average of them.
+    assert [c.namespace.source_id for c in ranked] == [
+        "knowledge:book-a",
+        "knowledge:book-b",
+    ]
+    assert ranked[0].score == pytest.approx(0.7071067811865475)
+    assert ranked[1].score == pytest.approx(0.0)
+
+
+def test_prototype_scoring_ignores_centroid() -> None:
+    """S1/L2: the centroid is a passive diagnostic. Corrupting it changes no
+    score on the prototype path."""
+    prototypes_a = ((1.0, 0.0), (0.3, 0.4))
+    prototypes_b = ((0.0, 1.0), (0.0, 0.5))
+    honest = (
+        _profile_v2(
+            "knowledge:book-a", mean_normalized(prototypes_a), prototypes_a, ("c:0", "c:1")
+        ),
+        _profile_v2(
+            "knowledge:book-b", mean_normalized(prototypes_b), prototypes_b, ("c:0", "c:1")
+        ),
+    )
+    garbage = (99.0, -77.0)
+    corrupted = (
+        _profile_v2("knowledge:book-a", garbage, prototypes_a, ("c:0", "c:1")),
+        _profile_v2("knowledge:book-b", garbage, prototypes_b, ("c:0", "c:1")),
+    )
+    question = (1.0, 0.0)
+
+    from_honest_centroid = score_against_prototypes(question, honest)
+    from_garbage_centroid = score_against_prototypes(question, corrupted)
+
+    assert from_honest_centroid == from_garbage_centroid
+    assert from_honest_centroid[0].namespace.source_id == "knowledge:book-a"
+    assert from_honest_centroid[0].score == pytest.approx(1.0)
+
+
+def test_prototype_scoring_rejects_profile_without_prototypes() -> None:
+    legacy = _profile("knowledge:book-a", [1.0, 0.0])
+
+    with pytest.raises(ValueError, match="no prototypes"):
+        score_against_prototypes((1.0,), (legacy,))
+
+
+def test_prototype_scoring_empty_is_empty() -> None:
+    assert score_against_prototypes((1.0,), ()) == ()
 
 
 # ── abstention policy ─────────────────────────────────────────────────────────

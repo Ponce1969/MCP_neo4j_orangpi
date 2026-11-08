@@ -42,11 +42,16 @@ ORDER BY k.chunk_index
 LIMIT $cap
 """
 
+# ORDER BY on a unique id (entity id, community id) keeps both the row set
+# under LIMIT and the ``kind:ordinal`` provenance ordinals stable across
+# rebuilds (S1/S3): without it Neo4j leaves the order unspecified, so a
+# rebuild could silently re-point prototypes at different texts.
 _ENTITY_SUPPLEMENTS = """
 MATCH (e:Entity)
 WHERE e.id STARTS WITH $prefix
   AND (e.merged_into IS NULL OR e.merged_into = '')
 RETURN e.name AS name, e.description AS description
+ORDER BY e.id
 LIMIT $cap
 """
 
@@ -54,6 +59,7 @@ _COMMUNITY_SUPPLEMENTS = """
 MATCH (c:CommunitySummary)
 WHERE ANY(x IN c.entity_ids WHERE x STARTS WITH $prefix)
 RETURN c.summary AS summary
+ORDER BY c.id
 LIMIT $cap
 """
 
