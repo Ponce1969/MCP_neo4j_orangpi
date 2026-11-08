@@ -1059,6 +1059,11 @@ def _route_payload(question: str, resolved: ResolvedRoute | None) -> dict[str, A
     ``enabled: false`` means the router flag is off and the caller keeps its
     explicit-scope path; it is never conflated with an abstaining route, which
     reports ``enabled: true`` with ``validated_namespace: null``.
+
+    S7 explainability keys — top-level ``strategy`` and ``profile_k``, plus
+    ``best_prototype_source`` on every candidate — appear only when a decision
+    exists (``enabled: true``): the disabled payload keeps its original nine
+    keys verbatim because there is no decision to explain.
     """
     if resolved is None:
         return {
@@ -1076,15 +1081,21 @@ def _route_payload(question: str, resolved: ResolvedRoute | None) -> dict[str, A
     validated = resolved.validated_namespace
     return {
         "candidates": [
-            {"namespace": candidate.namespace.source_id, "score": round(candidate.score, 6)}
+            {
+                "namespace": candidate.namespace.source_id,
+                "score": round(candidate.score, 6),
+                "best_prototype_source": candidate.best_prototype_source,
+            }
             for candidate in decision.candidates[:3]
         ],
         "enabled": True,
         "fanout_namespaces": [namespace.source_id for namespace in resolved.fanout_namespaces],
         "margin": round(decision.margin, 6),
+        "profile_k": decision.profile_k,
         "question": question,
         "reason": decision.reason,
         "route_kind": decision.route_kind,
+        "strategy": decision.strategy,
         "top_score": round(decision.top_score, 6),
         "validated_namespace": validated.source_id if validated is not None else None,
     }

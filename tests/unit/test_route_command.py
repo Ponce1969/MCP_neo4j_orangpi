@@ -92,7 +92,8 @@ def test_disabled_router_is_reported_and_not_confused_with_abstention(
     result = _invoke()
 
     assert result.exit_code == 0
-    assert _payload(result) == {
+    payload = _payload(result)
+    assert payload == {
         "candidates": [],
         "enabled": False,
         "fanout_namespaces": [],
@@ -103,6 +104,12 @@ def test_disabled_router_is_reported_and_not_confused_with_abstention(
         "top_score": None,
         "validated_namespace": None,
     }
+    # S7 decision: with no decision there is nothing to explain, so the three
+    # new keys (strategy, profile_k, best_prototype_source) are **absent**,
+    # not null — the disabled payload keeps exactly its original nine keys.
+    assert "strategy" not in payload
+    assert "profile_k" not in payload
+    assert payload["candidates"] == []
     assert caller.closed is True
 
 
@@ -111,7 +118,11 @@ def test_single_route_exposes_the_validated_namespace(monkeypatch: Any) -> None:
     decision = RouteDecision(
         selected=chosen,
         candidates=(
-            ScoredCandidate(namespace=chosen, score=0.42),
+            ScoredCandidate(
+                namespace=chosen,
+                score=0.42,
+                best_prototype_source="chunk:17",
+            ),
             ScoredCandidate(namespace=_namespace("ai-engineering-huyen"), score=0.12),
             ScoredCandidate(namespace=_namespace("agentic-architectural-patterns"), score=0.05),
             ScoredCandidate(namespace=_namespace("fourth-book"), score=0.01),
@@ -121,6 +132,8 @@ def test_single_route_exposes_the_validated_namespace(monkeypatch: Any) -> None:
         confidence=0.58,
         route_kind="single",
         reason="clear",
+        strategy="prototypes",
+        profile_k=8,
     )
     caller = _FakeCaller(result=ResolvedRoute(decision=decision, validated_namespace=chosen))
     _install(monkeypatch, caller)
@@ -136,10 +149,26 @@ def test_single_route_exposes_the_validated_namespace(monkeypatch: Any) -> None:
     assert payload["top_score"] == 0.42
     assert payload["margin"] == 0.3
     assert payload["reason"] == "clear"
+    # S7: the decision explains itself — strategy, k, and the winning text.
+    assert payload["strategy"] == "prototypes"
+    assert payload["profile_k"] == 8
+    # Existing keys keep their exact values; only the new key is added.
     assert payload["candidates"] == [
-        {"namespace": "knowledge:graphrag-agentic", "score": 0.42},
-        {"namespace": "knowledge:ai-engineering-huyen", "score": 0.12},
-        {"namespace": "knowledge:agentic-architectural-patterns", "score": 0.05},
+        {
+            "namespace": "knowledge:graphrag-agentic",
+            "score": 0.42,
+            "best_prototype_source": "chunk:17",
+        },
+        {
+            "namespace": "knowledge:ai-engineering-huyen",
+            "score": 0.12,
+            "best_prototype_source": None,
+        },
+        {
+            "namespace": "knowledge:agentic-architectural-patterns",
+            "score": 0.05,
+            "best_prototype_source": None,
+        },
     ]
     assert caller.closed is True
 
@@ -171,13 +200,15 @@ def test_ambiguity_fans_out_to_both_validated_namespaces(monkeypatch: Any) -> No
     second = _namespace("ai-engineering-huyen")
     decision = RouteDecision(
         candidates=(
-            ScoredCandidate(namespace=first, score=0.21),
+            ScoredCandidate(namespace=first, score=0.21, best_prototype_source="chunk:3"),
             ScoredCandidate(namespace=second, score=0.20),
         ),
         top_score=0.21,
         margin=0.01,
         route_kind="multi",
         reason="low_margin",
+        strategy="prototypes",
+        profile_k=4,
     )
     caller = _FakeCaller(
         result=ResolvedRoute(
@@ -197,7 +228,118 @@ def test_ambiguity_fans_out_to_both_validated_namespaces(monkeypatch: Any) -> No
         "knowledge:graphrag-agentic",
         "knowledge:ai-engineering-huyen",
     ]
+    # S7: a normal fan-out run is self-describing (strategy, k, provenance).
+    assert payload["strategy"] == "prototypes"
+    assert payload["profile_k"] == 4
+    assert payload["candidates"] == [
+        {
+            "namespace": "knowledge:graphrag-agentic",
+            "score": 0.21,
+            "best_prototype_source": "chunk:3",
+        },
+        {
+            "namespace": "knowledge:ai-engineering-huyen",
+            "score": 0.20,
+            "best_prototype_source": None,
+        },
+    ]
     assert caller.closed is True
+
+
+def test_explainability_keys_do_not_change_the_route_outcome(monkeypatch: Any) -> None:
+    """S7 adds provenance only: the route kind, margin and validated
+    namespace of the reference scenario stay exactly what they were before
+    this unit (mirrors ``test_single_route_exposes_the_validated_namespace``)."""
+    chosen = _namespace("graphrag-agentic")
+
+    def _decision(*, explain: bool) -> RouteDecision:
+        if explain:
+            return RouteDecision(
+                selected=chosen,
+                candidates=(
+                    ScoredCandidate(
+                        namespace=chosen,
+                        score=0.42,
+                        best_prototype_source="chunk:17",
+                    ),
+                    ScoredCandidate(namespace=_namespace("ai-engineering-huyen"), score=0.12),
+                ),
+                top_score=0.42,
+                margin=0.30,
+                confidence=0.58,
+                route_kind="single",
+                reason="clear",
+                strategy="prototypes",
+                profile_k=8,
+            )
+        return RouteDecision(
+            selected=chosen,
+            candidates=(
+                ScoredCandidate(namespace=chosen, score=0.42),
+                ScoredCandidate(namespace=_namespace("ai-engineering-huyen"), score=0.12),
+            ),
+            top_score=0.42,
+            margin=0.30,
+            confidence=0.58,
+            route_kind="single",
+            reason="clear",
+        )
+
+    caller = _FakeCaller()
+    _install(monkeypatch, caller)
+
+    caller.result = ResolvedRoute(decision=_decision(explain=False), validated_namespace=chosen)
+    plain = _payload(_invoke())
+    caller.result = ResolvedRoute(decision=_decision(explain=True), validated_namespace=chosen)
+    explained = _payload(_invoke())
+
+    # The payload gains exactly the two new top-level keys over the
+    # published nine-key contract; every pre-existing key keeps its exact
+    # value, and candidates differ only by the new provenance key.
+    published_nine = {
+        "candidates",
+        "enabled",
+        "fanout_namespaces",
+        "margin",
+        "question",
+        "reason",
+        "route_kind",
+        "top_score",
+        "validated_namespace",
+    }
+    assert set(explained) == published_nine | {"strategy", "profile_k"}
+    assert set(plain) == set(explained)
+    assert plain["strategy"] == "unspecified"  # default when no provenance is passed
+    assert plain["profile_k"] is None
+    assert explained["strategy"] == "prototypes"
+    pre_existing = (
+        "enabled",
+        "validated_namespace",
+        "fanout_namespaces",
+        "route_kind",
+        "reason",
+        "top_score",
+        "margin",
+        "question",
+    )
+    assert {key: plain[key] for key in pre_existing} == {
+        key: explained[key] for key in pre_existing
+    }
+
+    def _without_provenance(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {key: value for key, value in candidate.items() if key != "best_prototype_source"}
+            for candidate in candidates
+        ]
+
+    assert _without_provenance(explained["candidates"]) == _without_provenance(plain["candidates"])
+
+    # The published values of the scenario, asserted before and after S7.
+    assert explained["route_kind"] == "single"
+    assert explained["margin"] == 0.3
+    assert explained["validated_namespace"] == "knowledge:graphrag-agentic"
+    assert explained["strategy"] == "prototypes"
+    assert explained["profile_k"] == 8
 
 
 def test_routing_failure_exits_non_zero_without_dumping_json(

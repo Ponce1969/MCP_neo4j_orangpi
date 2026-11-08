@@ -173,12 +173,21 @@ class NamespaceProfile(BaseModel):
 
 
 class ScoredCandidate(BaseModel):
-    """One namespace ranked by cosine similarity against the question."""
+    """One namespace ranked by cosine similarity against the question.
+
+    ``best_prototype_source`` (S7) is the ``prototype_sources`` entry of the
+    prototype that produced ``score``, filled by ``score_against_prototypes``
+    so a decision names a text instead of a vector. It stays ``None`` when no
+    prototype was involved: lexical-hint candidates are matched by string and
+    never embedded, and the legacy centroid path scores a mean, not a
+    prototype — both report ``None`` rather than a made-up identifier.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     namespace: SourceNamespace
     score: float = Field(ge=-1.0, le=1.0)
+    best_prototype_source: str | None = None
 
 
 class LexicalHints(BaseModel):
@@ -225,7 +234,18 @@ class RouteThresholds(BaseModel):
 
 
 class RouteDecision(BaseModel):
-    """Deterministic outcome of scoring and abstention policy."""
+    """Deterministic outcome of scoring and abstention policy.
+
+    S7 provenance: ``strategy`` names the scoring path that produced
+    ``candidates`` — ``"prototypes"`` (max cosine over profile prototypes),
+    ``"lexical_hints"`` (the cheap fast path: no embedding, no prototype),
+    or the default ``"unspecified"`` for a decision built without provenance
+    (domain-level tests, explicit-scope shortcuts). ``profile_k`` is the
+    ``k`` of the profile set that was actually scored; it is ``None``
+    whenever no profile set was scored — lexical fast path or empty profile
+    set — never a guess. The application layer populates both from the
+    profile set it really used.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -236,6 +256,8 @@ class RouteDecision(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     route_kind: RouteKind
     reason: str
+    strategy: str = "unspecified"
+    profile_k: int | None = None
 
 
 def cosine_similarity(a: tuple[float, ...], b: tuple[float, ...]) -> float:
@@ -406,7 +428,13 @@ def score_against_prototypes(
     change any score (S1/L2, pinned by ``test_prototype_scoring_ignores_centroid``).
 
     Ties are broken by ``source_id`` exactly like the centroid path, so the
-    ranking stays deterministic.
+    ranking stays deterministic. Each candidate also reports S7 provenance:
+    ``best_prototype_source`` is the ``prototype_sources`` entry of the
+    prototype that reached the max. Within one profile a tie for the best
+    prototype resolves to the **first prototype in selection order** (strict
+    ``>``, the same lowest-index rule ``select_prototypes`` uses), so the
+    reported source is deterministic too; the score itself is unaffected
+    because a tie cannot change the maximum.
 
     Raises:
         ValueError: When a profile carries no prototypes. The prototype path
@@ -420,10 +448,22 @@ def score_against_prototypes(
                 f"profile for {profile.namespace.source_id} has no prototypes; "
                 "score_against_prototypes only scores prototype (v2) profiles"
             )
-        score = max(
-            cosine_similarity(question_vector, prototype) for prototype in profile.prototypes
+        # Argmax with strict > keeps the lowest prototype index on a tie —
+        # identical to max() over the same values, so no score changes.
+        best_index = 0
+        best_score = cosine_similarity(question_vector, profile.prototypes[0])
+        for index in range(1, len(profile.prototypes)):
+            similarity = cosine_similarity(question_vector, profile.prototypes[index])
+            if similarity > best_score:
+                best_score = similarity
+                best_index = index
+        scored.append(
+            ScoredCandidate(
+                namespace=profile.namespace,
+                score=best_score,
+                best_prototype_source=profile.prototype_sources[best_index],
+            )
         )
-        scored.append(ScoredCandidate(namespace=profile.namespace, score=score))
     scored.sort(key=lambda candidate: (-candidate.score, candidate.namespace.source_id))
     return tuple(scored)
 
@@ -445,24 +485,33 @@ def _ranked_margin(ordered: Sequence[ScoredCandidate]) -> float:
 def decide_route(
     ranked: Sequence[ScoredCandidate],
     thresholds: RouteThresholds,
+    *,
+    strategy: str = "unspecified",
+    profile_k: int | None = None,
 ) -> RouteDecision:
     """Apply the abstention policy to ranked candidates.
 
     The decision kernel never fabricates a namespace: low score or low margin
     yields an explicit ``abstain``. Multi-scope fan-out is modeled at the
     application layer (Unit 3), not here.
+
+    ``strategy`` and ``profile_k`` (S7) are provenance passthrough: the
+    kernel does not choose them, it records what the scoring path actually
+    used. The application layer passes ``strategy="prototypes"`` plus the
+    ``k`` of the profile set it scored; a caller with no provenance to
+    report leaves the defaults (``"unspecified"``, ``None``).
     """
     ordered = tuple(sorted(ranked, key=lambda c: (-c.score, c.namespace.source_id)))
     if not ordered:
-        return _abstain(ordered, "no_profiles")
+        return _abstain(ordered, "no_profiles", strategy=strategy, profile_k=profile_k)
 
     top = ordered[0]
     margin = _ranked_margin(ordered)
 
     if top.score < thresholds.min_top_score:
-        return _abstain(ordered, "low_score")
+        return _abstain(ordered, "low_score", strategy=strategy, profile_k=profile_k)
     if margin < thresholds.min_margin:
-        return _abstain(ordered, "low_margin")
+        return _abstain(ordered, "low_margin", strategy=strategy, profile_k=profile_k)
 
     return RouteDecision(
         selected=top.namespace,
@@ -472,12 +521,17 @@ def decide_route(
         confidence=top.score,
         route_kind="single",
         reason="clear",
+        strategy=strategy,
+        profile_k=profile_k,
     )
 
 
 def _abstain(
     ordered: Sequence[ScoredCandidate],
     reason: str,
+    *,
+    strategy: str = "unspecified",
+    profile_k: int | None = None,
 ) -> RouteDecision:
     """Build an abstention decision from ordered candidates."""
     top_score = ordered[0].score if ordered else 0.0
@@ -489,4 +543,6 @@ def _abstain(
         confidence=0.0,
         route_kind="abstain",
         reason=reason,
+        strategy=strategy,
+        profile_k=profile_k,
     )

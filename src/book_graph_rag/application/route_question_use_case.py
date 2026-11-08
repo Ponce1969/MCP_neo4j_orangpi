@@ -53,19 +53,47 @@ class RouteQuestionUseCase:
         self._lexical_hints = lexical_hints
 
     async def execute(self, question: str) -> ResolvedRoute:
-        """Return the resolved route for ``question``, never fabricating scope."""
-        decision = decide_route(await self.score_question(question), self._thresholds)
+        """Return the resolved route for ``question``, never fabricating scope.
+
+        The decision carries S7 provenance: ``strategy`` and ``profile_k``
+        are populated from the profile set actually scored, so the outcome
+        explains itself instead of only reporting scores.
+        """
+        candidates, strategy, profile_k = await self._score(question)
+        decision = decide_route(
+            candidates,
+            self._thresholds,
+            strategy=strategy,
+            profile_k=profile_k,
+        )
         return await self._validate(decision)
 
     async def score_question(self, question: str) -> tuple[ScoredCandidate, ...]:
         """Score the question: lexical hints first, embedding fallback.
 
         Exposed publicly so calibration can sweep thresholds over cached scores
-        without re-embedding.
+        without re-embedding. It returns the ranking only; the provenance
+        (strategy and k) is reported by ``execute`` on the decision.
+        """
+        candidates, _strategy, _profile_k = await self._score(question)
+        return candidates
+
+    async def _score(
+        self,
+        question: str,
+    ) -> tuple[tuple[ScoredCandidate, ...], str, int | None]:
+        """Score ``question``, reporting which strategy and k produced it (S7).
+
+        The lexical fast path returns ``("lexical_hints", None)``: no
+        embedding ran and no prototype was consulted, so there is no k to
+        report. The embedding path returns ``("prototypes", k)`` with the
+        ``k`` of the loaded profile set — the builder writes one ``--k`` for
+        the whole set — and ``profile_k=None`` when the set is empty, while
+        the strategy still names the path that found nothing.
         """
         hints = match_lexical_hints(question, self._lexical_hints)
         if hints:
-            return hints
+            return hints, "lexical_hints", None
         batch = await self._embedding_port.embed(
             EmbeddingRequest(texts=(question,), model_id=self._model_id)
         )
@@ -73,7 +101,9 @@ class RouteQuestionUseCase:
         profiles = await self._profiles_port.load_profiles()
         # S2: max cosine against each book's prototypes; the passive mean
         # centroid is never consulted on this path (S1/L2).
-        return score_against_prototypes(question_vector, profiles)
+        candidates = score_against_prototypes(question_vector, profiles)
+        profile_k = profiles[0].k if profiles else None
+        return candidates, "prototypes", profile_k
 
     async def _validate(self, decision: RouteDecision) -> ResolvedRoute:
         """Validate candidates against the catalog-backed resolver.

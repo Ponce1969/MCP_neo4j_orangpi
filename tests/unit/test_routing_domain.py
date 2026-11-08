@@ -184,6 +184,8 @@ def test_lexical_hint_matches_case_insensitive() -> None:
     assert [c.namespace.source_id for c in matched] == [
         "knowledge:essential-graphrag",
     ]
+    # S7: no prototype was involved on the lexical fast path.
+    assert all(candidate.best_prototype_source is None for candidate in matched)
 
 
 def test_lexical_hint_no_match_returns_empty() -> None:
@@ -432,6 +434,8 @@ def test_score_against_profiles_orders_by_similarity() -> None:
         "knowledge:book-a",
         "knowledge:book-b",
     ]
+    # The centroid path scores a mean, never a prototype: no source to report.
+    assert all(candidate.best_prototype_source is None for candidate in ranked)
 
 
 def test_score_against_profiles_breaks_ties_deterministically() -> None:
@@ -479,6 +483,36 @@ def test_score_against_prototypes_takes_the_best_prototype() -> None:
     ]
     assert ranked[0].score == pytest.approx(0.7071067811865475)
     assert ranked[1].score == pytest.approx(0.0)
+    # S7: the score names the prototype that produced it.
+    assert ranked[0].best_prototype_source == "chunk:1"
+    assert ranked[1].best_prototype_source == "chunk:0"
+
+
+def test_score_against_prototypes_tie_reports_first_prototype_in_selection_order() -> None:
+    """A tie for the best prototype resolves to the lowest prototype index.
+
+    Both prototypes sit at the same cosine from the question, so the score
+    cannot tell them apart; the reported source stays deterministic because
+    the argmax uses strict ``>`` — the same lowest-index rule
+    ``select_prototypes`` uses (S3) — never the last one or an arbitrary one.
+    """
+    question = (1.0, 0.0)
+    profiles = (
+        _profile_v2(
+            "knowledge:book-a",
+            (1.0, 0.0),
+            ((1.0, 1.0), (1.0, -1.0)),
+            ("chunk:0", "chunk:7"),
+        ),
+    )
+
+    ranked = score_against_prototypes(question, profiles)
+
+    first = cosine_similarity(question, (1.0, 1.0))
+    second = cosine_similarity(question, (1.0, -1.0))
+    assert first == second, "the fixture must tie exactly"
+    assert ranked[0].score == pytest.approx(first)
+    assert ranked[0].best_prototype_source == "chunk:0"
 
 
 def test_prototype_scoring_ignores_centroid() -> None:
@@ -643,3 +677,26 @@ def test_route_decision_carries_route_kind_and_candidates() -> None:
     assert decision.route_kind == "abstain"
     assert decision.candidates == ()
     assert decision.selected is None
+
+
+def test_decide_route_passes_through_strategy_and_profile_k() -> None:
+    """S7: the kernel records the provenance the scoring path reports."""
+    ranked = (ScoredCandidate(namespace=_ns("knowledge:book-a"), score=0.90),)
+
+    decision = decide_route(
+        ranked,
+        RouteThresholds(),
+        strategy="prototypes",
+        profile_k=8,
+    )
+
+    assert decision.strategy == "prototypes"
+    assert decision.profile_k == 8
+    # Abstentions carry the same provenance passthrough.
+    abstain = decide_route((), RouteThresholds(), strategy="prototypes")
+    assert abstain.strategy == "prototypes"
+    assert abstain.profile_k is None
+    # A caller with nothing to report gets the honest defaults, not a guess.
+    bare = decide_route(ranked, RouteThresholds())
+    assert bare.strategy == "unspecified"
+    assert bare.profile_k is None

@@ -149,6 +149,9 @@ async def test_lexical_hint_routes_without_embedding() -> None:
 
     assert result.validated_namespace == _ns(_ESSENTIAL)
     assert embedding.calls == []
+    # S7: the fast path names itself — no prototype was involved, no k exists.
+    assert result.decision.strategy == "lexical_hints"
+    assert result.decision.profile_k is None
 
 
 async def test_clear_embedding_winner_is_validated() -> None:
@@ -211,6 +214,40 @@ async def test_custom_thresholds_change_the_decision() -> None:
     assert result.decision.route_kind == "abstain"
     assert result.decision.reason == "low_score"
     assert result.validated_namespace is None
+
+
+# ── S7: the decision explains itself ───────────────────────────────────────
+
+
+async def test_decision_reports_prototype_strategy_and_profile_k() -> None:
+    """The decision names the strategy and the k of the profile set scored."""
+    profiles = (
+        _profile(_AAP, ((1.0, 0.0, 0.0), (0.5, 0.5, 0.0))),
+        _profile(_ESSENTIAL, ((0.0, 1.0, 0.0), (0.0, 0.5, 0.5))),
+    )
+    use_case, _embedding, _resolver = _use_case(profiles=profiles)
+
+    result = await use_case.execute("What is the ReAct agent pattern?")
+
+    assert result.decision.strategy == "prototypes"
+    assert result.decision.profile_k == 2
+    assert result.validated_namespace == _ns(_AAP)
+    # End to end: the winning candidate names its prototype text (S7).
+    assert result.decision.candidates[0].best_prototype_source == "chunk:0"
+
+
+async def test_empty_profile_set_reports_prototypes_strategy_without_k() -> None:
+    """No profiles ⇒ profile_k is None, but the strategy still names the path."""
+    use_case, embedding, resolver = _use_case(profiles=())
+
+    result = await use_case.execute("What is the ReAct agent pattern?")
+
+    assert embedding.calls == ["What is the ReAct agent pattern?"]
+    assert result.decision.reason == "no_profiles"
+    assert result.decision.route_kind == "abstain"
+    assert result.decision.strategy == "prototypes"
+    assert result.decision.profile_k is None
+    assert resolver.checked == []
 
 
 # ── S2: the geometry change, pinned end to end ───────────────────────────────
@@ -300,8 +337,16 @@ async def test_single_prototype_profiles_match_centroid_path_exactly() -> None:
     and the use case must reproduce the centroid-era low-margin fan-out.
     """
     for question_vector in ((1.0, 1.0, 0.0), (0.2, 0.5, 0.8), (0.0, 0.0, 1.0)):
-        assert score_against_prototypes(question_vector, _PROFILES) == score_against_profiles(
-            question_vector, _PROFILES
+        prototype_ranking = score_against_prototypes(question_vector, _PROFILES)
+        centroid_ranking = score_against_profiles(question_vector, _PROFILES)
+        # Identical geometry vector-for-vector; only S7 provenance differs:
+        # the centroid path reports no source instead of inventing one.
+        assert (
+            tuple(
+                candidate.model_copy(update={"best_prototype_source": None})
+                for candidate in prototype_ranking
+            )
+            == centroid_ranking
         )
 
     use_case, _embedding, _resolver = _use_case()
