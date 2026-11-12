@@ -224,3 +224,29 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
   measurements did establish: they are what makes a decision *explainable* (a fragment, not a vector),
   and the blend is the only variant that ever matched the baseline while abstaining less. Neither is
   enough to change the default without more labels.
+- **L7** (PRODUCTION, 2026-11-06, post-merge `e5dc53f` / PR #71): the v2 artifact was regenerated in
+  the main checkout on the host and the router ran with the shipped default. The JSON says
+  `strategy: "centroid"`, `profile_k: 8`, `reason: "low_margin"`, the same fan-out as before, and
+  `best_prototype_source` per candidate — so the diagnostics work even though the centroid is what
+  scored.
+
+  Same question as the 2026-11-05 smoke, so the artifact swap is the only variable:
+
+  | | v1 artifact (2026-10-08) | v2 artifact (2026-11-06) | delta |
+  |---|---|---|---|
+  | top-1 `ai-engineering-huyen` | 0.622052 | 0.614659 | −0.007393 |
+  | top-2 `agentic-architectural-patterns` | 0.577574 | 0.579555 | +0.001981 |
+  | **margin** | **0.044478** | **0.035104** | **−0.009374 (−21.1%)** |
+  | ranking | Huyen, AAP, graphrag | idéntico | same decision |
+
+  **The v2 artifact is NOT an improvement on the centroid path, and this record exists so nobody
+  assumes it is.** The margin narrowed 21% and the top-1 dropped, matching what the labels had already
+  said: the centroid strategy scores 0.6364 on the v2 artifact against the 0.682 recorded on v1. Two
+  compounding causes, both of them prerequisites for correctness rather than regressions: the window
+  fix changed what each profile text embeds (the whole text instead of its first 128 tokens), and two
+  queries gained an `ORDER BY` so the rows under each cap are deterministic. Both were necessary —
+  silent truncation and non-reproducible caps — and both moved the mean.
+
+  Consequence worth keeping in view: `main` now routes with a *correct* artifact and a slightly
+  narrower margin than the artifact it replaced. If a future measurement shows the router abstaining
+  more than before, this is the first place to look, and the answer is not to revert the window fix.
