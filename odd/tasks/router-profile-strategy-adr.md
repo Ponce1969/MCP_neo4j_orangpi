@@ -1,7 +1,8 @@
 # ADR — Router profiles: from one mean centroid to per-book prototypes
 
-**Status:** **pure prototypes REFUTED by measurement (L3); the blend survives as a hypothesis.**
-Implemented as T1-T3, measured over the 31 labels, and it did not clear acceptance.
+**Status:** **pure prototypes REFUTED by measurement (L3).** T5 restores the centroid as the default
+scoring path; the blend ships disabled behind `ROUTER_BLEND_W=1.0`, and the prototypes stay in the
+artifact as diagnostics.
 **Supersedes:** nothing. It supersedes the *hypothesis* refuted in
 `odd/tasks/centroid-window-fix.md` (L5-L6), not a previous decision.
 **Origin:** T9 measured +25.9% relative margin and an unchanged ranking; every book rose by
@@ -99,7 +100,8 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
 | T1 | S1, S3, S4, S6 | done — v2 profile shape, deterministic `select_prototypes`, builder with `--k`, store/reader shape gate, `profile_version` 2.0.0 | `73f8867` |
 | T2 | S2, S4 | pending — the router scores against prototypes (max cosine) and the store's version gates get wired at the composition root, so a stale v1 artifact fails loudly instead of abstaining quietly | — |
 | T3 | S7 | pending — `strategy`, `k` and `best_prototype_source` in the `route` payload | — |
-| T4 | S5 | pending — **needs the production host**: three builds (`--k 4`, `8`, `16`), then the sweep over the 31 committed labels with both acceptance sides | — |
+| T4 | S5 | done — three builds (229 / 414 / 783 KB, linear in k) and the sweep; **the ADR failed its acceptance** (L3) | host builds + L3 |
+| T5 | S2, S5 | pending — default the scoring back to the centroid, keep the blend behind `ROUTER_BLEND_W` (default 1.0), prototypes and their sources stay as passive diagnostics | — |
 - **S7** — Observability: the `route` payload gains `strategy: "prototypes"`, `k`, and per-candidate
   `best_prototype_source`, so a measurement is self-describing and a surprising decision is traceable
   to a text instead of to a vector.
@@ -206,3 +208,19 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
 - **L4** (instrument limit, must be quoted whenever these numbers are used): 22 single-labelled
   questions, so **one question is 4.5 accuracy points**. Every difference in L3 is one or two
   questions. Any claim stronger than "the blend is promising" requires more labels, not more geometry.
+
+- **L5** (maintainer's decision, verbatim — 2026-11-06): *"Mi decisión final es la Opción 1 (la
+  conservadora): Default al centroide (w=1.0): El sistema sigue funcionando como en main (0.682). El
+  blend queda disponible detrás de una perilla: Por ejemplo, ROUTER_BLEND_W=0.3. Si en el futuro
+  ampliamos el dataset a ~100 etiquetas y el blend sigue rindiendo, lo activamos. Por ahora, apagado.
+  Prototipos y prototype_sources: Quedan en el artefacto v2 como diagnóstico (para que se pueda
+  inspeccionar la geometría). El ADR se actualiza: Documentamos que la intuición original (promediar
+  destruye información) era incorrecta. Los datos demuestran que la media regulariza y es mejor."*
+- **L6** (the correction this ADR must carry, stated plainly): the hypothesis that opened this document
+  — *a mean over heterogeneous texts destroys the signal, so maximal fidelity must be better* — is
+  **wrong on this corpus**. Measured: pure prototypes 0.5909 against the centroid's 0.6364 on the same
+  artifact, and with no margin gate at all the centroid ranks better (0.9091 vs 0.8636). The mean was
+  not flattening signal; it was **smoothing noise**. The prototypes remain useful for two things the
+  measurements did establish: they are what makes a decision *explainable* (a fragment, not a vector),
+  and the blend is the only variant that ever matched the baseline while abstaining less. Neither is
+  enough to change the default without more labels.
