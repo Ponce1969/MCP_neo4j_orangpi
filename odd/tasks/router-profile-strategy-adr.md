@@ -250,3 +250,42 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
   Consequence worth keeping in view: `main` now routes with a *correct* artifact and a slightly
   narrower margin than the artifact it replaced. If a future measurement shows the router abstaining
   more than before, this is the first place to look, and the answer is not to revert the window fix.
+- **L8** (DIAGNOSTIC, 2026-11-06, offline over the v2 artifact and the 31 labels — the anisotropy
+  measurement this ADR owed before anyone spends a day on an embedding-model swap):
+
+  **A. Centroid similarity between books.** Pairwise cosines: 0.7031 / 0.8450 / 0.8617 / 0.8822 /
+  0.9109 / 0.9317, **mean 0.8558** between different books. A book-specific question scores 0.55-0.61
+  against all three candidates, i.e. **below the books' mutual similarity**.
+
+  **B. How much of each centroid is the common direction.** Cosine with the global mean centroid:
+  0.9081 (essential-graphrag) … 0.9861 (graphrag-agentic). **91-99% of every book's direction is
+  shared**; the discriminant lives in a 1-9% residual. That is the arithmetic reason the margins are
+  ~0.005: there is almost nothing left to separate.
+
+  **C. Effective rank.** SVD of the four centred centroids: singular values 0.5459 / 0.3134 / 0.1909,
+  first component **68.9%** of the variance.
+
+  **D. The prototype method was self-defeating — measured.** Mean cosine **within** a book's
+  prototypes 0.0599 (n=112) versus **across** books 0.0898 (n=384): the gap is **−0.0299, negative**.
+  Prototypes from *different* books are more similar to each other than to their own book's siblings.
+  The cause is structural and it is the method itself: farthest-point sampling **maximises** intra-book
+  spread, so it selects the least representative texts of each book by construction. Any future "more
+  or better prototypes" idea is dead on arrival; a selector for routing should pick the *most
+  central* texts, not the most distant ones.
+
+  **E. Where the labels actually sit.** Margin buckets over 31 questions: 7 in [0.00, 0.02), 8 in
+  [0.02, 0.05), 11 in [0.05, 0.10), 5 above 0.10; median **0.0509**, i.e. the distribution is centred
+  on the decision boundary, and **15 of 31 (48%) already sit in the doubt band**. This corrects an
+  earlier worry of mine: the label set is *not* dominated by easy cases, so growing it does add
+  information.
+
+  **F. The interpretation that matters, and its control.** The high inter-book similarity could be
+  (i) an anisotropic space that compresses everything, or (ii) four books about AI architecture that
+  genuinely overlap in meaning. The known control settles it against (i): an off-domain question
+  ("receta de empanadas de carne") scores **0.1009** against the same centroids. The space does
+  separate off-domain content, so the 0.86 is largely **real semantic overlap**. Consequence: an
+  embedding-model swap is a coin flip, not an obvious win, and it must not be the next step without a
+  control experiment — embed chunks from each book and measure cross-book nearest-neighbour confusion.
+  If book A's chunks routinely land closest to book B's centroid, no model change fixes that; the
+  limit is ontology, which is exactly what `docs/spec/06` already recorded as "the gap is ontology,
+  not hallucination".
