@@ -1,6 +1,7 @@
 # ADR — Router profiles: from one mean centroid to per-book prototypes
 
-**Status:** proposed, not implemented. No code written for this unit.
+**Status:** **pure prototypes REFUTED by measurement (L3); the blend survives as a hypothesis.**
+Implemented as T1-T3, measured over the 31 labels, and it did not clear acceptance.
 **Supersedes:** nothing. It supersedes the *hypothesis* refuted in
 `odd/tasks/centroid-window-fix.md` (L5-L6), not a previous decision.
 **Origin:** T9 measured +25.9% relative margin and an unchanged ranking; every book rose by
@@ -169,3 +170,39 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
   single scoring path. The maintainer ruled it should stay as a passive diagnostic. The rule is now
   enforced differently: the field persists, and a test asserts that **the scoring path never reads
   it** — so the drift S1 feared is impossible by construction instead of by absence.
+
+- **L3** (MEASURED, 2026-11-06, offline over the 31 committed labels with the real evaluator plus a
+  validated harness — the harness was accepted only after reproducing the host's k=8 numbers exactly:
+  `13 correct / 0 wrong / 0.5909 / 0.4194`). Same artifact (k=8) for every strategy, so the only
+  variable is the scoring function; grids `min_top_score` 0.10-0.75 × `min_margin` 0.00-0.25, 84
+  points each:
+
+  | strategy | best accuracy with `wrong_namespace_rate == 0.0` | thresholds | abstention | accuracy with no margin gate | wrong |
+  |---|---|---|---|---|---|
+  | `centroid` (passive field, v2) | 0.6364 | 0.10 / 0.05 | 0.5161 | **0.9091** | 0.0909 |
+  | `maxproto` (the ADR's proposal) | 0.5909 | 0.10 / 0.05 | 0.4194 | 0.8636 | 0.1364 |
+  | `top3` (soft pooling) | 0.0909 | 0.35 / 0.00 | 0.9355 | 0.5000 | 0.5000 |
+  | `blend` w=0.3 | **0.6818** | 0.10 / 0.05 | **0.3548** | 0.8636 | 0.1364 |
+  | `blend` w=0.5 | **0.6818** | 0.10 / 0.05 | 0.4194 | 0.8636 | 0.1364 |
+  | `blend` w=0.7 | 0.6364 | 0.10 / 0.05 | 0.4516 | 0.8182 | 0.1818 |
+
+  Four conclusions, including the one that refutes my own earlier reasoning:
+  1. **Pure prototypes fail.** 0.5909 against the 0.682 recorded baseline, with `wrong_namespace_rate`
+     held at 0.0. No threshold recovered it: every strategy's best point sits at (0.10, 0.05) and the
+     plateau is flat from 0.10 to 0.25, so **the thresholds were never the problem** — my "we forgot to
+     recalibrate" hypothesis was wrong, and the earlier measurement was already at the ceiling.
+  2. **Soft pooling is catastrophic** (0.0909): averaging the top-3 prototypes flattens the signal and
+     the margin stops separating anything. Cheapest candidate killed with the most clarity.
+  3. **The mean was not the defect.** With no margin gate at all, the centroid ranks *better* than
+     max-pooling (0.9091 vs 0.8636). It was not flattening needed signal; it was smoothing noise.
+  4. **The blend is the only survivor**: `w·centroid + (1−w)·maxproto` matches the historical baseline
+     (0.6818) at `w = 0.3-0.5` and reaches it while abstaining **12 points less** at `w = 0.3`
+     (0.3548 vs 0.4839). Same accuracy, more coverage — but that gap is one or two questions on
+     n = 22, so it is a hypothesis, not a result.
+  5. Secondary finding: the centroid strategy scores 0.6364 on the **v2** artifact versus the 0.682
+     recorded on v1. The window fix and the `ORDER BY` additions moved the mean slightly; the delta is
+     one question, i.e. inside the instrument's resolution, but it is a real movement and belongs in
+     the record rather than in a footnote.
+- **L4** (instrument limit, must be quoted whenever these numbers are used): 22 single-labelled
+  questions, so **one question is 4.5 accuracy points**. Every difference in L3 is one or two
+  questions. Any claim stronger than "the blend is promising" requires more labels, not more geometry.
