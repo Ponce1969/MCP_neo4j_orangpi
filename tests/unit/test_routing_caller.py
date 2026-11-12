@@ -8,6 +8,7 @@ abstaining ``ResolvedRoute`` (never conflated with the off-flag ``None``).
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,12 @@ from book_graph_rag.infrastructure.routing_caller import (
     build_routing_caller,
     build_routing_event,
     fingerprint_query_for_telemetry,
+)
+from book_graph_rag.ports.embedding_provider_port import (
+    EmbeddingBatch,
+    EmbeddingProviderPort,
+    EmbeddingRequest,
+    EmbeddingVector,
 )
 from book_graph_rag.ports.routing_telemetry_port import (
     CacheEntry,
@@ -320,6 +327,83 @@ def test_build_route_question_use_case_composes_on_absent_artifact(tmp_path: Pat
     use_case = build_route_question_use_case(_composition_settings(tmp_path / "absent.json"))
 
     assert isinstance(use_case, RouteQuestionUseCase)
+
+
+# ── T5: ROUTER_BLEND_W — validated at the edge, propagated at composition ────
+
+
+def test_router_blend_w_default_is_centroid_and_range_is_enforced() -> None:
+    """S5 config: default 1.0 (the centroid, L5/L6), range [0.0, 1.0]."""
+    base: dict[str, Any] = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+    }
+    # The declared default, independent of any ambient .env a developer may
+    # keep — same style as test_build_routing_caller_flag_off_by_default.
+    assert Settings.model_fields["router_blend_w"].default == 1.0
+
+    for accepted in (0.0, 0.5, 1.0):
+        settings = Settings.model_validate({**base, "router_blend_w": accepted})
+        assert settings.router_blend_w == accepted
+
+    for rejected in (-0.1, 1.1):
+        with pytest.raises(ValueError, match="router_blend_w"):
+            Settings.model_validate({**base, "router_blend_w": rejected})
+
+
+class _BlendEmbeddingAdapter(EmbeddingProviderPort):
+    """Stand-in for SentenceTransformerAdapter: never loads or downloads a model."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+    async def embed(self, request: EmbeddingRequest) -> EmbeddingBatch:
+        return EmbeddingBatch(
+            model_id=request.model_id,
+            vectors=[EmbeddingVector(values=(1.0, 0.0), model_id=request.model_id)],
+        )
+
+    def model_dim(self, model_id: str) -> int:
+        return 2
+
+
+def test_build_route_question_use_case_propagates_blend_w(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    """S5/T5 composition: the setting reaches the scoring path, not just config.
+
+    Two callers composed from the same code with different router_blend_w
+    must disagree on the strategy they report for the same question. The
+    artifact is absent on purpose: profiles stay empty on both sides, so the
+    weight is the only variable.
+    """
+    from book_graph_rag.infrastructure import routing_caller
+
+    monkeypatch.setattr(routing_caller, "SentenceTransformerAdapter", _BlendEmbeddingAdapter)
+
+    def _strategy(blend_w: float) -> str:
+        settings = Settings.model_validate(
+            {
+                "neo4j_uri": "bolt://localhost:7687",
+                "neo4j_user": "neo4j",
+                "neo4j_password": "secret",
+                "router_enabled": False,
+                "router_telemetry_enabled": False,
+                "namespace_profile_store_path": str(tmp_path / "absent-profiles.json"),
+                "router_blend_w": blend_w,
+            }
+        )
+        use_case = build_route_question_use_case(settings)
+        resolved = asyncio.run(use_case.execute("how do blue whales migrate"))
+        # Only the weight differs between the two compositions.
+        assert resolved.decision.reason == "no_profiles"
+        return resolved.decision.strategy
+
+    assert _strategy(1.0) == "centroid"
+    assert _strategy(0.0) == "prototypes"
+    assert _strategy(0.5) == "blend"
 
 
 # ── telemetry fingerprinting (Unit B: keyed HMAC, no placeholders) ───────────

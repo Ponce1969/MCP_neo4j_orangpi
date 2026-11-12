@@ -52,7 +52,10 @@ def build_route_question_use_case(settings: Settings) -> RouteQuestionUseCase:
 
     The single composition point for the router's concrete adapters:
     catalog-backed scope resolver, local profile artifact, local
-    sentence-transformer embeddings, and deterministic catalog hints.
+    sentence-transformer embeddings, and deterministic catalog hints. The
+    scoring geometry comes from ``settings.router_blend_w`` (T5/L5): the
+    default 1.0 keeps the centroid path, and no other call site may pass a
+    weight — one knob, one composition point.
 
     S4 gates run here, at composition: the store is built with the configured
     ``namespace_profile_version`` and ``embedding_model_id``, and the artifact
@@ -87,6 +90,7 @@ def build_route_question_use_case(settings: Settings) -> RouteQuestionUseCase:
         resolver,
         model_id=settings.embedding_model_id,
         lexical_hints=hints_from_catalog(catalog.load()),
+        blend_w=settings.router_blend_w,
     )
 
 

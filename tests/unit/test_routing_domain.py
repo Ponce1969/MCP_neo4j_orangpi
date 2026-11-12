@@ -14,6 +14,7 @@ from book_graph_rag.domain.routing_models import (
     RouteDecision,
     RouteThresholds,
     ScoredCandidate,
+    blend_strategy,
     cosine_similarity,
     decide_route,
     match_lexical_hints,
@@ -22,6 +23,7 @@ from book_graph_rag.domain.routing_models import (
     route_cache_key,
     score_against_profiles,
     score_against_prototypes,
+    score_blend,
     select_prototypes,
 )
 
@@ -552,6 +554,145 @@ def test_prototype_scoring_rejects_profile_without_prototypes() -> None:
 
 def test_prototype_scoring_empty_is_empty() -> None:
     assert score_against_prototypes((1.0,), ()) == ()
+
+
+# ── blend scoring (T5: the centroid default behind ROUTER_BLEND_W) ───────────
+
+
+def _blend_profiles() -> tuple[NamespaceProfile, NamespaceProfile]:
+    """Two books whose centroid and prototype geometries disagree.
+
+    book-a's three orthogonal prototypes average to (1,1,1)/sqrt(3) — far
+    from the question — while one of them sits exactly on it. book-b's two
+    prototypes average onto the question while neither reaches it. Same
+    fixture family as ``_multimodal_profiles`` in the use-case tests, with
+    the centroid derived exactly as the builder derives it.
+    """
+    prototypes_a = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+    prototypes_b = ((0.6, 0.8, 0.0), (0.6, -0.8, 0.0))
+    return (
+        _profile_v2(
+            "knowledge:book-a",
+            mean_normalized(prototypes_a),
+            prototypes_a,
+            ("chunk:0", "chunk:1", "chunk:2"),
+        ),
+        _profile_v2(
+            "knowledge:book-b",
+            mean_normalized(prototypes_b),
+            prototypes_b,
+            ("chunk:0", "chunk:1"),
+        ),
+    )
+
+
+def test_blend_w_one_reproduces_centroid_scores_value_for_value() -> None:
+    """T5/S5 (L5): at w=1.0 the blend scores exactly like the centroid path.
+
+    Value for value — the same floats and the same order, not an
+    approximation — while S7 provenance stays filled (diagnostic, not
+    causal: no fragment decided anything at w=1.0).
+    """
+    question = (1.0, 0.0, 0.0)
+    profiles = _blend_profiles()
+
+    centroid_ranking = score_against_profiles(question, profiles)
+    blended = score_blend(question, profiles, blend_w=1.0)
+
+    assert [(c.namespace.source_id, c.score) for c in blended] == [
+        (c.namespace.source_id, c.score) for c in centroid_ranking
+    ]
+    # Provenance available even though the prototype term has weight zero.
+    assert [c.best_prototype_source for c in blended] == ["chunk:0", "chunk:0"]
+
+
+def test_blend_w_zero_reproduces_prototype_scoring_including_sources() -> None:
+    """T5/S2+S7: at w=0.0 the blend IS the prototype path, source for source.
+
+    Full model equality: scores, ordering and ``best_prototype_source`` are
+    bit for bit identical to ``score_against_prototypes``.
+    """
+    question = (1.0, 0.0, 0.0)
+    profiles = _blend_profiles()
+
+    assert score_blend(question, profiles, blend_w=0.0) == score_against_prototypes(
+        question, profiles
+    )
+
+
+def test_blend_w_half_is_the_arithmetic_mean_of_both_component_scores() -> None:
+    """w=0.5 is the plain mean of both component scores, hand-computed.
+
+    Question (1, 0, 0):
+      book-a: centroid cosine 0.5773502691896258 (mean (1,1,1)/sqrt(3)),
+              best prototype 1.0
+              => 0.5 * 0.5773502691896258 + 0.5 * 1.0 = 0.7886751345948129
+      book-b: centroid cosine 1.0, best prototype 0.6
+              => 0.5 * 1.0 + 0.5 * 0.6 = 0.8
+    """
+    question = (1.0, 0.0, 0.0)
+    profiles = _blend_profiles()
+
+    blended = score_blend(question, profiles, blend_w=0.5)
+    centroid_by_id = {
+        c.namespace.source_id: c.score for c in score_against_profiles(question, profiles)
+    }
+    prototype_by_id = {
+        c.namespace.source_id: c.score for c in score_against_prototypes(question, profiles)
+    }
+    blended_by_id = {c.namespace.source_id: c.score for c in blended}
+
+    for source_id, score in blended_by_id.items():
+        assert score == 0.5 * centroid_by_id[source_id] + 0.5 * prototype_by_id[source_id]
+
+    assert blended_by_id["knowledge:book-a"] == pytest.approx(0.7886751345948129)
+    assert blended_by_id["knowledge:book-b"] == pytest.approx(0.8)
+    # The blend ranks book-b first, unlike the prototype endpoint (book-a).
+    assert [c.namespace.source_id for c in blended] == ["knowledge:book-b", "knowledge:book-a"]
+
+
+def test_blend_strategy_labels_the_weight_endpoints() -> None:
+    """S7/T5: three labels, no fourth; 'prototypes' only when that term scores."""
+    assert blend_strategy(1.0) == "centroid"
+    assert blend_strategy(0.0) == "prototypes"
+    assert blend_strategy(0.3) == "blend"
+    assert blend_strategy(0.5) == "blend"
+    with pytest.raises(ValueError, match="blend_w"):
+        blend_strategy(-0.1)
+    with pytest.raises(ValueError, match="blend_w"):
+        blend_strategy(1.1)
+
+
+def test_score_blend_rejects_out_of_range_weight() -> None:
+    """The weight is a range, not a hint: both endpoints rejected loudly."""
+    with pytest.raises(ValueError, match="blend_w"):
+        score_blend((1.0,), (), blend_w=-0.1)
+    with pytest.raises(ValueError, match="blend_w"):
+        score_blend((1.0,), (), blend_w=1.1)
+
+
+def test_score_blend_empty_is_empty() -> None:
+    assert score_blend((1.0,), (), blend_w=1.0) == ()
+    assert score_blend((1.0,), (), blend_w=0.0) == ()
+    assert score_blend((1.0,), (), blend_w=0.5) == ()
+
+
+def test_blend_requires_prototypes_only_when_the_term_has_weight() -> None:
+    """A legacy v1 profile still scores at w=1.0 (no source), fails below it.
+
+    At the centroid endpoint the prototype term cannot contribute, so a
+    prototype-less profile is scored honestly with ``best_prototype_source =
+    None``; as soon as the term carries weight (``w < 1.0``) the profile is
+    invalid input and fails loudly, like ``score_against_prototypes``.
+    """
+    legacy = _profile("knowledge:book-a", [1.0, 0.0])
+
+    at_centroid = score_blend((1.0, 0.0), (legacy,), blend_w=1.0)
+    assert at_centroid[0].score == pytest.approx(1.0)
+    assert at_centroid[0].best_prototype_source is None
+
+    with pytest.raises(ValueError, match="no prototypes"):
+        score_blend((1.0, 0.0), (legacy,), blend_w=0.5)
 
 
 # ── abstention policy ─────────────────────────────────────────────────────────

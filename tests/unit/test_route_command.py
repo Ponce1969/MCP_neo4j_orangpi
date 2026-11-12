@@ -14,12 +14,25 @@ from typing import Any
 from click.testing import CliRunner
 
 from book_graph_rag import main as cli_module
+from book_graph_rag.application.route_question_use_case import RouteQuestionUseCase
+from book_graph_rag.config import Settings
+from book_graph_rag.domain.mcp_security import InvalidScopeError, ScopeContext
 from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.domain.routing_models import (
+    NamespaceProfile,
     ResolvedRoute,
     RouteDecision,
     ScoredCandidate,
 )
+from book_graph_rag.infrastructure.routing_caller import RoutingCaller
+from book_graph_rag.ports.embedding_provider_port import (
+    EmbeddingBatch,
+    EmbeddingProviderPort,
+    EmbeddingRequest,
+    EmbeddingVector,
+)
+from book_graph_rag.ports.namespace_profile_port import NamespaceProfilePort
+from book_graph_rag.ports.scope_resolver_port import ScopeResolverPort
 
 QUESTION = "¿qué es un router de consultas?"
 
@@ -340,6 +353,138 @@ def test_explainability_keys_do_not_change_the_route_outcome(monkeypatch: Any) -
     assert explained["validated_namespace"] == "knowledge:graphrag-agentic"
     assert explained["strategy"] == "prototypes"
     assert explained["profile_k"] == 8
+
+
+class _DefaultBlendEmbedding(EmbeddingProviderPort):
+    """Deterministic (1, 0) question vector: no model, no download."""
+
+    async def embed(self, request: EmbeddingRequest) -> EmbeddingBatch:
+        return EmbeddingBatch(
+            model_id=request.model_id,
+            vectors=[EmbeddingVector(values=(1.0, 0.0), model_id=request.model_id)],
+        )
+
+    def model_dim(self, model_id: str) -> int:
+        return 2
+
+
+class _DefaultBlendProfiles(NamespaceProfilePort):
+    """One clear winner: centroid and prototype agree on (1, 0)."""
+
+    _PROFILES = (
+        NamespaceProfile(
+            namespace=SourceNamespace(corpus="knowledge", source="agentic-architectural-patterns"),
+            centroid=(1.0, 0.0),
+            dimension=2,
+            model_id="test-model",
+            profile_version="2.0.0",
+            prototypes=((1.0, 0.0),),
+            k=1,
+            prototype_sources=("chunk:0",),
+        ),
+    )
+
+    async def load_profiles(self) -> tuple[NamespaceProfile, ...]:
+        return self._PROFILES
+
+
+class _DefaultBlendResolver(ScopeResolverPort):
+    """Accepts exactly the one namespace the fixture profile carries."""
+
+    def resolve(
+        self,
+        source_id: str,
+        *,
+        book_ids: tuple[str, ...] = (),
+        entity_types: tuple[str, ...] = (),
+        relationship_types: tuple[str, ...] = (),
+    ) -> ScopeContext:
+        del book_ids, entity_types, relationship_types
+        if source_id != "knowledge:agentic-architectural-patterns":
+            raise InvalidScopeError(f"unknown source: {source_id}", scope_id=source_id)
+        return ScopeContext(source=SourceNamespace.parse_book_id(source_id))
+
+
+class _DefaultBlendSettings:
+    """Settings stand-in carrying the real declared default for router_blend_w.
+
+    Read from ``Settings.model_fields`` (not an ambient environment), so the
+    value under test is the shipped default: 1.0 = centroid (T5/L5).
+    """
+
+    router_blend_w: float = float(Settings.model_fields["router_blend_w"].default)
+
+    @staticmethod
+    def model_validate(_payload: dict[str, Any]) -> _DefaultBlendSettings:
+        return _DefaultBlendSettings()
+
+
+def _install_default_blend_caller(monkeypatch: Any) -> None:
+    """Wire the command to a real use case at the declared default weight."""
+
+    def _factory(settings: _DefaultBlendSettings) -> RoutingCaller:
+        use_case = RouteQuestionUseCase(
+            _DefaultBlendEmbedding(),
+            _DefaultBlendProfiles(),
+            _DefaultBlendResolver(),
+            model_id="test-model",
+            blend_w=settings.router_blend_w,
+            lexical_hints=(),
+        )
+        return RoutingCaller(use_case, enabled=True)
+
+    monkeypatch.setattr(cli_module, "build_routing_caller", _factory)
+    monkeypatch.setattr(cli_module, "Settings", _DefaultBlendSettings)
+
+
+def test_route_payload_reports_centroid_strategy_with_default_settings(
+    monkeypatch: Any,
+) -> None:
+    """T5/S7: default settings (w=1.0) ⇒ payload strategy ``"centroid"``.
+
+    The decision comes from the real use case at the declared default weight,
+    so the payload proves the shipped default routes through the centroid path
+    while the nine pre-existing keys keep their exact values and S7
+    provenance stays filled (``best_prototype_source`` is diagnostic at
+    w=1.0 — see ``ScoredCandidate``).
+    """
+    _install_default_blend_caller(monkeypatch)
+
+    result = _invoke()
+
+    assert result.exit_code == 0
+    payload = _payload(result)
+    assert payload["strategy"] == "centroid"
+    assert payload["profile_k"] == 1
+    # The nine pre-existing keys keep their exact values.
+    assert payload["enabled"] is True
+    assert payload["question"] == QUESTION
+    assert payload["route_kind"] == "single"
+    assert payload["reason"] == "clear"
+    assert payload["top_score"] == 1.0
+    assert payload["margin"] == 1.0
+    assert payload["validated_namespace"] == "knowledge:agentic-architectural-patterns"
+    assert payload["fanout_namespaces"] == []
+    assert payload["candidates"] == [
+        {
+            "namespace": "knowledge:agentic-architectural-patterns",
+            "score": 1.0,
+            "best_prototype_source": "chunk:0",
+        }
+    ]
+    assert set(payload) == {
+        "candidates",
+        "enabled",
+        "fanout_namespaces",
+        "margin",
+        "profile_k",
+        "question",
+        "reason",
+        "route_kind",
+        "strategy",
+        "top_score",
+        "validated_namespace",
+    }
 
 
 def test_routing_failure_exits_non_zero_without_dumping_json(

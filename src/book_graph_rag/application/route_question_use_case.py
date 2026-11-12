@@ -15,9 +15,10 @@ from book_graph_rag.domain.routing_models import (
     RouteDecision,
     RouteThresholds,
     ScoredCandidate,
+    blend_strategy,
     decide_route,
     match_lexical_hints,
-    score_against_prototypes,
+    score_blend,
 )
 from book_graph_rag.ports.embedding_provider_port import (
     EmbeddingProviderPort,
@@ -44,6 +45,7 @@ class RouteQuestionUseCase:
         model_id: str,
         thresholds: RouteThresholds | None = None,
         lexical_hints: tuple[LexicalHints, ...] = (),
+        blend_w: float = 1.0,
     ) -> None:
         self._embedding_port = embedding_port
         self._profiles_port = profiles_port
@@ -51,6 +53,10 @@ class RouteQuestionUseCase:
         self._model_id = model_id
         self._thresholds = thresholds or RouteThresholds()
         self._lexical_hints = lexical_hints
+        # T5/L5: 1.0 = centroid only (the measured default), 0.0 = prototypes
+        # only, in between = weighted sum. ``score_blend`` re-validates the
+        # range on every call, so an out-of-range weight fails loudly.
+        self._blend_w = blend_w
 
     async def execute(self, question: str) -> ResolvedRoute:
         """Return the resolved route for ``question``, never fabricating scope.
@@ -86,10 +92,14 @@ class RouteQuestionUseCase:
 
         The lexical fast path returns ``("lexical_hints", None)``: no
         embedding ran and no prototype was consulted, so there is no k to
-        report. The embedding path returns ``("prototypes", k)`` with the
-        ``k`` of the loaded profile set — the builder writes one ``--k`` for
-        the whole set — and ``profile_k=None`` when the set is empty, while
-        the strategy still names the path that found nothing.
+        report. The embedding path scores through ``score_blend`` and reports
+        the strategy its weight selects (T5, decisions L5/L6): ``"centroid"``
+        at the default ``blend_w = 1.0``, ``"prototypes"`` at ``0.0``,
+        ``"blend"`` strictly in between — never ``"prototypes"`` when the
+        prototype term has weight zero — with the ``k`` of the loaded profile
+        set (the builder writes one ``--k`` for the whole set), and
+        ``profile_k=None`` when the set is empty, while the strategy still
+        names the path that found nothing.
         """
         hints = match_lexical_hints(question, self._lexical_hints)
         if hints:
@@ -99,11 +109,12 @@ class RouteQuestionUseCase:
         )
         question_vector = batch.vectors[0].values
         profiles = await self._profiles_port.load_profiles()
-        # S2: max cosine against each book's prototypes; the passive mean
-        # centroid is never consulted on this path (S1/L2).
-        candidates = score_against_prototypes(question_vector, profiles)
+        # T5: one scoring path. The weight decides the geometry (S2 as amended
+        # by L5/L6): the centroid at the default 1.0, max-pooling at 0.0, the
+        # weighted sum in between. Provenance is filled either way (S7).
+        candidates = score_blend(question_vector, profiles, blend_w=self._blend_w)
         profile_k = profiles[0].k if profiles else None
-        return candidates, "prototypes", profile_k
+        return candidates, blend_strategy(self._blend_w), profile_k
 
     async def _validate(self, decision: RouteDecision) -> ResolvedRoute:
         """Validate candidates against the catalog-backed resolver.

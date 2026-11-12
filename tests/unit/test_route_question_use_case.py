@@ -11,6 +11,7 @@ from book_graph_rag.domain.routing_models import (
     LexicalHints,
     NamespaceProfile,
     RouteThresholds,
+    decide_route,
     mean_normalized,
     score_against_profiles,
     score_against_prototypes,
@@ -128,6 +129,7 @@ def _use_case(
     profiles: tuple[NamespaceProfile, ...] = _PROFILES,
     embedding: _FakeEmbedding | None = None,
     thresholds: RouteThresholds | None = None,
+    blend_w: float = 1.0,
 ) -> tuple[RouteQuestionUseCase, _FakeEmbedding, _FakeScopeResolver]:
     fake_embedding = embedding or _FakeEmbedding()
     resolver = _FakeScopeResolver()
@@ -138,6 +140,7 @@ def _use_case(
         model_id="test-model",
         thresholds=thresholds,
         lexical_hints=_HINTS,
+        blend_w=blend_w,
     )
     return use_case, fake_embedding, resolver
 
@@ -219,8 +222,14 @@ async def test_custom_thresholds_change_the_decision() -> None:
 # ── S7: the decision explains itself ───────────────────────────────────────
 
 
-async def test_decision_reports_prototype_strategy_and_profile_k() -> None:
-    """The decision names the strategy and the k of the profile set scored."""
+async def test_decision_reports_default_centroid_strategy_and_profile_k() -> None:
+    """The decision names the default strategy and the k of the profile set.
+
+    T5/L5: the default weight (w=1.0) scores centroids, so the strategy must
+    say ``"centroid"`` — and S7 provenance stays filled end to end: the
+    winning candidate still names its prototype text, which at w=1.0 is
+    diagnostic rather than causal (S7/L5).
+    """
     profiles = (
         _profile(_AAP, ((1.0, 0.0, 0.0), (0.5, 0.5, 0.0))),
         _profile(_ESSENTIAL, ((0.0, 1.0, 0.0), (0.0, 0.5, 0.5))),
@@ -229,15 +238,19 @@ async def test_decision_reports_prototype_strategy_and_profile_k() -> None:
 
     result = await use_case.execute("What is the ReAct agent pattern?")
 
-    assert result.decision.strategy == "prototypes"
+    assert result.decision.strategy == "centroid"
     assert result.decision.profile_k == 2
     assert result.validated_namespace == _ns(_AAP)
     # End to end: the winning candidate names its prototype text (S7).
     assert result.decision.candidates[0].best_prototype_source == "chunk:0"
 
 
-async def test_empty_profile_set_reports_prototypes_strategy_without_k() -> None:
-    """No profiles ⇒ profile_k is None, but the strategy still names the path."""
+async def test_empty_profile_set_reports_default_strategy_without_k() -> None:
+    """No profiles ⇒ profile_k is None, but the strategy still names the path.
+
+    T5: with the default w=1.0 the path that found nothing is the centroid
+    path, so it must not claim prototypes.
+    """
     use_case, embedding, resolver = _use_case(profiles=())
 
     result = await use_case.execute("What is the ReAct agent pattern?")
@@ -245,6 +258,19 @@ async def test_empty_profile_set_reports_prototypes_strategy_without_k() -> None
     assert embedding.calls == ["What is the ReAct agent pattern?"]
     assert result.decision.reason == "no_profiles"
     assert result.decision.route_kind == "abstain"
+    assert result.decision.strategy == "centroid"
+    assert result.decision.profile_k is None
+    assert resolver.checked == []
+
+
+async def test_empty_profile_set_at_w_zero_reports_prototypes() -> None:
+    """T5 triangulation: the empty set names the path its weight selected."""
+    use_case, embedding, resolver = _use_case(profiles=(), blend_w=0.0)
+
+    result = await use_case.execute("What is the ReAct agent pattern?")
+
+    assert embedding.calls == ["What is the ReAct agent pattern?"]
+    assert result.decision.reason == "no_profiles"
     assert result.decision.strategy == "prototypes"
     assert result.decision.profile_k is None
     assert resolver.checked == []
@@ -267,6 +293,9 @@ def _multimodal_profiles() -> tuple[NamespaceProfile, NamespaceProfile]:
     both unit vectors whose cosine with the question is 0.6. Their mean is
     (0.6,0,0) → centroid (1,0,0): cosine 1.0 with the question, i.e. B's
     centroid is closer to the question than *any* of B's own prototypes.
+
+    T5 made the centroid the default (w=1.0), so this behavioural pin of the
+    prototype endpoint selects it explicitly with ``blend_w=0.0``.
     """
     return (
         _profile(_AAP, ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))),
@@ -294,11 +323,13 @@ async def test_far_centroid_with_one_close_prototype_beats_nearer_centroid() -> 
     assert centroid_ranking[0].score == pytest.approx(1.0)
     assert centroid_ranking[1].score == pytest.approx(0.5773502691896258)
 
-    use_case, embedding, resolver = _use_case(profiles=profiles)
+    # T5: the default is the centroid, so the prototype endpoint is explicit.
+    use_case, embedding, resolver = _use_case(profiles=profiles, blend_w=0.0)
 
     result = await use_case.execute("What is the ReAct agent pattern?")
 
     assert embedding.calls == ["What is the ReAct agent pattern?"]
+    assert result.decision.strategy == "prototypes"
     assert result.validated_namespace == _ns(_AAP)
     assert result.decision.route_kind == "single"
     assert result.decision.top_score == pytest.approx(1.0)
@@ -355,3 +386,117 @@ async def test_single_prototype_profiles_match_centroid_path_exactly() -> None:
 
     assert result.decision.reason == "low_margin"
     assert [ns.source_id for ns in result.fanout_namespaces] == [_AAP, _ESSENTIAL]
+
+
+# ── T5: the blend weight decides geometry AND strategy (L5/L6) ───────────────
+
+
+async def test_blend_w_one_scores_exactly_the_centroid_path() -> None:
+    """S2/S5 (L5): w=1.0 — same floats as the centroid path, strategy
+    ``"centroid"``, and provenance still filled (diagnostic, not causal)."""
+    profiles = _multimodal_profiles()
+    use_case, _embedding, _resolver = _use_case(profiles=profiles, blend_w=1.0)
+
+    result = await use_case.execute("What is the ReAct agent pattern?")
+
+    question_vector = (1.0, 0.0, 0.0)
+    centroid_ranking = score_against_profiles(question_vector, profiles)
+    assert result.decision.strategy == "centroid"
+    assert result.decision.profile_k == 3
+    # Value for value: strip only the provenance field, then full equality.
+    stripped = tuple(
+        candidate.model_copy(update={"best_prototype_source": None})
+        for candidate in result.decision.candidates
+    )
+    assert stripped == centroid_ranking
+    # S7/L5: the source stays available even though it decided nothing.
+    assert all(
+        candidate.best_prototype_source is not None for candidate in result.decision.candidates
+    )
+
+
+async def test_blend_w_zero_scores_exactly_the_prototype_path() -> None:
+    """S2/S7: w=0.0 — scores AND best_prototype_source identical to the
+    prototype path, strategy ``"prototypes"``."""
+    profiles = _multimodal_profiles()
+    use_case, _embedding, _resolver = _use_case(profiles=profiles, blend_w=0.0)
+
+    result = await use_case.execute("What is the ReAct agent pattern?")
+
+    question_vector = (1.0, 0.0, 0.0)
+    prototype_ranking = score_against_prototypes(question_vector, profiles)
+    assert result.decision.strategy == "prototypes"
+    assert tuple(result.decision.candidates) == prototype_ranking
+
+
+async def test_blend_w_half_means_both_components_and_says_blend() -> None:
+    """S2: w=0.5 scores the arithmetic mean of both components, strategy
+    ``"blend"``.
+
+    Hand numbers for question (1, 0, 0) on ``_multimodal_profiles``:
+      book-a: 0.5 * 0.5773502691896258 (centroid) + 0.5 * 1.0 (best proto)
+              = 0.7886751345948129
+      book-b: 0.5 * 1.0 (centroid) + 0.5 * 0.6 (best proto) = 0.8
+    """
+    profiles = _multimodal_profiles()
+    use_case, _embedding, _resolver = _use_case(profiles=profiles, blend_w=0.5)
+
+    result = await use_case.execute("What is the ReAct agent pattern?")
+
+    question_vector = (1.0, 0.0, 0.0)
+    centroid_by_id = {
+        c.namespace.source_id: c.score for c in score_against_profiles(question_vector, profiles)
+    }
+    prototype_by_id = {
+        c.namespace.source_id: c.score for c in score_against_prototypes(question_vector, profiles)
+    }
+    assert result.decision.strategy == "blend"
+    assert len(result.decision.candidates) == 2
+    for candidate in result.decision.candidates:
+        source_id = candidate.namespace.source_id
+        assert candidate.score == 0.5 * centroid_by_id[source_id] + 0.5 * prototype_by_id[source_id]
+
+    by_id = {c.namespace.source_id: c.score for c in result.decision.candidates}
+    assert by_id[_AAP] == pytest.approx(0.7886751345948129)
+    assert by_id[_ESSENTIAL] == pytest.approx(0.8)
+    assert [c.namespace.source_id for c in result.decision.candidates] == [_ESSENTIAL, _AAP]
+
+
+async def test_w_one_preserves_the_pre_t1_centroid_route_exactly() -> None:
+    """S5 regression guard: default w=1.0 cannot change a route vs main.
+
+    For a fixed question and profiles, the default blend must agree with the
+    pre-T1 centroid behaviour — ``score_against_profiles`` →
+    ``decide_route`` → catalog validation — on route_kind, margin (exact
+    float equality, not approx) and validated_namespace, so merging this
+    branch cannot move a route relative to the centroid baseline.
+    """
+    scenarios = (
+        # (question, the vector _FakeEmbedding returns for it, profiles)
+        ("What is the ReAct agent pattern?", (1.0, 0.0, 0.0), _multimodal_profiles()),
+        ("Compare GraphRAG systems", (1.0, 1.0, 0.0), _PROFILES),
+        ("What is the best pasta recipe?", (0.0, 0.0, 0.0), _PROFILES),
+    )
+    for question, question_vector, profiles in scenarios:
+        # Default blend_w=1.0 — the shipped configuration.
+        use_case, _embedding, _resolver = _use_case(profiles=profiles)
+
+        result = await use_case.execute(question)
+
+        # The pre-T1 behaviour, assembled from the primitives main used.
+        reference = decide_route(
+            score_against_profiles(question_vector, profiles),
+            RouteThresholds(),
+        )
+        expected_validated = (
+            reference.selected
+            if reference.route_kind == "single"
+            and reference.selected is not None
+            and reference.selected.source_id in _ACTIVE
+            else None
+        )
+        assert result.decision.strategy == "centroid"
+        assert result.decision.route_kind == reference.route_kind
+        assert result.decision.margin == reference.margin  # exact float equality
+        assert result.decision.top_score == reference.top_score
+        assert result.validated_namespace == expected_validated

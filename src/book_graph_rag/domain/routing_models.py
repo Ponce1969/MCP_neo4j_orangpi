@@ -112,9 +112,11 @@ class NamespaceProfile(BaseModel):
     ``prototypes`` holds up to ``k`` representative vectors selected from the
     book's own texts, and ``prototype_sources`` identifies, per prototype, the
     ``kind:ordinal`` text that produced it (same length as ``prototypes``).
-    ``centroid`` is the normalized mean of the same vectors and is persisted
-    only as a **passive diagnostic** (S1/L2): the prototype scoring path never
-    reads it, and ``test_prototype_scoring_ignores_centroid`` pins that down.
+    ``centroid`` is the normalized mean of the same vectors: the pure-prototype
+    path never reads it (S1/L2, pinned by
+    ``test_prototype_scoring_ignores_centroid``), while the blend path reads it
+    **deliberately** as its weighted term — at the default ``w = 1.0`` it is
+    the only term that scores (T5, decisions L5/L6).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -176,11 +178,16 @@ class ScoredCandidate(BaseModel):
     """One namespace ranked by cosine similarity against the question.
 
     ``best_prototype_source`` (S7) is the ``prototype_sources`` entry of the
-    prototype that produced ``score``, filled by ``score_against_prototypes``
-    so a decision names a text instead of a vector. It stays ``None`` when no
+    prototype that produced ``score``, filled by the prototype term so a
+    decision names a text instead of a vector. It stays ``None`` when no
     prototype was involved: lexical-hint candidates are matched by string and
-    never embedded, and the legacy centroid path scores a mean, not a
-    prototype — both report ``None`` rather than a made-up identifier.
+    never embedded, and a profile without prototypes has no source to report —
+    both yield ``None`` rather than a made-up identifier.
+
+    **At ``w = 1.0`` the source is diagnostic, not causal**: the prototype
+    term has weight zero, so no fragment decided the route. A reader must
+    consult ``RouteDecision.strategy`` before claiming a fragment did (S7/L5);
+    a silently causal-looking field would be worse than none.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -237,7 +244,9 @@ class RouteDecision(BaseModel):
     """Deterministic outcome of scoring and abstention policy.
 
     S7 provenance: ``strategy`` names the scoring path that produced
-    ``candidates`` — ``"prototypes"`` (max cosine over profile prototypes),
+    ``candidates`` — ``"centroid"`` (the default, ``w = 1.0``: cosine against
+    the profile means), ``"prototypes"`` (``w = 0.0``: max cosine over profile
+    prototypes), ``"blend"`` (``0 < w < 1``: the weighted sum of both),
     ``"lexical_hints"`` (the cheap fast path: no embedding, no prototype),
     or the default ``"unspecified"`` for a decision built without provenance
     (domain-level tests, explicit-scope shortcuts). ``profile_k`` is the
@@ -393,17 +402,17 @@ def score_against_profiles(
     question_vector: tuple[float, ...],
     profiles: Sequence[NamespaceProfile],
 ) -> tuple[ScoredCandidate, ...]:
-    """Score ``question_vector`` against every profile's ``centroid`` (legacy v1 path).
+    """Score ``question_vector`` against every profile's ``centroid`` (T5 reference).
 
-    The live router no longer calls this function: since T2 (S2),
-    ``RouteQuestionUseCase.score_question`` scores against prototypes via
-    ``score_against_prototypes``. It survives as the v1 reference geometry —
-    the comparison ``tests/unit/test_route_question_use_case.py`` uses to
-    prove the prototype ranking inverts on multimodal books, and the behaviour
-    pinned by ``tests/unit/test_routing_domain.py``. Removing it would break
-    those green contracts without shrinking the router's surface: nothing
-    reachable from ``RouteQuestionUseCase`` can call it anymore. Ties are
-    broken by ``source_id`` so the ordering stays deterministic.
+    This is the ``w = 1.0`` endpoint: ``score_blend`` at ``blend_w=1.0``
+    reproduces these scores value for value (pinned by
+    ``test_blend_w_one_reproduces_centroid_scores_value_for_value``) while
+    additionally reporting S7 provenance, and the live router scores through
+    ``score_blend`` (T5, decisions L5/L6). It survives as the comparison
+    ``tests/unit/test_route_question_use_case.py`` uses to prove the prototype
+    ranking inverts on multimodal books, and as the regression reference for
+    the pre-T1 centroid route. Ties are broken by ``source_id`` so the
+    ordering stays deterministic.
     """
     scored = [
         ScoredCandidate(
@@ -416,6 +425,35 @@ def score_against_profiles(
     return tuple(scored)
 
 
+def _best_prototype_match(
+    question_vector: tuple[float, ...],
+    profile: NamespaceProfile,
+) -> tuple[float, str]:
+    """Return ``profile``'s best prototype cosine and its source identifier.
+
+    Argmax with strict ``>`` keeps the lowest prototype index on a tie —
+    identical to ``max()`` over the same values, so the score is unaffected
+    and the reported source stays deterministic (S7, same lowest-index rule
+    ``select_prototypes`` uses per S3).
+
+    Raises:
+        ValueError: When the profile carries no prototypes.
+    """
+    if not profile.prototypes:
+        raise ValueError(
+            f"profile for {profile.namespace.source_id} has no prototypes; "
+            "score_against_prototypes only scores prototype (v2) profiles"
+        )
+    best_index = 0
+    best_score = cosine_similarity(question_vector, profile.prototypes[0])
+    for index in range(1, len(profile.prototypes)):
+        similarity = cosine_similarity(question_vector, profile.prototypes[index])
+        if similarity > best_score:
+            best_score = similarity
+            best_index = index
+    return best_score, profile.prototype_sources[best_index]
+
+
 def score_against_prototypes(
     question_vector: tuple[float, ...],
     profiles: Sequence[NamespaceProfile],
@@ -426,6 +464,10 @@ def score_against_prototypes(
     function reads only ``namespace`` and ``prototypes`` — never the passive
     diagnostic ``centroid`` — so corrupting or removing a centroid cannot
     change any score (S1/L2, pinned by ``test_prototype_scoring_ignores_centroid``).
+
+    This is also the ``w = 0.0`` endpoint of the blend (T5): ``score_blend``
+    at ``blend_w=0.0`` returns this function's output **verbatim** — scores,
+    ordering and ``best_prototype_source`` are bit for bit identical.
 
     Ties are broken by ``source_id`` exactly like the centroid path, so the
     ranking stays deterministic. Each candidate also reports S7 provenance:
@@ -443,29 +485,107 @@ def score_against_prototypes(
     """
     scored: list[ScoredCandidate] = []
     for profile in profiles:
-        if not profile.prototypes:
-            raise ValueError(
-                f"profile for {profile.namespace.source_id} has no prototypes; "
-                "score_against_prototypes only scores prototype (v2) profiles"
-            )
-        # Argmax with strict > keeps the lowest prototype index on a tie —
-        # identical to max() over the same values, so no score changes.
-        best_index = 0
-        best_score = cosine_similarity(question_vector, profile.prototypes[0])
-        for index in range(1, len(profile.prototypes)):
-            similarity = cosine_similarity(question_vector, profile.prototypes[index])
-            if similarity > best_score:
-                best_score = similarity
-                best_index = index
+        best_score, best_source = _best_prototype_match(question_vector, profile)
         scored.append(
             ScoredCandidate(
                 namespace=profile.namespace,
                 score=best_score,
-                best_prototype_source=profile.prototype_sources[best_index],
+                best_prototype_source=best_source,
             )
         )
     scored.sort(key=lambda candidate: (-candidate.score, candidate.namespace.source_id))
     return tuple(scored)
+
+
+def blend_strategy(blend_w: float) -> str:
+    """Return the S7 strategy label for ``blend_w`` (T5, decisions L5/L6).
+
+    ``1.0`` reports ``"centroid"`` — the prototype term has weight zero, so
+    naming it would be false provenance; ``0.0`` reports ``"prototypes"``;
+    anything strictly in between reports ``"blend"``. There is no fourth
+    label, and ``"prototypes"`` is never reported when that term has zero
+    weight.
+
+    Raises:
+        ValueError: When ``blend_w`` is outside ``[0.0, 1.0]`` — the label
+            only describes a weight the scoring path could actually take.
+    """
+    if not 0.0 <= blend_w <= 1.0:
+        raise ValueError(f"blend_w ({blend_w}) must be between 0.0 and 1.0")
+    if blend_w == 1.0:
+        return "centroid"
+    if blend_w == 0.0:
+        return "prototypes"
+    return "blend"
+
+
+def score_blend(
+    question_vector: tuple[float, ...],
+    profiles: Sequence[NamespaceProfile],
+    *,
+    blend_w: float,
+) -> tuple[ScoredCandidate, ...]:
+    """Score ``w * centroid + (1 - w) * max prototype`` per profile (T5).
+
+    The router's single scoring path (S2 as amended by the ADR's T5/L5/L6
+    decision): the measured default ``blend_w = 1.0`` is the centroid path,
+    ``blend_w = 0.0`` is the prototype path, and values in between are the
+    weighted sum. Both endpoints are reproduced **value for value**, not
+    approximately:
+
+    * ``blend_w == 1.0`` returns ``score_against_profiles``' scores with the
+      same ordering, plus S7 provenance (the source is diagnostic, not
+      causal — see ``ScoredCandidate``);
+    * ``blend_w == 0.0`` returns ``score_against_prototypes`` **verbatim** —
+      scores, ordering and ``best_prototype_source`` are bit for bit
+      identical.
+
+    The ranking is sorted by ``(-score, namespace.source_id)`` exactly like
+    both component paths, so ties stay deterministic. ``best_prototype_source``
+    is filled whenever the profile carries prototypes, including at
+    ``w = 1.0``, so the geometry stays inspectable (S7/L5).
+
+    Raises:
+        ValueError: When ``blend_w`` is outside ``[0.0, 1.0]``, or when a
+            profile carries no prototypes while the prototype term has weight
+            (``blend_w < 1.0``).
+    """
+    if not 0.0 <= blend_w <= 1.0:
+        raise ValueError(f"blend_w ({blend_w}) must be between 0.0 and 1.0")
+    if blend_w == 0.0:
+        # Centroid term has weight zero: reuse the prototype path verbatim so
+        # the w=0.0 endpoint cannot drift from it, provenance included.
+        return score_against_prototypes(question_vector, profiles)
+    if blend_w == 1.0:
+        # Prototype term has weight zero: score the centroid exactly like
+        # score_against_profiles does, and attach provenance separately.
+        centroid_only: list[ScoredCandidate] = []
+        for profile in profiles:
+            best_source: str | None = None
+            if profile.prototypes:
+                _prototype_score, best_source = _best_prototype_match(question_vector, profile)
+            centroid_only.append(
+                ScoredCandidate(
+                    namespace=profile.namespace,
+                    score=cosine_similarity(question_vector, profile.centroid),
+                    best_prototype_source=best_source,
+                )
+            )
+        centroid_only.sort(key=lambda candidate: (-candidate.score, candidate.namespace.source_id))
+        return tuple(centroid_only)
+    blended: list[ScoredCandidate] = []
+    for profile in profiles:
+        centroid_score = cosine_similarity(question_vector, profile.centroid)
+        prototype_score, best_source = _best_prototype_match(question_vector, profile)
+        blended.append(
+            ScoredCandidate(
+                namespace=profile.namespace,
+                score=blend_w * centroid_score + (1.0 - blend_w) * prototype_score,
+                best_prototype_source=best_source,
+            )
+        )
+    blended.sort(key=lambda candidate: (-candidate.score, candidate.namespace.source_id))
+    return tuple(blended)
 
 
 def _ranked_margin(ordered: Sequence[ScoredCandidate]) -> float:
@@ -497,9 +617,10 @@ def decide_route(
 
     ``strategy`` and ``profile_k`` (S7) are provenance passthrough: the
     kernel does not choose them, it records what the scoring path actually
-    used. The application layer passes ``strategy="prototypes"`` plus the
-    ``k`` of the profile set it scored; a caller with no provenance to
-    report leaves the defaults (``"unspecified"``, ``None``).
+    used. The application layer passes ``blend_strategy``'s label
+    (``"centroid"``/``"prototypes"``/``"blend"``) plus the ``k`` of the
+    profile set it scored; a caller with no provenance to report leaves the
+    defaults (``"unspecified"``, ``None``).
     """
     ordered = tuple(sorted(ranked, key=lambda c: (-c.score, c.namespace.source_id)))
     if not ordered:
