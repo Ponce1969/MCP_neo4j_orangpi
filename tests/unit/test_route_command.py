@@ -14,12 +14,25 @@ from typing import Any
 from click.testing import CliRunner
 
 from book_graph_rag import main as cli_module
+from book_graph_rag.application.route_question_use_case import RouteQuestionUseCase
+from book_graph_rag.config import Settings
+from book_graph_rag.domain.mcp_security import InvalidScopeError, ScopeContext
 from book_graph_rag.domain.namespaces import SourceNamespace
 from book_graph_rag.domain.routing_models import (
+    NamespaceProfile,
     ResolvedRoute,
     RouteDecision,
     ScoredCandidate,
 )
+from book_graph_rag.infrastructure.routing_caller import RoutingCaller
+from book_graph_rag.ports.embedding_provider_port import (
+    EmbeddingBatch,
+    EmbeddingProviderPort,
+    EmbeddingRequest,
+    EmbeddingVector,
+)
+from book_graph_rag.ports.namespace_profile_port import NamespaceProfilePort
+from book_graph_rag.ports.scope_resolver_port import ScopeResolverPort
 
 QUESTION = "¿qué es un router de consultas?"
 
@@ -92,7 +105,8 @@ def test_disabled_router_is_reported_and_not_confused_with_abstention(
     result = _invoke()
 
     assert result.exit_code == 0
-    assert _payload(result) == {
+    payload = _payload(result)
+    assert payload == {
         "candidates": [],
         "enabled": False,
         "fanout_namespaces": [],
@@ -103,6 +117,12 @@ def test_disabled_router_is_reported_and_not_confused_with_abstention(
         "top_score": None,
         "validated_namespace": None,
     }
+    # S7 decision: with no decision there is nothing to explain, so the three
+    # new keys (strategy, profile_k, best_prototype_source) are **absent**,
+    # not null — the disabled payload keeps exactly its original nine keys.
+    assert "strategy" not in payload
+    assert "profile_k" not in payload
+    assert payload["candidates"] == []
     assert caller.closed is True
 
 
@@ -111,7 +131,11 @@ def test_single_route_exposes_the_validated_namespace(monkeypatch: Any) -> None:
     decision = RouteDecision(
         selected=chosen,
         candidates=(
-            ScoredCandidate(namespace=chosen, score=0.42),
+            ScoredCandidate(
+                namespace=chosen,
+                score=0.42,
+                best_prototype_source="chunk:17",
+            ),
             ScoredCandidate(namespace=_namespace("ai-engineering-huyen"), score=0.12),
             ScoredCandidate(namespace=_namespace("agentic-architectural-patterns"), score=0.05),
             ScoredCandidate(namespace=_namespace("fourth-book"), score=0.01),
@@ -121,6 +145,8 @@ def test_single_route_exposes_the_validated_namespace(monkeypatch: Any) -> None:
         confidence=0.58,
         route_kind="single",
         reason="clear",
+        strategy="prototypes",
+        profile_k=8,
     )
     caller = _FakeCaller(result=ResolvedRoute(decision=decision, validated_namespace=chosen))
     _install(monkeypatch, caller)
@@ -136,10 +162,26 @@ def test_single_route_exposes_the_validated_namespace(monkeypatch: Any) -> None:
     assert payload["top_score"] == 0.42
     assert payload["margin"] == 0.3
     assert payload["reason"] == "clear"
+    # S7: the decision explains itself — strategy, k, and the winning text.
+    assert payload["strategy"] == "prototypes"
+    assert payload["profile_k"] == 8
+    # Existing keys keep their exact values; only the new key is added.
     assert payload["candidates"] == [
-        {"namespace": "knowledge:graphrag-agentic", "score": 0.42},
-        {"namespace": "knowledge:ai-engineering-huyen", "score": 0.12},
-        {"namespace": "knowledge:agentic-architectural-patterns", "score": 0.05},
+        {
+            "namespace": "knowledge:graphrag-agentic",
+            "score": 0.42,
+            "best_prototype_source": "chunk:17",
+        },
+        {
+            "namespace": "knowledge:ai-engineering-huyen",
+            "score": 0.12,
+            "best_prototype_source": None,
+        },
+        {
+            "namespace": "knowledge:agentic-architectural-patterns",
+            "score": 0.05,
+            "best_prototype_source": None,
+        },
     ]
     assert caller.closed is True
 
@@ -171,13 +213,15 @@ def test_ambiguity_fans_out_to_both_validated_namespaces(monkeypatch: Any) -> No
     second = _namespace("ai-engineering-huyen")
     decision = RouteDecision(
         candidates=(
-            ScoredCandidate(namespace=first, score=0.21),
+            ScoredCandidate(namespace=first, score=0.21, best_prototype_source="chunk:3"),
             ScoredCandidate(namespace=second, score=0.20),
         ),
         top_score=0.21,
         margin=0.01,
         route_kind="multi",
         reason="low_margin",
+        strategy="prototypes",
+        profile_k=4,
     )
     caller = _FakeCaller(
         result=ResolvedRoute(
@@ -197,7 +241,250 @@ def test_ambiguity_fans_out_to_both_validated_namespaces(monkeypatch: Any) -> No
         "knowledge:graphrag-agentic",
         "knowledge:ai-engineering-huyen",
     ]
+    # S7: a normal fan-out run is self-describing (strategy, k, provenance).
+    assert payload["strategy"] == "prototypes"
+    assert payload["profile_k"] == 4
+    assert payload["candidates"] == [
+        {
+            "namespace": "knowledge:graphrag-agentic",
+            "score": 0.21,
+            "best_prototype_source": "chunk:3",
+        },
+        {
+            "namespace": "knowledge:ai-engineering-huyen",
+            "score": 0.20,
+            "best_prototype_source": None,
+        },
+    ]
     assert caller.closed is True
+
+
+def test_explainability_keys_do_not_change_the_route_outcome(monkeypatch: Any) -> None:
+    """S7 adds provenance only: the route kind, margin and validated
+    namespace of the reference scenario stay exactly what they were before
+    this unit (mirrors ``test_single_route_exposes_the_validated_namespace``)."""
+    chosen = _namespace("graphrag-agentic")
+
+    def _decision(*, explain: bool) -> RouteDecision:
+        if explain:
+            return RouteDecision(
+                selected=chosen,
+                candidates=(
+                    ScoredCandidate(
+                        namespace=chosen,
+                        score=0.42,
+                        best_prototype_source="chunk:17",
+                    ),
+                    ScoredCandidate(namespace=_namespace("ai-engineering-huyen"), score=0.12),
+                ),
+                top_score=0.42,
+                margin=0.30,
+                confidence=0.58,
+                route_kind="single",
+                reason="clear",
+                strategy="prototypes",
+                profile_k=8,
+            )
+        return RouteDecision(
+            selected=chosen,
+            candidates=(
+                ScoredCandidate(namespace=chosen, score=0.42),
+                ScoredCandidate(namespace=_namespace("ai-engineering-huyen"), score=0.12),
+            ),
+            top_score=0.42,
+            margin=0.30,
+            confidence=0.58,
+            route_kind="single",
+            reason="clear",
+        )
+
+    caller = _FakeCaller()
+    _install(monkeypatch, caller)
+
+    caller.result = ResolvedRoute(decision=_decision(explain=False), validated_namespace=chosen)
+    plain = _payload(_invoke())
+    caller.result = ResolvedRoute(decision=_decision(explain=True), validated_namespace=chosen)
+    explained = _payload(_invoke())
+
+    # The payload gains exactly the two new top-level keys over the
+    # published nine-key contract; every pre-existing key keeps its exact
+    # value, and candidates differ only by the new provenance key.
+    published_nine = {
+        "candidates",
+        "enabled",
+        "fanout_namespaces",
+        "margin",
+        "question",
+        "reason",
+        "route_kind",
+        "top_score",
+        "validated_namespace",
+    }
+    assert set(explained) == published_nine | {"strategy", "profile_k"}
+    assert set(plain) == set(explained)
+    assert plain["strategy"] == "unspecified"  # default when no provenance is passed
+    assert plain["profile_k"] is None
+    assert explained["strategy"] == "prototypes"
+    pre_existing = (
+        "enabled",
+        "validated_namespace",
+        "fanout_namespaces",
+        "route_kind",
+        "reason",
+        "top_score",
+        "margin",
+        "question",
+    )
+    assert {key: plain[key] for key in pre_existing} == {
+        key: explained[key] for key in pre_existing
+    }
+
+    def _without_provenance(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {key: value for key, value in candidate.items() if key != "best_prototype_source"}
+            for candidate in candidates
+        ]
+
+    assert _without_provenance(explained["candidates"]) == _without_provenance(plain["candidates"])
+
+    # The published values of the scenario, asserted before and after S7.
+    assert explained["route_kind"] == "single"
+    assert explained["margin"] == 0.3
+    assert explained["validated_namespace"] == "knowledge:graphrag-agentic"
+    assert explained["strategy"] == "prototypes"
+    assert explained["profile_k"] == 8
+
+
+class _DefaultBlendEmbedding(EmbeddingProviderPort):
+    """Deterministic (1, 0) question vector: no model, no download."""
+
+    async def embed(self, request: EmbeddingRequest) -> EmbeddingBatch:
+        return EmbeddingBatch(
+            model_id=request.model_id,
+            vectors=[EmbeddingVector(values=(1.0, 0.0), model_id=request.model_id)],
+        )
+
+    def model_dim(self, model_id: str) -> int:
+        return 2
+
+
+class _DefaultBlendProfiles(NamespaceProfilePort):
+    """One clear winner: centroid and prototype agree on (1, 0)."""
+
+    _PROFILES = (
+        NamespaceProfile(
+            namespace=SourceNamespace(corpus="knowledge", source="agentic-architectural-patterns"),
+            centroid=(1.0, 0.0),
+            dimension=2,
+            model_id="test-model",
+            profile_version="2.0.0",
+            prototypes=((1.0, 0.0),),
+            k=1,
+            prototype_sources=("chunk:0",),
+        ),
+    )
+
+    async def load_profiles(self) -> tuple[NamespaceProfile, ...]:
+        return self._PROFILES
+
+
+class _DefaultBlendResolver(ScopeResolverPort):
+    """Accepts exactly the one namespace the fixture profile carries."""
+
+    def resolve(
+        self,
+        source_id: str,
+        *,
+        book_ids: tuple[str, ...] = (),
+        entity_types: tuple[str, ...] = (),
+        relationship_types: tuple[str, ...] = (),
+    ) -> ScopeContext:
+        del book_ids, entity_types, relationship_types
+        if source_id != "knowledge:agentic-architectural-patterns":
+            raise InvalidScopeError(f"unknown source: {source_id}", scope_id=source_id)
+        return ScopeContext(source=SourceNamespace.parse_book_id(source_id))
+
+
+class _DefaultBlendSettings:
+    """Settings stand-in carrying the real declared default for router_blend_w.
+
+    Read from ``Settings.model_fields`` (not an ambient environment), so the
+    value under test is the shipped default: 1.0 = centroid (T5/L5).
+    """
+
+    router_blend_w: float = float(Settings.model_fields["router_blend_w"].default)
+
+    @staticmethod
+    def model_validate(_payload: dict[str, Any]) -> _DefaultBlendSettings:
+        return _DefaultBlendSettings()
+
+
+def _install_default_blend_caller(monkeypatch: Any) -> None:
+    """Wire the command to a real use case at the declared default weight."""
+
+    def _factory(settings: _DefaultBlendSettings) -> RoutingCaller:
+        use_case = RouteQuestionUseCase(
+            _DefaultBlendEmbedding(),
+            _DefaultBlendProfiles(),
+            _DefaultBlendResolver(),
+            model_id="test-model",
+            blend_w=settings.router_blend_w,
+            lexical_hints=(),
+        )
+        return RoutingCaller(use_case, enabled=True)
+
+    monkeypatch.setattr(cli_module, "build_routing_caller", _factory)
+    monkeypatch.setattr(cli_module, "Settings", _DefaultBlendSettings)
+
+
+def test_route_payload_reports_centroid_strategy_with_default_settings(
+    monkeypatch: Any,
+) -> None:
+    """T5/S7: default settings (w=1.0) ⇒ payload strategy ``"centroid"``.
+
+    The decision comes from the real use case at the declared default weight,
+    so the payload proves the shipped default routes through the centroid path
+    while the nine pre-existing keys keep their exact values and S7
+    provenance stays filled (``best_prototype_source`` is diagnostic at
+    w=1.0 — see ``ScoredCandidate``).
+    """
+    _install_default_blend_caller(monkeypatch)
+
+    result = _invoke()
+
+    assert result.exit_code == 0
+    payload = _payload(result)
+    assert payload["strategy"] == "centroid"
+    assert payload["profile_k"] == 1
+    # The nine pre-existing keys keep their exact values.
+    assert payload["enabled"] is True
+    assert payload["question"] == QUESTION
+    assert payload["route_kind"] == "single"
+    assert payload["reason"] == "clear"
+    assert payload["top_score"] == 1.0
+    assert payload["margin"] == 1.0
+    assert payload["validated_namespace"] == "knowledge:agentic-architectural-patterns"
+    assert payload["fanout_namespaces"] == []
+    assert payload["candidates"] == [
+        {
+            "namespace": "knowledge:agentic-architectural-patterns",
+            "score": 1.0,
+            "best_prototype_source": "chunk:0",
+        }
+    ]
+    assert set(payload) == {
+        "candidates",
+        "enabled",
+        "fanout_namespaces",
+        "margin",
+        "profile_k",
+        "question",
+        "reason",
+        "route_kind",
+        "strategy",
+        "top_score",
+        "validated_namespace",
+    }
 
 
 def test_routing_failure_exits_non_zero_without_dumping_json(

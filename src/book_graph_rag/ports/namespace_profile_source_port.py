@@ -23,16 +23,37 @@ class NamespaceSourceTexts(BaseModel):
     community_summaries: tuple[str, ...] = ()
 
     @property
+    def identified_profile_texts(self) -> tuple[tuple[str, str], ...]:
+        """``(identifier, text)`` pairs in the canonical profile order.
+
+        The identifier is ``kind:ordinal`` with a 0-based ordinal inside its
+        kind (S1), so any prototype can be traced back to the exact text that
+        produced it. Ordinals are stable across rebuilds because they follow
+        the adapter's deterministic query order (chapter number, section page,
+        chunk index, entity id, community id).
+        """
+        return tuple(
+            (f"{kind}:{ordinal}", text)
+            for kind, texts in (
+                ("chapter", self.chapter_titles),
+                ("section", self.section_titles),
+                ("chunk", self.chunk_texts),
+                ("entity_name", self.entity_names),
+                ("entity_desc", self.entity_descriptions),
+                ("summary", self.community_summaries),
+            )
+            for ordinal, text in enumerate(texts)
+        )
+
+    @property
     def ordered_profile_texts(self) -> tuple[str, ...]:
         """Primary signals first (book structure), supplements after."""
-        return (
-            *(title for title in self.chapter_titles),
-            *(title for title in self.section_titles),
-            *(text for text in self.chunk_texts),
-            *(name for name in self.entity_names),
-            *(description for description in self.entity_descriptions),
-            *(summary for summary in self.community_summaries),
-        )
+        return tuple(text for _identifier, text in self.identified_profile_texts)
+
+    @property
+    def ordered_profile_text_ids(self) -> tuple[str, ...]:
+        """Identifiers parallel to ``ordered_profile_texts``, same order."""
+        return tuple(identifier for identifier, _text in self.identified_profile_texts)
 
 
 class NamespaceProfileSourcePort(abc.ABC):

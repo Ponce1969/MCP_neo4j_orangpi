@@ -67,7 +67,13 @@ def route_question(question: str | None, telemetry: bool) -> None:
         click.echo(f"Configuration error: {exc}", err=True)
         sys.exit(1)
 
-    use_case = build_route_question_use_case(settings)
+    # Composition runs the profile artifact's S4 gates (shape, profile_version,
+    # model_id): a stale artifact must fail here, loudly, not abstain quietly.
+    try:
+        use_case = build_route_question_use_case(settings)
+    except Exception as exc:  # noqa: BLE001
+        click.echo(f"Router configuration error: {exc}", err=True)
+        sys.exit(1)
 
     questions = [question] if question else sys.stdin.read().splitlines()
     if not questions:

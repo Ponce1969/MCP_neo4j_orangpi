@@ -207,13 +207,22 @@ class Settings(BaseSettings):
     allow_extra_embedding_model: bool = False
 
     # ── Namespace question routing (router units) ──────────────────────────
-    # Local artifact for the read-only namespace centroid builder. The artifact
-    # never lives in Neo4j; the runtime router reads it from disk.
+    # Local artifact for the read-only namespace routing profile builder
+    # (prototype profiles, shape v2). The artifact never lives in Neo4j; the
+    # runtime router reads it from disk. Bumping this version invalidates the
+    # route cache by design: it is one of route_cache_key's seven dimensions.
     namespace_profile_store_path: Path = Path("data/router/namespace_profiles.json")
-    namespace_profile_version: str = "1.0.0"
+    namespace_profile_version: str = "2.0.0"
     # Feature flag consumed by the caller integration: when False, callers keep
     # the existing explicit-scope path and the router is not invoked.
     router_enabled: bool = False
+    # Blend weight for the namespace routing score (ADR T5, decisions L5/L6):
+    # score = w * cosine(question, centroid) + (1 - w) * max cosine(question, prototype).
+    # 1.0 = centroid only (the DEFAULT: the measurement refuted pure prototypes —
+    # 0.5909 against the centroid's 0.6364 on the same artifact, L3/L6 — so the
+    # blend ships disabled behind this knob), 0.0 = prototypes only, in between =
+    # weighted sum. Reported as strategy "centroid" / "prototypes" / "blend".
+    router_blend_w: float = 1.0
     # Separate opt-in telemetry; raw fields never flow to the MCP query log.
     router_telemetry_enabled: bool = False
     routing_telemetry_path: Path = Path("data/router/router_telemetry.db")
@@ -482,6 +491,13 @@ class Settings(BaseSettings):
     def _validate_embedding_min_similarity(cls, value: float) -> float:
         if not 0.0 <= value <= 1.0:
             raise ValueError(f"embedding_min_similarity ({value}) must be between 0.0 and 1.0")
+        return value
+
+    @field_validator("router_blend_w")
+    @classmethod
+    def _validate_router_blend_w(cls, value: float) -> float:
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"router_blend_w ({value}) must be between 0.0 and 1.0")
         return value
 
     @field_validator(
