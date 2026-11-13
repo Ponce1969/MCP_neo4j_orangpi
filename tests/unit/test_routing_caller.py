@@ -228,8 +228,12 @@ def test_build_routing_caller_flag_off_by_default(tmp_path: Path) -> None:
 # ── S4: stale-artifact gates run at composition, not at first question ───────
 
 
-def _composition_settings(artifact: Path) -> Settings:
-    """Settings pinned explicitly so no ambient ``.env`` can move the gates."""
+def _composition_settings(artifact: Path, **extra: Any) -> Settings:
+    """Settings pinned explicitly so no ambient ``.env`` can move the gates.
+
+    ``extra`` overrides individual fields for one test (e.g.
+    ``router_scoring="central"``).
+    """
     return Settings.model_validate(
         {
             "neo4j_uri": "bolt://localhost:7687",
@@ -241,6 +245,7 @@ def _composition_settings(artifact: Path) -> Settings:
             "namespace_profile_version": "2.0.0",
             "embedding_model_id": "test-model",
             "allow_extra_embedding_model": True,
+            **extra,
         }
     )
 
@@ -254,6 +259,7 @@ def _artifact_entry(
     profile_version: str = "2.0.0",
     model_id: str = "test-model",
     with_prototypes: bool = True,
+    with_central: bool = False,
 ) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "namespace": {"corpus": "knowledge", "source": "book-a"},
@@ -262,6 +268,8 @@ def _artifact_entry(
         "dimension": 2,
         "profile_version": profile_version,
     }
+    if with_central:
+        entry["central_centroid"] = [0.0, 1.0]
     if with_prototypes:
         entry.update(
             {
@@ -404,6 +412,105 @@ def test_build_route_question_use_case_propagates_blend_w(
     assert _strategy(1.0) == "centroid"
     assert _strategy(0.0) == "prototypes"
     assert _strategy(0.5) == "blend"
+
+
+# ── T6 (L10): ROUTER_SCORING — validated at the edge, propagated at composition ──
+
+
+def test_router_scoring_default_is_centroid_and_values_are_enforced() -> None:
+    """S2 config: default ``"centroid"`` (no route change, L10), and exactly
+    two accepted values, both named in the failure message."""
+    base: dict[str, Any] = {
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
+        "neo4j_password": "secret",
+    }
+    # The declared default, independent of any ambient .env a developer may
+    # keep — same style as test_build_routing_caller_flag_off_by_default.
+    assert Settings.model_fields["router_scoring"].default == "centroid"
+
+    for accepted in ("centroid", "central"):
+        settings = Settings.model_validate({**base, "router_scoring": accepted})
+        assert settings.router_scoring == accepted
+
+    with pytest.raises(ValueError, match="router_scoring") as excinfo:
+        Settings.model_validate({**base, "router_scoring": "mean"})
+    message = str(excinfo.value)
+    assert "router_scoring" in message
+    assert "centroid" in message
+    assert "central" in message
+
+
+def test_build_route_question_use_case_propagates_router_scoring(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    """S2/T6 composition: the setting reaches the scoring path, not config.
+
+    Two callers composed from the same code with different router_scoring
+    must disagree on the strategy they report for the same question — the
+    working-switch guarantee of L10 (never dead configuration). The artifact
+    is absent on purpose: profiles stay empty on both sides, so the setting
+    is the only variable.
+    """
+    from book_graph_rag.infrastructure import routing_caller
+
+    monkeypatch.setattr(routing_caller, "SentenceTransformerAdapter", _BlendEmbeddingAdapter)
+
+    def _strategy(scoring: str) -> str:
+        settings = Settings.model_validate(
+            {
+                "neo4j_uri": "bolt://localhost:7687",
+                "neo4j_user": "neo4j",
+                "neo4j_password": "secret",
+                "router_enabled": False,
+                "router_telemetry_enabled": False,
+                "namespace_profile_store_path": str(tmp_path / "absent-profiles.json"),
+                "router_scoring": scoring,
+            }
+        )
+        use_case = build_route_question_use_case(settings)
+        resolved = asyncio.run(use_case.execute("how do blue whales migrate"))
+        # Only the scoring setting differs between the two compositions.
+        assert resolved.decision.reason == "no_profiles"
+        return resolved.decision.strategy
+
+    assert _strategy("centroid") == "centroid"
+    assert _strategy("central") == "central"
+
+
+def test_build_route_question_use_case_fails_closed_without_central_centroid(
+    tmp_path: Path,
+) -> None:
+    """T6/L10: ROUTER_SCORING=central + pre-T6 artifact fails at composition,
+    naming the field and the rebuild — never a silent centroid fallback."""
+    artifact = tmp_path / "profiles.json"
+    _write_artifact(artifact, [_artifact_entry()])  # no central_centroid
+
+    with pytest.raises(NamespaceProfileStoreError, match="central_centroid") as excinfo:
+        build_route_question_use_case(_composition_settings(artifact, router_scoring="central"))
+
+    message = str(excinfo.value)
+    assert "central_centroid" in message
+    assert "scripts/build_namespace_profiles.py" in message
+    # The default setting keeps composing on the very same artifact.
+    default_use_case = build_route_question_use_case(_composition_settings(artifact))
+    assert isinstance(default_use_case, RouteQuestionUseCase)
+
+
+def test_build_route_question_use_case_composes_with_central_scoring_when_field_present(
+    tmp_path: Path,
+) -> None:
+    """Positive control: an artifact carrying central_centroid composes under
+    ROUTER_SCORING=central (the gate rejects a missing field, not the gate)."""
+    artifact = tmp_path / "profiles.json"
+    _write_artifact(artifact, [_artifact_entry(with_central=True)])
+
+    use_case = build_route_question_use_case(
+        _composition_settings(artifact, router_scoring="central")
+    )
+
+    assert isinstance(use_case, RouteQuestionUseCase)
 
 
 # ── telemetry fingerprinting (Unit B: keyed HMAC, no placeholders) ───────────

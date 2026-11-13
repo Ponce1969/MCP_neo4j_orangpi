@@ -46,6 +46,7 @@ class RouteQuestionUseCase:
         thresholds: RouteThresholds | None = None,
         lexical_hints: tuple[LexicalHints, ...] = (),
         blend_w: float = 1.0,
+        scoring: str = "centroid",
     ) -> None:
         self._embedding_port = embedding_port
         self._profiles_port = profiles_port
@@ -57,6 +58,12 @@ class RouteQuestionUseCase:
         # only, in between = weighted sum. ``score_blend`` re-validates the
         # range on every call, so an out-of-range weight fails loudly.
         self._blend_w = blend_w
+        # T6/L10: which global vector the weighted term scores — "centroid"
+        # (the default: routes identical to main) or "central" (the L9
+        # hypothesis geometry). ``score_blend``/``blend_strategy`` re-validate
+        # the label on every call, and "central" on a profile without
+        # ``central_centroid`` fails closed there.
+        self._scoring = scoring
 
     async def execute(self, question: str) -> ResolvedRoute:
         """Return the resolved route for ``question``, never fabricating scope.
@@ -94,7 +101,9 @@ class RouteQuestionUseCase:
         embedding ran and no prototype was consulted, so there is no k to
         report. The embedding path scores through ``score_blend`` and reports
         the strategy its weight selects (T5, decisions L5/L6): ``"centroid"``
-        at the default ``blend_w = 1.0``, ``"prototypes"`` at ``0.0``,
+        at the default ``blend_w = 1.0`` (or ``"central"`` when
+        ``scoring == "central"``, T6/L10 — the label always names the global
+        vector that actually scored), ``"prototypes"`` at ``0.0``,
         ``"blend"`` strictly in between — never ``"prototypes"`` when the
         prototype term has weight zero — with the ``k`` of the loaded profile
         set (the builder writes one ``--k`` for the whole set), and
@@ -109,12 +118,16 @@ class RouteQuestionUseCase:
         )
         question_vector = batch.vectors[0].values
         profiles = await self._profiles_port.load_profiles()
-        # T5: one scoring path. The weight decides the geometry (S2 as amended
-        # by L5/L6): the centroid at the default 1.0, max-pooling at 0.0, the
-        # weighted sum in between. Provenance is filled either way (S7).
-        candidates = score_blend(question_vector, profiles, blend_w=self._blend_w)
+        # T5/T6: one scoring path. The weight decides the pooling, the
+        # scoring setting decides the global vector (S2 as amended by L5/L6
+        # and L10): the centroid at the default 1.0 + "centroid", the central
+        # vector under "central", max-pooling at 0.0, the weighted sum in
+        # between. Provenance is filled either way (S7).
+        candidates = score_blend(
+            question_vector, profiles, blend_w=self._blend_w, scoring=self._scoring
+        )
         profile_k = profiles[0].k if profiles else None
-        return candidates, blend_strategy(self._blend_w), profile_k
+        return candidates, blend_strategy(self._blend_w, scoring=self._scoring), profile_k
 
     async def _validate(self, decision: RouteDecision) -> ResolvedRoute:
         """Validate candidates against the catalog-backed resolver.

@@ -117,12 +117,22 @@ class NamespaceProfile(BaseModel):
     ``test_prototype_scoring_ignores_centroid``), while the blend path reads it
     **deliberately** as its weighted term — at the default ``w = 1.0`` it is
     the only term that scores (T5, decisions L5/L6).
+
+    ``central_centroid`` (T6, decision L10) is the optional L9 ``central_mean``
+    geometry: the normalized mean of the ``central_pool`` profile vectors
+    closest to the book mean. It is **optional on purpose** — the production
+    artifact was built before the field existed, and a required field would
+    break the router at startup for a geometry nobody scores by default. The
+    default scoring path reads it no more than the prototype path reads
+    ``centroid``; it is scored only when ``ROUTER_SCORING=central`` selects it,
+    and that selection fails closed when the field is missing (no fallback).
     """
 
     model_config = ConfigDict(frozen=True)
 
     namespace: SourceNamespace
     centroid: tuple[float, ...]
+    central_centroid: tuple[float, ...] | None = None
     model_id: str
     dimension: int
     profile_version: str
@@ -144,10 +154,19 @@ class NamespaceProfile(BaseModel):
         field is the legacy v1 shape: it stays valid in memory for callers
         that only read the diagnostic centroid, and artifact readers must
         still reject it (the JSON store checks the ``prototypes`` field).
+
+        ``central_centroid`` is checked exactly like ``centroid`` whenever it
+        is present; absent stays valid (T6/L10 — the pre-T6 production
+        artifact must keep loading under the default scoring).
         """
         if len(self.centroid) != self.dimension:
             raise ValueError(
                 f"centroid dimension {len(self.centroid)} does not match "
+                f"declared dimension {self.dimension}"
+            )
+        if self.central_centroid is not None and len(self.central_centroid) != self.dimension:
+            raise ValueError(
+                f"central_centroid dimension {len(self.central_centroid)} does not match "
                 f"declared dimension {self.dimension}"
             )
         for index, prototype in enumerate(self.prototypes):
@@ -245,7 +264,10 @@ class RouteDecision(BaseModel):
 
     S7 provenance: ``strategy`` names the scoring path that produced
     ``candidates`` — ``"centroid"`` (the default, ``w = 1.0``: cosine against
-    the profile means), ``"prototypes"`` (``w = 0.0``: max cosine over profile
+    the profile means), ``"central"`` (``w = 1.0`` with
+    ``ROUTER_SCORING=central``: cosine against the profile
+    ``central_centroid``, T6/L10), ``"prototypes"`` (``w = 0.0``: max cosine
+    over profile
     prototypes), ``"blend"`` (``0 < w < 1``: the weighted sum of both),
     ``"lexical_hints"`` (the cheap fast path: no embedding, no prototype),
     or the default ``"unspecified"`` for a decision built without provenance
@@ -497,23 +519,64 @@ def score_against_prototypes(
     return tuple(scored)
 
 
-def blend_strategy(blend_w: float) -> str:
-    """Return the S7 strategy label for ``blend_w`` (T5, decisions L5/L6).
+def _validate_scoring(scoring: str) -> None:
+    """Reject any scoring label other than the two ``ROUTER_SCORING`` values (T6/L10).
 
-    ``1.0`` reports ``"centroid"`` — the prototype term has weight zero, so
-    naming it would be false provenance; ``0.0`` reports ``"prototypes"``;
-    anything strictly in between reports ``"blend"``. There is no fourth
-    label, and ``"prototypes"`` is never reported when that term has zero
-    weight.
+    Raises:
+        ValueError: When ``scoring`` is not ``"centroid"`` or ``"central"``.
+    """
+    if scoring not in ("centroid", "central"):
+        raise ValueError(f"scoring ({scoring!r}) must be 'centroid' or 'central'")
+
+
+def _global_vector(profile: NamespaceProfile, scoring: str) -> tuple[float, ...]:
+    """Return the global vector the blend's weighted term scores against.
+
+    ``"centroid"`` returns the diagnostic mean — the shipped default whose
+    routes must not change (T6/L10); ``"central"`` returns
+    ``profile.central_centroid``, the L9 ``central_mean`` hypothesis geometry.
+
+    **No fallback, precisely**: ``scoring == "central"`` with a profile whose
+    ``central_centroid`` is missing raises instead of silently scoring the
+    centroid, because a fallback would make a measurement lie about which
+    geometry ran.
+
+    Raises:
+        ValueError: When ``scoring == "central"`` and the profile carries no
+            ``central_centroid``; the message names the field and the rebuild.
+    """
+    if scoring == "centroid":
+        return profile.centroid
+    if profile.central_centroid is None:
+        raise ValueError(
+            f"profile for {profile.namespace.source_id} is missing field "
+            "'central_centroid' (ROUTER_SCORING=central requires it); "
+            "rebuild with scripts/build_namespace_profiles.py"
+        )
+    return profile.central_centroid
+
+
+def blend_strategy(blend_w: float, *, scoring: str = "centroid") -> str:
+    """Return the S7 strategy label for ``blend_w`` under ``scoring`` (T6/L10).
+
+    The label names the geometry that actually scored: at ``1.0`` it is
+    ``"central"`` when ``scoring == "central"`` and ``"centroid"`` otherwise —
+    the prototype term has weight zero, so naming it would be false
+    provenance; ``0.0`` reports ``"prototypes"`` under either ``scoring``
+    (the global term cannot score at that endpoint); anything strictly in
+    between reports ``"blend"``. There is no fifth label, and
+    ``"prototypes"`` is never reported when that term has zero weight.
 
     Raises:
         ValueError: When ``blend_w`` is outside ``[0.0, 1.0]`` — the label
-            only describes a weight the scoring path could actually take.
+            only describes a weight the scoring path could actually take —
+            or when ``scoring`` is not ``"centroid"`` or ``"central"``.
     """
     if not 0.0 <= blend_w <= 1.0:
         raise ValueError(f"blend_w ({blend_w}) must be between 0.0 and 1.0")
+    _validate_scoring(scoring)
     if blend_w == 1.0:
-        return "centroid"
+        return "central" if scoring == "central" else "centroid"
     if blend_w == 0.0:
         return "prototypes"
     return "blend"
@@ -524,14 +587,19 @@ def score_blend(
     profiles: Sequence[NamespaceProfile],
     *,
     blend_w: float,
+    scoring: str = "centroid",
 ) -> tuple[ScoredCandidate, ...]:
-    """Score ``w * centroid + (1 - w) * max prototype`` per profile (T5).
+    """Score ``w * global + (1 - w) * max prototype`` per profile (T5, T6).
 
     The router's single scoring path (S2 as amended by the ADR's T5/L5/L6
-    decision): the measured default ``blend_w = 1.0`` is the centroid path,
-    ``blend_w = 0.0`` is the prototype path, and values in between are the
-    weighted sum. Both endpoints are reproduced **value for value**, not
-    approximately:
+    decision, and by T6/L10 for the global vector): the measured default
+    ``blend_w = 1.0`` scores the ``centroid`` (byte-identical to
+    ``score_against_profiles``), ``blend_w = 0.0`` is the prototype path, and
+    values in between are the weighted sum. ``scoring`` selects which global
+    vector the weighted term uses: ``profile.centroid`` for ``"centroid"``
+    (the default — no route changes), ``profile.central_centroid`` for
+    ``"central"``. Both endpoints are reproduced **value for value** when
+    ``scoring == "centroid"``, not approximately:
 
     * ``blend_w == 1.0`` returns ``score_against_profiles``' scores with the
       same ordering, plus S7 provenance (the source is diagnostic, not
@@ -545,20 +613,36 @@ def score_blend(
     is filled whenever the profile carries prototypes, including at
     ``w = 1.0``, so the geometry stays inspectable (S7/L5).
 
+    **Fail closed**: ``scoring == "central"`` with any profile missing
+    ``central_centroid`` raises (naming the field and the rebuild) *before*
+    any term scores, even at ``w = 0.0`` — falling back to the centroid would
+    make a measurement lie about which geometry ran.
+
     Raises:
-        ValueError: When ``blend_w`` is outside ``[0.0, 1.0]``, or when a
-            profile carries no prototypes while the prototype term has weight
+        ValueError: When ``blend_w`` is outside ``[0.0, 1.0]``, when
+            ``scoring`` is not ``"centroid"`` or ``"central"``, or when a
+            profile carries no ``central_centroid`` while
+            ``scoring == "central"``. Also when a profile carries no
+            prototypes while the prototype term has weight
             (``blend_w < 1.0``).
     """
     if not 0.0 <= blend_w <= 1.0:
         raise ValueError(f"blend_w ({blend_w}) must be between 0.0 and 1.0")
+    _validate_scoring(scoring)
+    if scoring == "central":
+        # Fail closed before any term scores — even at w = 0.0, where the
+        # global vector has zero weight — so a missing central_centroid can
+        # never silently fall back to the centroid (T6/L10).
+        for profile in profiles:
+            _global_vector(profile, scoring)
     if blend_w == 0.0:
         # Centroid term has weight zero: reuse the prototype path verbatim so
         # the w=0.0 endpoint cannot drift from it, provenance included.
         return score_against_prototypes(question_vector, profiles)
     if blend_w == 1.0:
-        # Prototype term has weight zero: score the centroid exactly like
-        # score_against_profiles does, and attach provenance separately.
+        # Prototype term has weight zero: score the selected global vector
+        # exactly like score_against_profiles does at scoring == "centroid",
+        # and attach provenance separately.
         centroid_only: list[ScoredCandidate] = []
         for profile in profiles:
             best_source: str | None = None
@@ -567,7 +651,7 @@ def score_blend(
             centroid_only.append(
                 ScoredCandidate(
                     namespace=profile.namespace,
-                    score=cosine_similarity(question_vector, profile.centroid),
+                    score=cosine_similarity(question_vector, _global_vector(profile, scoring)),
                     best_prototype_source=best_source,
                 )
             )
@@ -575,12 +659,12 @@ def score_blend(
         return tuple(centroid_only)
     blended: list[ScoredCandidate] = []
     for profile in profiles:
-        centroid_score = cosine_similarity(question_vector, profile.centroid)
+        global_score = cosine_similarity(question_vector, _global_vector(profile, scoring))
         prototype_score, best_source = _best_prototype_match(question_vector, profile)
         blended.append(
             ScoredCandidate(
                 namespace=profile.namespace,
-                score=blend_w * centroid_score + (1.0 - blend_w) * prototype_score,
+                score=blend_w * global_score + (1.0 - blend_w) * prototype_score,
                 best_prototype_source=best_source,
             )
         )
@@ -618,7 +702,7 @@ def decide_route(
     ``strategy`` and ``profile_k`` (S7) are provenance passthrough: the
     kernel does not choose them, it records what the scoring path actually
     used. The application layer passes ``blend_strategy``'s label
-    (``"centroid"``/``"prototypes"``/``"blend"``) plus the ``k`` of the
+    (``"centroid"``/``"central"``/``"prototypes"``/``"blend"``) plus the ``k`` of the
     profile set it scored; a caller with no provenance to report leaves the
     defaults (``"unspecified"``, ``None``).
     """

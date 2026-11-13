@@ -352,6 +352,44 @@ def test_profile_without_prototype_block_stays_loadable_for_centroid_path() -> N
     assert profile.prototype_sources == ()
 
 
+def test_profile_accepts_absent_central_centroid() -> None:
+    """T6/L10: optional on purpose — the pre-T6 production artifact must
+    keep loading under the default scoring."""
+    profile = _profile("knowledge:book-a", [1.0, 0.0])
+
+    assert profile.central_centroid is None
+
+
+def test_profile_accepts_central_centroid_matching_dimension() -> None:
+    profile = NamespaceProfile(
+        namespace=_ns("knowledge:book-a"),
+        centroid=(1.0, 0.0),
+        central_centroid=(0.0, 1.0),
+        dimension=2,
+        model_id="test-model",
+        profile_version="2.0.0",
+        prototypes=((1.0, 0.0),),
+        k=1,
+        prototype_sources=("chunk:0",),
+    )
+
+    assert profile.central_centroid == (0.0, 1.0)
+
+
+def test_profile_rejects_central_centroid_dimension_mismatch() -> None:
+    """When present, ``central_centroid`` is validated exactly like
+    ``centroid`` (T6/S1): length must equal ``dimension``."""
+    with pytest.raises(ValidationError, match="central_centroid dimension"):
+        NamespaceProfile(
+            namespace=_ns("knowledge:book-a"),
+            centroid=(1.0, 0.0),
+            central_centroid=(1.0, 0.0, 0.0),
+            dimension=2,
+            model_id="test-model",
+            profile_version="1.0.0",
+        )
+
+
 # ── prototype selection (S3) ─────────────────────────────────────────────────
 
 _SELECTION_VECTORS = (
@@ -693,6 +731,127 @@ def test_blend_requires_prototypes_only_when_the_term_has_weight() -> None:
 
     with pytest.raises(ValueError, match="no prototypes"):
         score_blend((1.0, 0.0), (legacy,), blend_w=0.5)
+
+
+# ── T6 (L9/L10): ROUTER_SCORING — the central geometry, switchable, no fallback ──
+
+
+def _central_profile(
+    namespace_id: str,
+    *,
+    centroid: tuple[float, ...],
+    central: tuple[float, ...],
+    prototype: tuple[float, ...] = (0.0, 1.0),
+) -> NamespaceProfile:
+    """v2 profile whose mean and central geometries are set independently."""
+    return NamespaceProfile(
+        namespace=_ns(namespace_id),
+        centroid=centroid,
+        central_centroid=central,
+        dimension=len(centroid),
+        model_id="test-model",
+        profile_version="2.0.0",
+        prototypes=(prototype,),
+        k=1,
+        prototype_sources=("chunk:0",),
+    )
+
+
+def test_score_blend_central_scores_the_central_vector_at_w_one() -> None:
+    """Hand numbers, question (1, 0): centroid (0, 1) scores 0.0, central
+    (1, 0) scores 1.0 — the global term is the central vector, full stop."""
+    profile = _central_profile("knowledge:book-a", centroid=(0.0, 1.0), central=(1.0, 0.0))
+
+    ranked = score_blend((1.0, 0.0), (profile,), blend_w=1.0, scoring="central")
+
+    assert ranked[0].score == pytest.approx(1.0)
+
+
+def test_score_blend_central_never_reads_the_centroid() -> None:
+    """T6/S1 symmetry: under scoring=central the passive ``centroid`` is as
+    unreadable as the ``central_centroid`` is under scoring=centroid."""
+    honest = _central_profile("knowledge:book-a", centroid=(0.0, 1.0), central=(1.0, 0.0))
+    corrupted = _central_profile("knowledge:book-a", centroid=(0.6, 0.8), central=(1.0, 0.0))
+    question = (1.0, 0.0)
+
+    assert score_blend(question, (honest,), blend_w=1.0, scoring="central") == score_blend(
+        question, (corrupted,), blend_w=1.0, scoring="central"
+    )
+
+
+def test_default_scoring_ignores_central_centroid_whether_present_or_absent() -> None:
+    """T6: the default route cannot move because a field appeared or is
+    missing — byte-identical scores either way (S5, L10's safe default)."""
+    with_field = _central_profile("knowledge:book-a", centroid=(1.0, 0.0), central=(0.0, 1.0))
+    without_field = NamespaceProfile(
+        namespace=_ns("knowledge:book-a"),
+        centroid=(1.0, 0.0),
+        dimension=2,
+        model_id="test-model",
+        profile_version="2.0.0",
+        prototypes=((0.0, 1.0),),
+        k=1,
+        prototype_sources=("chunk:0",),
+    )
+    question = (1.0, 0.0)
+
+    from_field = score_blend(question, (with_field,), blend_w=1.0)
+    from_no_field = score_blend(question, (without_field,), blend_w=1.0)
+
+    assert from_field == from_no_field
+    assert from_field[0].score == pytest.approx(1.0)
+
+
+def test_score_blend_central_fails_closed_when_central_centroid_missing() -> None:
+    """No silent fallback to centroid — at **any** weight — and the message
+    names the field and the rebuild (T6/L10)."""
+    legacy = _profile("knowledge:book-a", [1.0, 0.0])  # no central_centroid
+
+    for blend_w in (1.0, 0.5, 0.0):
+        with pytest.raises(ValueError, match="central_centroid") as excinfo:
+            score_blend((1.0, 0.0), (legacy,), blend_w=blend_w, scoring="central")
+        message = str(excinfo.value)
+        assert "central_centroid" in message
+        assert "scripts/build_namespace_profiles.py" in message
+
+
+def test_score_blend_central_with_empty_profiles_is_empty() -> None:
+    """No profiles to fail on: composition keeps composing (abstains later)."""
+    assert score_blend((1.0,), (), blend_w=1.0, scoring="central") == ()
+
+
+def test_score_blend_rejects_unknown_scoring() -> None:
+    with pytest.raises(ValueError, match="scoring"):
+        score_blend((1.0,), (), blend_w=1.0, scoring="mean")
+
+
+def test_score_blend_central_mid_weight_blends_central_with_prototypes() -> None:
+    """Hand numbers, question (1, 0), w = 0.5:
+    scoring=central → 0.5 * cos(q, central (1,0)) 1.0
+                      + 0.5 * best proto cos(q, (0,1)) 0.0 = 0.5
+    scoring=centroid → 0.5 * cos(q, centroid (0,1)) 0.0
+                       + 0.5 * 0.0 = 0.0
+    """
+    profile = _central_profile("knowledge:book-a", centroid=(0.0, 1.0), central=(1.0, 0.0))
+    question = (1.0, 0.0)
+
+    central_blend = score_blend(question, (profile,), blend_w=0.5, scoring="central")
+    centroid_blend = score_blend(question, (profile,), blend_w=0.5, scoring="centroid")
+
+    assert central_blend[0].score == pytest.approx(0.5)
+    assert centroid_blend[0].score == pytest.approx(0.0)
+
+
+def test_blend_strategy_names_the_geometry_that_actually_scored() -> None:
+    """T6/S7: 'central' at w=1.0 only under scoring=central; 'prototypes'
+    owns w=0.0 under either setting; 'blend' owns the middle either way."""
+    assert blend_strategy(1.0) == "centroid"
+    assert blend_strategy(1.0, scoring="central") == "central"
+    assert blend_strategy(0.0, scoring="central") == "prototypes"
+    assert blend_strategy(0.3, scoring="central") == "blend"
+    assert blend_strategy(0.5, scoring="central") == "blend"
+    with pytest.raises(ValueError, match="scoring"):
+        blend_strategy(1.0, scoring="bogus")
 
 
 # ── abstention policy ─────────────────────────────────────────────────────────

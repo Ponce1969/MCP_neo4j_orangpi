@@ -223,6 +223,14 @@ class Settings(BaseSettings):
     # blend ships disabled behind this knob), 0.0 = prototypes only, in between =
     # weighted sum. Reported as strategy "centroid" / "prototypes" / "blend".
     router_blend_w: float = 1.0
+    # Global vector for the namespace routing score (ADR T6, decision L10):
+    # score = w * cosine(question, global) + (1 - w) * max cosine(question, prototype)
+    # with global = "centroid" (DEFAULT: the shipped artifact's mean — no route
+    # changes vs main) or "central" (the L9 central_mean hypothesis: the
+    # profile's central_centroid). A working switch with the safe default,
+    # never dead configuration: "central" fails closed at composition when the
+    # artifact predates the field (naming the rebuild), never falls back.
+    router_scoring: str = "centroid"
     # Separate opt-in telemetry; raw fields never flow to the MCP query log.
     router_telemetry_enabled: bool = False
     routing_telemetry_path: Path = Path("data/router/router_telemetry.db")
@@ -498,6 +506,16 @@ class Settings(BaseSettings):
     def _validate_router_blend_w(cls, value: float) -> float:
         if not 0.0 <= value <= 1.0:
             raise ValueError(f"router_blend_w ({value}) must be between 0.0 and 1.0")
+        return value
+
+    @field_validator("router_scoring")
+    @classmethod
+    def _validate_router_scoring(cls, value: str) -> str:
+        if value not in {"centroid", "central"}:
+            raise ValueError(
+                f"router_scoring ({value!r}) must be one of the accepted values: "
+                "'centroid' or 'central'"
+            )
         return value
 
     @field_validator(

@@ -11,10 +11,12 @@ from book_graph_rag.domain.routing_models import (
     LexicalHints,
     NamespaceProfile,
     RouteThresholds,
+    ScoredCandidate,
     decide_route,
     mean_normalized,
     score_against_profiles,
     score_against_prototypes,
+    score_blend,
 )
 from book_graph_rag.ports.embedding_provider_port import (
     EmbeddingBatch,
@@ -130,6 +132,7 @@ def _use_case(
     embedding: _FakeEmbedding | None = None,
     thresholds: RouteThresholds | None = None,
     blend_w: float = 1.0,
+    scoring: str = "centroid",
 ) -> tuple[RouteQuestionUseCase, _FakeEmbedding, _FakeScopeResolver]:
     fake_embedding = embedding or _FakeEmbedding()
     resolver = _FakeScopeResolver()
@@ -141,6 +144,7 @@ def _use_case(
         thresholds=thresholds,
         lexical_hints=_HINTS,
         blend_w=blend_w,
+        scoring=scoring,
     )
     return use_case, fake_embedding, resolver
 
@@ -500,3 +504,140 @@ async def test_w_one_preserves_the_pre_t1_centroid_route_exactly() -> None:
         assert result.decision.margin == reference.margin  # exact float equality
         assert result.decision.top_score == reference.top_score
         assert result.validated_namespace == expected_validated
+
+
+# ── T6 (L10): ROUTER_SCORING — switchable, safe default, no fallback ────────
+
+
+def _central_profile(
+    namespace_id: str,
+    *,
+    centroid: tuple[float, ...],
+    central: tuple[float, ...],
+) -> NamespaceProfile:
+    """Profile whose mean and central geometries are set independently (T6).
+
+    One prototype per book so the w=0.0 endpoint stays scoreable; the
+    prototype equals the book's mean, as the builder would derive it.
+    """
+    return NamespaceProfile(
+        namespace=_ns(namespace_id),
+        centroid=centroid,
+        central_centroid=central,
+        dimension=len(centroid),
+        model_id="test-model",
+        profile_version="2.0.0",
+        prototypes=(centroid,),
+        k=1,
+        prototype_sources=("chunk:0",),
+    )
+
+
+# Two books whose mean and central geometries point in opposite directions.
+_CENTRAL_PROFILES = (
+    _central_profile(_AAP, centroid=(0.0, 1.0, 0.0), central=(1.0, 0.0, 0.0)),
+    _central_profile(_ESSENTIAL, centroid=(1.0, 0.0, 0.0), central=(0.0, 1.0, 0.0)),
+)
+
+
+async def test_scoring_centroid_reproduces_todays_scores_exactly() -> None:
+    """S5/T6: scoring=centroid (the default) must not move one float.
+
+    Checked against ``score_against_profiles`` — today's centroid path,
+    assembled from the primitives main used — on profiles **without** the
+    new field (the shipped artifact's shape) and on profiles **with** it
+    (it must stay unread). Exact model equality: same scores, same order,
+    same provenance.
+    """
+    question_vector = (1.0, 0.0, 0.0)  # _FakeEmbedding else-branch
+
+    for profiles in (_multimodal_profiles(), _CENTRAL_PROFILES):
+        use_case, _embedding, _resolver = _use_case(profiles=profiles, scoring="centroid")
+
+        result = await use_case.execute("What is the ReAct agent pattern?")
+
+        reference = score_against_profiles(question_vector, profiles)
+        stripped = tuple(
+            candidate.model_copy(update={"best_prototype_source": None})
+            for candidate in result.decision.candidates
+        )
+        assert stripped == reference  # byte-identical scores and ordering
+        # And against today's live path with the shipped defaults: full model
+        # equality, S7 provenance included.
+        assert tuple(result.decision.candidates) == score_blend(
+            question_vector, profiles, blend_w=1.0
+        )
+        assert result.decision.strategy == "centroid"
+        expected = decide_route(
+            reference, RouteThresholds(), strategy="centroid", profile_k=profiles[0].k
+        )
+        assert result.decision.route_kind == expected.route_kind
+        assert result.decision.top_score == expected.top_score  # exact float equality
+        assert result.decision.margin == expected.margin  # exact float equality
+
+
+async def test_scoring_central_scores_the_central_vector_and_reports_central() -> None:
+    """S2/T6 hand numbers, question (1, 0, 0) (the else-branch):
+
+      _AAP:       cos(q, centroid (0,1,0)) 0.0 · cos(q, central (1,0,0)) 1.0
+      _ESSENTIAL: cos(q, centroid (1,0,0)) 1.0 · cos(q, central (0,1,0)) 0.0
+
+    ⇒ scoring=central inverts the default winner (top 1.0, margin 1.0) and
+    the decision names the geometry that actually ran.
+    """
+    # Contrast first: the default picks _ESSENTIAL.
+    default_use_case, _embedding, _resolver = _use_case(
+        profiles=_CENTRAL_PROFILES, scoring="centroid"
+    )
+    default_result = await default_use_case.execute("What is the ReAct agent pattern?")
+    assert default_result.validated_namespace == _ns(_ESSENTIAL)
+    assert default_result.decision.strategy == "centroid"
+
+    # … scoring=central picks the other book, on the hand-computed scores.
+    use_case, embedding, resolver = _use_case(profiles=_CENTRAL_PROFILES, scoring="central")
+
+    result = await use_case.execute("What is the ReAct agent pattern?")
+
+    assert embedding.calls == ["What is the ReAct agent pattern?"]
+    assert result.decision.strategy == "central"
+    assert result.decision.profile_k == 1
+    by_id = {
+        candidate.namespace.source_id: candidate.score for candidate in result.decision.candidates
+    }
+    assert by_id[_AAP] == pytest.approx(1.0)
+    assert by_id[_ESSENTIAL] == pytest.approx(0.0)
+    assert result.decision.top_score == pytest.approx(1.0)
+    assert result.decision.margin == pytest.approx(1.0)
+    assert result.decision.route_kind == "single"
+    assert result.validated_namespace == _ns(_AAP)
+    assert resolver.checked == [_AAP]
+
+
+async def test_w_zero_reports_prototypes_under_either_scoring_setting() -> None:
+    """T6 triangulation: at w=0.0 the global term has zero weight, so both
+    settings run — and report — the prototype path, bit for bit identical."""
+    strategies: dict[str, str] = {}
+    rankings: dict[str, tuple[ScoredCandidate, ...]] = {}
+    for scoring in ("centroid", "central"):
+        use_case, _embedding, _resolver = _use_case(
+            profiles=_CENTRAL_PROFILES, blend_w=0.0, scoring=scoring
+        )
+        result = await use_case.execute("What is the ReAct agent pattern?")
+        strategies[scoring] = result.decision.strategy
+        rankings[scoring] = tuple(result.decision.candidates)
+
+    assert strategies == {"centroid": "prototypes", "central": "prototypes"}
+    assert rankings["centroid"] == rankings["central"]
+
+
+async def test_scoring_central_on_profile_without_field_fails_closed() -> None:
+    """No silent fallback to the centroid: the error names the field and
+    the rebuild command (T6/L10), at the scoring point itself."""
+    use_case, _embedding, _resolver = _use_case(profiles=_multimodal_profiles(), scoring="central")
+
+    with pytest.raises(ValueError, match="central_centroid") as excinfo:
+        await use_case.execute("What is the ReAct agent pattern?")
+
+    message = str(excinfo.value)
+    assert "central_centroid" in message
+    assert "scripts/build_namespace_profiles.py" in message

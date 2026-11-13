@@ -53,9 +53,13 @@ def build_route_question_use_case(settings: Settings) -> RouteQuestionUseCase:
     The single composition point for the router's concrete adapters:
     catalog-backed scope resolver, local profile artifact, local
     sentence-transformer embeddings, and deterministic catalog hints. The
-    scoring geometry comes from ``settings.router_blend_w`` (T5/L5): the
-    default 1.0 keeps the centroid path, and no other call site may pass a
-    weight — one knob, one composition point.
+    scoring geometry comes from two settings (T5/L5, T6/L10):
+    ``settings.router_blend_w`` — the default 1.0 keeps the pooling as
+    shipped — and ``settings.router_scoring`` — the default ``"centroid"``
+    keeps the global vector as shipped, and ``"central"`` both selects
+    ``central_centroid`` in scoring and turns its absence in the artifact
+    into a composition-time failure. No other call site may pass either
+    knob — one geometry, one composition point.
 
     S4 gates run here, at composition: the store is built with the configured
     ``namespace_profile_version`` and ``embedding_model_id``, and the artifact
@@ -72,7 +76,10 @@ def build_route_question_use_case(settings: Settings) -> RouteQuestionUseCase:
 
     Raises:
         NamespaceProfileStoreError: When the artifact exists but its shape,
-            ``profile_version`` or ``model_id`` does not match configuration.
+            ``profile_version`` or ``model_id`` does not match configuration,
+            or when ``router_scoring="central"`` and the artifact predates
+            ``central_centroid`` (fail closed, naming the rebuild — no
+            silent fallback to the centroid).
     """
     catalog = CatalogLoader(settings.catalog_path)
     resolver = CatalogScopeResolver(catalog)
@@ -81,6 +88,7 @@ def build_route_question_use_case(settings: Settings) -> RouteQuestionUseCase:
             settings.namespace_profile_store_path,
             expected_profile_version=settings.namespace_profile_version,
             expected_model_id=settings.embedding_model_id,
+            require_central_centroid=settings.router_scoring == "central",
         )
     )
     asyncio.run(reader.load_profiles())
@@ -91,6 +99,7 @@ def build_route_question_use_case(settings: Settings) -> RouteQuestionUseCase:
         model_id=settings.embedding_model_id,
         lexical_hints=hints_from_catalog(catalog.load()),
         blend_w=settings.router_blend_w,
+        scoring=settings.router_scoring,
     )
 
 

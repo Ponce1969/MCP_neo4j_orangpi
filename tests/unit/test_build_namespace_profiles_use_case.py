@@ -7,11 +7,17 @@ import math
 import pytest
 
 from book_graph_rag.application.build_namespace_profiles_use_case import (
+    DEFAULT_CENTRAL_POOL,
     DEFAULT_PROFILE_K,
     BuildNamespaceProfilesUseCase,
 )
 from book_graph_rag.domain.namespaces import SourceNamespace
-from book_graph_rag.domain.routing_models import NamespaceProfile, mean_normalized
+from book_graph_rag.domain.routing_models import (
+    NamespaceProfile,
+    cosine_similarity,
+    mean_normalized,
+    select_prototypes,
+)
 from book_graph_rag.ports.embedding_provider_port import (
     EmbeddingBatch,
     EmbeddingProviderPort,
@@ -312,3 +318,158 @@ async def test_builder_caps_k_at_the_available_text_pool() -> None:
     assert [profile.k for profile in profiles] == [4, 2]
     for profile in profiles:
         assert profile.k == len(profile.prototypes) == len(profile.prototype_sources)
+
+
+class _VectorEmbedding(EmbeddingProviderPort):
+    """Fixed vectors in input order: the caller states the geometry (T6)."""
+
+    def __init__(self, vectors: tuple[tuple[float, ...], ...]) -> None:
+        self._vectors = vectors
+
+    async def embed(self, request: EmbeddingRequest) -> EmbeddingBatch:
+        if len(request.texts) != len(self._vectors):
+            raise AssertionError(
+                f"fixture mismatch: {len(request.texts)} texts, {len(self._vectors)} vectors"
+            )
+        return EmbeddingBatch(
+            model_id=request.model_id,
+            vectors=[
+                EmbeddingVector(values=values, model_id=request.model_id)
+                for values in self._vectors
+            ],
+        )
+
+    def model_dim(self, model_id: str) -> int:
+        return len(self._vectors[0])
+
+
+def _vector_use_case(
+    vectors: tuple[tuple[float, ...], ...],
+    *,
+    central_pool: int | None = None,
+) -> BuildNamespaceProfilesUseCase:
+    """One-namespace builder over ``vectors``; ``central_pool=None`` builds
+    the constructor without the kwarg, i.e. exercises the real default."""
+    texts = NamespaceSourceTexts(
+        namespace=_ns("knowledge:book-a"),
+        chunk_texts=tuple(f"chunk-{index}" for index in range(len(vectors))),
+    )
+    kwargs: dict[str, int] = {} if central_pool is None else {"central_pool": central_pool}
+    return BuildNamespaceProfilesUseCase(
+        _FixedSource(texts),
+        _VectorEmbedding(vectors),
+        _RecordingStore(),
+        model_id="test-model",
+        profile_version="2.0.0",
+        catalog_version="1",
+        graph_snapshot="snapshot-x",
+        k=DEFAULT_PROFILE_K,
+        **kwargs,
+    )
+
+
+# T6/L9: two clusters, one dominant — the synthetic book central_mean must win on.
+_TWO_CLUSTER_VECTORS = (
+    # Dominant +x cluster (5 texts): sums to (4.94, 0, 0) — y and z cancel.
+    (1.0, 0.0, 0.0),
+    (0.99, 0.10, 0.0),
+    (0.99, -0.10, 0.0),
+    (0.98, 0.0, 0.05),
+    (0.98, 0.0, -0.05),
+    # Minority +y cluster (3 texts).
+    (0.0, 1.0, 0.0),
+    (0.10, 0.99, 0.0),
+    (-0.10, 0.99, 0.0),
+)
+_DOMINANT_MEAN = (1.0, 0.0, 0.0)  # dominant cluster direction
+
+# 20 identical +x texts and one +y text: pool 20 vs 21 differ, so the default
+# can be pinned behaviourally instead of only by reading the constant.
+_POOL_VECTORS = ((1.0, 0.0, 0.0),) * 20 + ((0.0, 1.0, 0.0),)
+
+
+async def test_central_centroid_sits_closer_to_the_dominant_cluster_mean() -> None:
+    """T6/L9: the mean of the closest pool hugs the dominant cluster.
+
+    The book mean of ``_TWO_CLUSTER_VECTORS`` is (0.6175, 0.3725, 0). The
+    five dominant vectors are the five closest to it by cosine (worst
+    dominant 0.800 > best outlier 0.600), so with ``central_pool=5`` the
+    central field is exactly mean_normalized(dominant five) = (1, 0, 0) —
+    their y and z sums cancel. Measured against the dominant cluster's own
+    mean direction (1, 0, 0):
+
+      cosine(central_centroid, dominant mean) = 1.0
+      cosine(centroid, dominant mean) = 0.6175 / sqrt(0.5200625) = 0.8562670…
+
+    The central field is strictly closer to what the book is about.
+    """
+    use_case = _vector_use_case(_TWO_CLUSTER_VECTORS, central_pool=5)
+
+    profile = (await use_case.execute())[0]
+
+    expected_centroid_cosine = 0.6175 / math.sqrt(0.5200625)
+    assert profile.central_centroid is not None
+    assert profile.central_centroid == pytest.approx((1.0, 0.0, 0.0))
+    central_cosine = cosine_similarity(profile.central_centroid, _DOMINANT_MEAN)
+    centroid_cosine = cosine_similarity(profile.centroid, _DOMINANT_MEAN)
+    assert central_cosine == pytest.approx(1.0)
+    assert centroid_cosine == pytest.approx(expected_centroid_cosine)
+    assert central_cosine > centroid_cosine
+
+
+async def test_central_pool_is_respected_and_defaults_to_twenty() -> None:
+    """T6/S6: the pool size is a real knob, and the default is 20 (L9).
+
+    On ``_POOL_VECTORS`` (20 × (1,0,0) then (0,1,0)):
+      central_pool=20 → only the +x cluster → (1, 0, 0) exactly;
+      central_pool=21 → every text → exactly the plain centroid, whose
+        cosine with (1,0,0) is 20/sqrt(401) = 0.9987524… — the larger pool
+        pulls the value back toward the plain mean;
+      the default must behave like 20, not 21.
+    """
+    default_profile = (await _vector_use_case(_POOL_VECTORS).execute())[0]
+    twenty = (await _vector_use_case(_POOL_VECTORS, central_pool=20).execute())[0]
+    whole_pool = (await _vector_use_case(_POOL_VECTORS, central_pool=21).execute())[0]
+
+    assert DEFAULT_CENTRAL_POOL == 20
+    assert default_profile.central_centroid is not None
+    assert twenty.central_centroid is not None
+    assert whole_pool.central_centroid is not None
+    # The constructor default behaves exactly like central_pool=20 …
+    assert default_profile.central_centroid == twenty.central_centroid
+    assert default_profile.central_centroid == pytest.approx((1.0, 0.0, 0.0))
+    # … and a larger pool pulls the value back toward the plain mean.
+    assert whole_pool.central_centroid == whole_pool.centroid
+    assert cosine_similarity(twenty.central_centroid, (1.0, 0.0, 0.0)) == pytest.approx(1.0)
+    assert cosine_similarity(whole_pool.central_centroid, (1.0, 0.0, 0.0)) == pytest.approx(
+        0.9987524
+    )
+    assert whole_pool.centroid != (1.0, 0.0, 0.0)
+
+
+async def test_central_centroid_unit_leaves_centroid_prototypes_sources_untouched() -> None:
+    """T6 regression: the new field is additional, never a replacement.
+
+    Same input, two pool sizes: ``centroid``, ``prototypes`` and
+    ``prototype_sources`` must match values derived independently from the
+    fixture vectors (hand-derived, not from builder internals), and only the
+    new field may differ between the two builds.
+    """
+    vectors = _TWO_CLUSTER_VECTORS
+    default_pool = (await _vector_use_case(vectors).execute())[0]
+    small_pool = (await _vector_use_case(vectors, central_pool=5).execute())[0]
+
+    expected_centroid = mean_normalized(vectors)
+    expected_indices = select_prototypes(vectors, DEFAULT_PROFILE_K)
+    expected_prototypes = tuple(vectors[index] for index in expected_indices)
+    expected_sources = tuple(f"chunk:{index}" for index in expected_indices)
+
+    for profile in (default_pool, small_pool):
+        assert profile.centroid == pytest.approx(expected_centroid)
+        assert profile.prototypes == expected_prototypes
+        assert profile.prototype_sources == expected_sources
+        assert profile.k == DEFAULT_PROFILE_K
+        assert profile.dimension == 3
+    # Only the new field reacts to the knob (20 ≥ 8 texts ⇒ all selected).
+    assert default_pool.central_centroid == pytest.approx(default_pool.centroid)
+    assert small_pool.central_centroid == pytest.approx((1.0, 0.0, 0.0))

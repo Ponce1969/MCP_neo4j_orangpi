@@ -1,10 +1,13 @@
 """Local JSON artifact store for namespace routing profiles.
 
 The artifact carries the v2 profile shape (prototypes, ``k``,
-``prototype_sources``, plus the passive diagnostic ``centroid``). Reads are
-gated: an entry missing the ``prototypes`` field is a v1 artifact and is
-rejected, prototype block invariants are enforced by the domain model with a
-field-naming message, and optional ``expected_profile_version`` /
+``prototype_sources``, plus the passive diagnostic ``centroid`` and the
+optional L9 ``central_centroid``). Reads are gated: an entry missing the
+``prototypes`` field is a v1 artifact and is rejected, prototype block
+invariants are enforced by the domain model with a field-naming message,
+``require_central_centroid`` (T6/L10) turns a missing ``central_centroid``
+into a hard failure naming the rebuild when ``ROUTER_SCORING=central`` is
+configured, and optional ``expected_profile_version`` /
 ``expected_model_id`` arguments turn any version or model drift into a hard
 failure instead of silently scoring the wrong geometry.
 """
@@ -40,10 +43,12 @@ class JsonNamespaceProfileStore(NamespaceProfileStorePort):
         *,
         expected_profile_version: str | None = None,
         expected_model_id: str | None = None,
+        require_central_centroid: bool = False,
     ) -> None:
         self._path = path
         self._expected_profile_version = expected_profile_version
         self._expected_model_id = expected_model_id
+        self._require_central_centroid = require_central_centroid
 
     @property
     def path(self) -> Path:
@@ -117,6 +122,20 @@ class JsonNamespaceProfileStore(NamespaceProfileStorePort):
                     "missing field 'prototypes' — that is profile shape v1; expected "
                     "profile_version 2.0.0. Rebuild with scripts/build_namespace_profiles.py"
                 )
+        # T6/L10 fail-closed gate: ROUTER_SCORING=central scores
+        # central_centroid, so an artifact built before the field existed must
+        # be rejected at load — with no silent fallback to the centroid,
+        # because a fallback would make a measurement lie about which
+        # geometry ran. The default scoring (require_central_centroid=False)
+        # keeps loading such artifacts unchanged.
+        if self._require_central_centroid:
+            for index, profile in enumerate(profiles):
+                if profile.central_centroid is None:
+                    raise NamespaceProfileStoreError(
+                        f"profile artifact entry {index} ({profile.namespace.source_id}) is "
+                        "missing field 'central_centroid' — ROUTER_SCORING=central requires "
+                        "it; rebuild with scripts/build_namespace_profiles.py"
+                    )
         self._check_expectations(profiles)
         return profiles
 
