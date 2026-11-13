@@ -101,7 +101,8 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
 | T2 | S2, S4 | pending — the router scores against prototypes (max cosine) and the store's version gates get wired at the composition root, so a stale v1 artifact fails loudly instead of abstaining quietly | — |
 | T3 | S7 | pending — `strategy`, `k` and `best_prototype_source` in the `route` payload | — |
 | T4 | S5 | done — three builds (229 / 414 / 783 KB, linear in k) and the sweep; **the ADR failed its acceptance** (L3) | host builds + L3 |
-| T5 | S2, S5 | pending — default the scoring back to the centroid, keep the blend behind `ROUTER_BLEND_W` (default 1.0), prototypes and their sources stay as passive diagnostics | — |
+| T5 | S2, S5 | done — default back to the centroid; blend behind `ROUTER_BLEND_W` (default 1.0); prototypes and sources stay passive diagnostics | `1b491ff` |
+| T6 | S2, S5, L9 | pending — persist `central_centroid` in the artifact as a passive field and add `ROUTER_SCORING` (`centroid` default | `central`), so the only measured candidate is switchable the day the labels justify it. The default must not change any route. | — |
 - **S7** — Observability: the `route` payload gains `strategy: "prototypes"`, `k`, and per-candidate
   `best_prototype_source`, so a measurement is self-describing and a surprising decision is traceable
   to a text instead of to a vector.
@@ -289,3 +290,48 @@ cached scores, so k = 4 / 8 / 16 will be compared on the committed 31-label data
   If book A's chunks routinely land closest to book B's centroid, no model change fixes that; the
   limit is ontology, which is exactly what `docs/spec/06` already recorded as "the gap is ontology,
   not hallucination".
+
+- **L9** (AGREGACIÓN: sweep of eight strategies, 2026-11-06, offline over the 800 exported chunk vectors
+  and the 31 labels — same harness, thresholds grid 0.10-0.75 × 0.00-0.25, acceptance two-sided):
+
+  | strategy | accuracy with `wrong_namespace_rate == 0.0` | thresholds | abstention | accuracy with no gate | wrong |
+  |---|---|---|---|---|---|
+  | `centroid` (shipped) | 0.6364 | 0.10 / 0.05 | 0.5161 | **0.9091** | 0.0909 |
+  | `chunk_mean` (chunks only) | 0.5455 | 0.10 / 0.05 | 0.4516 | 0.6818 | 0.3182 |
+  | **`central_mean`** (mean of the 20 chunks closest to the book mean) | **0.6818** | 0.10 / 0.05 | **0.2903** | 0.7727 | 0.2273 |
+  | `maxproto` (farthest-point) | 0.5909 | 0.10 / 0.05 | 0.4194 | 0.8636 | 0.1364 |
+  | `max_chunk` | 0.1818 | 0.70 / 0.10 | 0.8710 | 0.7727 | 0.2273 |
+  | `topk_mean` k=3 | 0.3636 | 0.65 / 0.05 | 0.6129 | 0.7727 | 0.2273 |
+  | `topk_mean` k=5 | 0.3636 | 0.65 / 0.05 | 0.6129 | 0.7273 | 0.2727 |
+  | `topk_mean` k=10 | 0.3636 | 0.65 / 0.00 | 0.6452 | 0.6818 | 0.3182 |
+
+  **1. Chunk-level scoring is the wrong instrument for routing, and my prediction was wrong.**
+  I expected `topk_mean` to beat the centroid; it scored 0.3636 and `max_chunk` 0.1818. The reason is a
+  change of frame worth keeping: kNN answers *"is there a passage in this book about this?"* — and for
+  a cross-cutting question there is one in several books. Routing asks *"what is this book about?"*,
+  which is a **distribution**, not a neighbour. The mean was not washing out signal; it was answering
+  the right question.
+  **2. The heterogeneous mix helps.** The artifact's centroid (chapters + sections + chunks + entities
+  + summaries) beats the chunks-only mean, 0.6364 against 0.5455. Dropping entities and summaries
+  hurts. That is the third refutation of the premise this ADR opened with.
+  **3. The only improvement is the maintainer's idea**, which I had dismissed in L8 as "the mean in
+  disguise": the mean of the 20 chunks *closest* to the book mean. It matches the shipped accuracy
+  (+1 question of 22) and cuts abstention from 0.5161 to **0.2903** with zero wrong answers. Weak on
+  accuracy, consistent on coverage — a hypothesis, not a result, on n=22.
+  **4. Every optimum lands again on (0.10, 0.05)** — the fourth time the current thresholds are the
+  best point in the grid.
+  **5. Method note worth more than the numbers**: the sweep used a fast reimplementation of the
+  decision policy, verified by an `assert` against the real `decide_route` over 40 random cases. That
+  assert **caught a real bug** in the harness (comparing `namespace.source` against the prefixed
+  `source_id`). Without it the whole table would have been silent garbage presented with confidence.
+- **L10** (maintainer's decision on L9, verbatim): *"Vamos con la Opción 1. Agregá central_centroid al
+  artefacto v2 como campo pasivo (no toca el scoring). Registrá el resultado en el ADR (L9) para que
+  quede documentado que el central_mean es la candidata cuando haya datos. Dejá un ROUTER_SCORING (o
+  similar) listo para switchear entre centroid y central cuando lleguemos a ~100 etiquetas. No lo
+  cableamos hoy. Coincido en que con n=22, es una hipótesis, no un resultado."*
+  Consequence for T6: `ROUTER_SCORING` must be a **working** switch with the safe default, never dead
+  configuration — dead knobs are the failure this project already refused once (T6 of the intent
+  router). And `central_centroid` must be **optional in the artifact**: the production artifact was
+  built before it existed, and making it required would break the router at startup for a field nobody
+  scores yet. Missing field + `scoring=central` fails closed with a message naming the rebuild;
+  missing field + `scoring=centroid` loads normally.
